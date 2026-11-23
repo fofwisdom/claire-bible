@@ -1,8 +1,8 @@
 # One Permalink for Documents, Notes, and Entities
 
 - **Document Identifier**: `DESIGN-PERMALINK-20261123`
-- **Status**: Decided (owner, 2026-11-23). Partly implemented: B1; A1 for documents (registry, route, redirects, share actions). Not implemented: the views of notes and entities, A2, the rest of A3 and A4. Current behavior and the state of each phase: [`PERMALINKS.md`](../implementation/PERMALINKS.md). No open items.
-- **Date**: 2026-11-23 (base commit `80e3fb14`). Revision 2: notes in the scope, one path form. Revision 3: entities in the scope, term review (§4). Revision 4: the owner decisions of §9 (prefix `/silvercord/`, API, other query forms, bundle paths).
+- **Status**: Decided (owner, 2026-11-23). Partly implemented: B1; A1 for documents (registry, route, redirects, share actions); the entity address for callers that can read the KB; the terms of §4. Not implemented: the view of a note, the entity view for link access alone, A2, the rest of A3 and A4. Current behavior and the state of each phase: [`PERMALINKS.md`](../implementation/PERMALINKS.md). No open items.
+- **Date**: 2026-11-23 (base commit `80e3fb14`). Revision 2: notes in the scope, one path form. Revision 3: entities in the scope, term review (§4). Revision 4: the owner decisions of §9 (prefix `/silvercord/`, API, other query forms, bundle paths). Revision 5: the entity has its own address `/entity/{address token}`; `/silvercord/` is only for ActivityPub object kinds; usage rules for entity, node, graph, relation (§4, §6.2, §9).
 - **Related**: [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) (§4.3 item 3 and the share link row of §6.2: this design replaces them when it is implemented), [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD21 and RT7: not changed), [`GLOSSARY.md`](../implementation/GLOSSARY.md) §1.2 and §1.5, [`PUBLIC_SITE.md`](../implementation/PUBLIC_SITE.md), [`FEDERATION.md`](../implementation/FEDERATION.md)
 
 ## 1. Owner requests (2026-11-23)
@@ -24,13 +24,17 @@
 >    * 그래프 번들과 지원 번들 모두 지원을 위한 번들이니 GET을 유지하더라도 호출 경로 변경이 필요해보입니다.
 > * O4: 알겠습니다.
 
+> * 엔티티 공유에 필요한 것은 엔티티를 가리키는 주소와 접근 규칙(링크 공개)입니다. 그 주소가 /silvercord/여야 할 이유는 없습니다.
+> * 예를 들어, vSAN에 대해 공유하고자 한다면 바로 vSAN을 그래프에서 볼 수 있도록 함이 목표입니다.
+> * (엔티티 주소 `/entity/{주소 토큰}`) 수용. (용어) 전부 바로잡습니다. /silvercord/ 경로는 제안에 동의합니다. 다만 ActivityPub 전용으로 기록하여 추후 확장 시 참고를 편하도록 합시다.
+
 Requirements:
 
 - **R1.** Each document, note, and entity has one URL. A user opens, copies, and shares the same URL. The use of the object in the server (workspace, share, federation) does not change the URL.
 - **R2.** The URLs of these items that a person sees (address bar, copied link, download link) have no query form `?name=code`. R2 is not a rule for all paths of the server: a query stays where a path needs it (owner, §9.3).
 - **R3.** Notes and published documents stay together in the timeline.
-- **R4.** The URLs of the three kinds have the same form. A user does not need to know the kind to read, copy, or share a URL.
-- **R5.** A user can share an entity and open a shared entity.
+- **R4.** The URLs of a note and a document have the same form (Silvercord). A user does not need to know which of the two it is. An entity has its own form (revision 5).
+- **R5.** A user can share an entity and open a shared entity: the address of the entity opens the graph of its KB with the entity selected.
 
 ## 2. Facts at the base commit
 
@@ -86,6 +90,14 @@ Request: "아티클을 기존에는 적재 본문이라고 써 왔었는데, 혹
 
 Thus "아티클(적재 본문)" joins a subset (published documents), a part (the body), and a protocol form. The permalink names the **document**: the whole unit, published or not. The reader opens on the 적재 본문 by default.
 
+**Entity, node, graph, relation (revision 5).** `GLOSSARY.md` §1.5 and §1.6 had the definitions, but the UI and the API did not follow them: the list tab said 엔티티 and the button of the same item said 노드 관리; one text had "엔티티와 지식 노드/관계"; the relations of an entity were 연결 in the list and 관계 in the filter; the entity detail API is `GET /node?id=`. Rules (owner, 2026-11-23):
+
+1. The knowledge item is always an **entity** (엔티티): manage, change the primary label, synthesis, research, share, not found, the items of a document.
+2. A **node** (노드) is only the point of an entity in the graph view: click a node, the path between two nodes.
+3. The **graph** (그래프) is all entities and relations of one KB, and the name of the view that draws them.
+4. A statement between two entities is always a **relation** (관계). A **link** (링크) is only the line in the graph view. 연결 is not a term for this.
+5. 지식 노드 and 개념 노드 are not used.
+
 Defect found in this review: `synd.kb.publish.public_note` says that publishing sends "이 문서의 적재 본문" to the servers of the followers. The code sends the summary and a link only (RD21, `FEDERATION.md` §4.4). The text must change (phase A2).
 
 Terms (accepted by the owner 2026-11-23; `GLOSSARY.md` gets them in phase A4):
@@ -107,11 +119,11 @@ Terms (accepted by the owner 2026-11-23; `GLOSSARY.md` gets them in phase A4):
 
 | ID | Decision | Reason |
 | :--- | :--- | :--- |
-| U1 | The permalink of a document, a note, or an entity is `{origin}/silvercord/{address token}` (prefix: owner, §9.1). One form for the three kinds. The form does not show the kind. It has no namespace segment. The path word `silvercord` is in one constant of the code, in the edge rule, and in `robots.txt`; each other identifier uses `permalink`. `silvercord` is a reserved USERNAME. | R1, R4. The URL must not change when the username, the server mode, or the KB changes. The server finds the kind and the owner from the token. |
+| U1 | The permalink of a document or a note is `{origin}/silvercord/{address token}` (prefix: owner, §9.1). **`/silvercord/` is only for the kinds that can be ActivityPub objects** (document: `Article`; note: `Note`). A kind that is not an ActivityPub object gets its own path word: the entity has `{origin}/entity/{address token}` (§6.2). A later kind follows this rule. One form for the two Silvercord kinds. The form does not show the kind. It has no namespace segment. The path word `silvercord` is in one constant of the code, in the edge rule, and in `robots.txt`; each other identifier uses `permalink`. `silvercord` is a reserved USERNAME. | R1, R4. The URL must not change when the username, the server mode, or the KB changes. The server finds the kind and the owner from the token. |
 | U2 | The address token has 16 random characters of `_TOKEN_ALPHABET`. One registry gives it (§7). It never changes and is never given to a second item. | One registry gives one uniqueness rule over the three kinds and the two databases. An existing share token can become the address token without a change. About 79 random bits stop guessing. A counter would let a person find items with link access. |
 | U3 | Access is a property of the item, not of the URL. See §6. | The URL of the owner and the URL that the owner sends are the same. |
 | U4 | Link access is a flag of a document or an entity. The share action sets 1 and returns the permalink. The stop-sharing action sets 0. A caller with the current authorization of `POST /share` can set 1; the same rule applies to entities. A caller with write access to the KB can set 0. No expiry. No second token. | The URL stays, the access changes. A new token would make a second URL (R1). If a permalink leaks, the owner sets 0. |
-| U5 | Old forms stop. Server and client code never make them again. Old web links redirect with 308: `{workspace}?doc=`, `{workspace}?node=`, `/p?s=` (each valid token, also the older tokens of the document), `/p/presentation?s=` and `?id=`. A value that the server does not find, or that the caller cannot read, gives 404. No fallback to the workspace. | R2. Links in mail, chats, bookmarks, and search indexes stay usable. |
+| U5 | Old forms stop. Server and client code never make them again. Old web links redirect with 308: `{workspace}?doc=`, `{workspace}?node=` (to the entity address), `/p?s=` (each valid token, also the older tokens of the document), `/p/presentation?s=` and `?id=`. A value that the server does not find, or that the caller cannot read, gives 404. No fallback to the workspace. | R2. Links in mail, chats, bookmarks, and search indexes stay usable. |
 | U6 | (O5, accepted 2026-11-23.) A caller that is not a member of a public KB gets the item view (§6), with a switch to the workspace view. The switch does not change the URL. | The same view as for a note, with metadata for link previews. |
 | U7 | When an item opens (reader or graph focus in the workspace, post in a timeline), the client writes the permalink into the address bar (`pushState` with the URL). When it closes, the address bar shows the URL of the screen again. The permalink names the item, not the screen around it: in the app the client keeps the current screen; a new page load selects the screen with §6. | The URL that the user sees is the URL that the user shares (R1). |
 | U8 | Each representation of a document is under its permalink: `/silvercord/{t}/presentation`, `/silvercord/{t}/raw`, `/silvercord/{t}/export/{format}`. The access policies of the raw file and the export do not change. | One root for one item (R2). |
@@ -127,7 +139,7 @@ Terms (accepted by the owner 2026-11-23; `GLOSSARY.md` gets them in phase A4):
 
 - Note: author, time, text, reactions, thread (글타래).
 - Document: author or KB, time, the reader (적재 본문 first), and for a published document the reactions and the thread.
-- Entity: name, type, aliases, observations, relations, source documents.
+- Entity: not an item view. See §6.2.
 
 **Workspace view.** The workspace of the KB with the reader open (document, as `?doc=` now) or with the graph focused on the entity (as `?node=` now).
 
@@ -138,8 +150,19 @@ The first rule that applies gives the answer:
 3. A hidden document, and the caller cannot see hidden documents of the KB (`_sees_hidden`): 404.
 4. The caller is a member of the KB (personal KB: the owner; shared KB: a member role): workspace view.
 5. The KB is public: item view with the switch to the workspace view (U6).
-6. The item has link access 1: item view without the switch. An entity view shows, as a link, only an item that the caller can open with its own permalink. Another related entity shows its name without a link. Another source document shows only in the count.
+6. The item has link access 1: item view without the switch. 
 7. Else: the answer that the workspace path of the KB gives to this caller now (sign-in redirect or 404).
+
+### 6.2 Entity address `GET /entity/{address token}` (revision 5)
+
+Goal of the owner: a person who gets the address of the entity vSAN sees vSAN in the graph at once.
+
+1. The token is not in the registry, or it is the token of a document or a note: 404. A Silvercord path with the token of an entity: 404. The entity is gone: 410.
+2. The caller can read the KB (a member, or a reader of a public KB): the workspace of the KB in the graph view, with the entity selected and the context panel open.
+3. The entity has link access 1, and the caller cannot read the KB: the graph view with only this entity and the entities that have a direct relation with it (the scope of "neighbors only"). A related entity shows its name. A source document shows as a link only when the caller can open it; else it is only in the count.
+4. Else: the answer that the workspace path of the KB gives to this caller now. The answer has no ID of the entity.
+
+The registry, the address token, link access, the alias and gone rules, and the re-creation rule (§7) are the same as for a document. An entity is not a federation object: U11 does not apply.
 
 ## 7. Registry and lifecycle
 
@@ -185,6 +208,8 @@ Tests: E2E "open a document in the workspace, copy the permalink from the addres
 | O3 | R2 for other query forms | R2 is for item URLs only; a query stays where a path needs it. The two bundle paths change (owner). §9.3, §9.4 |
 | O4 | Terms | Accepted. §4 |
 | O5 | View for a caller that is not a member of a public KB | Item view with the switch (U6) |
+| O6 | Address of an entity (revision 5) | `/entity/{address token}`, not Silvercord (owner). `/silvercord/` is only for ActivityPub object kinds, recorded in U1, in `GLOSSARY.md` §1.11, and at the path constants of `store/permalinks.py` |
+| O7 | Entity, node, graph, relation (revision 5) | Usage rules of §4 (owner: correct all). The UI text follows them; API names and code identifiers change when a route or a module changes for another reason (U13) |
 
 ### 9.1 O1: prefix `/silvercord/`
 

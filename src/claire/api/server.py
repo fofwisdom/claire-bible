@@ -4202,7 +4202,7 @@ def create_app(
             old_token = await asyncio.to_thread(_old_link_token)
             if old_token is None:
                 return PlainTextResponse("Not Found", status_code=404)
-            return RedirectResponse(permalinks.permalink_path(old_token), status_code=308)
+            return RedirectResponse(permalinks.path_of(old_kind, old_token), status_code=308)
         html_text = get_web_ui_renderer().render_graph_html(
             s,
             include_private=include_private,
@@ -6418,18 +6418,20 @@ def create_app(
         except ValueError:
             return False
 
-    async def _workspace_view(request: Request, kb: KnowledgeBaseInfo, *, token: str, kind: str, target: str) -> Response:
-        """The workspace of the knowledge base with the item open, at the permalink (Section 6 rule 4). An answer that is not the workspace page (sign-in redirect, 404) goes to the caller as it is (rule 7)."""
+    async def _workspace_view(request: Request, kb: KnowledgeBaseInfo, *, token: str, kind: str, target: str, readable: bool) -> Response:
+        """The workspace of the knowledge base with the item open, at the address of the item (Section 6 rule 4). An answer that is not the workspace page (sign-in redirect, 404) goes to the caller as it is (rule 7).
+
+        ``readable`` false: the caller cannot read the item. Then the request to the workspace path has no item, and the answer gets no mark: the internal ID of the item does not go to this caller."""
         path = _workspace_path(kb)
         if path is None:
             return PlainTextResponse("Not Found", status_code=404)
         from urllib.parse import quote as _quote
 
-        query = ("doc=" if kind == "document" else "node=") + _quote(target, safe="")
+        query = (("doc=" if kind == "document" else "node=") + _quote(target, safe="")) if readable else ""
         status, headers, body = await _dispatch_workspace(request, path, query)
         content_type = next((v.decode("latin-1") for k, v in headers if k.lower() == b"content-type"), "")
-        if status == 200 and content_type.startswith("text/html"):
-            mark = f'<meta name="claire-open-item" content="{html.escape(kind, quote=True)}:{html.escape(target, quote=True)}"/><link rel="canonical" href="{html.escape(permalinks.permalink_path(token), quote=True)}"/>'.encode("utf-8")
+        if readable and status == 200 and content_type.startswith("text/html"):
+            mark = f'<meta name="claire-open-item" content="{html.escape(kind, quote=True)}:{html.escape(target, quote=True)}"/><link rel="canonical" href="{html.escape(permalinks.path_of("entity" if kind == "entity" else "document", token), quote=True)}"/>'.encode("utf-8")
             body = body.replace(b"</head>", mark + b"</head>", 1)
         response = _passed_response(status, headers, body)
         response.headers["Cache-Control"] = "no-store"
@@ -6469,14 +6471,14 @@ def create_app(
         if found.gone_at is not None or gone:
             return PlainTextResponse("Gone", status_code=410)
         if found.kind != "document" or document is None:
-            # Notes and entities: the views come with the next work items of the design (Section 8). No fallback.
+            # A note has no view now (design Section 8). An entity is not at this path: Silvercord is only for ActivityPub object kinds, and the address of an entity is ``/entity/{token}``. No fallback.
             return PlainTextResponse("Not Found", status_code=404)
         try:
             kb = theme_mgr.get_kb(int(found.kb_id or 0))
         except KnowledgeBaseNotFound:
             return PlainTextResponse("Not Found", status_code=404)
         if await _caller_is_member(request, kb):
-            return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target)
+            return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=True)
         if pending or document.get("hidden"):
             # A document that only its members see (not extracted, or hidden) does not exist for another caller.
             return PlainTextResponse("Not Found", status_code=404)
@@ -6490,7 +6492,40 @@ def create_app(
                 page = page.replace('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"/>', '<meta name="robots" content="noindex, nofollow"/>')
                 headers["X-Robots-Tag"] = "noindex, nofollow"
             return HTMLResponse(page, headers=headers)
-        return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target)
+        return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
+
+    async def entity_address_route(request: Request) -> Response:
+        """``GET /entity/{token}``: the address of an entity (PERMALINK_UNIFICATION_DESIGN.md Section 6.2). A caller that can read the knowledge base gets its graph with the entity selected."""
+        token = str(request.path_params.get("token", ""))
+        if not permalinks.plausible_token(token):
+            return PlainTextResponse("Not Found", status_code=404)
+
+        def _load() -> tuple[permalinks.Permalink | None, bool]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                found = permalinks.resolve(conn, token)
+                if found is None or found.kind != "entity":
+                    return None, False
+                exists = conn.execute("SELECT 1 FROM entities WHERE id=? AND kb_id=?", (found.target, found.kb_id)).fetchone() is not None
+                if not exists and found.gone_at is None:
+                    permalinks.mark_gone(conn, "entity", found.target)
+                    conn.commit()
+                return found, exists
+            finally:
+                conn.close()
+
+        found, exists = await asyncio.to_thread(_load)
+        if found is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.gone_at is not None or not exists:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        # A member, a reader of a public knowledge base, and each other caller get the answer of the workspace path: the graph with the entity selected, or the sign-in redirect, the private profile page, or 404. The view for link access alone is not made.
+        readable = await _caller_is_member(request, kb) or _kb_decide(request, kb, "read") == "allow"
+        return await _workspace_view(request, kb, token=found.token, kind="entity", target=found.target, readable=readable)
 
     async def shared_doc_page(request: Request) -> Response:
         """``GET /p?s={token}``: an old share link. It redirects to the permalink of its document (PERMALINK_UNIFICATION_DESIGN.md U5). No page is at this path now."""
@@ -7716,6 +7751,7 @@ def create_app(
         Route("/share", create_share_route, methods=["POST"]),
         Route("/share", stop_share_route, methods=["DELETE"]),
         Route("/silvercord/{token}", permalink_route, methods=["GET", "HEAD"]),
+        Route("/entity/{token}", entity_address_route, methods=["GET", "HEAD"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/p/presentation", presentation_page, methods=["GET", "HEAD"]),
         Route("/support/bundle", create_support_bundle_route, methods=["POST"]),

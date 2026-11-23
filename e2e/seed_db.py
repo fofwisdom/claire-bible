@@ -139,6 +139,11 @@ def seed(db_path: Path) -> None:
         # Dedicated hidden document with no shared entities for the WebUI purge E2E test.
         dbm.insert_document(conn, Document(id="doc-purge-1", url="https://example.com/purge/1", title="소각 대상 테스트 문서", fetched_at=1699970000))
         dbm.set_document_hidden(conn, "doc-purge-1", True)
+        # The address token of the entity "ent-hub" (the address /entity/{token}). The entity row comes later in this seed.
+        conn.execute(
+            "INSERT OR REPLACE INTO permalinks(token, kind, kb_id, target, link_access, created_at) VALUES (?, 'entity', 0, ?, 0, ?)",
+            ("45678923abcdefgh", "ent-hub", 1700000000),
+        )
         # The address tokens of two documents, with link access (the permalink registry).
         conn.execute(
             "INSERT OR REPLACE INTO permalinks(token, kind, kb_id, target, link_access, created_at) VALUES (?, 'document', 0, ?, 1, ?)",

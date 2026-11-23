@@ -692,7 +692,7 @@ def test_mobile_bottom_bar_graph_navigation_and_node_selection():
 
 
 def test_document_detail_and_right_menu_includes_nodes():
-    """document_detail이 문서의 연결된 노드를 포함하고 우측 패널에 '이 문서의 지식 노드'로 렌더링되는지 검증."""
+    """document_detail이 문서의 연결된 노드를 포함하고 우측 패널에 '이 문서의 엔티티'로 렌더링되는지 검증."""
     conn = _db()
     _seed_two(conn)
 

@@ -1506,6 +1506,7 @@ function resetGraphCamera(){
 let graphInitialized = false;
 let graphSuspended = false;
 
+let openItemDone = false;
 function initGraph(onComplete){
   if(graphInitialized){
     if(onComplete) onComplete();
@@ -1755,6 +1756,11 @@ function initGraph(onComplete){
     else loadDocPanel(activeDoc);
   } else if(centerView === 'reader' && curDocPanelData && activeDocCtxTab === 'links'){
     renderDocPanel(curDocPanelData);
+  }
+  // The entity address (/entity/{token}) opens the graph with its entity selected, one time.
+  if(OPEN_ITEM.kind === 'entity' && !openItemDone){
+    openItemDone = true;
+    if(allNodes && allNodes.get(OPEN_ITEM.id)) focusNode(OPEN_ITEM.id, false);
   }
   if(onComplete) onComplete();
 }).catch(err => {

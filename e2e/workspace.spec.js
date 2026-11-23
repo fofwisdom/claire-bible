@@ -542,6 +542,24 @@ test('shared document page allows scrolling and maintains visible fixed rail tra
   expect(pageErrors).toEqual([]);
 });
 
+test('the entity address opens the graph with the entity selected, and the old node link redirects to it', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto('/entity/45678923abcdefgh', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toHaveAttribute('data-center-view', 'graph');
+  // The context panel shows the entity of the address.
+  await expect(page.locator('#panel')).toContainText('허브 엔티티');
+  await expect(page).toHaveURL(/\/entity\/45678923abcdefgh$/);
+  // An old link with the entity ID gives the same address.
+  const old = await page.request.get('/?node=ent-hub', { maxRedirects: 0 });
+  expect([302, 308]).toContain(old.status());
+  await page.goto('/?node=ent-hub', { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/\/entity\/45678923abcdefgh$/);
+  await expect(page.locator('#panel')).toContainText('허브 엔티티');
+  expect(pageErrors).toEqual([]);
+});
+
 test('anonymous users can generate and open share link in public mode', async ({ page, context }) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
@@ -688,10 +706,10 @@ test('node aliases render and can be promoted to primary representative label in
   await expect(chips).toHaveCount(2);
   await expect(chips.first()).toContainText('별칭 A1');
 
-  // 5. Check '노드 관리' button exists next to '종합에 추가' and open dropdown
+  // 5. Check '엔티티 관리' button exists next to '종합에 추가' and open dropdown
   const manageBtn = panel.locator('#node-manage-btn');
   await expect(manageBtn).toBeVisible();
-  await expect(manageBtn).toContainText('노드 관리');
+  await expect(manageBtn).toContainText('엔티티 관리');
   await manageBtn.click();
 
   // 6. Click '대표 별칭' from dropdown menu to enter selection mode
@@ -1988,7 +2006,7 @@ test('graph view shows the entity list in degree order with paging, one open row
   await expect(page.locator('#listtitle')).toHaveText('엔티티 31 / 44');
   await expect(rows.nth(0).locator('.entname')).toHaveText('허브 엔티티');
   await expect(rows.nth(0).locator('.entdeg')).toHaveText('40');
-  await expect(rows.nth(0).locator('.entdeg')).toHaveAttribute('title', '연결 40개');
+  await expect(rows.nth(0).locator('.entdeg')).toHaveAttribute('title', '관계 40개');
   await expect(rows.nth(0).locator('.entbar i')).toHaveAttribute('style', 'width:100%');
   await expect(rows.nth(1).locator('.entname')).toHaveText('목록 엔티티 01');
   await expect(rows.nth(1).locator('.entdeg')).toHaveText('8');
@@ -2028,14 +2046,14 @@ test('graph view shows the entity list in degree order with paging, one open row
   await expect(body).toHaveAttribute('role', 'region');
   await expect(body.locator('h4').nth(0)).toHaveText('관찰/주장');
   await expect(body.locator('.entobs li')).toHaveCount(5);
-  await expect(body.locator('h4').nth(1)).toHaveText('연결 (40)');
+  await expect(body.locator('h4').nth(1)).toHaveText('관계 (40)');
   expect(nodeRequests.length).toBe(1);
   expect(await page.evaluate(() => window.claireDebug.selected)).toBe('ent-hub');
   expect(await page.evaluate(() => window.claireDebug.sel)).toEqual(['ent-hub']);
   // The detail panel has no 관찰/주장 section and no 연결 section (unit LP-4). Its button shows the number of the two (7 + 40).
   await expect(page.locator('#panel h2')).toContainText('허브 엔티티');
   await expect(page.locator('#panel h3')).toHaveCount(0);
-  await expect(page.locator('#panel #node-listrow-btn')).toHaveText('관찰/주장 · 연결 보기 (47)');
+  await expect(page.locator('#panel #node-listrow-btn')).toHaveText('관찰/주장 · 관계 보기 (47)');
 
   await body.locator('.entmore').click();
   await expect(body.locator('.entmore')).toHaveCount(0);
@@ -2053,7 +2071,7 @@ test('graph view shows the entity list in degree order with paging, one open row
   const opened = page.locator('#entlist .entitem.open');
   await expect(opened).toHaveCount(1);
   await expect(opened.locator('.entname')).toHaveText('목록 엔티티 40');
-  await expect(opened.locator('#entbody h4').nth(1)).toHaveText('연결 (1)');
+  await expect(opened.locator('#entbody h4').nth(1)).toHaveText('관계 (1)');
   expect(await opened.locator('details.entrel').evaluate(el => el.open)).toBe(true);
   await expect(opened.locator('.entrow')).toBeInViewport();
   await expect(opened.locator('.entrow')).toBeFocused();
@@ -2073,7 +2091,7 @@ test('graph view shows the entity list in degree order with paging, one open row
   await expect(rows.nth(0)).toContainText('목록 엔티티 40');
   await expect(rows.nth(0).locator('.entout')).toHaveText('필터 밖');
   await expect(rows.nth(1).locator('.entname')).toHaveText('허브 엔티티');
-  await expect(page.locator('#entchips .entchip')).toHaveText(['연결 ≥ 2']);
+  await expect(page.locator('#entchips .entchip')).toHaveText(['관계 ≥ 2']);
   // The title counts the matching entities only, not the row with the mark 필터 밖.
   await expect(page.locator('#listtitle')).toHaveText('엔티티 9 / 9');
   const listed = await page.evaluate(() => { const ids = []; allNodes.forEach(n => { if (isNodeListed(n)) ids.push(n.id); }); return ids.sort(); });
@@ -2109,7 +2127,7 @@ test('graph view shows the entity list in degree order with paging, one open row
   await expect(rows.nth(1).locator('.entrow')).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(rows.nth(1).locator('.entrow')).toHaveAttribute('aria-expanded', 'true');
-  await expect(rows.nth(1).locator('#entbody h4').nth(1)).toHaveText('연결 (8)');
+  await expect(rows.nth(1).locator('#entbody h4').nth(1)).toHaveText('관계 (8)');
   await expect(rows.nth(1).locator('.entrow')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.locator('#entlist .entitem.open')).toHaveCount(0);
@@ -2192,12 +2210,12 @@ test.describe('node detail panel and node request order', () => {
     await rows.nth(0).locator('.entrow').click();
     await rows.nth(1).locator('.entrow').click();
     await expect(page.locator('#panel h2')).toContainText('목록 엔티티 01');
-    await expect(page.locator('#entlist .entitem.open #entbody h4').nth(1)).toHaveText('연결 (8)');
+    await expect(page.locator('#entlist .entitem.open #entbody h4').nth(1)).toHaveText('관계 (8)');
     await page.waitForTimeout(1300);
     await expect(page.locator('#panel h2')).toContainText('목록 엔티티 01');
     expect(await page.evaluate(() => currentNodeData.id)).toBe('ent-list-01');
     await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', 'ent-list-01');
-    await expect(page.locator('#entlist .entitem.open #entbody h4').nth(1)).toHaveText('연결 (8)');
+    await expect(page.locator('#entlist .entitem.open #entbody h4').nth(1)).toHaveText('관계 (8)');
     // The open row has the active mark.
     await expect(page.locator('#entlist .entitem.open')).toHaveClass(/active/);
 
@@ -2209,13 +2227,13 @@ test.describe('node detail panel and node request order', () => {
     await expect(page.locator('#entbody')).not.toContainText('로딩');
     // The failed request removes the data of the earlier node.
     expect(await page.evaluate(() => currentNodeData)).toBeNull();
-    await expect(page.locator('#panel')).toContainText('노드 정보를 불러오지 못했습니다.');
+    await expect(page.locator('#panel')).toContainText('엔티티 정보를 불러오지 못했습니다.');
 
     // A click on the row in the error state sends the request again. The row does not close.
     mode = 'pass';
     await rows.nth(2).locator('.entrow').click();
     await expect(page.locator('#entlist .entitem.open')).toHaveAttribute('data-ent-id', 'ent-list-02');
-    await expect(page.locator('#entbody h4').nth(1)).toHaveText('연결 (2)');
+    await expect(page.locator('#entbody h4').nth(1)).toHaveText('관계 (2)');
     await expect(page.locator('#panel h2')).toContainText('목록 엔티티 02');
 
     // The open row keeps the 더 보기 state and the state of a 연결 group after a new render.
@@ -2235,11 +2253,11 @@ test.describe('node detail panel and node request order', () => {
     await rows.nth(0).locator('.entrow').click();
     await expect(page.locator('#entlist .entitem.open')).toHaveCount(0);
     await rows.nth(0).locator('.entrow').click();
-    await expect(body.locator('h4').nth(1)).toHaveText('연결 (40)');
+    await expect(body.locator('h4').nth(1)).toHaveText('관계 (40)');
     expect(await body.locator('details.entrel').evaluate(el => el.open)).toBe(false);
     await body.locator('.entmore').click();
     await page.evaluate(() => { document.querySelector('#entbody details.entrel[data-rel="uses"] > summary').click(); setDeg(1); });
-    await expect(page.locator('#entchips .entchip')).toHaveText(['연결 ≥ 1']);
+    await expect(page.locator('#entchips .entchip')).toHaveText(['관계 ≥ 1']);
     await expect(body.locator('.entobs li')).toHaveCount(7);
     expect(await body.locator('details.entrel[data-rel="uses"]').evaluate(el => el.open)).toBe(true);
     await page.evaluate(() => setDeg(0));
@@ -2247,10 +2265,10 @@ test.describe('node detail panel and node request order', () => {
     expect(await body.locator('details.entrel[data-rel="uses"]').evaluate(el => el.open)).toBe(true);
     // Sequence 2: close a group that is open by default, then a filter change.
     await rows.nth(1).locator('.entrow').click();
-    await expect(body.locator('h4').nth(1)).toHaveText('연결 (8)');
+    await expect(body.locator('h4').nth(1)).toHaveText('관계 (8)');
     expect(await body.locator('details.entrel[data-rel="relates_to"]').evaluate(el => el.open)).toBe(true);
     await page.evaluate(() => { document.querySelector('#entbody details.entrel[data-rel="relates_to"] > summary').click(); setDeg(1); });
-    await expect(page.locator('#entchips .entchip')).toHaveText(['연결 ≥ 1']);
+    await expect(page.locator('#entchips .entchip')).toHaveText(['관계 ≥ 1']);
     expect(await body.locator('details.entrel[data-rel="relates_to"]').evaluate(el => el.open)).toBe(false);
     expect(await body.locator('details.entrel[data-rel="uses"]').evaluate(el => el.open)).toBe(true);
     await page.evaluate(() => setDeg(0));
@@ -2291,7 +2309,7 @@ test.describe('node detail panel and node request order', () => {
 
     // The panel has only the source document section (anonymous session). 관찰/주장 and 연결 are in the list row.
     await expect(panel.locator('h3')).toHaveText(['출처 문서 (40)']);
-    await expect(panel.locator('#node-listrow-btn')).toHaveText('관찰/주장 · 연결 보기 (8)');
+    await expect(panel.locator('#node-listrow-btn')).toHaveText('관찰/주장 · 관계 보기 (8)');
 
     // 31 rows first, the newest document first, all closed. The filter field shows because there are more than 31 documents.
     const srcRows = panel.locator('.srcrow');
@@ -2349,7 +2367,7 @@ test.describe('node detail panel and node request order', () => {
     const opened = page.locator('#entlist .entitem.open');
     await expect(opened).toHaveAttribute('data-ent-id', 'ent-list-01');
     await expect(opened.locator('#entbody h4').first()).toHaveText('관찰/주장');
-    await expect(opened.locator('#entbody h4').nth(1)).toHaveText('연결 (8)');
+    await expect(opened.locator('#entbody h4').nth(1)).toHaveText('관계 (8)');
     await expect(opened.locator('.entrow')).toBeInViewport();
     expect(nodeRequests.length).toBe(1);
 
@@ -2400,7 +2418,7 @@ test('mobile node detail button opens the list drawer at the entity row', async 
   await expect(page.locator('body')).not.toHaveClass(/detail-open/);
   const opened = page.locator('#entlist .entitem.open');
   await expect(opened).toHaveAttribute('data-ent-id', 'ent-hub');
-  await expect(opened.locator('#entbody h4').nth(1)).toHaveText('연결 (40)');
+  await expect(opened.locator('#entbody h4').nth(1)).toHaveText('관계 (40)');
   await expect(opened.locator('.entrow')).toBeInViewport();
 
   // The sticky node header covers the full width and the top padding of the scroll container at the mobile size (padding 14px 16px).

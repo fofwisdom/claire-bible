@@ -116,8 +116,8 @@ def contextual_research(settings, provider, *, query: str,
         base["verdict"] = ("그래프에 추가됨" if base["added"]
                            else f"적재 실패: {ing.get('error')}")
         if base["added"]:
-            _p("ingest", f"적재 완료 — 신규 {ing['entities_created']} · "
-                         f"기존연결 {ing['entities_linked']} · 관계 {ing['relations_added']}")
+            _p("ingest", f"적재 완료 — 엔티티 신규 {ing['entities_created']} · "
+                         f"기존 {ing['entities_linked']} · 관계 {ing['relations_added']}")
         return base
     finally:
         set_progress_callback(None)

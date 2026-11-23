@@ -1,8 +1,8 @@
-"""지식 노드 판단 시각화 및 TypeSafe AI Jev 연동 데이터 모듈.
+"""엔티티 해소 판단 시각화 및 TypeSafe AI Jev 연동 데이터 모듈.
 
   - ResolutionDecision: 단일 엔티티/관계의 상태 전이 의사결정 레코드
   - DecisionStreamLog: 문서 단위의 전체 인과 추적 로그 (방안 B: documents.meta 보관)
-  - HeatmapMatrixData: 본문/엔티티 × 전역 지식 노드 간 전수 유사도 확률 행렬 (일회성 소비)
+  - HeatmapMatrixData: 본문/엔티티 × 전역 엔티티 간 전수 유사도 확률 행렬 (일회성 소비)
   - evaluate_decision_matrix: 히트맵 산출 (Jev 는 도입 검토 단계라 shadow 평가만 수행: extract/jev.py)
 """
 
@@ -64,7 +64,7 @@ class ResolutionDecision:
 
 @dataclass
 class HeatmapMatrixData:
-    """본문 구절/엔티티 × 전역 지식 노드 간의 전수 유사도 확률 매트릭스."""
+    """본문 구절/엔티티 × 전역 엔티티 간의 전수 유사도 확률 매트릭스."""
 
     document_id: str
     rows: list[str]  # 본문 구절 또는 추출 엔티티 목록

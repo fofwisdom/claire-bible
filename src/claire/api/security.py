@@ -593,6 +593,9 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     # The permalink of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md). The route decides the access from the item.
     ("GET", "/silvercord/{token}"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}"): _system("public", "none"),
+    # The address of an entity. It opens the graph of its knowledge base with the entity selected.
+    ("GET", "/entity/{token}"): _system("public", "none"),
+    ("HEAD", "/entity/{token}"): _system("public", "none"),
     ("POST", "/support/bundle"): _system("admin", "none"),
     ("GET", "/support/bundle/{token}"): _system("public", "none"),
     ("HEAD", "/support/bundle/{token}"): _system("public", "none"),

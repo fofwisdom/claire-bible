@@ -1,6 +1,6 @@
 """The permalink registry (docs/design/PERMALINK_UNIFICATION_DESIGN.md Section 7).
 
-One table, ``permalinks`` in ``claire.db``, gives each document, note, and entity one address token. The permalink is ``{origin}/silvercord/{token}``. The token never changes and is never given to a second item.
+One table, ``permalinks`` in ``claire.db``, gives each document, note, and entity one address token. The address of a document or a note is ``{origin}/silvercord/{token}`` (Silvercord: only for ActivityPub object kinds). The address of an entity is ``{origin}/entity/{token}``. The token never changes and is never given to a second item.
 
 - A row is made when the item is first seen (``ensure``): the migration makes the rows of the items that exist, and each later read or write of an item without a row makes its row. No insert path of documents, notes, or entities has a hook.
 - ``alias_of``: the token of a document that a near-duplicate merge removed points to the token of the keeper.
@@ -19,8 +19,11 @@ from typing import Literal
 Kind = Literal["document", "note", "entity"]
 KINDS: tuple[Kind, ...] = ("document", "note", "entity")
 
-# The one place of the path word (design U1). Each other identifier uses ``permalink``.
+# The one place of each path word (design U1). Each other identifier uses ``permalink``.
+# ``/silvercord/`` is only for the kinds that can be ActivityPub objects: a document (``Article``) and a note (``Note``). A kind that is not an ActivityPub object gets its own path word, as the entity does.
 PERMALINK_PATH_PREFIX = "/silvercord/"
+ENTITY_PATH_PREFIX = "/entity/"
+ACTIVITYPUB_KINDS: tuple[Kind, ...] = ("document", "note")
 
 TOKEN_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
 TOKEN_LENGTH = 16
@@ -66,7 +69,17 @@ def plausible_token(token: str) -> bool:
 
 
 def permalink_path(token: str) -> str:
+    """The Silvercord path of a document or a note."""
     return f"{PERMALINK_PATH_PREFIX}{token}"
+
+
+def entity_path(token: str) -> str:
+    """The address path of an entity."""
+    return f"{ENTITY_PATH_PREFIX}{token}"
+
+
+def path_of(kind: Kind, token: str) -> str:
+    return entity_path(token) if kind == "entity" else permalink_path(token)
 
 
 def permalink_url(origin: str, token: str) -> str:

@@ -289,6 +289,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/fonts/D2CodingBold.woff2",
         "/p",
         "/silvercord/{token}",
+        "/entity/{token}",
         "/p/presentation",
         "/image",
         "/images/{filename:path}",

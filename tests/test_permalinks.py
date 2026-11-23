@@ -175,3 +175,47 @@ def test_e2e_one_permalink_for_an_anonymous_caller_and_a_member(tmp_path: Path) 
     finally:
         conn.close()
     assert client.get(address).status_code == 410
+
+
+def test_e2e_the_entity_address_opens_the_graph_with_the_entity(tmp_path: Path) -> None:
+    s, env = _setup_network_env(tmp_path)
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("INSERT INTO entities (id, kb_id, type, name, norm_name, sources) VALUES ('ent-vsan', 10, 'Tool', 'vSAN', 'vsan', '[\"doc1\"]')")
+        token = permalinks.ensure_entity(conn, "ent-vsan")
+        conn.commit()
+    finally:
+        conn.close()
+    client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
+    address = f"/entity/{token}"
+
+    # A reader of the public knowledge base gets the workspace, and the page tells the client which entity to select in the graph.
+    opened = client.get(address)
+    assert opened.status_code == 200 and "Knowledge graph" in opened.text
+    assert '<meta name="claire-open-item" content="entity:ent-vsan"/>' in opened.text
+    assert f'<link rel="canonical" href="{address}"/>' in opened.text
+    # An old link redirects to the entity address. Silvercord is only for documents and notes.
+    old_node = client.get("/@alice/?node=ent-vsan")
+    assert old_node.status_code == 308 and old_node.headers["location"] == address
+    assert client.get("/@alice/?node=ent-missing").status_code == 404
+    assert client.get(f"/silvercord/{token}").status_code == 404
+
+    # A private knowledge base: a caller that is not a member does not get the graph.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("UPDATE knowledge_bases SET is_public=0 WHERE id=10")
+        conn.commit()
+    finally:
+        conn.close()
+    client.cookies.clear()
+    assert "claire-open-item" not in client.get(address).text
+
+    # An entity that does not exist now: 410.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("DELETE FROM entities WHERE id='ent-vsan'")
+        conn.commit()
+    finally:
+        conn.close()
+    client.cookies.clear()
+    assert client.get(address).status_code == 410

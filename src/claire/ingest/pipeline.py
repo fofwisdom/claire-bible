@@ -256,7 +256,7 @@ class IngestReport:
             parts.append(f"요약: {self.summary[:300]}")
         cross_note = f" (횡단 {self.cross_relations_added})" if self.cross_relations_added else ""
         parts.append(
-            f"노드 신규 {self.entities_created} · 기존연결 {self.entities_linked} · "
+            f"엔티티 신규 {self.entities_created} · 기존 {self.entities_linked} · "
             f"관계 {self.relations_added}{cross_note}"
         )
         if self.linked_entity_names:
