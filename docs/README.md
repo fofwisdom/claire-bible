@@ -24,7 +24,7 @@ docs/
 │   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # Jev shadow 전용(필터·하이브리드 제거), 정기 평가의 엔티티 쌍 검토 백엔드 구현(→ GRAPH_BUNDLE_REVIEW.md §5.5), 이용자 판정 프런트엔드·R7 미구현, 평가 결과 JEV_EVALUATION.md
 │   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합, KF0–KF6 구현, 남은 일 KA1–KA5, 루트 페이지 최근 활동 형태는 design/prototypes/recent_activity_prototypes.html 평가 대기(KD15)
 │   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획은 폐기(2026-11-19): /explore 통합 뷰는 /directory·/themes로, 계정 간 발행 본문은 기여로 대체
-│   ├── PERMALINK_UNIFICATION_DESIGN.md    # 문서·노트·엔티티의 고유 주소 /perma/{주소 토큰} 하나로 통합 제안(U1–U12), 미구현, 소유자 답변 대기 O1–O4
+│   ├── PERMALINK_UNIFICATION_DESIGN.md    # 문서·노트·엔티티의 고유 주소 /silvercord/{주소 토큰} 하나로 통합(U1–U13), 번들 경로 변경 B1, 소유자 결정 완료(2026-11-23), 미구현
 │   ├── PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md  # 차단 도메인 공개 목록 제안(BQ1–BQ6 소유자 답변 대기), 미구현
 │   ├── SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md  # 공유 지식베이스·컬렉션 테마 초안 (CT 결정), 작업 기준 시각 프로토타입은 design/prototypes/console_modern_prototype.html (지식 연합·콘솔 배치 설계와 공용), 첫 프로토타입 shared_knowledge_federation_prototype.html은 참고용
 │   │   # 구현 완료: 설계 원칙만 (상태 줄의 링크가 현재 동작)

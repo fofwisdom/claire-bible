@@ -1,8 +1,8 @@
 # One Permalink for Documents, Notes, and Entities
 
 - **Document Identifier**: `DESIGN-PERMALINK-20261123`
-- **Status**: Proposal. Not implemented. Open items O1 to O4 wait for the owner.
-- **Date**: 2026-11-23 (base commit `80e3fb14`). Revision 2: notes in the scope, one path form. Revision 3: entities in the scope, prefix proposal from the criteria of §9.1, term review (§4), O5 accepted (now U6), O2 and O3 explained.
+- **Status**: Decided (owner, 2026-11-23). Not implemented. No open items.
+- **Date**: 2026-11-23 (base commit `80e3fb14`). Revision 2: notes in the scope, one path form. Revision 3: entities in the scope, term review (§4). Revision 4: the owner decisions of §9 (prefix `/silvercord/`, API, other query forms, bundle paths).
 - **Related**: [`MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md`](MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md) (§4.3 item 3 and the share link row of §6.2: this design replaces them when it is implemented), [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD21 and RT7: not changed), [`GLOSSARY.md`](../implementation/GLOSSARY.md) §1.2 and §1.5, [`PUBLIC_SITE.md`](../implementation/PUBLIC_SITE.md), [`FEDERATION.md`](../implementation/FEDERATION.md)
 
 ## 1. Owner requests (2026-11-23)
@@ -18,10 +18,16 @@
 > * O1: 접두어는 기존의 문자를 답습하지 말고 오너의 마음으로 장기유지보수자로서 문자를 제안하세요.
 > * O5: 제안 수용.
 
+> * O1: /silvercord/
+> * O2: 잘 모르겠네요. Claude는 이 프로젝트의 오너이고, 장기 유지보수자니까 올바른 결정해주세요.
+> * O3: 제가 너무 광범위하게 정의했네요. GET 방식이 필요한 곳도 있겠죠. 필요에 따라 유지할 수 있습니다.
+>    * 그래프 번들과 지원 번들 모두 지원을 위한 번들이니 GET을 유지하더라도 호출 경로 변경이 필요해보입니다.
+> * O4: 알겠습니다.
+
 Requirements:
 
 - **R1.** Each document, note, and entity has one URL. A user opens, copies, and shares the same URL. The use of the object in the server (workspace, share, federation) does not change the URL.
-- **R2.** User-visible URLs of these items have no query form `?name=code`. The scope of R2 outside these items is O2 and O3.
+- **R2.** The URLs of these items that a person sees (address bar, copied link, download link) have no query form `?name=code`. R2 is not a rule for all paths of the server: a query stays where a path needs it (owner, §9.3).
 - **R3.** Notes and published documents stay together in the timeline.
 - **R4.** The URLs of the three kinds have the same form. A user does not need to know the kind to read, copy, or share a URL.
 - **R5.** A user can share an entity and open a shared entity.
@@ -82,7 +88,7 @@ Thus "아티클(적재 본문)" joins a subset (published documents), a part (th
 
 Defect found in this review: `synd.kb.publish.public_note` says that publishing sends "이 문서의 적재 본문" to the servers of the followers. The code sends the summary and a link only (RD21, `FEDERATION.md` §4.4). The text must change (phase A2).
 
-Proposed terms (contract review of `GLOSSARY.md` before A1):
+Terms (accepted by the owner 2026-11-23; `GLOSSARY.md` gets them in phase A4):
 
 | Concept | English | Korean | Note |
 | :--- | :--- | :--- | :--- |
@@ -101,20 +107,21 @@ Proposed terms (contract review of `GLOSSARY.md` before A1):
 
 | ID | Decision | Reason |
 | :--- | :--- | :--- |
-| U1 | The permalink of a document, a note, or an entity is `{origin}/perma/{address token}` (prefix: O1, §9.1). One form for the three kinds. The form does not show the kind. It has no namespace segment. | R1, R4. The URL must not change when the username, the server mode, or the KB changes. The server finds the kind and the owner from the token. |
+| U1 | The permalink of a document, a note, or an entity is `{origin}/silvercord/{address token}` (prefix: owner, §9.1). One form for the three kinds. The form does not show the kind. It has no namespace segment. The path word `silvercord` is in one constant of the code, in the edge rule, and in `robots.txt`; each other identifier uses `permalink`. `silvercord` is a reserved USERNAME. | R1, R4. The URL must not change when the username, the server mode, or the KB changes. The server finds the kind and the owner from the token. |
 | U2 | The address token has 16 random characters of `_TOKEN_ALPHABET`. One registry gives it (§7). It never changes and is never given to a second item. | One registry gives one uniqueness rule over the three kinds and the two databases. An existing share token can become the address token without a change. About 79 random bits stop guessing. A counter would let a person find items with link access. |
 | U3 | Access is a property of the item, not of the URL. See §6. | The URL of the owner and the URL that the owner sends are the same. |
 | U4 | Link access is a flag of a document or an entity. The share action sets 1 and returns the permalink. The stop-sharing action sets 0. A caller with the current authorization of `POST /share` can set 1; the same rule applies to entities. A caller with write access to the KB can set 0. No expiry. No second token. | The URL stays, the access changes. A new token would make a second URL (R1). If a permalink leaks, the owner sets 0. |
 | U5 | Old forms stop. Server and client code never make them again. Old web links redirect with 308: `{workspace}?doc=`, `{workspace}?node=`, `/p?s=` (each valid token, also the older tokens of the document), `/p/presentation?s=` and `?id=`. A value that the server does not find, or that the caller cannot read, gives 404. No fallback to the workspace. | R2. Links in mail, chats, bookmarks, and search indexes stay usable. |
 | U6 | (O5, accepted 2026-11-23.) A caller that is not a member of a public KB gets the item view (§6), with a switch to the workspace view. The switch does not change the URL. | The same view as for a note, with metadata for link previews. |
 | U7 | When an item opens (reader or graph focus in the workspace, post in a timeline), the client writes the permalink into the address bar (`pushState` with the URL). When it closes, the address bar shows the URL of the screen again. The permalink names the item, not the screen around it: in the app the client keeps the current screen; a new page load selects the screen with §6. | The URL that the user sees is the URL that the user shares (R1). |
-| U8 | Each representation of a document is under its permalink: `/perma/{t}/presentation`, `/perma/{t}/raw`, `/perma/{t}/export/{format}`. The access policies of the raw file and the export do not change. | One root for one item (R2). |
-| U9 | Page metadata. Each view writes the canonical link `/perma/{t}`, Open Graph tags, and JSON-LD. `robots` is `index, follow` for a note and for a document or an entity of a public KB. An item that only link access makes readable gets `noindex`. The sitemap lists `/perma/{t}` for documents of public KBs and makes no tokens; entities are not in the sitemap (entity pages in the sitemap stay an idea of `PUBLIC_SITE_INDEXING_IDEAS.md`). Responses under `/perma/` send `Referrer-Policy: strict-origin-when-cross-origin` or a stricter value. Google Analytics keeps virtual paths with internal IDs and never gets an address token. | A link-only permalink is a capability: search engines and other sites must not get it. **This changes the current behavior**: all share pages have `index, follow` now. |
+| U8 | Each representation of a document is under its permalink: `/silvercord/{t}/presentation`, `/silvercord/{t}/raw`, `/silvercord/{t}/export/{format}`. The access policies of the raw file and the export do not change. | One root for one item (R2). |
+| U9 | Page metadata. Each view writes the canonical link `/silvercord/{t}`, Open Graph tags, and JSON-LD. `robots` is `index, follow` for a note and for a document or an entity of a public KB. An item that only link access makes readable gets `noindex`. The sitemap lists `/silvercord/{t}` for documents of public KBs and makes no tokens; entities are not in the sitemap (entity pages in the sitemap stay an idea of `PUBLIC_SITE_INDEXING_IDEAS.md`). Responses under `/silvercord/` send `Referrer-Policy: strict-origin-when-cross-origin` or a stricter value. Google Analytics keeps virtual paths with internal IDs and never gets an address token. | A link-only permalink is a capability: search engines and other sites must not get it. **This changes the current behavior**: all share pages have `index, follow` now. |
 | U10 | Timeline. A note and a document have the same actions: "open" and "copy link", both the permalink. The two links of a published document go away. A post never shows an object ID: a reply or a quote of an own item shows its permalink, a remote one shows its remote `url`. The node detail panel of an entity has "copy link" and, in a private KB, the link access switch. | R3, R4, R5. |
 | U11 | ActivityPub. The object ID stays `/ap/objects/{public ID}`. `Note.url`, `Article.url`, and the link in `Article.content` become the permalink. A request to an object ID that does not accept ActivityPub gets 303 to the permalink (`onNotAcceptable` of the sidecar). A request to a permalink that accepts only ActivityPub gets 303 to the object ID when the item is federated. The page of a federated item has `<link rel="alternate" type="application/activity+json" href="{object ID}">`. Entities are not federation objects and get none of this. | Delivered IDs cannot change. A remote copy can keep its old `url`; the 303 and the 308 send old links to the permalink. 303, not 308: the object ID did not move; the server only selects a representation. |
 | U12 | Input. `extract_own_share_token` and `resolve_document_targets` (CLI, Telegram bot, MCP targets) read the permalink and the old forms of U5, with the same mapping as the redirects. | Old links stay in messages. Reading an old link is not making one. |
+| U13 | (O2, decided by the maintainer on the request of the owner.) The JSON API does not change. An API call keeps the internal ID where it has it now, also in a query. A new API route puts an item identifier in the path. | R2 is a rule for URLs that a person sees, and U8 moves the two API paths that a person sees. A rename of the other 7 handlers gives a user nothing and can break the client. New routes have the path form now (`/api/client-extraction/sources/{document_id}`, `/api/admin/themes/{number}`), thus the API converges without a rename project. |
 
-## 6. Views and access for `GET /perma/{address token}`
+## 6. Views and access for `GET /silvercord/{address token}`
 
 **Item view.** One frame for the three kinds, the opened form of a timeline post:
 
@@ -161,73 +168,82 @@ The migration completes itself at the start. The operator does nothing.
 
 | Phase | Work |
 | :--- | :--- |
-| A1 | Registry and migration (§7), resolver, `GET /perma/{t}` with the views and the metadata (§6, U9), the 308 redirects (U5), share and stop-sharing for documents and entities. |
+| B1 | Bundle paths (§9.4). Independent of A1 to A4; it can go first. |
+| A1 | The path constant and the reserved USERNAME `silvercord`, registry and migration (§7), resolver, `GET /silvercord/{t}` with the views and the metadata (§6, U9), the 308 redirects (U5), share and stop-sharing for documents and entities. |
 | A2 | Client: address bar (U7), timeline and node panel actions (U10), each link builder uses the permalink (console, public KB page, notifications, syndication with the defect `/p?id=`, account home, Telegram bot, CLI, MCP results), representation paths (U8), the text `synd.kb.publish.public_note` (§4), the terms of §4 after the review. |
 | A3 | Federation (U11). Measure with Mastodon if an `Update` changes the stored `url` without the "edited" mark; send `Update` for existing objects only if the measurement shows this. |
 | A4 | Public site (U9). Update `docs/implementation/` (PUBLIC_SITE, FEDERATION, WEBUI, API_HTTP_CONTRACT, COMMANDS, openapi) and `GLOSSARY.md`. |
 
 Tests: E2E "open a document in the workspace, copy the permalink from the address bar, open it as an anonymous caller" for a public KB and for a private KB with link access 1 and 0; the same for an entity from the graph; E2E "open a note and a document from the timeline, copy each link, both have the same form"; E2E for the 308 of an old `/p?s=` link and of an old `?node=` link, and for the 303 of an object ID. Unit tests: migration (I/O), registry lifecycle (merge alias, entity re-creation), resolver over the two databases, sidecar redirect (interface between modules).
 
-## 9. Open items for the owner
+## 9. Owner decisions (2026-11-23)
 
-### 9.1 O1: prefix
+| ID | Question | Decision |
+| :--- | :--- | :--- |
+| O1 | Path prefix of the permalink | `/silvercord/` (owner). §9.1 |
+| O2 | R2 for the JSON API | No change to the API (maintainer, U13). §9.2 |
+| O3 | R2 for other query forms | R2 is for item URLs only; a query stays where a path needs it. The two bundle paths change (owner). §9.3, §9.4 |
+| O4 | Terms | Accepted. §4 |
+| O5 | View for a caller that is not a member of a public KB | Item view with the switch (U6) |
 
-Lessons from this project:
+### 9.1 O1: prefix `/silvercord/`
 
-- `/doc/` (revision 1) became wrong in one hour, when notes joined; entities joined next. A prefix that names a kind ages when a kind joins.
-- `/p` has no clear meaning (public, page, presentation?), and it has two different things under it (`/p/presentation`, `/p/images/`). Code checks it with `startswith("/p/presentation")` (`security.py:2614`), and `/purge` and `/providers` also start with `p`.
-- Paths with a namespace needed 308 redirects after the mode change (namespace design §4.3).
+The owner selected the name. The proposal `/perma/` of revision 3 was not selected: "permalink" is a short form already, and a second short form has no convention.
 
-Criteria:
+Lessons that the name must satisfy, and the check of `/silvercord/`:
 
-| ID | Criterion |
-| :--- | :--- |
-| C1 | It names the mechanism (a permanent address), not a kind, a feature (share), a protocol (`ap`, `objects`), or a screen (timeline). |
-| C2 | No current top-level path starts with it. A prefix match in the edge (`location ^~`), in `robots.txt`, or in `startswith` cannot catch a different path by accident. Checked against the 102 top-level segments of the routes at the base commit. |
-| C3 | The code does not use the word for a different concept (`item`: timeline items; `link`: graph links; `id`: internal IDs; `ref`: `/reference`; `node`, `object`, `share`, `doc`, `p`: current meanings). |
-| C4 | A person can read it in logs, route policies, `robots.txt`, edge rules, and support talks without a table. |
-| C5 | Short lowercase ASCII. |
-| C6 | It can be a reserved USERNAME (rule D1 of the console design), so that no account name looks like it. |
+| ID | Criterion | `/silvercord/` |
+| :--- | :--- | :--- |
+| C1 | It names no kind (`/doc/` became wrong when notes and entities joined), no feature, no protocol, no screen. | Yes: a proper name |
+| C2 | No current top-level path starts with it, so that a prefix match in the edge (`location ^~`), in `robots.txt`, or in `startswith` cannot catch a different path. Checked against the 102 top-level segments of the routes at the base commit. | Yes: 0 paths |
+| C3 | The code does not use the word for a different concept. | Yes: no use in `src/`, `sidecar/`, `ops/`, `docs/` |
+| C4 | It is one unique string in logs, route policies, and edge rules. | Yes |
+| C5 | It can be a reserved USERNAME (rule D1 of the console design). The word matches the USERNAME syntax, thus the reservation is necessary. | Add to `RESERVED_USERNAMES` |
 
-| Candidate | C1 | C2 | C3 | C4 | C5 | Result |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`/perma/`** | Yes | Yes (0 paths) | Yes (the only use is the RSS attribute `isPermaLink`, the same meaning) | Yes | 5 letters | **Proposal** |
-| `/permalink/` | Yes | Yes | Yes | Yes | 9 letters | Good, but long for sharing |
-| `/x/` | Yes | Yes | Yes | No: no meaning, a reader needs a table; also the brand X | 1 letter | Second choice if length is first |
-| `/go/` | Partly | Yes | No: "go links" are names that a person selects, not random tokens | Partly | 2 letters | No |
-| `/item/` | Yes | Yes | No | Yes | 4 letters | No |
-| `/a/`, `/i/`, `/k/`, `/r/`, `/s/` | Partly | No (`api`, `account`, `admin`; `ingest`, `images`; `kb`, `knowledge-…`; `reference`, `regenerate`; `search`, `settings`) | — | — | 1 letter | No |
+Example: `https://claire.bible/silvercord/k9x2m7q1p4v8nd3a`.
 
-Proposal: **`/perma/`**, reserved as a USERNAME. "Perma" is the common short form of "permalink" (the Perma.cc service of libraries uses it for permanent citation links), thus it names what the URL promises: it does not change. Example: `https://claire.bible/perma/k9x2m7q1p4v8nd3a`.
-
-### 9.2 O2: JSON API
+### 9.2 O2: JSON API (decision U13)
 
 **What it is.** The paths that programs call and that give JSON: the web client (`fetch`), the CLI, tests. MCP tools call functions in the process, not these paths. The agent plugins call only `/api/client-extraction/...`, which has path forms now.
 
-**The query forms.** 9 API handlers read an item identifier from the query: `GET /document?id=` (`server.py:5234`), `/document/export?id=` (`:5195`), `/document/raw?id=` (`:5270`), `/document/presentation?id=` (`:6515`), `GET` and `PUT /document/presentation/adoc?id=` (`:6760`), `/node?id=` (`:5160`), and `POST /document/presentation/generate`, `/compose`, `/compile` with `?id=` (`:6546`, `:6645`, `:6709`). The value is the internal document ID or entity ID, not an address token. The two presentation pages (`server.py:6431`, `usercontent.py:579`) are pages, not API: U5 and U8 move them.
+**The query forms.** 9 API handlers read an item identifier from the query: `GET /document?id=` (`server.py:5234`), `/document/export?id=` (`:5195`), `/document/raw?id=` (`:5270`), `/document/presentation?id=` (`:6515`), `GET` and `PUT /document/presentation/adoc?id=` (`:6760`), `/node?id=` (`:5160`), and `POST /document/presentation/generate`, `/compose`, `/compile` with `?id=` (`:6546`, `:6645`, `:6709`). The value is the internal document ID or entity ID, not an address token.
 
-**Who sees them.** A user does not see them in the address bar, with two exceptions: `/document/raw` and `/document/export` open in a browser tab. U8 moves these two to the permalink.
+**Decision and reasons.**
 
-**Why not in this design.**
+1. A person does not see these URLs, with two exceptions: `/document/raw` and `/document/export` open in a browser tab. U8 moves these two under the permalink, and the old two names close.
+2. A program needs the internal ID. An address token is a capability for link access; it must not go into each program call and log.
+3. A rename of the other 7 handlers, their client calls, the tests, and `openapi.yaml` gives a user nothing and can break the client. Other sessions change the same files at the same time.
+4. The API converges without a project: each new route has the identifier in the path.
 
-1. A program needs the internal ID: it also acts on items that it may change but not share, and an address token is a capability for link access. If the API took tokens, the capability would go into each program call and log.
-2. The change is a rename of 9 routes, their client calls, and `openapi.yaml`. There are no external API consumers, thus old names can close at once. But this does not help R1.
-3. Together with this design, the change and its tests become larger, and a failure in one part stops the other.
+### 9.3 O3: other query forms
 
-**Options.** (a) No change. (b) A separate small design after this one: path forms under `/api/` with internal IDs, for example `GET /api/documents/{document ID}`, `/api/documents/{document ID}/presentation`, `/api/entities/{entity ID}`. Old names close at once.
+The owner narrowed R2: a query stays where a path needs it.
 
-**Proposal.** (b), after A4, if the owner wants R2 for all paths. Else (a).
-
-### 9.3 O3: other user-visible query forms
-
-Revision 3 moves `?node=` into this design (U5), because entities are in the scope now. The other query forms that a user can see:
-
-| Class | Examples | Proposal |
+| Class | Examples | Result |
 | :--- | :--- | :--- |
-| One-time download token (a code after `=`) | `/graph/bundle?token=` (`console_kb.js:1045`), `/support/bundle?token=` (`console_admin.js:536`) | Path form (`/graph/bundle/{token}`, `/support/bundle/{token}`) in a separate small change. R2 applies: the token is a code. Not in this design: these are not items. |
-| Filter of a list | `/themes?knowledge_type=` (`console_kb.js:259`, `common_ingest_modals.html:11`) | No change. The path names the list, and the query only narrows it. No item has this URL. |
-| External standards | `/oauth/authorize?client_id=…` (OAuth 2.1), `/device?user_code=` (RFC 8628 `verification_uri_complete`), `/.well-known/webfinger?resource=acct:…` (RFC 7033), ActivityPub collection pages `?page=true&max_id=` | No change. Other servers and clients send these forms; Claire cannot change them. |
-| Technical markers | `/?pwa=1` (start URL of the web app manifest), `/icon?p=` (icon file) | No change now. Nobody shares them. A later cleanup can give them paths. |
+| Item identifier | `?doc=`, `?node=`, `/p?s=`, `/p/presentation?s=`, `/document/raw?id=`, `/document/export?id=` | This design (U5, U8) |
+| Bundle download token | `/graph/bundle?token=`, `/support/bundle?token=` | New paths (§9.4) |
+| Filter of a list | `/themes?knowledge_type=` | No change: the path names the list, the query narrows it |
+| External standards | `/oauth/authorize?client_id=…` (OAuth 2.1), `/device?user_code=` (RFC 8628), `/.well-known/webfinger?resource=acct:…` (RFC 7033), ActivityPub collection pages `?page=true&max_id=` | No change: other servers and clients send these forms |
+| Technical markers | `/?pwa=1` (start URL of the web app manifest), `/icon?p=` (icon file) | No change |
+
+### 9.4 Bundle paths (work item B1)
+
+Owner: the graph bundle and the support bundle are both bundles for support, thus their paths must change, also if the method stays `GET`.
+
+**[code]** Now: the support bundle has server diagnostics for a root cause analysis, the administrator makes it, and it is deleted after 6 hours (`ops/support_bundle.py`). The graph bundle has the graph of one KB without vectors and secrets, the owner of the namespace makes it, and it expires after 24 hours (`ops/graph_bundle.py`). The two have different path roots (`/support/`, `/graph/`), and each download link has the token in a query.
+
+| Now | New | Policy |
+| :--- | :--- | :--- |
+| `POST /support/bundle` | No change | `_system("admin", "none")` |
+| `GET /support/bundle?token={token}` | `GET /support/bundle/{token}` | `_system("public", "none")`; the token is the capability |
+| `POST {namespace}/graph/bundle` | `POST {namespace}/support/graph-bundle` | `_namespaced("owner", "settings")` |
+| `GET /graph/bundle?token={token}` | `GET /support/graph-bundle/{token}` | `_system("public", "none")`; the token finds the KB |
+
+1. The two bundles are under one root, `/support/`. The names of the two bundles (support bundle, graph bundle) do not change.
+2. The method stays `GET` for a download; the token is a path segment.
+3. The old paths close at once, with no redirect: they are API names, and a link lives 6 or 24 hours at most.
+4. The change is in `server.py`, `security.py` (policy and the `robots.txt` lines), the builders of the download links (`ops/graph_bundle.py:357`, `ops/support_bundle.py:1152`, `telegram/bot.py`), the console scripts and hints, 10 test files, and 10 documents of `docs/implementation/`.
 
 ## 10. Rejected alternatives
 
