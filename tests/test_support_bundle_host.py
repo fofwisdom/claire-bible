@@ -79,6 +79,40 @@ def test_network_probe_reports_the_step_that_failed():
     assert (unknown["ok"], unknown["failed_step"]) == (False, "dns")
 
 
+def test_api_probe_reports_a_blocked_event_loop_and_writes_the_stacks(tmp_path: Path, monkeypatch):
+    import asyncio
+    import socket
+    import threading
+
+    monkeypatch.setattr(host_runtime, "_PROBE_TIMEOUT_SECONDS", 0.3)
+    with socket.socket() as unused:
+        unused.bind(("127.0.0.1", 0))
+        port = unused.getsockname()[1]
+    probe = host_runtime.ApiProbe(tmp_path, ("0.0.0.0", port))
+    assert probe.host == "127.0.0.1"
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    try:
+        probe.loop = loop
+        state = probe._loop_state()
+        assert state["loop_blocked"] is False and state["loop_lag_seconds"] < 0.3 and state["executor_queued"] == 0
+
+        def block_the_event_loop() -> None:
+            time.sleep(1.0)
+
+        loop.call_soon_threadsafe(block_the_event_loop)
+        time.sleep(0.1)
+        sample = probe.sample()
+        assert sample["loop_blocked"] is True and sample["request"]["ok"] is False and sample["stack_dump"] is True
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=5)
+        loop.close()
+    dump = probe.stall_log.read_text(encoding="utf-8")
+    assert "api stall" in dump and "block_the_event_loop" in dump and "ConnectionRefusedError" in dump
+
+
 def test_server_bundle_shows_a_host_restart_without_a_stop_record(tmp_path: Path):
     now = time.time()
     db_file = tmp_path / "claire.db"
@@ -90,6 +124,11 @@ def test_server_bundle_shows_a_host_restart_without_a_stop_record(tmp_path: Path
     # The available memory of the host goes down and the pressure goes up before the last record.
     records += [_record("sample", crash - 540 + 60 * step, "boot-a", mem_available=(8 - step) * GIB // 8, pressure=10.0 * step, rss=(1 + step) * GIB) for step in range(8)]
     records += [_record("start", now - 300, "boot-b"), _record("sample", now - 240, "boot-b")]
+    # Before the stop of the host: the event loop of the api process does not answer in the last two records.
+    for record in records[7:9]:
+        record["api"] = {"loop_attached": True, "loop_blocked": True, "loop_lag_seconds": None, "tasks": 40, "executor_threads": 7, "executor_max_threads": 7, "executor_queued": 12, "threads": 20, "request": {"ok": False, "status": None, "seconds": 5.0, "error": "TimeoutError: timed out"}, "stack_dump": True}
+    (tmp_path / "logs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "logs" / "api-stall.log").write_text("===== 2026-11-23T06:05:00Z api stall: {}\nThread 0x01 (most recent call first):\n", encoding="utf-8")
     # After the restart: two probes fail, then the network comes back.
     for offset, ok in ((-180, False), (-120, False), (-60, True)):
         sample = _record("sample", now + offset, "boot-b")
@@ -109,7 +148,10 @@ def test_server_bundle_shows_a_host_restart_without_a_stop_record(tmp_path: Path
 
     host = json.loads(members["diagnostics/host.json"])
     codes = [finding["code"] for finding in host["findings"]]
-    assert codes == ["HOST_RESTART_WITHOUT_STOP", "HOST_MEMORY_LOW_BEFORE_RESTART", "HOST_NETWORK_UNREACHABLE", "HOST_MEMORY_PRESSURE"]
+    assert codes == ["HOST_RESTART_WITHOUT_STOP", "HOST_MEMORY_LOW_BEFORE_RESTART", "HOST_NETWORK_UNREACHABLE", "API_EVENT_LOOP_BLOCKED", "API_EXECUTOR_QUEUE", "HOST_MEMORY_PRESSURE"]
+    (stall,) = host["services"]["api"]["api_stalls"]
+    assert (stall["from"], stall["to"], stall["records"], stall["loop_blocked"], stall["executor_queued_max"]) == (crash - 180, crash - 120, 2, True, 12)
+    assert "recovered_at" not in stall and b"api stall" in members["logs/api-stall.log"]
     (outage,) = host["services"]["api"]["network_outages"]
     assert (outage["from"], outage["to"], outage["recovered_at"], outage["failed_probes"], outage["failed_steps"]) == (now - 180, now - 120, now - 60, 2, ["dns"])
     assert json.loads(members["manifest.json"])["host_findings"] == codes

@@ -7389,6 +7389,9 @@ def create_app(
         from ..ops.support_bundle import purge_expired_bundles
         from ..ops.graph_bundle import purge_expired_graph_bundles
 
+        from ..ops.host_runtime import set_api_loop
+
+        set_api_loop(asyncio.get_running_loop())
         await asyncio.to_thread(purge_expired_bundles, s.data_dir)
         await asyncio.to_thread(purge_expired_graph_bundles, s.data_dir)
         backup_task = asyncio.create_task(_account_backup_scheduler())
@@ -7738,7 +7741,7 @@ def run_api() -> int:
 
     from ..ops.host_runtime import start_host_recorder
 
-    start_host_recorder(getattr(s, "data_dir", "data"), "api", public_url=getattr(s, "public_url", None))
+    start_host_recorder(getattr(s, "data_dir", "data"), "api", public_url=getattr(s, "public_url", None), api_address=(str(s.inject_host), int(s.inject_port)))
 
     from .dev_listeners import dev_listeners
 
