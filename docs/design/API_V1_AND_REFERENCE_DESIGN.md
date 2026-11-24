@@ -1,7 +1,7 @@
 # Versioned Public API (/api/v1) and Role-Expanded Reference (/reference)
 
 - **Document Identifier**: `DESIGN-API-V1-REFERENCE-20261124`
-- **Status**: Decided (owner, 2026-11-24). Not implemented. Depends on [`LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md`](LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md) (units `ENV-1` to `ENV-4`).
+- **Status**: Implemented (owner, 2026-11-24). Units `API-1` to `API-5` are implemented on top of [`LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md`](LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md); see [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md), [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md), and [`openapi.yaml`](../implementation/openapi.yaml) for current runtime behavior.
 - **Date**: 2026-11-24
 - **Related**: [`LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md`](LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md), [`PERMALINK_UNIFICATION_DESIGN.md`](PERMALINK_UNIFICATION_DESIGN.md), [`MCP_SUPPORT.md`](MCP_SUPPORT.md), [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md), [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md), [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md), [`PRINCIPLES.md`](../PRINCIPLES.md)
 

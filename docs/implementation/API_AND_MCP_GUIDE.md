@@ -1,7 +1,7 @@
 # Claire Bible REST API 및 MCP 연결 가이드 (통합 구현본)
 
-- **상태**: **구현 완료 (REST API + M1 MCP 툴셋 + OAuth 2.1 표준 인가 서버)**
-- **기준 커밋**: `d15ae8e0` (2026-11-16) 및 2026-11-22 작업 트리(§2.7 결정 GD4–GD8 반영). 1.1·1.7·3절은 `d15ae8e0` 코드 기준으로 재검토했고, 그 외 절의 확인 기준은 2026-10-16이다.
+- **상태**: **구현 완료 (`/api/v1/*` 공개 REST API + 권한별 `/reference` Scalar 다중 문서 + M1 MCP 툴셋 + OAuth 2.1 인가 서버)**
+- **기준 커밋**: 2026-11-24 (`API_V1_AND_REFERENCE_DESIGN.md` `AR1`–`AR10` 및 `LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md` `ER1`–`ER9` 반영).
 - **Design principles**: [`MCP_SUPPORT.md`](../design/MCP_SUPPORT.md) (decisions of MCP and OAuth, and the open proposals MP1 to MP4)
 - **기준 프로토콜 및 사양**:
   - OpenAPI 3.1.0 ([`openapi.yaml`](openapi.yaml))
@@ -38,18 +38,17 @@ The scope `write` replaces `collaborator` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DES
 
 | 역할 (Scope) | 자격 증명 (토큰 / 헤더) | 기본 테마 (`seq=0`) | 추가 테마 (공개) | 추가 테마 (비공개) | 테마 관리 / 진단 번들 |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **시스템 관리자 (`owner`)** | OAuth 2.1 / 세션(`claire auth`, 텔레그램 `/web`), 또는 지원 중단 예정 상시 토큰(`cb_...`, `env:owner`) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`, `tokens`) |
-| **Write (`write`)** | OAuth 2.1 `write` 스코프 토큰(권장, `AE2a`) 또는 `claire token create <name> --scope write`(지원 중단 예정) | Personal knowledge base: read, ingest, client extraction (`AE5`), regenerate, publish | Shared knowledge base: read, contributions | — | No |
-| **읽기 전용 (`readonly`)** | OAuth 2.1 `readonly` 스코프 토큰(권장) 또는 텔레그램 `/webro` 세션 / 상시 토큰(`cb_...`, `env:readonly`, 지원 중단 예정) | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
-| **익명 사용자 (`anonymous`)** | 자격증명 없음 (`CLAIRE_ANONYMOUS_READONLY=1`) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
+| **시스템 관리자 (`owner`)** | OAuth 2.1 / 세션(`claire auth`, 텔레그램 `/web`, 브라우저 쿠키) | 읽기 / 쓰기 | 읽기 / 쓰기 | 읽기 / 쓰기 | 가능 (`define`, `update`, `delete`, `bundle`) |
+| **Write (`write`)** | OAuth 2.1 `write` 스코프 토큰(`AE2a`) | Personal knowledge base: read, ingest, client extraction (`AE5`), regenerate, publish | Shared knowledge base: read, contributions | — | No |
+| **읽기 전용 (`readonly`)** | OAuth 2.1 `readonly` 스코프 토큰 또는 텔레그램 `/webro` 세션 | 읽기 전용 | 읽기 전용 | 읽기 전용 | 불가 |
+| **익명 사용자 (`anonymous`)** | 자격증명 없음 (KB `is_public=true` / 문서 `hidden=false`에 한함) | 공개 읽기<br>(숨김 문서 제외) | 공개 읽기<br>(숨김 문서 제외) | **404 Not Found**<br>(존재 은닉) | 불가 |
 
-### 1.3 인증 아키텍처 전환: OAuth 2.1 기본화 및 수동 상시 토큰 지원 중단 (`AE2a`/`AE2b`/`AE3`)
-- **OAuth 2.1 우선 권장**: AI 클라이언트와 도구는 `/account/mcp`에서 관리하는 OAuth 2.1(`S256` PKCE 또는 RFC 8628 `/device`) 사용을 권장한다(§3.1 방법 3).
-- **레거시 상시 이용 토큰(`data/auth/api_tokens.json`, `Deprecated`)**: 기존 정적 환경변수(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`)와 `data/auth/api_tokens.json` 상시 토큰(`cb_...`)은 OAuth 2.1로 대체되어 지원 중단 예정이다. 수동 토큰 Bearer 인증과 `/tokens*` 경로는 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환하며, `TokenStore.set_retired(True)`(`api_tokens.json` `"retired": true`) 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 설정 시 신규 발급은 `410 Gone`(`manual_tokens_retired`)을 반환하고 파일 기반 수동 토큰 검증이 중단된다.
+### 1.3 인증 아키텍처: OAuth 2.1 + Same-Origin 세션 전용 (`ER7`, `AR5`)
+- **허용 자격증명**: 모든 REST API(`/api/v1/*`, BFF 경로)와 MCP(`/mcp`)는 콘솔 `/account/mcp`에서 관리하는 **OAuth 2.1 Bearer 토큰(`Authorization: Bearer`, PKCE `S256` 또는 RFC 8628 `/device`)** 과 **Same-Origin 브라우저/세션(`Cookie: claire_session=...`, `X-Session`)** 만 허용한다(§3.1 방법 2).
+- **레거시 수동 토큰 전면 퇴역 (`ER7`)**: 과거 환경변수 정적 토큰(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`)과 파일 기반 `cb_...` 수동 토큰(`api_tokens.json`, `/tokens*`, `/account/tokens`, `/admin/tokens`, `claire token`, 텔레그램 `/token`)은 전면 제거되었다(HTTP `404`).
 - **토큰 관리 인터페이스**:
-  - **OAuth 2.1 인가 관리**: 콘솔 `/account/mcp`, API `/api/me/oauth/grants`, `POST /oauth/revoke`
-  - **레거시 상시 토큰 관리 (Deprecated)**: `claire token [list|create|revoke]`, 콘솔 `/account/tokens`(관리자 `/admin/tokens`), 텔레그램 `/token`, REST API `/tokens*`
-- **RFC 6750 Bearer 토큰 사양**: 레거시 상시 토큰은 `cb_` 접두사를 가지며, OAuth 2.1 액세스 토큰·세션과 함께 `Authorization: Bearer <TOKEN>`으로 전송된다.
+  - **OAuth 2.1 인가 관리**: 콘솔 `/account/mcp`, REST API `/api/v1/me/oauth/grants` (BFF `/api/me/oauth/grants`), `POST /oauth/revoke`
+- **대화형 API 레퍼런스 (`/reference`)**: 단일 경로 `GET /reference`가 호출자의 `Principal` 권한에 따라 Scalar 다중 문서 탭(`v1` 공개 사양 `GET /openapi/v1.json`, `owner` 이상에게 `GET /openapi/account.json`, `admin`에게 `GET /openapi/admin.json`)을 동적 노출하며 `Cache-Control: private, no-store`, `Vary: Cookie, Authorization`, `Referrer-Policy: same-origin`을 반환한다. 비권한 요청의 `/openapi/account.json`, `/openapi/admin.json`은 `404`로 존재를 은닉한다. YAML 사양은 `GET /openapi.yaml`([`openapi.yaml`](openapi.yaml))에서 제공한다.
 
 ### 1.4 자격증명 채널 및 상호 배타성 규약
 인증 시 다음 세 채널 중 **정확히 하나만** 사용해야 한다:
@@ -66,7 +65,7 @@ The scope `write` replaces `collaborator` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DES
 > 또한 비표준 헤더인 `X-Token`은 사용이 엄격히 금지되며 감지 시 즉시 거부된다. Cross-Origin(CORS) 요청은 오직 `Authorization: Bearer` 방식만 허용된다.
 
 ### 1.5 스텔스 모드 (Fail-Closed Invariant)
-`CLAIRE_ANONYMOUS_READONLY=0`(프라이빗/스텔스 모드)로 구동되는 서버 또는 비공개 테마(`is_public=false`)에 대해 자격증명이 없는 읽기 요청이 인입될 경우, 외부 정찰에 엔드포인트나 테마의 존재 여부를 일절 노출하지 않기 위해 `401 Unauthorized` 또는 `403 Forbidden` 대신 **HTTP `404 Not Found`**를 반환한다.
+비공개 지식베이스(`is_public=false`), 숨김 문서(`hidden=true`), 또는 인증이 필요한 경로에 자격증명이 없거나 권한이 부족한 요청이 인입될 경우, 외부 정찰에 리소스·경로의 존재 여부를 노출하지 않기 위해 `401 Unauthorized` 또는 `403 Forbidden` 대신 **HTTP `404 Not Found`** 를 반환한다. (구 서버 전역 스위치 `CLAIRE_ANONYMOUS_READONLY`는 스키마 v48 마이그레이션과 함께 제거되었다.)
 
 ### 1.6 요청 크기 제한
 모든 API 및 MCP 요청 본문은 최대 1MB (`1,048,576` bytes)로 하드 제한된다. 초과 시 즉시 HTTP `413 Request Entity Too Large`로 차단된다.
@@ -81,9 +80,16 @@ The scope `write` replaces `collaborator` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DES
 
 ## 2. REST API 연결 및 엔드포인트 가이드
 
-모든 REST API 요청은 JSON 본문을 사용하며(`Content-Type: application/json`), 응답 역시 표준 JSON 형식이다.
+외부 개발자·앱·스크립트는 버전드 공개 REST API **`/api/v1/*`** (안 B, [`openapi.yaml`](openapi.yaml))를 사용한다. 기존 비버전 BFF 경로(`/health`, `/documents`, `/graph`, `/ingest`, `/api/me/*`, `/api/admin/*` 등)는 WebUI/콘솔 내부 연동용으로 유지되며, 중복 레거시 별칭 6종(`/purge`, `/ingest-limits`, `/document/regenerate`, `/syndication/dispatch`, `/syndication/dispatches`, `/support/bundle`)은 `Deprecation: true` 및 `Link: <successor>; rel="successor-version"` 헤더를 반환한다.
 
-### 2.1 서비스 상태 및 신원 확인
+### 2.0 버전드 공개 REST API (`/api/v1/*`) 표준 규약 (`AR1`–`AR5`)
+- **봉인 스키마 및 표준 용어**: 모든 입출력은 Pydantic v2(`extra="forbid"`, 응답 `strict=True`)로 검증되며 `entity`·`relation`·`graph`·`document` 용어만 사용한다(`node`·`link`·`theme` 입력 미허용).
+- **지식베이스 선택 (`{kb}`)**: 경로 매개변수 `{kb}`는 `"personal"` 또는 18자리 외부 KB 번호만 허용한다(내부 정수 `kb_id` 및 `theme` 거부).
+- **통일 에러 엔벨로프**: `{"error": {"code": "<snake_case>", "message": "<text>", "request_id": "<id>", "details"?: {...}}}` (`404` 존재 은닉 유지). JSON 쓰기 요청은 `Content-Type: application/json` 필수(`415`/`400`).
+- **키셋 커서 페이지네이션**: `{"items": [...], "next_cursor": "<opaque>" | null, "total"?: <int>}`.
+- **전체 경로 목록**: `GET /api/v1/health`, `GET /api/v1/me`, `GET/POST /api/v1/kbs`, `GET/PATCH/DELETE /api/v1/kbs/{kb}`, `GET /api/v1/themes`, `POST /api/v1/kbs/personal/ingest(/stream)`, `GET /api/v1/kbs/{kb}/documents`, `GET/PATCH/DELETE /api/v1/kbs/{kb}/documents/{doc_id}`, `GET .../raw`, `GET .../export`, `POST /api/v1/kbs/{kb}/search`(익명 FTS-only 최대 20건), `GET /api/v1/kbs/{kb}/graph`, `GET /api/v1/kbs/{kb}/entities/{entity_id}(/neighbors)`, `GET /api/v1/kbs/{kb}/graph/path`, `GET/POST /api/v1/kbs/{kb}/contributions*`, `GET/POST/PATCH/DELETE /api/v1/kbs/{kb}/members*`, `/api/v1/extraction/*`, `/api/v1/federation/*`, `/api/v1/feeds*`, `GET/DELETE /api/v1/me/oauth/grants`, `GET/POST/DELETE /api/v1/support/bundles*`. (상세 스키마: `GET /reference` 또는 [`openapi.yaml`](openapi.yaml))
+
+### 2.1 서비스 상태 및 신원 확인 (WebUI BFF)
 
 #### `GET /health` (Public)
 서비스 Liveness 및 데이터베이스 연결 상태를 확인한다.
@@ -106,7 +112,7 @@ curl -s -H "Authorization: Bearer <TOKEN>" https://claire.example.com/whoami
 #### `GET /stats` (Read)
 지식베이스 규모(문서 수, 엔티티 수, 관계 수, 소스 타입별 통계 등)를 조회한다.
 ```bash
-curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+curl -s -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
         https://claire.example.com/stats
 ```
 ```json
@@ -123,7 +129,7 @@ curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
 
 ---
 
-### 2.2 지식 검색 및 조회 API
+### 2.2 지식 검색 및 조회 API (WebUI BFF; 공개 API는 `/api/v1/kbs/{kb}/*`)
 
 #### `POST /search` (Read)
 FTS5 전문 검색 및 하이브리드 지식 검색을 수행한다.
@@ -136,7 +142,7 @@ FTS5 전문 검색 및 하이브리드 지식 검색을 수행한다.
 - **호출 예시**:
 ```bash
 curl -s -X POST https://claire.example.com/search \
-     -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+     -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{"query": "Transformer attention mechanism", "limit": 5}'
 ```
@@ -155,10 +161,10 @@ curl -s -X POST https://claire.example.com/search \
 - 잘못된 값은 `400`과 고정 오류 문구를 돌려준다. `anonymous` 범위는 어떤 페이지와 필터에서도 숨김 문서를 받지 않고, `total`에도 세지 않는다.
 - MCP 도구 `documents`의 인자(`limit`, `since`, `query`)는 이 HTTP 경로와 다르다.
 ```bash
-curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+curl -s -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      "https://claire.example.com/documents?limit=31&q=OAuth"
 # 다음 페이지: 앞 응답의 next_before 값을 before로 보낸다
-curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+curl -s -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      "https://claire.example.com/documents?limit=31&q=OAuth&before=<next_before>"
 ```
 
@@ -166,14 +172,14 @@ curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
 문서 1건의 상세 정보(원문 URL, 제목, 요약, 상세 본문, docmeta 등)를 조회한다.
 - **쿼리 파라미터**: `id` (str, 필수, 문서 식별자), `theme` (선택)
 ```bash
-curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+curl -s -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      "https://claire.example.com/document?id=doc_12345678"
 ```
 
 #### `GET /graph` (Read)
 전체 또는 필터링된 온톨로지 지식 그래프 데이터(nodes, links)를 JSON으로 조회한다.
 ```bash
-curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+curl -s -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      "https://claire.example.com/graph"
 ```
 
@@ -182,24 +188,24 @@ curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
 - **쿼리 파라미터**: `id` (str, 필수), `full` (bool, 선택, 기본 false), `docs` (선택, `brief`), `theme` (선택)
 - `docs=brief`: 소스 문서마다 `id`, `title`, `url`, `summary`, `fetched_at`, `has_detail`, `source_type`, `has_raw_file`만 돌려준다(`detail`, `detail_format`, `detail_html` 제외). WebUI 상세 패널의 `출처 문서` 목록이 쓴다. 기본 응답은 바뀌지 않는다.
 ```bash
-curl -s -H "Authorization: Bearer <CLAIRE_READONLY_TOKEN>" \
+curl -s -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      "https://claire.example.com/node?id=ent_oauth21_pkce"
 ```
 
 ---
 
-### 2.3 지식 적재 (Ingest) API
+### 2.3 지식 적재 (Ingest) API (WebUI BFF; 공개 API는 `POST /api/v1/kbs/personal/ingest`)
 
-#### `POST /ingest` (Collaborator / Owner)
+#### `POST /ingest` (Write / Owner)
 새로운 웹 URL 또는 텍스트 본문을 지식베이스에 적재하고 온톨로지 지식그래프를 추출한다.
-- **헤더**: `Content-Type: application/json`, `Authorization: Bearer <CLAIRE_INJECT_TOKEN>` (또는 세션 헤더)
+- **헤더**: `Content-Type: application/json`, `Authorization: Bearer <OAUTH_ACCESS_TOKEN>` (또는 세션 헤더)
 - **본문 필드**:
   - `payload` (str, 필수): 수집할 웹 페이지/PDF/동영상 URL 또는 적재할 텍스트 본문. 적재 대상은 호출자의 개인 지식베이스이다.
   - `extraction_mode` (str, 필수): `provider`(서버 API로 바로 추출) 또는 `client`(에이전트 클라이언트가 연결될 때까지 대기열에 넣음, 응답 `staged: true`). 없거나 다른 값이면 400 `invalid_extraction_mode`. 에이전트 클라이언트의 OAuth 2.1 액세스 토큰으로는 `provider`가 403 `agent_client_provider_refused`이다(AED4-rev). `GET /stats`의 `extraction_modes`가 이 계정의 선택지이다.
   - `full_content`, `effort` (선택): `provider` 추출에만 적용된다.
 ```bash
 curl -s -X POST https://claire.example.com/ingest \
-     -H "Authorization: Bearer <CLAIRE_INJECT_TOKEN>" \
+     -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{
        "payload": "https://datatracker.ietf.org/doc/html/rfc7636",
@@ -207,19 +213,20 @@ curl -s -X POST https://claire.example.com/ingest \
      }'
 ```
 
-#### `POST /ingest-stream` (Collaborator / Owner)
+#### `POST /ingest-stream` (Write / Owner)
 긴 적재 파이프라인의 진행 상태를 NDJSON(Newline Delimited JSON)으로 실시간 스트리밍 수신한다.
 
 ---
 
 ### 2.4 원격 진단 번들 (Support Bundle) API
 
-시스템 텔레메트리, 인박스 실패 내역 및 추적 정보를 안전하게 추출하기 위한 엔드포인트이다. 웹 화면에서는 모든 계정이 `/support/bundles`에서 노트·문서 링크로 번들을 만들고 링크를 복사한다(`/api/support/bundles`, 관리자는 범위 `server`도 고른다, [ACCOUNTS.md](ACCOUNTS.md) §5.9, [TELEMETRY.md](TELEMETRY.md) §3.8).
+시스템 텔레메트리, 인박스 실패 내역 및 추적 정보를 안전하게 추출하기 위한 엔드포인트이다. 웹 화면에서는 모든 계정이 `/support/bundles`에서 노트·문서 링크로 번들을 만들고 링크를 복사한다(`/api/support/bundles`, 공개 API는 `/api/v1/support/bundles`, 관리자는 범위 `server`도 고른다, [ACCOUNTS.md](ACCOUNTS.md) §5.9, [TELEMETRY.md](TELEMETRY.md) §3.8).
 
-#### 1) 생성: `POST /support/bundle` (Owner 전용)
+#### 1) 생성: `POST /api/v1/support/bundles` (Owner 전용; `POST /support/bundle`는 Deprecated)
+`POST /support/bundle`은 `Deprecation: true` 및 `Link: </api/v1/support/bundles>; rel="successor-version"` 헤더를 반환한다.
 ```bash
-curl -s -X POST https://claire.example.com/support/bundle \
-     -H "Authorization: Bearer <CLAIRE_INJECT_TOKEN>" \
+curl -s -X POST https://claire.example.com/api/v1/support/bundles \
+     -H "Authorization: Bearer <OAUTH_ACCESS_TOKEN>" \
      -H "Content-Type: application/json" \
      -d '{"days": 1}'
 ```
@@ -263,102 +270,9 @@ curl -s -X POST https://claire.example.com/oauth/token \
 
 ---
 
-### 2.6 API 및 MCP 상시 이용 토큰 관리 API (`/tokens`, Deprecated)
+### 2.6 레거시 상시 이용 토큰 퇴역 (`ER7`, `/tokens` 제거)
 
-> [!WARNING] **수동 토큰 지원 중단 예정 (`AE3`)**
-> - 상시 이용 수동 토큰(`cb_...`, `data/auth/api_tokens.json`) 및 환경변수 토큰(`env:*`)은 OAuth 2.1(`AE2a`/`AE2b`, 콘솔 `/account/mcp`)로 대체되었으며 지원 중단(Deprecated) 표시됩니다.
-> - 수동 토큰 Bearer 인증 응답 및 `/tokens`·`/tokens/revoke` 응답에는 `Deprecation: true`와 `Link: </account/mcp>; rel="successor-version"` 헤더가 포함되며, JSON 응답에도 `"deprecated": true` 및 안내 문구가 포함됩니다.
-> - `TokenStore.set_retired(True)` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 활성화 시 `POST /tokens`는 `410 Gone`(`manual_tokens_retired`)을 반환하고 수동 Bearer 검증이 즉시 비활성화됩니다.
-
-외부 AI 도구(Antigravity, Cursor 등) 및 CI/CD 자동화 파이프라인에서 사용하던 레거시 Bearer 접근 토큰을 발급·조회·폐기하는 엔드포인트이다. 신규 연동은 §3.1 방법 3의 OAuth 2.1을 권장한다.
-
-> [!IMPORTANT] **`/tokens` 계정 격리 (Account Isolation, Rev. 2.3)**
-> - `/tokens`, `/tokens/revoke`, `DELETE /tokens`는 라우트 정책 상 `surface="any"`, `access="owner"` 규칙을 가지며, 항상 요청 주체의 `Principal.account_id`로 엄격히 필터링된다.
-> - `TokenStore`는 토큰 생성 시 호출자의 `account_id`를 바인딩하여 영속화(`data/auth/api_tokens.json`)하며, 조회(`list_api_tokens`, `get_api_token`) 및 폐기(`revoke_api_token`) 시 본인 계정에 귀속된 토큰만 처리한다.
-> - 관리자(`account_id=1`)를 포함하여 어떤 계정도 타 계정의 토큰을 조회하거나 폐기할 수 없다 (K5, D5 계정 경계).
-
-#### 1) 토큰 목록 조회: `GET /tokens` (Owner 전용)
-등록된 모든 토큰(활성, 만료, 폐기 포함)을 조회한다. 보안을 위해 원본 시크릿은 마스킹(`cb_abcd...wxyz`)되어 반환된다.
-```bash
-curl -s -H "Authorization: Bearer <OWNER_TOKEN>" https://claire.example.com/tokens
-```
-```json
-{
-  "deprecated": true,
-  "tokens": [
-    {
-      "id": 1,
-      "name": "Default Knowledge Manager (Owner)",
-      "scope": "owner",
-      "created_at": 1729065600.0,
-      "expires_at": null,
-      "last_used_at": 1729068000.0,
-      "revoked_at": null,
-      "token_masked": "cb_09af...d82a"
-    },
-    {
-      "id": 2,
-      "name": "Antigravity Agent",
-      "scope": "readonly",
-      "created_at": 1729066000.0,
-      "expires_at": null,
-      "last_used_at": 1729067500.0,
-      "revoked_at": null,
-      "token_masked": "cb_f38a...110b"
-    }
-  ]
-}
-```
-
-#### 2) 신규 토큰 발급: `POST /tokens` (Owner 전용)
-새로운 상시 이용 API/MCP 토큰을 발급한다. 발급 시점에만 전체 원본 시크릿 토큰(`token`)이 반환된다. `TokenStore.is_retired()`가 참(`CLAIRE_MANUAL_TOKENS_RETIRED=1` 또는 `api_tokens.json` `"retired": true`)이면 HTTP `410 Gone`(`manual_tokens_retired`)을 반환한다.
-- **요청 본문 필드**:
-  - `name` (str, 필수): 토큰 식별용 이름 (예: `"Agent Client"`, `"Cursor Agent"`)
-  - `scope` (str, 선택, 기본 `"readonly"`): `"owner"`, `"write"`, `"readonly"` 중 선택
-  - `expires_in_days` (int, 선택, 기본 `null`): 만료 일수 (생략 또는 `null` 지정 시 무기한 상시 이용)
-```bash
-curl -s -X POST https://claire.example.com/tokens \
-     -H "Authorization: Bearer <OWNER_TOKEN>" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "name": "Agent Client",
-       "scope": "readonly",
-       "expires_in_days": null
-     }'
-```
-```json
-{
-  "ok": true,
-  "deprecated": true,
-  "message": "API/MCP 토큰이 성공적으로 생성되었습니다.",
-  "token": {
-    "id": 3,
-    "token": "cb_xX9vY27z1234567890abcdefghijklmno",
-    "name": "Agent Client",
-    "scope": "readonly",
-    "created_at": 1729069000.0,
-    "expires_at": null,
-    "last_used_at": null,
-    "revoked_at": null
-  }
-}
-```
-
-#### 3) 토큰 즉시 폐기: `POST /tokens/revoke` 또는 `DELETE /tokens` (Owner 전용)
-지정된 토큰을 즉시 폐기(Revoke)한다. 폐기 즉시 해당 토큰을 사용한 모든 API 및 MCP 요청은 `401 Unauthorized`로 차단된다.
-- **요청 본문 필드**: `id` 또는 `token_id` (int/str, 필수)
-```bash
-curl -s -X POST https://claire.example.com/tokens/revoke \
-     -H "Authorization: Bearer <OWNER_TOKEN>" \
-     -H "Content-Type: application/json" \
-     -d '{"id": 2}'
-```
-```json
-{
-  "ok": true,
-  "message": "토큰이 성공적으로 폐기되었습니다."
-}
-```
+기존 수동 API/MCP 상시 토큰(`cb_...`, `api_tokens.json`), 정적 환경변수 토큰(`CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN`), REST 엔드포인트(`/tokens`, `/tokens/revoke`), 콘솔 화면(`/account/tokens`, `/admin/tokens`), CLI(`claire token`), 텔레그램(`/token`)은 **모두 전면 퇴역·제거되었다**(HTTP `404`). 모든 API/MCP 연동은 OAuth 2.1(§3.1)과 Same-Origin 세션만 사용한다. 기존 `data/auth/api_tokens.json` 파일은 서버 시작 시 읽지 않고 `.retired`로 이름만 변경된다.
 
 ### 2.7 연합 발행 API (`/api/federation/*`)
 
@@ -415,19 +329,13 @@ Claire Bible은 외부 AI 에이전트가 지식베이스를 탐색할 수 있�
 
 ### 3.1 MCP 인증 메커니즘
 
-MCP 클라이언트는 다음 세 가지 방식 중 하나로 `/mcp`에 접속할 수 있다:
+MCP 클라이언트는 다음 두 가지 방식 중 하나로 `/mcp`에 접속할 수 있다(레거시 수동 상시 토큰 `cb_...`는 `ER7`에서 전면 퇴역하였다):
 
-#### 방법 1: 데이터베이스 기반 상시 이용 토큰 (Persistent Bearer Token, Deprecated)
-CLI(`claire token create`), WebUI(`/account/tokens`, 관리자는 `/admin/tokens`), 또는 텔레그램(`/token create`)에서 발급받은 영구/장기 토큰(`cb_...`)을 전달하는 레거시 방식이다 (`Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더 반환). 새 연동은 아래 방법 3(OAuth 2.1)을 사용한다.
-- **발급**: `claire token create "Agent Client" --scope readonly` (또는 `--scope write`)
-- **헤더**: `Authorization: Bearer <PERSISTENT_TOKEN>`
-- **퇴역 스위치**: `TokenStore.set_retired(True)` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1` 설정 시 신규 발급이 `410 Gone`으로 차단되고 기존 토큰 검증이 거부된다.
-
-#### 방법 2: 텔레그램 발급 세션 토큰 (X-Session)
+#### 방법 1: 텔레그램 발급 세션 토큰 (X-Session)
 텔레그램 봇(`/web`, `/webro`)에서 발급받은 임시 세션 토큰을 전달한다.
 - **헤더**: `X-Session: <session_token>` 또는 `Authorization: Bearer <session_token>`
 
-#### 방법 3: OAuth 2.1 표준 인가 서버 (Telegram-Free 브라우저 흐름 & RFC 8628 Device Grant)
+#### 방법 2: OAuth 2.1 표준 인가 서버 (Telegram-Free 브라우저 흐름 & RFC 8628 Device Grant)
 Antigravity(`agy`), Google Gemini 맞춤형 연결 앱 및 최신 OAuth 2.1 호환 클라이언트를 위한 통합 플로우이다:
 
 ```
@@ -580,45 +488,15 @@ curl -s -X POST https://claire.example.com/mcp \
 
 ---
 
-## 4. API 및 MCP 토큰 관리 종합 인터페이스
+## 4. API 및 MCP 인가 · 레퍼런스 인터페이스 (`/account/mcp`, `/reference`)
 
-신규 클라이언트 인가는 콘솔 `/account/mcp`의 **OAuth 2.1 부여 관리 및 `agent_client` 번들 배포**를 기본으로 한다. 레거시 상시 토큰은 CLI, WebUI, Telegram 봇 모두에서 지원 중단 안내(`Deprecation`)를 함께 출력하며 퇴역 전까지만 유지된다.
+신규 클라이언트 인가는 콘솔 `/account/mcp`의 **OAuth 2.1 부여 관리 및 `agent_client` 번들 배포**만 사용한다(`claire token`, `/account/tokens`, `/admin/tokens`, 텔레그램 `/token`은 `ER7`에서 제거됨).
 
-### 4.1 CLI 토큰 관리 (`claire token`, Deprecated)
+### 4.1 WebUI OAuth 2.1 · API 레퍼런스 콘솔 (`/account/mcp`, `/admin/mcp`, `/reference`)
 
-터미널이나 스크립트에서 레거시 상시 토큰을 조회·발급·폐기한다(명령 실행 시 `[DEPRECATED]` 안내 출력):
-
-```bash
-# 1. 활성 토큰 목록 조회 (폐기/만료 토큰 포함 시 -a 또는 --all)
-claire token list
-claire token list -a --json
-
-# 2. 상시 이용 토큰 발급 (기본: readonly 권한, 무기한; json 응답 키 mcp_client_config 제공)
-claire token create "Agent Client" --scope readonly
-claire token create "Cursor Agent" --scope write --expires-in 90 --json
-
-# 3. 토큰 즉시 폐기 (ID 또는 토큰값 지정)
-claire token revoke 2
-claire token revoke "cb_xX9vY..." --json
-```
-
-### 4.2 WebUI OAuth 2.1 · 번들 및 토큰 관리 콘솔 (`/account/mcp`, `/account/tokens`)
-
-- **접근 권한**: `owner`만 들어간다. 루트 `/` 상세 메뉴에는 관리 패널이 없다.
-- **`/account/mcp` (권장)**: 최상단 빠른 시작 가이드(2단계 녹색/붉은색 진행 체크리스트 — ① OAuth 2.1 `write` 인가 연결, ② 첫 `agent_client` 추출 완료), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 서버에 등록된 라이브 17종 `<domain>_<action>` MCP 도구(`tools/list`) 안내, Option A 전역 `"claire"` MCP 서버 연결 스니펫·`mcp_config.json` 내려받기(`#pref-mcp-download-mcp-config`), 공식 마켓플레이스 `fofwisdom/claire-agents`(`plugins/antigravity/claire/`, `plugins/claude/claire/`) 빠른 설치 문구 및 가이드 링크(Antigravity `#pref-mcp-antigravity-prompt`·`#pref-mcp-antigravity-guide`, Claude `#pref-mcp-claude-prompt`·`#pref-mcp-claude-guide`·`#pref-mcp-claude-setup`), `/mcp` 연결 주소 및 수동 토큰 지원 중단 배너를 제공한다.
-- **`/account/tokens` (관리자는 `/admin/tokens`, Deprecated)**: 멤버는 `/account/tokens`, 관리자는 `/admin/tokens`(302 리디렉트)에서 본인 계정에 귀속된 레거시 상시 토큰 목록(`Deprecated` 배너 포함), 신규 발급(퇴역 미활성화 시), 즉시 폐기 및 OAuth 클라이언트 목록을 확인한다.
-
-### 4.3 텔레그램 봇 토큰 명령어 (`/token`, Deprecated)
-
-스마트폰이나 텔레그램 메신저에서 원격으로 레거시 상시 토큰 상태를 조회·발급·폐기할 수 있으며, 모든 응답에 OAuth 2.1(`/account/mcp`) 이전 안내가 덧붙는다.
-
-- **목록 조회**: `/token` 또는 `/token list`
-- **토큰 생성**: `/token create <이름> [owner|write|readonly]`
-  - 예: `/token create AgentClient readonly`
-  - 발급 즉시 봇 메시지로 시크릿 토큰, MCP 연결 URL, 지원 중단 안내가 전송된다.
-- **토큰 폐기**: `/token revoke <ID 또는 토큰값>`
-  - 예: `/token revoke 2`
-  - 폐기 즉시 해당 토큰의 모든 API/MCP 연결이 영구 차단된다.
+- **접근 권한**: `owner`만 `/account/mcp`에 들어간다. 루트 `/` 상세 메뉴에는 관리 패널이 없다.
+- **`/account/mcp` · `/admin/mcp`**: 최상단 빠른 시작 가이드(2단계 진행 체크리스트 — ① OAuth 2.1 `write` 인가 연결, ② 첫 `agent_client` 추출 완료), OAuth 2.1 클라이언트 인가 목록(`/api/me/oauth/grants` 조회·개별/전체 폐기), 서버에 등록된 라이브 17종 `<domain>_<action>` MCP 도구(`tools/list`) 안내, Option A 전역 `"claire"` MCP 서버 연결 스니펫·`mcp_config.json` 내려받기(`#pref-mcp-download-mcp-config`), 공식 마켓플레이스 `fofwisdom/claire-agents`(`plugins/antigravity/claire/`, `plugins/claude/claire/`) 빠른 설치 문구 및 가이드 링크, 그리고 `/reference` 대화형 API 레퍼런스 바로가기 링크를 제공한다.
+- **`GET /reference`**: Scalar 다중 문서 UI로, 비인증/`readonly` 사용자에게는 `v1`(`/openapi/v1.json`) 탭만, `owner`에게는 `account`(`/openapi/account.json`) 탭을, `admin`에게는 `admin`(`/openapi/admin.json`) 탭을 추가 노출한다. OAuth 2.1 `authorizationCode` (`S256` PKCE), `BearerAuth`, `SessionCookie` 인증 스키마를 선언한다.
 
 ---
 
@@ -645,6 +523,6 @@ claire token revoke "cb_xX9vY..." --json
 |---|---|---|
 | `401 Unauthorized` | 유효하지 않거나 만료된 토큰 (`WWW-Authenticate` 반환) | 토큰 재확인 또는 OAuth / 텔레그램 재발급 |
 | `403 Forbidden` | 자격증명 채널 다중 제공(Bearer + Cookie 등), 쓰기 권한 부족 | 인증 채널을 하나로 통일하거나 스코프 권한 확인 |
-| `404 Not Found` | 존재하지 않는 리소스, 또는 **비인증/비공개 테마 스텔스 모드** | `CLAIRE_ANONYMOUS_READONLY` 설정 및 테마 가시성 확인 |
+| `404 Not Found` | 존재하지 않는 리소스, 또는 **비인증/비공개 지식베이스 스텔스 모드** | 지식베이스 `is_public` 설정 및 자격증명 확인 |
 | `413 Request Entity Too Large` | 요청 본문 크기가 1MB를 초과함 | 전송 페이로드 크기 축소 |
 | `421 Misdirected Request` | 요청의 `Host` 헤더가 `CLAIRE_FQDN`과 불일치 | 프록시의 Host 헤더 전달 설정 또는 FQDN 환경변수 점검 |

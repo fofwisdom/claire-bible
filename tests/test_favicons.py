@@ -20,9 +20,7 @@ def client(tmp_path: Path) -> TestClient:
         CLAIRE_FQDN="127.0.0.1:8000",
         inject_host="127.0.0.1",
         inject_port=8000,
-        inject_token="x" * 32,
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
     )
     app = server.create_app(settings)
     return TestClient(app, base_url="http://127.0.0.1:8000")
@@ -326,7 +324,6 @@ def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path)
     conn.close()
     net_settings = Settings(
         CLAIRE_DB_PATH=str(net_db),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_FQDN="127.0.0.1:8000",
         CLAIRE_ENVIRONMENT="development",
     )
@@ -354,12 +351,16 @@ def test_pages_have_one_favicon_set() -> None:
     from claire.api.accounts_routes.common import render_template
 
     pages = {
-        "console_shell.html": render_template(
-            "console_shell.html",
-            text={key: "x" for key in ("page_title", "storage_key", "active_area", "active_section", "section_title", "section_badge", "section_desc")},
-            markup={key: "" for key in ("section_icon_html", "sidebar_nav_html", "section_body_html", "bootstrap_json", "extra_scripts_html", "admin_scripts_html")},
-        ).body.decode("utf-8"),
-        "public_kb.html": render_template("public_kb.html", text={"page_title": "x", "view_name": "x"}, markup={"common_appbar_html": "", "bootstrap_json": "{}"}).body.decode("utf-8"),
+        "console_shell.html": bytes(
+            render_template(
+                "console_shell.html",
+                text={key: "x" for key in ("page_title", "storage_key", "active_area", "active_section", "section_title", "section_badge", "section_desc")},
+                markup={key: "" for key in ("section_icon_html", "sidebar_nav_html", "section_body_html", "bootstrap_json", "extra_scripts_html", "admin_scripts_html")},
+            ).body
+        ).decode("utf-8"),
+        "public_kb.html": bytes(
+            render_template("public_kb.html", text={"page_title": "x", "view_name": "x"}, markup={"common_appbar_html": "", "bootstrap_json": "{}"}).body
+        ).decode("utf-8"),
     }
     for name, html in pages.items():
         assert html.count('rel="icon" type="image/svg+xml" href="/favicon.svg"') == 1, name

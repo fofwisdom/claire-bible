@@ -174,7 +174,6 @@ def test_support_bundle_resolves_theme_document_by_doc_id(tmp_path):
     db_path = data_dir / "claire.db"
     settings = Settings(
         CLAIRE_DB_PATH=str(db_path),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
     )
 
@@ -211,7 +210,6 @@ def test_support_bundle_target_not_observed_is_explicit(tmp_path):
     db_path = data_dir / "claire.db"
     settings = Settings(
         CLAIRE_DB_PATH=str(db_path),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
     )
 

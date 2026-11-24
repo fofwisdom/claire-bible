@@ -104,8 +104,6 @@ def _setup_network_env(tmp_path: Path) -> SimpleNamespace:
 
     settings = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
@@ -210,7 +208,9 @@ def test_recover_retries_an_inbox_row_with_the_mode_of_its_request(tmp_path: Pat
     try:
         iid = dbm.log_inbox(conn, source="web", payload="https://example.com/retry-queue", kind="url", kb_id=0, extraction_mode="client")
         dbm.update_inbox(conn, iid, status="error", error="temporary fetch error", kb_id=0)
-        assert dbm.get_inbox(conn, iid, kb_id=0)["extraction_mode"] == "client"
+        inbox_row = dbm.get_inbox(conn, iid, kb_id=0)
+        assert inbox_row is not None
+        assert inbox_row["extraction_mode"] == "client"
     finally:
         conn.close()
     results = svc.recover_failed()
@@ -219,8 +219,11 @@ def test_recover_retries_an_inbox_row_with_the_mode_of_its_request(tmp_path: Pat
     conn = dbm.connect_existing(env.db_file)
     try:
         row = dbm.get_inbox(conn, iid, kb_id=0)
+        assert row is not None
         assert row["status"] == "staged"
-        assert dbm.get_document_row(conn, row["document_id"], kb_id=0)["extraction_status"] == "pending"
+        doc_row = dbm.get_document_row(conn, row["document_id"], kb_id=0)
+        assert doc_row is not None
+        assert doc_row["extraction_status"] == "pending"
     finally:
         conn.close()
 

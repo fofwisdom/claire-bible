@@ -53,7 +53,6 @@ def test_e2e_ingest_service_pipeline_with_stt(tmp_path, monkeypatch):
 
     settings = Settings(
         db_path=str(db_file),
-        vault_path=str(vault_dir),
         provider="mock",
         enable_video_transcription=True,
         ffmpeg_bin="/bin/true",

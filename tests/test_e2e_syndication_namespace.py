@@ -106,9 +106,7 @@ def p6_env(tmp_path: Path):
 
     db_file = data_dir / "claire.db"
     settings = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",

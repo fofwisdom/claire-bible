@@ -61,7 +61,6 @@ The website of the future may assemble itself for every visitor.
     owner_headers = bearer_headers(db_file, scope="owner")
     s = Settings(
         db_path=str(db_file),
-        data_dir=tmp_path,
         fqdn="127.0.0.1:8765",
         environment="development",
     )

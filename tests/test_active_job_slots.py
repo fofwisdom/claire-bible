@@ -257,7 +257,6 @@ def test_service_regenerate_components_dry_run_vs_force(tmp_path: Path):
 
     s = Settings(
         db_path=str(db_file),
-        data_dir=str(data_dir),
     )
     provider = MockProvider()
     svc = IngestService(s, provider=provider, kb_id=0)
@@ -294,10 +293,8 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
 
     s = Settings(
         db_path=str(db_file),
-        data_dir=str(data_dir),
         environment="development",
         fqdn="127.0.0.1:8765",
-        multi_theme=True,
     )
     tm = KnowledgeBaseManager(s)
     theme1 = tm.define_kb("Network", knowledge_type="real")

@@ -90,7 +90,6 @@ def journey(tmp_path: Path):
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,

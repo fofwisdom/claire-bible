@@ -352,11 +352,9 @@ async def test_create_app_serves_static_only_through_host_router(tmp_path):
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     app = create_app(settings=settings)
     ok = await _call(app, "/static/js/app.js", host="127.0.0.1:8765")

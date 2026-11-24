@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from claire.telegram.bot import _run_with_ticker, _settle_status, _status_emoji
@@ -639,7 +641,6 @@ async def test_on_message_handles_ingest_report_error_without_unbound_local_erro
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        allowed_user_ids=[],
     )
     app = build_app(settings)
 
@@ -691,7 +692,6 @@ async def test_on_ingest_handles_ingest_report_error(monkeypatch):
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        allowed_user_ids=[],
     )
     app = build_app(settings)
 
@@ -739,7 +739,7 @@ async def test_on_support_help():
     from claire.core.config import Settings
     from claire.telegram.bot import build_app
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test")
     app = build_app(settings)
 
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
@@ -768,7 +768,7 @@ async def test_on_support_unknown_subcommand():
     from claire.core.config import Settings
     from claire.telegram.bot import build_app
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[])
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test")
     app = build_app(settings)
 
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
@@ -819,8 +819,6 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        allowed_user_ids=[],
-        data_dir=tmp_path,
     )
     app = build_app(settings)
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
@@ -884,7 +882,7 @@ async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
 
     monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", )
     app = build_app(settings)
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
 
@@ -918,8 +916,6 @@ async def test_on_support_bundle_validation_error(tmp_path):
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        allowed_user_ids=[],
-        data_dir=tmp_path,
         telemetry_retention_days=30,
     )
     app = build_app(settings)
@@ -962,7 +958,7 @@ async def test_on_support_bundle_list_and_purge(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("claire.ops.support_bundle.purge_expired_bundles", lambda data_dir: 3)
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", )
     app = build_app(settings)
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
 
@@ -1023,7 +1019,7 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
 
     monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", allowed_user_ids=[], data_dir=tmp_path)
+    settings = Settings(telegram_bot_token="12345:fake_token_for_test", )
     app = build_app(settings)
     on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
 
@@ -1062,7 +1058,6 @@ async def test_on_support_unallowed_user(tmp_path):
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
         telegram_allowed_users="9999",
-        data_dir=tmp_path,
     )
     app = build_app(settings)
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
@@ -1117,8 +1112,6 @@ async def test_telegram_app_error_handler(tmp_path: Path):
 
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        data_dir=str(tmp_path),
-        allowed_user_ids=[100],
     )
     app = build_app(settings)
     assert len(app.error_handlers) > 0
@@ -1196,10 +1189,8 @@ async def test_ingest_cancellation(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
     tm.define_kb("AI연구", icon="🤖", knowledge_type="real")
@@ -1257,10 +1248,8 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
     tm.define_kb("AI연구", icon="🤖", knowledge_type="real")
@@ -1405,10 +1394,8 @@ async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
     tm.define_kb("AI연구", icon="🤖", knowledge_type="real")
@@ -1469,10 +1456,8 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
     tm.define_kb("보조테마", icon="📁", knowledge_type="real")
@@ -1535,10 +1520,8 @@ async def test_on_callback_regenerate_summary(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
     tm.define_kb("보조테마", icon="📁", knowledge_type="real")
@@ -1598,10 +1581,8 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="12345:fake_token",
-        allowed_user_ids=[],
     )
     tm = KnowledgeBaseManager(settings)
     tm.define_kb("특화테마", icon="🔬", knowledge_type="real")
@@ -1659,9 +1640,7 @@ async def test_on_callback_oauth_approve_and_deny(tmp_path: Path):
     db_path = tmp_path / "claire.db"
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
-        data_dir=str(tmp_path),
         db_path=str(db_path),
-        allowed_user_ids=[100],
     )
 
     conn = dbm.connect(settings.db_file)
@@ -1750,7 +1729,6 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     data_dir.mkdir(parents=True)
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         telegram_bot_token="",
     )

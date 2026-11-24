@@ -24,7 +24,6 @@ def test_e2e_tombstone_lifecycle_untombstone_and_cli_guard(tmp_path: Path, monke
 
     settings = Settings(
         db_path=str(db_file),
-        vault_path=str(vault_dir),
         provider="mock",
         data_lifecycle="purgeable",
         allow_purge=True,

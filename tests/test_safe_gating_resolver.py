@@ -274,7 +274,6 @@ def test_rollback_resolution_api_route(tmp_path):
     db_path = tmp_path / "claire.db"
     settings = Settings(
         db_path=str(db_path),
-        data_dir=tmp_path / "data",
         environment="development",
         fqdn="127.0.0.1:8765",
     )
@@ -421,7 +420,6 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
     db_path = tmp_path / "claire.db"
     settings = Settings(
         db_path=str(db_path),
-        data_dir=tmp_path / "data",
         environment="development",
         fqdn="127.0.0.1:8765",
     )
@@ -468,7 +466,6 @@ def test_get_resolution_decisions_global_api_route(tmp_path):
     db_path = tmp_path / "claire.db"
     settings = Settings(
         db_path=str(db_path),
-        data_dir=tmp_path / "data",
         environment="development",
         fqdn="127.0.0.1:8765",
     )

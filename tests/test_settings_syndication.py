@@ -114,7 +114,6 @@ def env(tmp_path: Path):
         conn.close()
     settings = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
@@ -359,7 +358,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
 
     # CLAIRE_AGENT_MARKETPLACE_REPO overrides the displayed repository safely, while invalid values fall back to default.
     monkeypatch.setenv("CLAIRE_AGENT_MARKETPLACE_REPO", "fork-owner/fork-claire-agents")
-    override_settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(env.db_file), CLAIRE_DATA_DIR=str(env.db_file.parent))
+    override_settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(env.db_file))
     assert override_settings.agent_marketplace_repo == "fork-owner/fork-claire-agents"
     ctx = SimpleNamespace(db_file=env.db_file, data_dir=env.db_file.parent, config=override_settings)
     alice_acc = accounts_store.Account(

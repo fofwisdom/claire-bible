@@ -347,8 +347,6 @@ def test_syndication_accessible_strictly_via_desktop_routes(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_SESSION_SECRET="test-secret-key-42",
-        CLAIRE_SINGLE_MODE=False,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
     )

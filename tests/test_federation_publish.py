@@ -406,7 +406,7 @@ def test_e2e_owner_publishes_a_document_from_the_syndication_dialog(tmp_path):
 
     (tmp_path / "vault").mkdir()
     # The page reads the document list, so this test needs the full settings object.
-    settings = Settings(CLAIRE_DATA_DIR=str(tmp_path), CLAIRE_DB_PATH=str(tmp_path / "claire.db"), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=f"127.0.0.1:{port}", CLAIRE_INJECT_TOKEN="owner-" + "o" * 32, CLAIRE_ANONYMOUS_READONLY=False)
+    settings = Settings(CLAIRE_DB_PATH=str(tmp_path / "claire.db"), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=f"127.0.0.1:{port}", )
     conn = dbm.connect(settings.db_file)
     try:
         dbm.init_db(conn)

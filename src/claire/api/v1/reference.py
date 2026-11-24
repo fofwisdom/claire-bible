@@ -638,6 +638,8 @@ def render_reference_html(
         "darkMode": True,
         "favicon": "/favicon.svg",
         "withDefaultFonts": False,
+        "telemetry": False,
+        "agent": {"disabled": True},
         "proxyUrl": "",
         "searchHotKey": "k",
         "showSidebar": True,
@@ -724,11 +726,31 @@ def render_reference_html(
   </style>
 </head>
 <body>
+  <div id="scalar-reference-root"></div>
   <script
     id="api-reference"
     type="application/json"
     data-configuration='{config_json}'></script>
+  <script>
+    (function () {{
+      var el = document.getElementById("api-reference");
+      if (!el) return;
+      window.__claireScalarConfig = JSON.parse(el.getAttribute("data-configuration") || "{{}}");
+      el.id = "api-reference-config";
+    }})();
+  </script>
   <script src="/static/docs/scalar.standalone.js"></script>
+  <script>
+    (function () {{
+      var cfg = window.__claireScalarConfig;
+      if (!cfg || !window.Scalar || typeof window.Scalar.createApiReference !== "function") return;
+      if (cfg.darkMode && document.body) {{
+        document.body.classList.remove("light-mode");
+        document.body.classList.add("dark-mode");
+      }}
+      window.Scalar.createApiReference("#scalar-reference-root", cfg);
+    }})();
+  </script>
 </body>
 </html>
 """

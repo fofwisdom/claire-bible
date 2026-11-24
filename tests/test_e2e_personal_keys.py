@@ -107,12 +107,10 @@ def _setup(tmp_path: Path) -> tuple[Path, Path, Settings]:
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
         GEMINI_API_KEY=SERVER_KEY,
-        CLAIRE_GEMINI_MODEL="gemini-3.8-flash",
     )
     KnowledgeBaseManager(settings)
     return data_dir, db_file, settings
@@ -160,12 +158,10 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
         GEMINI_API_KEY=SERVER_KEY,
-        CLAIRE_GEMINI_MODEL="gemini-3.8-flash",
     )
     KnowledgeBaseManager(settings)
     app = server.create_app(settings=settings)

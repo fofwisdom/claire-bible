@@ -128,11 +128,9 @@ def test_wrap_web_app_cloudflare_ips_only_integration(tmp_path):
     # 1. Enabled (cloudflare_ips_only=True)
     settings_enabled = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="production",
         CLAIRE_FQDN="claire.example.com",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_CLOUDFLARE_IPS_ONLY=True,
     )
     conn = dbm.connect(settings_enabled.db_file)
@@ -164,11 +162,9 @@ def test_wrap_web_app_cloudflare_ips_only_integration(tmp_path):
     # 2. Disabled (cloudflare_ips_only=False)
     settings_disabled = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="production",
         CLAIRE_FQDN="claire.example.com",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_CLOUDFLARE_IPS_ONLY=False,
     )
     app_disabled = wrap_web_app(inner, settings_disabled)
@@ -195,7 +191,6 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
     # 1. Primary CLAIRE_FQDN in production
     s1 = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="production",
         CLAIRE_FQDN="claire.example.com",
@@ -207,7 +202,6 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
     # 2. Primary CLAIRE_FQDN in development
     s2 = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8766",
@@ -220,7 +214,6 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="production",
-        CLAIRE_PUBLIC_URL="https://migrated.example.com/",
     )
     assert s3.effective_fqdn == ""
     assert s3.public_url == ""
@@ -228,7 +221,6 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
     # 4. Cloudflare ips only validator boolean parsing
     s4 = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_CLOUDFLARE_IPS_ONLY="1",
     )
@@ -236,7 +228,6 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
 
     s5 = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_CLOUDFLARE_IPS_ONLY="0",
     )
@@ -245,7 +236,6 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
     with pytest.raises(ValueError, match="CLAIRE_CLOUDFLARE_IPS_ONLY"):
         Settings(
             CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-            CLAIRE_VAULT_PATH=str(vault_dir),
             CLAIRE_PROVIDER="mock",
             CLAIRE_CLOUDFLARE_IPS_ONLY="invalid_boolean",
         )

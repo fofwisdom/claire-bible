@@ -37,7 +37,6 @@ def e2e_env(tmp_path: Path):
     settings = Settings(
         _env_file=None,
         db_path=str(db_file),
-        data_path=str(tmp_path),
         environment="production",
         fqdn="claire.example.com",
         robots_policy="public",
@@ -125,7 +124,7 @@ def test_public_site_crawling_and_indexing_e2e_journey(e2e_env) -> None:
         assert len(url_elements) >= 2  # Root portal + doc-e2e-seo
 
         # Confirm root portal entry
-        locs = [u.find("ns:loc", ns).text for u in url_elements]
+        locs = [elem.text for u in url_elements if (elem := u.find("ns:loc", ns)) is not None and elem.text]
         assert "https://claire.example.com/" in locs
 
         # Confirm document share entry exists

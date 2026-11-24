@@ -34,7 +34,6 @@ def world(tmp_path: Path):
     (tmp_path / "data").mkdir(parents=True)
     settings = Settings(
         CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,

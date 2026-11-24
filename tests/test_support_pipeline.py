@@ -59,7 +59,6 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,

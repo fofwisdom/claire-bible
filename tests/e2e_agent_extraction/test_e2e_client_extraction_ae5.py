@@ -39,6 +39,7 @@ def _clean_adoc_detail(title: str, body: str) -> str:
 
 def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factory) -> None:
     env: ClaireTestEnv = claire_factory()
+    assert env.alice is not None
 
     # Create a shared KB to test CT4 shared-KB rejection and cross-KB entity isolation.
     km = KnowledgeBaseManager(env.settings)
@@ -227,6 +228,7 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
     # 9. The MCP trail of the document: each extract_* call has the knowledge base, the document, and the facts of the call (the submitted model, the dry run, the result codes).
     from claire.store.telemetry import query_mcp_trail
 
+    assert env.alice.personal_kb_number is not None
     personal_kb = km.get_kb_by_number(int(env.alice.personal_kb_number))
     trail = query_mcp_trail(env.settings.data_dir, kb_id=personal_kb.id, document_id=doc_id)
     submits = [r for r in trail if r["tool_name"] == "extract_submit"]
@@ -247,7 +249,7 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
     from compression import zstd
 
     with tarfile.open(fileobj=io.BytesIO(zstd.decompress(archive.content)), mode="r:") as tar:
-        members = {m.name.split("/", 1)[1]: tar.extractfile(m).read() for m in tar.getmembers() if m.isfile()}
+        members = {m.name.split("/", 1)[1]: ef.read() for m in tar.getmembers() if m.isfile() and (ef := tar.extractfile(m)) is not None}
     trail_member = json.loads(members["tracked_document/extraction_trail.json"])
     assert trail_member["extractions"][0]["model"] == "gemini-3.8-flash" and trail_member["extractions"][0]["oauth_client_name"] == "Antigravity Agent E2E"
     assert trail_member["item_view"]["model_badge"] == "gemini-3.8-flash"
@@ -258,6 +260,8 @@ def test_e2e_mcp_oauth_client_extraction_full_lifecycle_and_guards(claire_factor
 
 def test_e2e_http_client_extraction_routes_and_optimistic_hash_conflict(claire_factory) -> None:
     env: ClaireTestEnv = claire_factory()
+    assert env.alice is not None
+    assert env.alice.personal_kb_id is not None
 
     oauth_client = register_oauth_client(env.client, client_name="HTTP Agent E2E")
     write_tok = run_oauth_pkce_flow(
@@ -393,6 +397,8 @@ def test_e2e_direct_docx_and_multipart_file_staging_then_extraction(claire_facto
 
 def test_e2e_mcp_and_http_reingest_and_regeneration(claire_factory) -> None:
     env: ClaireTestEnv = claire_factory()
+    assert env.alice is not None
+    assert env.alice.personal_kb_id is not None
 
     oauth_client = register_oauth_client(env.client, client_name="Reingest Agent E2E")
     write_tok = run_oauth_pkce_flow(

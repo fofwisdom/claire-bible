@@ -306,7 +306,6 @@ def test_theme_registry_account_id(tmp_path: Path) -> None:
     )
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
     )
     manager = KnowledgeBaseManager(base_settings=settings)

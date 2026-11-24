@@ -155,7 +155,6 @@ def _setup_multi_account_network_env(tmp_path: Path):
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
     )

@@ -30,10 +30,8 @@ def seal_env(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(MockProvider, "render_detail", spy)
     settings = Settings(
         db_path=str(tmp_path / "test.db"),
-        vault_path=str(tmp_path / "vault"),
         environment="development",
         provider="mock",
-        vector_backend="mock",
         fqdn="127.0.0.1:8765",
     )
     headers = bearer_headers(settings, scope="owner")

@@ -173,7 +173,6 @@ def test_ingest_service_passes_full_content_and_effort(tmp_path: Path):
     """IngestService.ingest()가 full_content와 effort를 pipeline.ingest로 정상 전달하는지 검증."""
     settings = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
         provider="mock",
     )
     svc = IngestService(settings)

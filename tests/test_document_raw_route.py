@@ -26,7 +26,6 @@ def raw_test_context(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=db_path,
-        CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",

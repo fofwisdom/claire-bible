@@ -116,7 +116,6 @@ def console_e2e(tmp_path: Path):
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",

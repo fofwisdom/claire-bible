@@ -28,7 +28,6 @@ def _settings(tmp_path) -> Settings:
     (tmp_path / "vault").mkdir(parents=True, exist_ok=True)
     return Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",

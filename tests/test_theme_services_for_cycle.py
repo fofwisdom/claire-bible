@@ -66,7 +66,6 @@ def theme_env(monkeypatch, tmp_path):
 
     settings = Settings(
         CLAIRE_DB_PATH=db_path,
-        CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
     )
     tm = KnowledgeBaseManager(base_settings=settings)

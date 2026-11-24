@@ -63,6 +63,15 @@ from ..store import permalinks
 from ..accounts import user_home as user_home_mod
 from ..store import accounts as accounts_store
 from ..store import auth_db
+from .routes import (
+    FONTS,
+    build_client_extraction_routes,
+    build_providers_limits_routes,
+    build_public_site_routes,
+    build_reference_routes,
+    with_deprecation_headers,
+)
+from .v1 import build_v1_routes
 from ..store import client_db
 from ..store import kb_collab
 from ..store import themes as themes_store
@@ -119,18 +128,6 @@ ACCOUNT_BACKUP_SCHEDULER_START_DELAY = 60.0
 ACCOUNT_BACKUP_SCHEDULER_INTERVAL = 600.0
 _IMAGE_PATH_RE = re.compile(
     r"^images/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif)$"
-)
-_ICON_FILENAME_RE = re.compile(
-    r"^[A-Za-z0-9_.-]+\.(?:png|svg|ico|json|xml|webmanifest)$"
-)
-_FONT_FILENAME_RE = re.compile(r"^[A-Za-z0-9_.-]+\.woff2$")
-FONTS = (
-    "NotoSansKR-Regular.woff2",
-    "NotoSansKR-Bold.woff2",
-    "NotoSerifKR-Regular.woff2",
-    "NotoSerifKR-Bold.woff2",
-    "D2Coding.woff2",
-    "D2CodingBold.woff2",
 )
 _MAX_SEARCH_QUERY_LENGTH = 2000
 _MAX_SEARCH_RESULTS = 50
@@ -261,6 +258,13 @@ def create_app(
     namespace_directory = SqliteNamespaceDirectory(s.db_file)
     active_expensive_jobs = 0
     active_anonymous_search_jobs = 0
+
+    def _get_current_settings() -> Settings:
+        return s
+
+    def _set_current_settings(updated: Settings) -> None:
+        nonlocal s
+        s = updated
 
     def _kb_actor(request: Request, kb: KnowledgeBaseInfo) -> kb_access.Actor:
         """The requester for the capability matrix (design Sections 6.2 and 6.6)."""
@@ -3321,178 +3325,6 @@ def create_app(
 
         return await asyncio.to_thread(_work)
 
-    def _load_server_tier_payload() -> dict[str, Any]:
-        """Read current ServerTier configuration for /providers responses."""
-        try:
-            db_path = Path(s.db_file)
-            if db_path.is_file():
-                conn = dbm.connect_existing(db_path, readonly=True)
-                try:
-                    raw = server_tier.read_stored_server_tier(conn)
-                    return {
-                        "configured": raw is not None,
-                        "tier": server_tier.load_server_tier(conn).to_dict(),
-                    }
-                finally:
-                    conn.close()
-        except Exception as exc:
-            log.debug("providers server_tier read skipped: %s", exc)
-        return {"configured": False, "tier": policy.ServerTier().to_dict()}
-
-    def _add_provider_view(cfg: dict[str, Any], pm: Any) -> None:
-        """Add what applies now (``accounts.provider_view``) and the server tier to a /providers response. The view reads the settings with the ``providers.json`` of ``pm`` (the file that the request saved). The tier is read-only here: /admin/server edits it."""
-        from ..accounts.provider_view import describe_server_providers
-
-        from ..accounts.languages import with_server_languages
-
-        current = with_server_languages(s.model_copy(update=pm.get_settings_dict()))
-        cfg["effective_provider"] = current.effective_provider
-        cfg["effective_stt_provider"] = current.effective_stt_provider
-        cfg["effective"] = describe_server_providers(current)
-        tier_payload = _load_server_tier_payload()
-        cfg["server_tier"] = tier_payload["tier"]
-        cfg["server_tier_configured"] = tier_payload["configured"]
-
-    async def providers_get_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        from ..core.provider_manager import get_provider_manager
-
-        pm = get_provider_manager(s.data_dir)
-        cfg = pm.get_sanitized_config()
-        _add_provider_view(cfg, pm)
-        return JSONResponse(cfg)
-
-    async def providers_update_route(request: Request) -> JSONResponse:
-        nonlocal s
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        body = await _json_object(request)
-        from ..core.provider_manager import get_provider_manager
-
-        # The test provider (mock) makes no AI call: only a development server may select it (PROVIDERS.md Section 3.1).
-        if str(body.get("active_provider") or "").strip().lower() == "mock" and s.is_production:
-            raise HTTPException(status_code=400, detail="mock_not_allowed_in_production")
-        # STT has one provider (Google AI Studio) and one model: the screen changes only the switch and the language. The server tier has its own page (/admin/server, PUT /api/admin/server-tier).
-        providers_in = body.get("providers")
-        if isinstance(providers_in, dict) and isinstance(providers_in.get("stt"), dict):
-            providers_in["stt"] = {k: v for k, v in providers_in["stt"].items() if k in ("enabled", "language")} | {"provider": "gemini"}
-        body.pop("server_tier", None)
-        pm = get_provider_manager(s.data_dir)
-        try:
-            updated = pm.update_config(body, server_scope=True)
-            get_settings.cache_clear()
-            s = get_settings()
-            if hasattr(request, "app") and hasattr(request.app, "state"):
-                request.app.state.settings = s
-            # 캐시된 서비스·프로바이더(관리자 공유 포함)를 버리고 새 설정으로 다시 만든다.
-            service_pool.clear(s)
-            _add_provider_view(updated, pm)
-            return JSONResponse({"ok": True, "config": updated})
-        except ValueError as val_err:
-            raise HTTPException(status_code=400, detail=str(val_err)) from val_err
-        except Exception as exc:
-            _log_operation_failure(request, "provider update", exc)
-            raise HTTPException(status_code=500, detail="failed to update provider configuration") from exc
-
-    def _require_admin_browser_session(request: Request) -> None:
-        """Require an authenticated server-admin browser cookie session and same-origin request."""
-        principal = request_principal(request)
-        if principal.channel != "cookie" or principal.server_role != "admin" or principal.scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="서버 관리자 브라우저 세션이 필요합니다.",
-            )
-        if not same_origin(request):
-            raise HTTPException(
-                status_code=403,
-                detail="same-origin 요청만 허용됩니다.",
-            )
-
-    async def providers_test_route(request: Request) -> JSONResponse:
-        _require_admin_browser_session(request)
-        body = await _json_object(request)
-        provider_name = str(body.get("provider") or "").strip().lower()
-        if not provider_name:
-            raise HTTPException(status_code=400, detail="provider is required")
-        from ..core.provider_manager import get_provider_manager
-
-        pm = get_provider_manager(s.data_dir)
-        override = body.get("config") if isinstance(body.get("config"), dict) else None
-        res = pm.test_connection(provider_name, config=override)
-        return JSONResponse(res)
-
-    async def providers_check_route(request: Request) -> JSONResponse:
-        _require_admin_browser_session(request)
-        body = await _json_object(request)
-        from ..core.provider_manager import get_provider_manager
-
-        pm = get_provider_manager(s.data_dir)
-        live = bool(body.get("live", False))
-        try:
-            caps = pm.check_capabilities(body, live=live)
-        except ValueError as val_err:
-            raise HTTPException(status_code=400, detail=str(val_err)) from val_err
-        return JSONResponse(caps)
-
-    async def limits_get_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        from ..core.ingest_limit_manager import get_ingest_limit_manager
-
-        curr_settings = (
-            getattr(getattr(request, "app", None), "state", None)
-            and getattr(request.app.state, "settings", s)
-        ) or s
-        data_dir = getattr(curr_settings, "data_dir", s.data_dir)
-        ilm = get_ingest_limit_manager(data_dir)
-        cfg = ilm.get_sanitized_config()
-        return JSONResponse(cfg)
-
-    async def limits_update_route(request: Request) -> JSONResponse:
-        nonlocal s
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        body = await _json_object(request)
-        from ..core.ingest_limit_manager import get_ingest_limit_manager
-
-        curr_settings = (
-            getattr(getattr(request, "app", None), "state", None)
-            and getattr(request.app.state, "settings", s)
-        ) or s
-        data_dir = getattr(curr_settings, "data_dir", s.data_dir)
-        ilm = get_ingest_limit_manager(data_dir)
-        try:
-            updated = ilm.update_config(body)
-            get_settings.cache_clear()
-            s = s.model_copy(update=ilm.get_settings_dict())
-            if hasattr(request, "app") and hasattr(request.app, "state"):
-                request.app.state.settings = s
-            # 캐시된 서비스·프로바이더(관리자 공유 포함)를 버리고 새 설정으로 다시 만든다.
-            service_pool.clear(s)
-            return JSONResponse({"ok": True, "config": updated})
-        except ValueError as val_err:
-            raise HTTPException(status_code=400, detail=str(val_err)) from val_err
-        except Exception as exc:
-            _log_operation_failure(request, "ingest limits update", exc)
-            raise HTTPException(status_code=500, detail="failed to update ingest limits configuration") from exc
-
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
         theme, theme_settings, theme_svc = _get_personal_kb_ctx(request)
@@ -4655,317 +4487,6 @@ def create_app(
                 "dispatches": dispatches,
                 "count": len(dispatches),
             }
-        )
-
-    async def ns_context_route(request: Request) -> Response:
-        """``GET /ns/v1``: the JSON-LD context of the knowledge federation vocabulary (KNOWLEDGE_FEDERATION_DESIGN.md Section 9.1, KD9). Public, in each mode, also while federation is off: other servers read it."""
-        from ..federation.knowledge import vocabulary
-
-        return Response(vocabulary.context_json(), media_type=vocabulary.CONTEXT_MEDIA_TYPE, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"})
-
-    async def ns_vocabulary_route(request: Request) -> Response:
-        """``GET /ns``: the page of the vocabulary, with one anchor for each term."""
-        from ..federation.knowledge import vocabulary
-
-        return HTMLResponse(vocabulary.vocabulary_page(), headers={"Cache-Control": "public, max-age=86400"})
-
-    def _public_sitemap_targets() -> list[tuple[Path, int]]:
-        if theme_mgr is not None:
-            private_personal_accounts: set[int] = set()
-            if s.db_file.is_file():
-                conn_mode = dbm.connect_existing(s.db_file, readonly=True)
-                try:
-                    mode_row = conn_mode.execute("SELECT value FROM server_settings WHERE key='mode'").fetchone()
-                    if mode_row is not None and str(mode_row[0]) == "network":
-                        private_personal_accounts = {
-                            int(r[0]) for r in conn_mode.execute("SELECT id FROM accounts WHERE profile_public=0 OR status!='active'").fetchall()
-                        }
-                except Exception:
-                    private_personal_accounts = set()
-                finally:
-                    conn_mode.close()
-            targets: list[tuple[Path, int]] = []
-            for t in theme_mgr.list_kbs():
-                if getattr(t, "is_personal", False) and getattr(t, "account_id", None) in private_personal_accounts:
-                    continue
-                if getattr(t, "is_public", True):
-                    t_settings = theme_mgr.get_settings_for_kb(t.id, s)
-                    targets.append((t_settings.db_file, t.id))
-            return targets
-
-        if s.db_file.is_file():
-            conn_pub = dbm.connect_existing(s.db_file, readonly=True)
-            try:
-                rows = conn_pub.execute("SELECT id FROM knowledge_bases WHERE is_public = 1 ORDER BY id").fetchall()
-                return [(s.db_file, int(r[0])) for r in rows]
-            except Exception:
-                return []
-            finally:
-                conn_pub.close()
-        return [(s.db_file, 0)]
-
-    async def robots_txt_route(request: Request) -> Response:
-        host_header = request.headers.get("host") or ""
-        is_private = getattr(s, "robots_policy", "public") == "disallow_all" or not _public_sitemap_targets()
-
-        if is_private:
-            return PlainTextResponse("User-agent: *\nDisallow: /\n", media_type="text/plain; charset=utf-8")
-
-        proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
-        authority = host_header or getattr(s, "fqdn", "") or "localhost"
-        sitemap_url = f"{proto}://{authority}/sitemap.xml"
-
-        lines = [
-            "User-agent: *",
-            "Allow: /$",
-            "Allow: /silvercord/",
-            "Allow: /static/",
-            "Allow: /images/",
-            "Allow: /p/images/",
-            "Allow: /fonts/",
-            "Allow: /favicon.*",
-            "Disallow: /search",
-            "Disallow: /ingest",
-            "Disallow: /reingest",
-            "Disallow: /regenerate",
-            "Disallow: /document/raw",
-            "Disallow: /document/regenerate",
-            "Disallow: /document/presentation/generate",
-            "Disallow: /document/presentation/compose",
-            "Disallow: /document/presentation/compile",
-            "Disallow: /document/seen",
-            "Disallow: /document/pin",
-            "Disallow: /document/hide",
-            "Disallow: /document/title",
-            "Disallow: /document/purge",
-            "Disallow: /document/matrix/purge",
-            "Disallow: /purge",
-            "Disallow: /synthesize",
-            "Disallow: /research",
-            "Disallow: /dedup/",
-            "Disallow: /entity/",
-            "Disallow: /resolution/",
-            "Disallow: /oauth/",
-            "Disallow: /.well-known/oauth*",
-            "Disallow: /mcp",
-            "Disallow: /support/bundle",
-            "Disallow: /support/graph-bundle",
-            "Disallow: /whoami",
-            "Disallow: /stats",
-            "Disallow: /limits",
-            "Disallow: /ingest-limits",
-            "Disallow: /providers",
-            "Disallow: /themes",
-            "Disallow: /syndication",
-        ]
-
-        if getattr(s, "block_ai_crawlers", True):
-            ai_agents = [
-                "GPTBot",
-                "ChatGPT-User",
-                "ClaudeBot",
-                "anthropic-ai",
-                "CCBot",
-                "Bytespider",
-                "PerplexityBot",
-                "Cohere-ai",
-                "Diffbot",
-                "FacebookBot",
-            ]
-            lines.append("")
-            for agent in ai_agents:
-                lines.append(f"User-agent: {agent}")
-            lines.append("Disallow: /")
-
-        lines.append("")
-        lines.append(f"Sitemap: {sitemap_url}")
-        content = "\n".join(lines) + "\n"
-        return PlainTextResponse(content, media_type="text/plain; charset=utf-8")
-
-    async def sitemap_xml_route(request: Request) -> Response:
-        if not getattr(s, "sitemap_enabled", True):
-            return PlainTextResponse("Not Found", status_code=404)
-
-        target_dbs = _public_sitemap_targets()
-        if not target_dbs:
-            return PlainTextResponse("Not Found", status_code=404)
-
-        host_header = request.headers.get("host") or ""
-        proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
-        authority = host_header or getattr(s, "fqdn", "") or "localhost"
-        base_url = f"{proto}://{authority}".rstrip("/")
-
-        cache_ttl = float(getattr(s, "sitemap_cache_ttl", 900))
-        now = time.time()
-        cached = _sitemap_cache.get(authority)
-        if cached is not None:
-            cached_at, cached_etag, cached_xml = cached
-            if now - cached_at < cache_ttl:
-                if request.headers.get("if-none-match") == cached_etag:
-                    return Response(status_code=304, headers={"ETag": cached_etag})
-                return Response(
-                    cached_xml,
-                    media_type="application/xml; charset=utf-8",
-                    headers={
-                        "ETag": cached_etag,
-                        "Cache-Control": f"public, max-age={int(cache_ttl)}",
-                    },
-                )
-
-        all_doc_entries: list[dict[str, Any]] = []
-        for db_file, target_tid in target_dbs:
-            if not db_file.is_file():
-                continue
-            try:
-                conn = dbm.connect_existing(db_file)
-                try:
-                    entries = dbm.list_public_sitemap_documents(conn, kb_id=target_tid)
-                    all_doc_entries.extend(entries)
-                finally:
-                    conn.close()
-            except Exception:
-                pass
-
-        xml_lines = [
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-            '  <url>',
-            f'    <loc>{base_url}/</loc>',
-            '    <changefreq>daily</changefreq>',
-            '    <priority>1.0</priority>',
-            '  </url>',
-        ]
-
-        seen_tokens: set[str] = set()
-        for doc in all_doc_entries:
-            tok = doc.get("token")
-            if not tok or tok in seen_tokens:
-                continue
-            seen_tokens.add(tok)
-            loc = permalinks.permalink_url(base_url, tok)
-            lastmod = ""
-            fetched_at = doc.get("fetched_at")
-            published_at = doc.get("published_at")
-            if fetched_at:
-                try:
-                    dt = datetime.fromtimestamp(float(fetched_at), tz=timezone.utc)
-                    lastmod = dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-                except Exception:
-                    pass
-            elif published_at and isinstance(published_at, str) and len(published_at) >= 10:
-                lastmod = published_at.strip()
-
-            xml_lines.append("  <url>")
-            xml_lines.append(f"    <loc>{loc}</loc>")
-            if lastmod:
-                xml_lines.append(f"    <lastmod>{lastmod}</lastmod>")
-            xml_lines.append("    <changefreq>weekly</changefreq>")
-            xml_lines.append("    <priority>0.8</priority>")
-            xml_lines.append("  </url>")
-
-        xml_lines.append("</urlset>")
-        xml_bytes = "\n".join(xml_lines).encode("utf-8")
-        etag = f'"{hashlib.md5(xml_bytes).hexdigest()}"'
-        _sitemap_cache[authority] = (now, etag, xml_bytes)
-
-        if request.headers.get("if-none-match") == etag:
-            return Response(status_code=304, headers={"ETag": etag})
-
-        return Response(
-            xml_bytes,
-            media_type="application/xml; charset=utf-8",
-            headers={
-                "ETag": etag,
-                "Cache-Control": f"public, max-age={int(cache_ttl)}",
-            },
-        )
-
-    async def favicon_ico_route(_request: Request) -> Response:
-        path = get_web_ui_renderer().static_dir / "icons" / "favicon.ico"
-        if not path.is_file():
-            return PlainTextResponse("Not Found", status_code=404)
-        return FileResponse(path, media_type="image/x-icon")
-
-    async def favicon_svg_route(_request: Request) -> Response:
-        path = get_web_ui_renderer().static_dir / "icons" / "favicon.svg"
-        if not path.is_file():
-            return PlainTextResponse("Not Found", status_code=404)
-        return FileResponse(path, media_type="image/svg+xml")
-
-    async def apple_touch_route(_request: Request) -> Response:
-        path = get_web_ui_renderer().static_dir / "icons" / "apple-touch-icon.png"
-        if not path.is_file():
-            return PlainTextResponse("Not Found", status_code=404)
-        return FileResponse(path, media_type="image/png")
-
-    async def manifest_route(_request: Request) -> Response:
-        path = get_web_ui_renderer().static_dir / "icons" / "manifest.json"
-        if not path.is_file():
-            return PlainTextResponse("Not Found", status_code=404)
-        return FileResponse(path, media_type="application/manifest+json")
-
-    async def browserconfig_route(_request: Request) -> Response:
-        path = get_web_ui_renderer().static_dir / "icons" / "browserconfig.xml"
-        if not path.is_file():
-            return PlainTextResponse("Not Found", status_code=404)
-        return FileResponse(path, media_type="application/xml")
-
-    async def service_worker_route(request: Request) -> Response:
-        headers = {
-            "Content-Type": "application/javascript; charset=utf-8",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Service-Worker-Allowed": "/",
-        }
-        if request.method == "HEAD":
-            return Response(status_code=200, headers=headers, media_type="application/javascript")
-        # The service worker is the static file js/sw.js. The route sends it from the root path, thus its scope is "/" (PWA_NOTIFICATION_DESIGN.md PN4 rule 1).
-        content = await asyncio.to_thread((get_web_ui_renderer().static_dir / "js" / "sw.js").read_bytes)
-        return Response(content=content, status_code=200, headers=headers, media_type="application/javascript")
-
-    async def icon_file_route(request: Request) -> Response:
-        rel = request.query_params.get("p", "") or request.query_params.get("name", "")
-        if not _ICON_FILENAME_RE.fullmatch(rel):
-            return PlainTextResponse("Not Found", status_code=404)
-        path = get_web_ui_renderer().static_dir / "icons" / rel
-        if not path.is_file():
-            return PlainTextResponse("Not Found", status_code=404)
-        media_type = None
-        if rel.endswith(".png"):
-            media_type = "image/png"
-        elif rel.endswith(".svg"):
-            media_type = "image/svg+xml"
-        elif rel.endswith(".ico"):
-            media_type = "image/x-icon"
-        elif rel.endswith(".json") or rel.endswith(".webmanifest"):
-            media_type = "application/manifest+json"
-        elif rel.endswith(".xml"):
-            media_type = "application/xml"
-        return FileResponse(path, media_type=media_type)
-
-    def _create_font_file_handler(name: str) -> Any:
-        async def _font_route(_request: Request) -> Response:
-            path = get_web_ui_renderer().static_dir / "fonts" / name
-            if not path.is_file():
-                return PlainTextResponse("Not Found", status_code=404)
-            return FileResponse(
-                path,
-                media_type="font/woff2",
-                headers={"Cache-Control": "public, max-age=31536000, immutable"},
-            )
-
-        return _font_route
-
-    async def font_file_route(request: Request) -> Response:
-        rel = request.query_params.get("p", "") or request.query_params.get("name", "")
-        if not _FONT_FILENAME_RE.fullmatch(rel):
-            return PlainTextResponse("Not Found", status_code=404)
-        path = get_web_ui_renderer().static_dir / "fonts" / rel
-        if not path.is_file():
-            return PlainTextResponse("Not Found", status_code=404)
-        return FileResponse(
-            path,
-            media_type="font/woff2",
-            headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
 
     async def image_route(request: Request) -> Response:
@@ -7077,341 +6598,6 @@ def create_app(
 
         return JSONResponse({"error": "method not allowed"}, status_code=405)
 
-    def _reject_foreign_kb_param(request: Request, personal_kb: KnowledgeBaseInfo, body: dict[str, Any] | None = None) -> None:
-        raw_ref = None
-        if body is not None:
-            raw_ref = body.get("kb") or body.get("kb_id") or body.get("theme")
-        if raw_ref is None:
-            raw_ref = request.query_params.get("kb") or request.query_params.get("kb_id") or request.query_params.get("theme")
-        if raw_ref is None or not str(raw_ref).strip():
-            return
-        ref_str = str(raw_ref).strip()
-        if ref_str.lower() == "personal" or ref_str == str(personal_kb.id):
-            return
-        target = None
-        try:
-            target = theme_mgr.get_kb_by_reference(ref_str)
-        except Exception:
-            target = None
-        if target is None:
-            try:
-                target = theme_mgr.get_kb(int(ref_str))
-            except Exception:
-                target = None
-        if target is None or int(target.id) != int(personal_kb.id):
-            if target is not None and not target.is_shared:
-                raise HTTPException(status_code=404, detail="theme not found")
-            raise HTTPException(status_code=403, detail="kb_ingest_by_contribution")
-
-    async def _optional_json_object(request: Request) -> dict[str, Any]:
-        ctype = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-        if not ctype:
-            raw_bytes = await request.body()
-            if not raw_bytes:
-                return {}
-            raise HTTPException(status_code=400, detail="content-type must be application/json")
-        return await _json_object(request)
-
-    def _parse_optional_int(raw: str | None, name: str) -> int | None:
-        if raw is None or raw == "":
-            return None
-        try:
-            return int(raw)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"{name} must be an integer") from exc
-
-    def _parse_bool_flag(raw: Any, default: bool = True) -> bool | None:
-        if raw is None:
-            return default
-        if isinstance(raw, bool):
-            return raw
-        if isinstance(raw, str):
-            low = raw.strip().lower()
-            if low in ("1", "true", "yes", "on"):
-                return True
-            if low in ("0", "false", "no", "off"):
-                return False
-        return None
-
-    async def client_extraction_stage_route(request: Request) -> JSONResponse:
-        from ..ingest import client_extraction as ce
-
-        theme, theme_settings, _ = _get_personal_kb_ctx(request)
-        principal = request_principal(request)
-        assert principal.account_id is not None
-        ctype = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-
-        raw_bytes: bytes | None = None
-        filename: str | None = None
-        content_base64: str | None = None
-        document_id: str | None = None
-        url_or_text = ""
-        title: Any = None
-        source_type: Any = None
-        full_content = True
-        force = False
-        refetch = False
-
-        if ctype == "multipart/form-data":
-            form = await request.form()
-            kb_val = form.get("kb") or form.get("kb_id") or form.get("theme")
-            _reject_foreign_kb_param(request, theme, {"kb": kb_val} if kb_val is not None else None)
-            uploaded = form.get("file")
-            if uploaded is None or not hasattr(uploaded, "read"):
-                return JSONResponse({"ok": False, "error": "file_required", "message": "multipart form field 'file' is required."}, status_code=400)
-            chunks: list[bytes] = []
-            total = 0
-            while True:
-                chunk = await uploaded.read(65536)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > ce.MAX_STAGE_FILE_BYTES:
-                    return JSONResponse({"ok": False, "error": "file_too_large", "message": f"File size exceeds limit of {ce.MAX_STAGE_FILE_BYTES} bytes."}, status_code=413)
-                chunks.append(chunk)
-            raw_bytes = b"".join(chunks)
-            filename = str(getattr(uploaded, "filename", None) or form.get("filename") or "").strip()
-            title = form.get("title")
-            source_type = form.get("source_type")
-            parsed_fc = _parse_bool_flag(form.get("full_content"), default=True)
-            if parsed_fc is None:
-                return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
-            full_content = parsed_fc
-            parsed_force = _parse_bool_flag(form.get("force"), default=False)
-            if parsed_force is None:
-                return JSONResponse({"ok": False, "error": "invalid_force", "message": "force must be a boolean."}, status_code=400)
-            force = parsed_force
-        else:
-            body = await _json_object(request)
-            _reject_foreign_kb_param(request, theme, body)
-            title = body.get("title")
-            source_type = body.get("source_type")
-            full_content_raw = body.get("full_content", True)
-            if not isinstance(full_content_raw, bool):
-                return JSONResponse({"ok": False, "error": "invalid_full_content", "message": "full_content must be a boolean."}, status_code=400)
-            full_content = full_content_raw
-            force_raw = body.get("force", False)
-            if not isinstance(force_raw, bool):
-                return JSONResponse({"ok": False, "error": "invalid_force", "message": "force must be a boolean."}, status_code=400)
-            force = force_raw
-            refetch_raw = body.get("refetch", False)
-            if not isinstance(refetch_raw, bool):
-                return JSONResponse({"ok": False, "error": "invalid_refetch", "message": "refetch must be a boolean."}, status_code=400)
-            refetch = refetch_raw
-            raw_doc_id = str(body.get("document_id") or "").strip()
-            if raw_doc_id:
-                document_id = raw_doc_id
-            elif "content_base64" in body or "filename" in body:
-                filename = str(body.get("filename") or "").strip()
-                content_base64 = str(body.get("content_base64") or "")
-            else:
-                url_or_text = str(body.get("url_or_text") or body.get("url") or body.get("text") or "").strip()
-            if refetch and not document_id:
-                return JSONResponse({"ok": False, "error": "invalid_refetch", "message": "refetch=True requires document_id."}, status_code=400)
-
-        def _work() -> dict[str, Any]:
-            conn = dbm.connect_existing(theme_settings.db_file)
-            try:
-                common_kwargs = {
-                    "kb_id": theme.id,
-                    "account_id": int(principal.account_id),
-                    "title": str(title) if title is not None else None,
-                    "source_type": str(source_type) if source_type is not None else None,
-                    "full_content": full_content,
-                    "settings": theme_settings,
-                    "data_dir": Path(s.data_dir) if getattr(s, "data_dir", None) else None,
-                }
-                if document_id is not None:
-                    return ce.restage_existing_source(conn, document_id=document_id, refetch=refetch, **common_kwargs)
-                if raw_bytes is not None:
-                    return ce.stage_file_bytes(conn, raw_bytes=raw_bytes, filename=filename or "", force=force, **common_kwargs)
-                if content_base64 is not None:
-                    return ce.stage_file_base64(conn, filename=filename or "", content_base64=content_base64, force=force, **common_kwargs)
-                return ce.stage_source(conn, url_or_text=url_or_text, force=force, **common_kwargs)
-            finally:
-                conn.close()
-
-        try:
-            res = await asyncio.to_thread(_work)
-            return JSONResponse(res, status_code=200)
-        except ce.ClientExtractionError as exc:
-            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
-
-    async def client_extraction_list_route(request: Request) -> JSONResponse:
-        from ..ingest import client_extraction as ce
-
-        theme, theme_settings, _ = _get_personal_kb_ctx(request)
-        _reject_foreign_kb_param(request, theme)
-        principal = request_principal(request)
-        assert principal.account_id is not None
-        status_filter = request.query_params.get("status", "pending")
-        if status_filter == "all":
-            status_filter = None
-        limit_val = _parse_optional_int(request.query_params.get("limit"), "limit")
-        limit = 50 if limit_val is None else limit_val
-
-        def _work() -> dict[str, Any]:
-            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
-            try:
-                return ce.list_staged_sources(conn, kb_id=theme.id, account_id=int(principal.account_id), status=status_filter, limit=limit)
-            finally:
-                conn.close()
-
-        try:
-            res = await asyncio.to_thread(_work)
-            return JSONResponse(res, status_code=200)
-        except ce.ClientExtractionError as exc:
-            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
-
-    async def client_extraction_claim_route(request: Request) -> JSONResponse:
-        from ..ingest import client_extraction as ce
-
-        theme, theme_settings, _ = _get_personal_kb_ctx(request)
-        body = await _optional_json_object(request)
-        _reject_foreign_kb_param(request, theme, body)
-        principal = request_principal(request)
-        assert principal.account_id is not None
-        doc_id = request.path_params.get("document_id", "")
-        client_id = body.get("client_id")
-        lease_raw = body.get("lease_seconds", dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS)
-        if isinstance(lease_raw, bool) or not isinstance(lease_raw, (int, float)):
-            return JSONResponse({"ok": False, "error": "invalid_lease_seconds", "message": "lease_seconds must be a number."}, status_code=400)
-        force_raw = body.get("force", False)
-        if not isinstance(force_raw, bool):
-            return JSONResponse({"ok": False, "error": "invalid_force", "message": "force must be a boolean."}, status_code=400)
-
-        def _work() -> dict[str, Any]:
-            conn = dbm.connect_existing(theme_settings.db_file)
-            try:
-                return ce.claim_staged_source(conn, kb_id=theme.id, account_id=int(principal.account_id), document_id=doc_id, client_id=str(client_id) if client_id is not None else None, lease_seconds=lease_raw, force=force_raw)
-            finally:
-                conn.close()
-
-        try:
-            res = await asyncio.to_thread(_work)
-            return JSONResponse(res, status_code=200)
-        except ce.ClientExtractionError as exc:
-            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
-
-    async def client_extraction_renew_route(request: Request) -> JSONResponse:
-        from ..ingest import client_extraction as ce
-
-        theme, theme_settings, _ = _get_personal_kb_ctx(request)
-        body = await _json_object(request)
-        _reject_foreign_kb_param(request, theme, body)
-        principal = request_principal(request)
-        assert principal.account_id is not None
-        doc_id = request.path_params.get("document_id", "")
-        claim_token = str(body.get("claim_token") or "")
-        lease_raw = body.get("lease_seconds", dbm.DEFAULT_STAGED_CLAIM_TTL_SECONDS)
-        if isinstance(lease_raw, bool) or not isinstance(lease_raw, (int, float)):
-            return JSONResponse({"ok": False, "error": "invalid_lease_seconds", "message": "lease_seconds must be a number."}, status_code=400)
-
-        def _work() -> dict[str, Any]:
-            conn = dbm.connect_existing(theme_settings.db_file)
-            try:
-                return ce.renew_staged_claim(conn, kb_id=theme.id, account_id=int(principal.account_id), document_id=doc_id, claim_token=claim_token, lease_seconds=lease_raw)
-            finally:
-                conn.close()
-
-        try:
-            res = await asyncio.to_thread(_work)
-            return JSONResponse(res, status_code=200)
-        except ce.ClientExtractionError as exc:
-            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
-
-    async def client_extraction_spec_route(request: Request) -> JSONResponse:
-        from ..ingest import client_extraction as ce
-
-        del request
-        return JSONResponse(ce.get_extraction_spec(), status_code=200)
-
-    async def client_extraction_get_source_route(request: Request) -> JSONResponse:
-        from ..ingest import client_extraction as ce
-
-        theme, theme_settings, _ = _get_personal_kb_ctx(request)
-        _reject_foreign_kb_param(request, theme)
-        principal = request_principal(request)
-        assert principal.account_id is not None
-        doc_id = request.path_params.get("document_id", "")
-        claim_token = request.query_params.get("claim_token")
-        offset = _parse_optional_int(request.query_params.get("offset"), "offset") or 0
-        limit = _parse_optional_int(request.query_params.get("limit"), "limit")
-        line_offset = _parse_optional_int(request.query_params.get("line_offset"), "line_offset")
-        line_limit = _parse_optional_int(request.query_params.get("line_limit"), "line_limit")
-        fc_param = request.query_params.get("full_content", "true").strip().lower()
-        full_content = fc_param not in ("0", "false", "no")
-
-        def _work() -> dict[str, Any]:
-            conn = dbm.connect_existing(theme_settings.db_file, readonly=True)
-            try:
-                return ce.get_staged_source(
-                    conn,
-                    kb_id=theme.id,
-                    account_id=int(principal.account_id),
-                    document_id=doc_id,
-                    claim_token=claim_token,
-                    offset=offset,
-                    limit=limit,
-                    full_content=full_content,
-                    line_offset=line_offset,
-                    line_limit=line_limit,
-                )
-            finally:
-                conn.close()
-
-        try:
-            res = await asyncio.to_thread(_work)
-            return JSONResponse(res, status_code=200)
-        except ce.ClientExtractionError as exc:
-            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
-
-    async def client_extraction_submit_route(request: Request) -> JSONResponse:
-        from ..ingest import client_extraction as ce
-
-        theme, theme_settings, theme_svc = _get_personal_kb_ctx(request)
-        body = await _json_object(request)
-        _reject_foreign_kb_param(request, theme, body)
-        principal = request_principal(request)
-        assert principal.account_id is not None
-        doc_id = request.path_params.get("document_id", "")
-        claim_token = str(body.get("claim_token") or "")
-        expected_hash = str(body.get("expected_content_hash") or body.get("content_hash") or "")
-        dry_run_raw = body.get("dry_run", False)
-        if not isinstance(dry_run_raw, bool):
-            return JSONResponse({"ok": False, "error": "invalid_dry_run", "message": "dry_run must be a boolean."}, status_code=400)
-        if "payload" in body:
-            raw_payload = body["payload"]
-        else:
-            raw_payload = {k: v for k, v in body.items() if k not in ("claim_token", "expected_content_hash", "content_hash", "dry_run", "kb", "kb_id", "theme")}
-        if not isinstance(raw_payload, dict):
-            return JSONResponse({"ok": False, "error": "schema_validation_error", "message": "payload must be a JSON object."}, status_code=422)
-
-        def _work() -> dict[str, Any]:
-            return ce.submit_client_extraction(
-                theme_settings.db_file,
-                kb_id=theme.id,
-                account_id=int(principal.account_id),
-                document_id=doc_id,
-                claim_token=claim_token,
-                expected_content_hash=expected_hash,
-                payload=raw_payload,
-                dry_run=dry_run_raw,
-                theme_svc=theme_svc,
-                kb_settings=theme_settings,
-                root_settings=s,
-                root_provider=getattr(svc, "provider", None),
-                credential_id=principal.credential_id,
-                credential_kind=principal.channel,
-            )
-
-        try:
-            res = await asyncio.to_thread(_work)
-            status = 200 if res.get("ok") else 422
-            return JSONResponse(res, status_code=status)
-        except ce.ClientExtractionError as exc:
-            return JSONResponse(exc.to_response_dict(), status_code=exc.status_code)
-
     mcp_app = build_mcp_app(s, theme_mgr=theme_mgr, svc=svc, service_pool=service_pool)
 
     async def mcp_route(request: Request) -> Response:
@@ -7656,80 +6842,13 @@ def create_app(
 
     static_dir = get_web_ui_renderer().static_dir
     static_dir.mkdir(parents=True, exist_ok=True)
-    from .v1 import (
-        build_account_openapi_spec,
-        build_admin_openapi_spec,
-        build_v1_openapi_json,
-        build_v1_openapi_yaml,
-        build_v1_routes,
-        render_reference_html,
-    )
-
-    _private_no_store_headers = {
-        "Cache-Control": "private, no-store",
-        "Vary": "Cookie, Authorization",
-        "Referrer-Policy": "same-origin",
-    }
-
-    async def docs_ui_route(request: Request) -> Response:
-        principal = request_principal(request)
-        base_url = str(runtime_cfg.public_origin or "").rstrip("/") or str(request.base_url).rstrip("/")
-        html_doc = render_reference_html(
-            auth_scope=principal.scope,
-            is_admin=(principal.server_role == "admin"),
-            locale=get_locale(),
-            base_url=base_url,
-        )
-        return HTMLResponse(
-            get_web_ui_renderer().inject_favicon_head_tags(html_doc),
-            headers=_private_no_store_headers,
-        )
-
-    async def openapi_v1_json_route(_request: Request) -> Response:
-        return Response(
-            build_v1_openapi_json().encode("utf-8"),
-            media_type="application/json",
-            headers={"Content-Type": "application/json; charset=utf-8"},
-        )
-
-    async def openapi_account_json_route(_request: Request) -> Response:
-        return JSONResponse(
-            build_account_openapi_spec(),
-            headers=_private_no_store_headers,
-        )
-
-    async def openapi_admin_json_route(_request: Request) -> Response:
-        return JSONResponse(
-            build_admin_openapi_spec(),
-            headers=_private_no_store_headers,
-        )
-
-    async def openapi_yaml_route(_request: Request) -> Response:
-        return Response(
-            build_v1_openapi_yaml().encode("utf-8"),
-            media_type="application/yaml",
-            headers={"Content-Type": "application/yaml; charset=utf-8"},
-        )
 
     routes = [
         Route("/health", health, methods=["GET"]),
-        Route("/robots.txt", robots_txt_route, methods=["GET"]),
-        Route("/ns", ns_vocabulary_route, methods=["GET"]),
-        Route("/ns/v1", ns_context_route, methods=["GET"]),
-        Route("/sitemap.xml", sitemap_xml_route, methods=["GET"]),
-        Route("/favicon.ico", favicon_ico_route, methods=["GET"]),
-        Route("/favicon.svg", favicon_svg_route, methods=["GET"]),
-        Route("/apple-touch-icon.png", apple_touch_route, methods=["GET"]),
-        Route("/apple-touch-icon-precomposed.png", apple_touch_route, methods=["GET"]),
-        Route("/manifest.json", manifest_route, methods=["GET"]),
-        Route("/site.webmanifest", manifest_route, methods=["GET"]),
-        Route("/browserconfig.xml", browserconfig_route, methods=["GET"]),
-        Route("/sw.js", service_worker_route, methods=["GET"]),
-        Route("/icon", icon_file_route, methods=["GET"]),
-        Route("/font", font_file_route, methods=["GET"]),
-        *(
-            Route(f"/fonts/{font_name}", _create_font_file_handler(font_name), methods=["GET"])
-            for font_name in FONTS
+        *build_public_site_routes(
+            settings=s,
+            theme_mgr=theme_mgr,
+            sitemap_cache=_sitemap_cache,
         ),
         Route("/whoami", whoami, methods=["GET"]),
         Route("/home-profile", home_profile_route, methods=["GET"]),
@@ -7785,14 +6904,11 @@ def create_app(
         Route("/contributions/{number}/retry", kb_contribution_retry_route, methods=["POST"]),
         Route("/api/admin/kb/{number}/moderators/{account}", admin_kb_moderator_route, methods=["PUT", "DELETE"]),
         Route("/themes", themes_collection_route, methods=["GET", "HEAD"]),
-        Route("/providers", providers_get_route, methods=["GET", "HEAD"]),
-        Route("/providers", providers_update_route, methods=["PATCH", "POST"]),
-        Route("/providers/test", providers_test_route, methods=["POST"]),
-        Route("/providers/check", providers_check_route, methods=["POST"]),
-        Route("/limits", limits_get_route, methods=["GET", "HEAD"]),
-        Route("/limits", limits_update_route, methods=["PATCH", "POST"]),
-        Route("/ingest-limits", limits_get_route, methods=["GET", "HEAD"]),
-        Route("/ingest-limits", limits_update_route, methods=["PATCH", "POST"]),
+        *build_providers_limits_routes(
+            get_settings_fn=_get_current_settings,
+            update_settings_fn=_set_current_settings,
+            service_pool=service_pool,
+        ),
         Route("/ingest", do_ingest, methods=["POST"]),
         Route("/api/federation/timeline/{item_id}/ingest", federation_timeline_ingest_route, methods=["POST"]),
         Route("/api/feeds/items/{item_id}/ingest", feed_item_ingest_route, methods=["POST"]),
@@ -7801,7 +6917,7 @@ def create_app(
         Route("/reingest-stream", reingest_stream_route, methods=["POST"]),
         Route("/regenerate", do_regenerate, methods=["POST"]),
         Route("/regenerate-stream", regenerate_stream_route, methods=["POST"]),
-        Route("/document/regenerate", do_regenerate, methods=["POST"]),
+        Route("/document/regenerate", with_deprecation_headers(do_regenerate, "/regenerate"), methods=["POST"]),
         Route("/ingest/active", active_ingest_route, methods=["GET"]),
         Route("/search", do_search, methods=["POST"]),
         Route("/directory", public_directory_route, methods=["GET", "HEAD"]),
@@ -7810,9 +6926,9 @@ def create_app(
         Route("/syndication", syndication_ui_route, methods=["GET", "HEAD"]),
         Route("/syndication/preferences", syndication_preferences_ui_route, methods=["GET", "HEAD"]),
         Route("/api/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),
-        Route("/syndication/dispatch", syndication_dispatch_route, methods=["POST"]),
+        Route("/syndication/dispatch", with_deprecation_headers(syndication_dispatch_route, "/api/syndication/dispatch"), methods=["POST"]),
         Route("/api/syndication/dispatches", syndication_dispatches_route, methods=["GET"]),
-        Route("/syndication/dispatches", syndication_dispatches_route, methods=["GET"]),
+        Route("/syndication/dispatches", with_deprecation_headers(syndication_dispatches_route, "/api/syndication/dispatches"), methods=["GET"]),
         Route("/graph", graph_data, methods=["GET"]),
         Route("/node", node_detail, methods=["GET"]),
         Route("/documents", documents_list_route, methods=["GET"]),
@@ -7827,7 +6943,7 @@ def create_app(
         Route("/document/hide", document_hide_route, methods=["POST"]),
         Route("/document/title", document_title_route, methods=["POST"]),
         Route("/document/purge", document_purge_route, methods=["POST"]),
-        Route("/purge", document_purge_route, methods=["POST"]),
+        Route("/purge", with_deprecation_headers(document_purge_route, "/api/v1/kbs/personal/documents"), methods=["POST"]),
         Route("/document/matrix/purge", document_matrix_purge_route, methods=["POST"]),
         Route("/document/presentation", document_presentation_get_route, methods=["GET", "HEAD"]),
         Route("/document/presentation/generate", document_presentation_generate_route, methods=["POST"]),
@@ -7848,15 +6964,11 @@ def create_app(
         Route("/entities/{entity_id}/share", entity_share_route, methods=["POST", "DELETE"]),
         Route("/p", shared_doc_page, methods=["GET"]),
         Route("/p/presentation", presentation_page, methods=["GET", "HEAD"]),
-        Route("/support/bundle", create_support_bundle_route, methods=["POST"]),
+        Route("/support/bundle", with_deprecation_headers(create_support_bundle_route, "/api/v1/support/bundles"), methods=["POST"]),
         Route("/support/bundle/{token}", download_support_bundle_route, methods=["GET"]),
         Route("/support/graph-bundle", create_graph_bundle_route, methods=["POST"]),
         Route("/support/graph-bundle/{token}", download_graph_bundle_route, methods=["GET"]),
-        Route("/reference", docs_ui_route, methods=["GET"]),
-        Route("/openapi/v1.json", openapi_v1_json_route, methods=["GET"]),
-        Route("/openapi/account.json", openapi_account_json_route, methods=["GET"]),
-        Route("/openapi/admin.json", openapi_admin_json_route, methods=["GET"]),
-        Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
+        *build_reference_routes(runtime_cfg),
         *build_v1_routes(
             s,
             service=svc,
@@ -7876,13 +6988,12 @@ def create_app(
         Route("/device", handle_device_verification, methods=["GET", "HEAD", "POST"]),
         Route("/api/me/oauth/grants", handle_list_oauth_grants, methods=["GET", "HEAD"]),
         Route("/api/me/oauth/grants", handle_revoke_oauth_grants, methods=["POST", "DELETE"]),
-        Route("/api/client-extraction/stage", client_extraction_stage_route, methods=["POST"]),
-        Route("/api/client-extraction/sources", client_extraction_list_route, methods=["GET", "HEAD"]),
-        Route("/api/client-extraction/sources/{document_id}/claim", client_extraction_claim_route, methods=["POST"]),
-        Route("/api/client-extraction/sources/{document_id}/renew", client_extraction_renew_route, methods=["POST"]),
-        Route("/api/client-extraction/spec", client_extraction_spec_route, methods=["GET", "HEAD"]),
-        Route("/api/client-extraction/sources/{document_id}", client_extraction_get_source_route, methods=["GET", "HEAD"]),
-        Route("/api/client-extraction/sources/{document_id}/submit", client_extraction_submit_route, methods=["POST"]),
+        *build_client_extraction_routes(
+            get_settings_fn=_get_current_settings,
+            svc=svc,
+            theme_mgr=theme_mgr,
+            get_personal_kb_ctx=_get_personal_kb_ctx,
+        ),
         Route("/mcp", mcp_route, methods=["GET", "POST"]),
         *account_routes.routes,
         Mount("/static/locales", StaticFiles(directory=str(LOCALES_DIR), check_dir=False), name="static-locales"),

@@ -28,9 +28,7 @@ def dispatch_account_env(tmp_path: Path):
     vault_path = str(vault_dir)
 
     settings = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=db_path,
-        CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",

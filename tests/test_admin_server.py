@@ -37,7 +37,6 @@ def settings(tmp_path: Path) -> Settings:
     db_file = data_dir / "claire.db"
     return Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",

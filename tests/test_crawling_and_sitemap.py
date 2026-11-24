@@ -41,12 +41,8 @@ def app_settings(tmp_path: Path, tmp_db: Path) -> Settings:
     return Settings(
         _env_file=None,
         db_path=str(tmp_db),
-        data_path=str(tmp_path),
-        vault_path=str(tmp_path / "vault"),
         environment="production",
         fqdn="claire.example.com",
-        inject_token="owner-token-secret-12345678901234",
-        readonly_token="readonly-token-secret-123456789012",
         robots_policy="public",
         block_ai_crawlers=True,
         sitemap_enabled=True,
@@ -176,7 +172,7 @@ def test_sitemap_xml_generation_and_etag_caching(app_settings: Settings, tmp_db:
         # Parse XML
         root = ET.fromstring(resp.text)
         ns = {"ns": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-        urls = [loc.text for loc in root.findall(".//ns:loc", ns)]
+        urls = [loc.text for loc in root.findall(".//ns:loc", ns) if loc.text]
 
         # Must contain root portal
         assert "https://claire.example.com/" in urls

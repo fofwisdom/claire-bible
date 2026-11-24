@@ -223,7 +223,6 @@ def test_cli_entity_select_and_batch(tmp_path: Path, monkeypatch, capsys):
     # Settings mock
     from claire.core.config import Settings
     s = Settings(
-        CLAIRE_DATA_DIR=str(tmp_path),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
     )

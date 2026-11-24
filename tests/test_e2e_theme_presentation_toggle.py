@@ -37,7 +37,6 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
     public_url = "http://127.0.0.1:8765"
 
     s = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",

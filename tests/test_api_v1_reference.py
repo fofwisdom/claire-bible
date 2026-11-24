@@ -10,6 +10,7 @@ import subprocess
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from starlette.testclient import TestClient
 
 from claire.api import security, server
@@ -25,6 +26,7 @@ from claire.api.v1 import (
     render_reference_html,
 )
 from claire.core.config import Settings
+from claire.ingest.service import IngestService
 from claire.store import accounts as accounts_store, db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
 from tests.auth_helpers import ensure_test_account, issue_oauth_token, issue_session_token
@@ -337,3 +339,107 @@ def test_e2e_reference_and_openapi_endpoints_in_live_app(tmp_path: Path) -> None
     assert r_mcp_admin.status_code == 200
     assert 'href="/reference"' in r_mcp_admin.text
     assert security.ROUTE_POLICY[("GET", "/reference")].access == "read"
+
+
+def test_legacy_alias_routes_emit_deprecation_and_successor_headers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(IngestService, "regenerate_components", lambda self, **kw: {"ok": True, "dry_run": True})
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    settings = Settings(
+        _env_file=None,
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_FQDN="http://127.0.0.1:8765",
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_PLUGINS_DIR=str(plugins_dir),
+        CLAIRE_CORS_ALLOWED_ORIGINS="",
+        CLAIRE_DATA_LIFECYCLE="purgeable",
+        CLAIRE_PROVIDER="mock",
+    )
+    app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock", embed_model="mock-embed")))
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        accounts_store.AccountStore(conn).complete_setup(1, username="adminuser", display_name="Admin")
+        accounts_store.AccountStore(conn).set_setting("mode", "network", updated_by=1)
+    finally:
+        conn.close()
+
+    alice_id = ensure_test_account(settings, account_id=2, username="alice", role="member")
+    mgr = KnowledgeBaseManager(settings)
+    alice_personal = mgr.define_kb("Alice Personal", is_personal=True, is_public=False, account_id=alice_id)
+    shared_src = mgr.define_kb("Public Source", is_personal=False, is_public=True, account_id=1, knowledge_type="real")
+
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        from claire.ontology.base import Document
+
+        doc = Document(
+            id="doc_alias_src",
+            url="https://example.com/alias-src",
+            title="Alias Source Doc",
+            raw_text="Sample content for regeneration and syndication alias header tests.",
+        )
+        dbm.insert_document(conn, doc, kb_id=shared_src.id)
+        doc_personal = Document(
+            id="doc_alias_personal",
+            url="https://example.com/alias-personal",
+            title="Alias Personal Doc",
+            raw_text="Personal content for dry-run regeneration.",
+        )
+        dbm.insert_document(conn, doc_personal, kb_id=alice_personal.id)
+    finally:
+        conn.close()
+
+    admin_session = issue_session_token(settings, account_id=1, scope="owner")
+    alice_session = issue_session_token(settings, account_id=alice_id, scope="owner")
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
+
+    admin_hdrs = {"Cookie": f"claire_session={admin_session}", "Origin": "http://127.0.0.1:8765"}
+    alice_hdrs = {"Cookie": f"claire_session={alice_session}", "Origin": "http://127.0.0.1:8765"}
+
+    def _assert_deprecated(resp: Any, successor: str) -> None:
+        assert resp.status_code < 400, f"unexpected {resp.status_code}: {resp.text}"
+        assert resp.headers.get("Deprecation") == "true"
+        assert resp.headers.get("Link") == f'<{successor}>; rel="successor-version"'
+
+    _assert_deprecated(client.get("/ingest-limits", headers=admin_hdrs), "/limits")
+    _assert_deprecated(client.head("/ingest-limits", headers=admin_hdrs), "/limits")
+    _assert_deprecated(client.patch("/ingest-limits", headers=admin_hdrs, json={}), "/limits")
+    _assert_deprecated(client.post("/ingest-limits", headers=admin_hdrs, json={}), "/limits")
+
+    _assert_deprecated(client.get("/syndication/dispatches", headers=alice_hdrs), "/api/syndication/dispatches")
+    _assert_deprecated(client.head("/syndication/dispatches", headers=alice_hdrs), "/api/syndication/dispatches")
+    _assert_deprecated(
+        client.post(
+            "/syndication/dispatch",
+            headers=alice_hdrs,
+                json={
+                    "document_id": "doc_alias_src",
+                    "source_kb_id": shared_src.id,
+                    "target_kb_id": alice_personal.id,
+                },
+            ),
+            "/api/syndication/dispatch",
+        )
+
+    _assert_deprecated(
+        client.post(
+            "/document/regenerate",
+            headers=alice_hdrs,
+            json={"doc_id": "doc_alias_personal", "kb_id": alice_personal.id, "dry_run": True},
+        ),
+        "/regenerate",
+    )
+
+    _assert_deprecated(
+        client.post(
+            "/purge",
+            headers=alice_hdrs,
+            json={"target": "doc_alias_personal", "kb_id": alice_personal.id, "dry_run": True},
+        ),
+        "/api/v1/kbs/personal/documents",
+    )
+
+    _assert_deprecated(client.post("/support/bundle", headers=admin_hdrs, json={}), "/api/v1/support/bundles")
+

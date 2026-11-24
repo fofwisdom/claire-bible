@@ -57,8 +57,6 @@ def ui_env(tmp_path: Path):
 
     settings = Settings(
         db_path=str(db_file),
-        data_dir=str(data_dir),
-        vault_path=str(tmp_path / "vault"),
         fqdn="127.0.0.1:8765",
         environment="development",
     )

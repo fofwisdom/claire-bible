@@ -128,7 +128,6 @@ def _setup_challenger1_network_env(
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
     )
@@ -164,7 +163,6 @@ def _setup_challenger1_single_env(tmp_path: Path, *, anonymous_readonly: bool = 
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
     )

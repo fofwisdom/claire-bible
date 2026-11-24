@@ -664,7 +664,6 @@ def test_backfill_summaries_normalizes_plain_text_raw_response(tmp_path):
     settings = Settings(
         provider="mock",
         db_path=str(db_file),
-        vault_path=str(tmp_path / "vault"),
     )
     svc = IngestService(settings)
     conn = dbm.connect(db_file)

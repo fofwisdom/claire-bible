@@ -198,7 +198,6 @@ def test_ingest_service_and_pool_account_context_and_default_theme(tmp_path: Pat
     _save_themes_registry(data_dir, db_file, themes)
 
     settings = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
     )
@@ -252,7 +251,6 @@ def test_theme_services_for_cycle_skips_suspended_and_deleting_accounts(tmp_path
     _save_themes_registry(data_dir, db_file, themes)
 
     settings = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
     )
@@ -329,7 +327,6 @@ def test_e2e_recover_cycle_skips_suspended_account_themes(tmp_path: Path, monkey
     conn.close()
 
     settings = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
     )
@@ -376,7 +373,6 @@ def test_refresh_and_expand_cycles_skip_suspended_accounts(tmp_path: Path):
     _save_themes_registry(data_dir, db_file, themes)
 
     settings = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
     )

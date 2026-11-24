@@ -59,7 +59,6 @@ def test_theme_manager_presentation_flag_persistence_io(tmp_path: Path):
     data_dir.mkdir(parents=True)
 
     s = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
     )
     manager = KnowledgeBaseManager(base_settings=s)
@@ -108,7 +107,6 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
     vault_dir.mkdir(parents=True)
 
     s = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
@@ -166,7 +164,6 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
     vault_dir.mkdir(parents=True)
 
     s = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",

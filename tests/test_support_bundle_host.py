@@ -9,6 +9,7 @@ import json
 import tarfile
 import time
 from pathlib import Path
+from typing import Any, cast
 
 from compression import zstd
 
@@ -138,7 +139,7 @@ def test_server_bundle_shows_a_host_restart_without_a_stop_record(tmp_path: Path
     # A correct stop and start of a worker loop on the same boot gives no finding.
     _write(host_runtime.host_log_path(tmp_path, "expand-loop"), [_record("start", now - 900, "boot-b"), _record("stop", now - 600, "boot-b"), _record("start", now - 500, "boot-b")])
 
-    info = create_support_bundle(StubSettings(db_file=db_file, data_dir=tmp_path), days=1, now_epoch=now)
+    info = create_support_bundle(cast(Any, StubSettings(db_file=db_file, data_dir=tmp_path)), days=1, now_epoch=now)
     members: dict[str, bytes] = {}
     with open(info.filepath, "rb") as handle, zstd.ZstdFile(handle, "rb") as reader, tarfile.open(fileobj=reader, mode="r|") as tar:
         for member in tar:

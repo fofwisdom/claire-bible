@@ -44,7 +44,6 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     public_url = "http://127.0.0.1:8765"
 
     s = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
@@ -174,6 +173,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
 
     # Step 6: MCP Tools doc_get() lookup with the required ``kb`` (CT23)
     import json
+    assert theme1.number is not None
     mcp_app = build_mcp_app(s, theme_mgr=tm)
     with TestClient(mcp_app, base_url="http://127.0.0.1:8765") as mcp_client:
         r_mcp = mcp_client.post(

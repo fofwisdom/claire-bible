@@ -177,7 +177,6 @@ def world(tmp_path):
     auth_db.connect_auth_db(auth_path).close()
     settings = Settings(
         _env_file=None,
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         environment="development",
         provider="mock",

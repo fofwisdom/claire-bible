@@ -45,7 +45,6 @@ def favicon_e2e_app(tmp_path: Path):
     settings = Settings(
         _env_file=None,
         db_path=str(db_file),
-        data_path=str(tmp_path),
         environment="production",
         fqdn="claire.example.com",
         site_name="Claire Bible",

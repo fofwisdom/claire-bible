@@ -37,7 +37,6 @@ def _make_settings(tmp_path: Path, *, provider: str = "mock", multi_theme: bool 
     return Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER=provider,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=ORIGIN,

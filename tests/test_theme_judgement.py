@@ -29,7 +29,6 @@ def env(tmp_path: Path):
     (tmp_path / "data").mkdir()
     settings = Settings(
         CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",

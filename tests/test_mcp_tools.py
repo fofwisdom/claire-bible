@@ -137,7 +137,8 @@ def test_doc_get_and_entity_get_contracts() -> None:
     _seed_graph(conn)
     dbm.set_document_seen(conn, "d1", seen=False)
     rep = doc_get_impl(conn, "d1", include_hidden=True)
-    assert rep["id"] == "d1" and dbm.get_document_row(conn, "d1")["seen"] == 0
+    doc_row = dbm.get_document_row(conn, "d1")
+    assert rep["id"] == "d1" and doc_row is not None and doc_row["seen"] == 0
     assert doc_get_impl(conn, "missing", include_hidden=True) == {"error": "not_found"}
     assert entity_get_impl(conn, "missing", include_hidden=True) == {"error": "not_found"}
 

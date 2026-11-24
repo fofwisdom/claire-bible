@@ -40,7 +40,6 @@ from tests.single_mode import complete_admin_setup
 def base_settings(tmp_path: Path) -> Settings:
     return Settings(
         CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_FQDN="127.0.0.1:8000",
         CLAIRE_ENVIRONMENT="development",
     )
@@ -65,7 +64,6 @@ def test_network_mode_public_directory_pwa_head_tags(tmp_path: Path) -> None:
 
     settings = Settings(
         CLAIRE_DB_PATH=str(net_db),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_FQDN="127.0.0.1:8000",
         CLAIRE_ENVIRONMENT="development",
     )
@@ -173,7 +171,6 @@ def test_setup_page_pwa_head_tags_and_strict_script_isolation(tmp_path: Path) ->
 
     settings = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_FQDN="127.0.0.1:8000",
         CLAIRE_ENVIRONMENT="development",
     )

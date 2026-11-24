@@ -127,24 +127,21 @@ Limits:
 
 ### 4.1 적재 ([`INGESTION.md`](INGESTION.md))
 
-1. `CLAIRE_PDF_DETECT_ENCODING_FLAWS`는 효과가 없다. `detect_pdf_encoding_flaws`는 항상 실행된다.
-2. 플러그인([INGESTION.md](INGESTION.md) §2.2)의 제약: (a) `permissions.network_modules`로 직접 접속하는 모듈(`yt_dlp`, `youtube_transcript_api`)은 플러그인 호스트 목록의 검사를 받지 않는다. (b) import 검사는 정적이라 import를 숨긴 코드를 막지 못한다. (c) 다이제스트 계산과 import 사이에 파일이 바뀌면 바뀐 코드가 실행된다(컨테이너에서는 플러그인 폴더가 읽기 전용이라 호스트에서만 바꿀 수 있다). (d) `claire.naver_clip`의 미디어 스트림 호스트는 녹화된 응답(`*.pstatic.net`)에서 정했다. 실제 스트림이 다른 호스트에서 오면 호스트 검사가 막는다 [미검증]. (e) 콘솔 업로드는 없다. 설치는 플러그인 폴더에 폴더를 넣는 것이다. (f) 실행 중 새 플러그인 코드는 프로세스를 다시 시작해야 반영된다.
-3. 올린 MP4·오디오 파일을 읽는 로컬 미디어 리더가 없다. 미디어 경로는 `fetch_video`(yt-dlp, 로컬 경로 [미검증])로 가고, 복합 메시지의 미디어 파일은 `fetch_file`에서 실패한다.
-4. 복합 적재의 PDF 첨부는 `required=False`라서 `data/raw/attachments/`에 저장되지 않는다. `save_inbound_file`의 수신 사본만 남는다.
-5. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `src/claire/telegram/bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.
-6. YouTube `raw_text`는 `video_max_extract_chars`가 아니라 `raw_char_budget`(20,000자)을 쓴다. 의도인지 [미검증].
-7. 추출 모드(AED4-rev): 재적재·재생성 창에는 추출 모드 선택이 없고 API로만 다시 추출한다(에이전트 클라이언트로 다시 추출하려면 에이전트가 `extract_stage(document_id=…, force=True)`를 쓴다). 문서 복사(`/api/syndication/dispatch`)는 창이 없어 계정의 기본 모드를 쓴다. v45 이전의 `raw_inbox` 행은 모드가 없어 재시도 때 계정의 기본 모드를 쓴다. 대기열로 적재한 피드·타임라인 항목은 추출 전에도 `linked`를 받지만 문서는 추출 뒤에 보인다.
+1. 플러그인([INGESTION.md](INGESTION.md) §2.2)의 제약: (a) `permissions.network_modules`로 직접 접속하는 모듈(`yt_dlp`, `youtube_transcript_api`)은 플러그인 호스트 목록의 검사를 받지 않는다. (b) import 검사는 정적이라 import를 숨긴 코드를 막지 못한다. (c) 다이제스트 계산과 import 사이에 파일이 바뀌면 바뀐 코드가 실행된다(컨테이너에서는 플러그인 폴더가 읽기 전용이라 호스트에서만 바꿀 수 있다). (d) `claire.naver_clip`의 미디어 스트림 호스트는 녹화된 응답(`*.pstatic.net`)에서 정했다. 실제 스트림이 다른 호스트에서 오면 호스트 검사가 막는다 [미검증]. (e) 콘솔 업로드는 없다. 설치는 플러그인 폴더에 폴더를 넣는 것이다. (f) 실행 중 새 플러그인 코드는 프로세스를 다시 시작해야 반영된다.
+2. 올린 MP4·오디오 파일을 읽는 로컬 미디어 리더가 없다. 미디어 경로는 `fetch_video`(yt-dlp, 로컬 경로 [미검증])로 가고, 복합 메시지의 미디어 파일은 `fetch_file`에서 실패한다.
+3. 복합 적재의 PDF 첨부는 `required=False`라서 `data/raw/attachments/`에 저장되지 않는다. `save_inbound_file`의 수신 사본만 남는다.
+4. 옛 `Docling` 기본 라벨이 남아 있다: `composite.py`(`parser_requested`/`parser_used` 기본값), `src/claire/telegram/bot.py`의 PDF 대체 안내문, `reader.js`와 `reader.tag.docling_fallback` 카탈로그 키.
+5. YouTube `raw_text`는 `video_max_extract_chars`가 아니라 `raw_char_budget`(20,000자)을 쓴다. 의도인지 [미검증].
+6. 추출 모드(AED4-rev): 재적재·재생성 창에는 추출 모드 선택이 없고 API로만 다시 추출한다(에이전트 클라이언트로 다시 추출하려면 에이전트가 `extract_stage(document_id=…, force=True)`를 쓴다). 문서 복사(`/api/syndication/dispatch`)는 창이 없어 계정의 기본 모드를 쓴다. v45 이전의 `raw_inbox` 행은 모드가 없어 재시도 때 계정의 기본 모드를 쓴다. 대기열로 적재한 피드·타임라인 항목은 추출 전에도 `linked`를 받지만 문서는 추출 뒤에 보인다.
 
-8. AI 프로바이더 화면(PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): `PATCH /providers`에는 단계 인증과 관리자 감사 기록이 없다(서버 등급은 단계 인증·감사가 있는 `/admin/server`로 옮겼다). 이미지 해석(VLM)은 서버 환경 변수 `CLAIRE_ENABLE_VLM_TRANSCRIPTION`·`CLAIRE_VLM_*`로만 켜고 끄며 화면은 상태만 보인다. `POST /providers/check`(옛 화면의 실시간 잠금 검사)는 남아 있지만 화면이 부르지 않는다. 저장 뒤 설정 캐시는 웹 프로세스에서만 비우므로 다른 프로세스(봇, 작업 루프)는 다시 시작할 때까지 옛 값을 쓸 수 있다 [미검증].
+7. AI 프로바이더 화면(PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): `PATCH /providers`에는 단계 인증과 관리자 감사 기록이 없다(서버 등급은 단계 인증·감사가 있는 `/admin/server`로 옮겼다). 이미지 해석(VLM)은 서버 환경 변수 `CLAIRE_ENABLE_VLM_TRANSCRIPTION`·`CLAIRE_VLM_*`로만 켜고 끄며 화면은 상태만 보인다. `POST /providers/check`(옛 화면의 실시간 잠금 검사)는 남아 있지만 화면이 부르지 않는다. 저장 뒤 설정 캐시는 웹 프로세스에서만 비우므로 다른 프로세스(봇, 작업 루프)는 다시 시작할 때까지 옛 값을 쓸 수 있다 [미검증].
 
 ### 4.2 추출과 링크 확장 ([`EXTRACTION.md`](EXTRACTION.md), [`EXPANSION.md`](EXPANSION.md))
 
-1. `CLAIRE_EXPAND_CHAR_BUDGET`, `CLAIRE_RESEARCH_CONTEXT_BUDGET`은 설정·한도 관리자·UI에 있지만 확장과 리서치 코드는 읽지 않는다.
-2. `diagnose_google_block` has no caller after the host-cli provider `AntigravityProvider` was deleted in `AE8` (2026-11-21). Note that `evaluate_summary_verdict` is called by `src/claire/ingest/client_extraction.py` (`_validate_summary`) during `agent_client` extraction validation.
-3. `multihop_candidates`는 엣지를 만들지 않는다(2홉 누락 링크는 구상: [`MISSING_LINK_DISCOVERY_IDEAS.md`](../ideas/MISSING_LINK_DISCOVERY_IDEAS.md)).
-4. `make_vector_store`는 항상 brute-force 저장소를 돌려준다. sqlite-vec는 탐지만 한다.
-5. 동일 주제 출처 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
-6. 선호 언어는 추출 요약·상세 출력 언어에 쓰이지 않는다. 출력은 항상 한국어다.
+1. `diagnose_google_block` has no caller after the host-cli provider `AntigravityProvider` was deleted in `AE8` (2026-11-21). Note that `evaluate_summary_verdict` is called by `src/claire/ingest/client_extraction.py` (`_validate_summary`) during `agent_client` extraction validation.
+2. `multihop_candidates`는 엣지를 만들지 않는다(2홉 누락 링크는 구상: [`MISSING_LINK_DISCOVERY_IDEAS.md`](../ideas/MISSING_LINK_DISCOVERY_IDEAS.md)).
+3. 동일 주제 출처 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
+4. 선호 언어는 추출 요약·상세 출력 언어에 쓰이지 않는다. 출력은 항상 한국어다.
 
 ### 4.3 판정 기록과 그래프 ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md), [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md))
 
@@ -160,18 +157,17 @@ Limits:
 ### 4.5 인터페이스 언어 ([`I18N.md`](I18N.md))
 
 1. `heal_graph()`(`src/claire/store/db.py`)의 CLI 진행 줄은 한국어다(`doctor --heal`, `audit --heal`). ID6은 영어를 요구한다.
-2. `app.js`(재적재 대상 placeholder)와 `console_admin.js`(IdP 행 삭제 단추)에 고정 한국어가 있다. `src/claire/api/templates/docs.html`은 `lang="ko"`로 고정이다.
+2. `app.js`(재적재 대상 placeholder)와 `console_admin.js`(IdP 행 삭제 단추)에 고정 한국어가 있다.
 3. 카탈로그 키 `cli.preflight.header`와 `resolve_cli_locale()`은 쓰이지 않는다.
 
 ### 4.6 계정, 공개 사이트, MCP ([`ACCOUNTS.md`](ACCOUNTS.md), [`PUBLIC_SITE.md`](PUBLIC_SITE.md), [`API_AND_MCP_GUIDE.md`](API_AND_MCP_GUIDE.md))
 
 1. `/admin/idp`의 로그인 정책 카드(승인·자동 가입, 허용 도메인, `email_verified`, Back-Channel Logout)는 프로토타입이다. 저장하는 API가 없고 서버가 적용하지 않는다. 가입은 초대로만 한다.
-2. `og:site_name`은 고정 문자열 "Claire Bible"이고 `CLAIRE_SITE_NAME`을 쓰지 않는다. `CLAIRE_SITE_DESCRIPTION`은 쓰이지 않는다.
+2. `og:site_name`은 고정 문자열 "Claire Bible"이고 `CLAIRE_SITE_NAME`을 쓰지 않는다.
 3. robots `Disallow` 목록에 `/admin`, `/settings`, `/api`, `/@{username}/` 경로가 없다.
-4. `robots_txt_route`·`sitemap_xml_route`의 테마 호스트 분기(`get_kb_by_fqdn`)는 실제로 맞지 않는다. `HostRouter`가 옛 테마 호스트를 먼저 보낸다.
-5. sitemap 캐시는 문서를 숨겨도 지워지지 않고 TTL(기본 900초)을 기다린다. 한 테마의 오류와 공유 토큰 생성 중 `sqlite3.OperationalError`는 무시되어 일부만 담긴 sitemap이 정상처럼 보인다(C2).
-6. `KnowledgeBaseManager.get_kb(None)`은 관리자 기본 테마가 없으면 `is_personal` 테마나 테마 0으로 대체한다.
-7. MCP: `mcp_telemetry` does not record `client_id`, and there is no per-credential call rate limit (`API_AND_MCP_GUIDE.md`, `TELEMETRY.md`). (OAuth 2.1 grant list/revoke routes `/api/me/oauth/grants` and `/oauth/revoke`, as well as `claire token` `mcp_client_config`, are now implemented.)
+4. sitemap 캐시는 문서를 숨겨도 지워지지 않고 TTL(기본 900초)을 기다린다. 한 테마의 오류와 공유 토큰 생성 중 `sqlite3.OperationalError`는 무시되어 일부만 담긴 sitemap이 정상처럼 보인다(C2).
+5. `KnowledgeBaseManager.get_kb(None)`은 관리자 기본 테마가 없으면 `is_personal` 테마나 테마 0으로 대체한다.
+6. MCP: `mcp_telemetry` does not record `client_id`, and there is no per-credential call rate limit (`API_AND_MCP_GUIDE.md`, `TELEMETRY.md`). (OAuth 2.1 grant list/revoke routes `/api/me/oauth/grants` and `/oauth/revoke` are now implemented; legacy manual tokens are retired.)
 
 ### 4.7 운영, 텔레메트리, 데이터 ([`TELEMETRY.md`](TELEMETRY.md), [`OPERATIONS.md`](OPERATIONS.md), [`FEDERATION.md`](FEDERATION.md))
 
@@ -182,4 +178,4 @@ Limits:
 5. 데이터 저장 배치 DS-3(계정별 관리자 적재 한도)은 구현되지 않았다.
 6. 연합 FP4 보류 항목: D1(계정별 차단·숨김·신고), D2(계정별 발신 속도 한도), D4/RD12(외부 연결 계정), 피드 자동 적재 규칙.
 7. Support Bundle의 MCP 추적 열(`kb_id`, `document_id`, `detail`)은 2026-11-24 이후의 `extract_*` 호출에만 있다. 그 전 호출은 `extraction_trail.json`의 `mcp_calls`에 없고 `MCP_TRAIL_ABSENT`로 보인다. 계정 범위 번들은 내 계정의 노트·문서만 추적한다: 멤버가 다른 계정의 공개 문서나 공유 지식 베이스 문서의 링크를 넣으면 번들을 만들지 않는다(404 `target_not_found`).
-8. 서버 서포트 번들의 만들기 API가 둘이다: `/support/bundles` 화면이 쓰는 `POST /api/support/bundles`(`scope` `server`)와 텔레그램 위임이 쓰는 `POST /support/bundle`. 등록부는 서버 번들을 만든 관리자를 기록하지 않으므로 관리자 목록은 모든 서버 번들을 보인다.
+8. 서버 서포트 번들의 만들기 경로가 둘이다: `/support/bundles` 화면이 쓰는 `POST /api/support/bundles` / 공개 API `POST /api/v1/support/bundles`와 레거시 별칭 `POST /support/bundle`(`Deprecation: true`, `Link: </api/v1/support/bundles>; rel="successor-version"`). 등록부는 서버 번들을 만든 관리자를 기록하지 않으므로 관리자 목록은 모든 서버 번들을 보인다.

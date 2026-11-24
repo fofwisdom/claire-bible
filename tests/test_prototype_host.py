@@ -131,11 +131,9 @@ def _create_app(tmp_path: Path):
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=f"http://{APP_HOST}",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     return create_app(settings=settings)
 

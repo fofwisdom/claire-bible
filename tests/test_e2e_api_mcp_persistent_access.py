@@ -21,7 +21,6 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path):
     public_url = "http://127.0.0.1:8765"
 
     s = Settings(
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",

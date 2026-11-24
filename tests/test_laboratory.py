@@ -128,7 +128,7 @@ def _app(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
     finally:
         conn.close()
     auth_db.connect_auth_db(auth_db.auth_db_path(data_dir)).close()
-    settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_DATA_DIR=str(data_dir), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=PUBLIC_URL, GEMINI_API_KEY=gemini_key)
+    settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=PUBLIC_URL, GEMINI_API_KEY=gemini_key)
     admin = {**bearer_headers(db_file, account_id=1, scope="owner"), "Origin": PUBLIC_URL}
     member = {**bearer_headers(db_file, account_id=2, scope="owner"), "Origin": PUBLIC_URL}
     client = TestClient(server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock"))), base_url=PUBLIC_URL)

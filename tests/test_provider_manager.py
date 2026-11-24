@@ -183,7 +183,6 @@ def test_provider_api_routes(tmp_path: Path):
     settings = Settings(
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_FQDN="127.0.0.1:8765",
     )
     owner_headers = bearer_headers(db_file, scope="owner")

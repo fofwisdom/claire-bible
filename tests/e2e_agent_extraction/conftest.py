@@ -140,7 +140,6 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         settings = Settings(
             _env_file=None,
             CLAIRE_DB_PATH=str(db_path),
-            CLAIRE_DATA_DIR=str(data_dir),
             CLAIRE_PLUGINS_DIR=str(resolved_plugins_dir),
             CLAIRE_PROVIDER=provider,
             CLAIRE_ENVIRONMENT=environment,

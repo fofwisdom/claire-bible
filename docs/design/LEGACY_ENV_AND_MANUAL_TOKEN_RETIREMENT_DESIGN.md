@@ -1,7 +1,7 @@
 # Retirement of CLAIRE_ANONYMOUS_READONLY, Legacy Environment Variables, and Manual API Tokens
 
 - **Document Identifier**: `DESIGN-ENV-RETIREMENT-20261124`
-- **Status**: Decided (owner, 2026-11-24). Not implemented.
+- **Status**: Implemented (owner, 2026-11-24). Units `ENV-1` to `ENV-4` are implemented; see [`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md), [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md), [`API_HTTP_CONTRACT.md`](../implementation/API_HTTP_CONTRACT.md), and [`SCHEMA_VERSIONING.md`](../implementation/SCHEMA_VERSIONING.md) for current runtime behavior.
 - **Date**: 2026-11-24
 - **Related**: [`API_V1_AND_REFERENCE_DESIGN.md`](API_V1_AND_REFERENCE_DESIGN.md), [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) (`AE3`), [`PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md`](PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md) (`PS3`), [`MARKDOWN_RETIREMENT_DESIGN.md`](MARKDOWN_RETIREMENT_DESIGN.md) (`RD23`), [`ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md`](ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md), [`ENVIRONMENT_VARIABLES.md`](../implementation/ENVIRONMENT_VARIABLES.md), [`PRINCIPLES.md`](../PRINCIPLES.md)
 

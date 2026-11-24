@@ -292,7 +292,7 @@ async def test_member_bot_ingests_to_the_personal_knowledge_base_of_its_account(
     from claire.telegram.bot import AccountThemeScope, build_app, resolve_selected_theme
 
     (tmp_path / "data").mkdir()
-    settings = Settings(CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"), CLAIRE_VAULT_PATH=str(tmp_path / "vault"), CLAIRE_PROVIDER="mock", telegram_bot_token="")
+    settings = Settings(CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"), CLAIRE_PROVIDER="mock", telegram_bot_token="")
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
     member = conn.execute("INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (223456789012, 'member_alpha', 'member', 'active', 0, 0)").lastrowid

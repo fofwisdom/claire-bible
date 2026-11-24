@@ -110,7 +110,6 @@ def _setup_network_env(tmp_path: Path):
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
     )
@@ -203,6 +202,7 @@ def test_accounts_json_and_html_negotiation(tmp_path: Path):
     assert "adminuser" in usernames
 
     etag_page = res_page.headers.get("etag")
+    assert etag_page is not None
     cond_res = client.get("/directory?page=true", headers={"Accept": "application/json", "If-None-Match": etag_page})
     assert cond_res.status_code == 304
 
@@ -256,7 +256,6 @@ def test_single_mode_serves_the_account_directory_and_the_old_path_is_gone(tmp_p
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
     )
@@ -315,7 +314,6 @@ def test_empty_state_rendering(tmp_path: Path):
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
     )

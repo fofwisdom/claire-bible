@@ -243,7 +243,6 @@ A test slide for API routes.
 
     s = Settings(
         db_path=str(db_file),
-        data_dir=tmp_path,
         environment="development",
         fqdn="127.0.0.1:8765",
     )
@@ -309,7 +308,7 @@ def test_presentation_cli_generate_and_status(tmp_path: Path):
     conn.close()
 
     with patch("claire.cli.get_effective_settings") as mock_settings:
-        s = Settings(db_path=str(db_file), data_dir=tmp_path, render_format="adoc")
+        s = Settings(db_path=str(db_file))
         mock_settings.return_value = (s, None)
 
         with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
@@ -496,7 +495,7 @@ def test_presentation_cli_compose_and_compile(tmp_path: Path):
     conn.close()
 
     with patch("claire.cli.get_effective_settings") as mock_settings:
-        s = Settings(db_path=str(db_file), data_dir=tmp_path, render_format="adoc")
+        s = Settings(db_path=str(db_file))
         mock_settings.return_value = (s, None)
 
         with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
@@ -559,7 +558,6 @@ def test_api_presentation_compose_and_adoc(tmp_path: Path):
 
     s = Settings(
         db_path=str(db_file),
-        data_dir=tmp_path,
         environment="development",
         fqdn="127.0.0.1:8765",
     )
@@ -764,7 +762,6 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
     owner_headers = bearer_headers(db_file, scope="owner")
     s = Settings(
         db_path=str(db_file),
-        data_dir=tmp_path,
         environment="development",
         fqdn="127.0.0.1:8765",
     )

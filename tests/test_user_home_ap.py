@@ -50,8 +50,6 @@ def _prepare(tmp_path: Path, *, is_public: bool = True, public_url: str = PUBLIC
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=fqdn or public_url,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN="readonly-" + "r" * 32,
     )
     conn = dbm.connect(settings.db_file)
     try:

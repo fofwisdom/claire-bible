@@ -23,7 +23,6 @@ def syndication_e2e_env(tmp_path: Path):
     settings = Settings(
         _env_file=None,
         db_path=str(db_file),
-        data_path=str(tmp_path),
         environment="development",
         fqdn="127.0.0.1:8765",
         robots_policy="public",

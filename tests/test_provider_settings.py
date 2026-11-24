@@ -62,7 +62,6 @@ def _world(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="gemini",
         GEMINI_API_KEY=gemini_key,
         CLAIRE_ENVIRONMENT="development",
@@ -79,7 +78,7 @@ def _save_tier(world: SimpleNamespace, tier: ServerTier) -> None:
         conn.close()
 
 
-def _put_key(world: SimpleNamespace, *, status: str, model: str = "") -> None:
+def _put_key(world: SimpleNamespace, *, status: provider_keys.KeyStatus, model: str = "") -> None:
     auth = auth_db.connect_auth_db(world.auth_file)
     try:
         provider_keys.put_key(auth, account_id=2, provider="gemini", api_key=KEY_CANARY, status=status, model_prefs={"model": model} if model else None)

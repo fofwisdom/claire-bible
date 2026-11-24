@@ -194,6 +194,7 @@ async def test_member_bot_resolves_the_locale_of_its_owner_account(tmp_path: Pat
     settings = _bot_settings(tmp_path, telegram_bot_token="")
     conn = dbm.connect(settings.db_file)
     member = conn.execute("INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (223456789012, 'member_alpha', 'member', 'active', 0, 0)").lastrowid
+    assert member is not None
     conn.commit()
     conn.close()
     KnowledgeBaseManager(settings).define_kb("Member theme", account_id=member, is_personal=True)

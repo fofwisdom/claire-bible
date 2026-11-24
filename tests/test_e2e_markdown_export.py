@@ -48,7 +48,7 @@ def _make_app(tmp_path: Path):
     dbm.log_extraction(conn, document_id="doc-export", provider="mock", model="m", prompt_version="v", raw_response='{"summary":"문서 요약"}')
     conn.commit()
     conn.close()
-    settings = Settings(db_path=str(db_file), data_dir=tmp_path, environment="development", fqdn="127.0.0.1:8765")
+    settings = Settings(db_path=str(db_file), environment="development", fqdn="127.0.0.1:8765")
     return create_app(settings), bearer_headers(db_file, scope="owner"), settings
 
 

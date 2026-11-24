@@ -589,7 +589,7 @@ def test_server_tier_api_is_admin_only(client, app_settings):
     member = _session(app_settings, 2)
     readonly_tok = issue_oauth_token(app_settings.db_file, scope="readonly")
     for method in ("GET", "HEAD", "PUT"):
-        kw = {"json": GOOD_TIER} if method == "PUT" else {}
+        kw: dict[str, Any] = {"json": GOOD_TIER} if method == "PUT" else {}
         assert _req(client, method, TIER_PATH, **kw).status_code == 404
         assert _req(client, method, TIER_PATH, bearer=readonly_tok, **kw).status_code == 404
         assert _req(client, method, TIER_PATH, session=member, **kw).status_code == 404
