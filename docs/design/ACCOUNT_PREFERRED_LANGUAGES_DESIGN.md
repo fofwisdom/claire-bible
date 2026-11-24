@@ -1,6 +1,6 @@
 # Preferred languages of each account (`ACCOUNT_PREFERRED_LANGUAGES_DESIGN`)
 
-- **Status**: Proposal (2026-11-24). Not implemented. The owner selects P1–P4 of Section 7.
+- **Status**: Decided (owner, 2026-11-24, Section 8). Implementation: units PL1–PL5.
 - **Owner request (2026-11-24)**: on `/account/profile`, put "preferred languages" in place of "interface language", and let the STT value `auto` use the preferred languages. `CLAIRE_PREFERRED_LANGUAGES` is from the single-user design: move it into the current management or remove it.
 - **Changes**: [`PREFERRED_LANGUAGES_DESIGN.md`](PREFERRED_LANGUAGES_DESIGN.md) (the project-wide list of 2026-09-02; Section 5 names the decisions that change) and one principle of [`I18N_DESIGN.md`](I18N_DESIGN.md).
 - **Related**: [`PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md`](PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md) (PS8), [`INGESTION.md`](../implementation/INGESTION.md) §9, [`EXTRACTION.md`](../implementation/EXTRACTION.md) §2.3, [`I18N.md`](../implementation/I18N.md) §2.
@@ -76,3 +76,21 @@ Before PL4 becomes the default, a measurement (M0) can compare the transcripts o
 | P2 STT language of the server | `auto` (the list of the account of the job as hints) or one code. | Remove the server value: always the list of the account. |
 | P3 `CLAIRE_PREFERRED_LANGUAGES` | Remove after the one-time copy into the accounts (Section 4). | Move it to `/admin/server` as the first list of a new account and the list of the jobs without an account. |
 | P4 `en` at the end | Fixed last item, visible on the card. | A normal item that the person can remove. |
+
+## 8. Owner decisions (2026-11-24)
+
+| Question | Decision |
+| :--- | :--- |
+| P1 | The server administrator selects the "server default language" (an ordered list) in the server administration WebUI (`/admin/server`). It becomes the first language of the accounts: an account follows the server default language until the person saves an own list, and the interface uses the first supported item of the list that applies. |
+| P2 | Recommended option: the STT language of the server is `auto` (the list of the account of the job as hints) or one code. |
+| P3 | `CLAIRE_PREFERRED_LANGUAGES` moves into the server default language (a one-time copy at schema v46); no code reads the variable after that. The server default language is also the list of the jobs without an account. |
+| P4 | Recommended option: `en` is always in the list, and the card shows it. |
+| M0 | Accepted. The measurement and the shadow evaluations get one place: the console area `/laboratory/` ([`LABORATORY_DESIGN.md`](LABORATORY_DESIGN.md)). |
+
+Consequences for the design of Sections 2 and 4:
+
+1. **Two states of an account list.** `accounts.preferred_languages` is NULL (the account follows the server default language; the card shows this state and the list) or an own list. Thus a change of the server default language changes the first language of each account that follows it (P1).
+2. **`en` can move.** With P1 the first supported item selects the interface language. A person who wants the English interface puts `en` first; thus `en` is always in the list (P4) but is not fixed at the end. A list without `en` gets it at the end.
+3. **Migration.** The server default language is the value of `CLAIRE_PREFERRED_LANGUAGES` (else `ko`), then `en`. An account with `locale` = `ko` or `en` gets an own list (that locale first, then the server default language) only when that list is different from the server default language; all other accounts follow the server default language. An account that had the automatic interface language now gets the first supported item of the server default language (P1). `accounts.locale` is removed.
+4. **Visitors without an account.** `CLAIRE_LANG` stays the interface language of a visitor without an account (cookie, `Accept-Language`, `CLAIRE_LANG`, `en`); its name in the documents is "interface language of visitors", not "server default language".
+5. **STT.** `providers.json` gets `stt.language = "auto"` in place of the old default `ko` (format version 2); `auto` sends the list of the job as `language_codes`.
