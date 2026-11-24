@@ -1922,7 +1922,7 @@
   "console.synd.mcp.scope_split_desc": "<code>mcp_tools.py</code>는 읽기 전용 도구와 쓰기 도구(추출 · 기여용 <code>write</code> 스코프)를 구분합니다. 아래 Syndication 도구는 향후 확장을 위한 미리보기 제안입니다.",
   "console.synd.mcp.endpoint_desc": "미인증 호출은 <code>401</code> + <code>WWW-Authenticate: Bearer … resource_metadata=…</code>로 응답합니다. DNS 리바인딩 방어로 <code>public_url</code> 호스트와 localhost만 허용하므로 테마 전용 FQDN으로는 접속되지 않습니다.",
   "console.synd.mcp.connect_examples_note": "위의 원격 HTTP 엔드포인트 설정을 사용하거나 아래의 에이전트 플러그인을 설치하세요.",
-  "console.synd.mcp.auth_desc": "한 요청에는 인증 채널을 하나만 씁니다(Bearer · <code>X-Session</code> · 쿠키). 익명 접근은 <code>CLAIRE_ANONYMOUS_READONLY</code>와 관계없이 <code>/mcp</code>에서 항상 거부되고, Cross-Origin 요청은 Bearer만 허용됩니다.",
+  "console.synd.mcp.auth_desc": "한 요청에는 인증 채널을 하나만 씁니다(Bearer · <code>X-Session</code> · 쿠키). 익명 접근은 <code>/mcp</code>에서 항상 거부되고, Cross-Origin 요청은 Bearer만 허용됩니다.",
   "console.synd.mcp.theme_desc": "먼저 <code>kb_list</code>로 접근 가능한 <code>kb</code> 번호를 조회하거나 개인 KB에 <code>kb=\"personal\"</code>을 넘기세요. <code>kb</code> 누락 시 <code>kb_required</code>를 반환합니다. 오른쪽은 상단에서 고른 지식베이스의 호출 예시입니다.",
   "console.synd.mcp.ch_oauth_issue": "DCR(<code>/oauth/register</code>, 공개) → <code>/oauth/authorize</code> 또는 <code>/device</code>에서 로그인·승인",
   "console.synd.mcp.connect_oauth_desc": "엔드포인트 URL만 입력하면 Discovery → DCR → 브라우저 로그인(<code>/login?tx=…</code>) → 동의 화면으로 이어집니다. 헤드리스 CLI는 <code>/device</code>를 씁니다.",

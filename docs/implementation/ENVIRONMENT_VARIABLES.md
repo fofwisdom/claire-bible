@@ -46,7 +46,7 @@ graph TD
 1. **소스 우선순위** (`Settings.settings_customise_sources`): 생성자 인자 → `data/ingest_limits.json` → `data/providers.json` → 프로세스 환경변수 → `.env` 파일. 즉 두 JSON 파일이 관리하는 키는 export된 환경변수보다도 우선한다. 그 밖의 키는 프로세스 환경변수가 `.env`보다 우선한다.
 2. **개발 환경 파일 오버레이**: `CLAIRE_ENVIRONMENT=development` 선택 시 `.env`를 먼저 읽고, `.env.dev`의 설정이 뒤이어 로드되어 덮어쓴다.
 3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달한다.
-4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 보안 selector(예: `CLAIRE_ANONYMOUS_READONLY`)는 따옴표나 외부 공백이 없는 exact `0` 또는 `1`만 허용하며, 중복 선언 시 기동 전 에러를 발생시킨다.
+4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 생성자 인자와 `.env` 파일 간의 `CLAIRE_PUBLIC_URL` 및 `CLAIRE_FQDN` 우선순위 규칙을 처리한다.
 5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONS.md](OPERATIONS.md), 원칙 [PRINCIPLES.md](../PRINCIPLES.md) E1–E3 참조).
 6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
 7. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다. 파일이 이미 있으면 파일에 없는 키(나중 버전에서 추가된 키)만 이전한다. 설정 소스는 값을 별칭(`CLAIRE_*`) 이름으로 넘기므로 export된 환경변수보다 우선한다. `recover-loop`, `refresh-loop`, `expand-loop`는 주기마다 이 파일을 다시 읽으므로, WebUI 변경은 재시작 없이 적용된다. `bot`(텔레그램)은 시작 시점의 값을 쓴다.
@@ -282,7 +282,6 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | `CLAIRE_GRAPH_BUNDLE_API_URL` | `""` | Compose 내부 URL | Telegram이 그래프 번들 생성을 위임할 API URL. 비어 있으면 `CLAIRE_SUPPORT_BUNDLE_API_URL`을 쓰고, 둘 다 비면 같은 프로세스에서 직접 만든다. |
 | `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Owner 토큰. 정적 환경변수 통제에서 분리되어 기동 시 `data/auth/api_tokens.json`으로 이관되며, 직접 사용 시 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 웹 콘솔 `/account/mcp` OAuth 2.1 사용을 권장한다. |
 | `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Readonly 조회 토큰. 기동 시 `data/auth/api_tokens.json`으로 이관되며, 사용 시 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 `/account/mcp` OAuth 2.1(`readonly` 스코프)을 권장한다. |
-| `CLAIRE_ANONYMOUS_READONLY` | `1` | **exact `0` 또는 `1`** | **[필수] 익명 Same-Origin 읽기 허용 플래그**. exact `0` 또는 `1`이어야 한다. `1`이면 자격증명 없이 브라우저에서 읽기 전용 웹 UI 및 검색이 가능하다 (숨김 문서는 제외). 쓰기 경로는 여전히 Owner 인증을 요구한다. |
 | `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 고유 주소(`/silvercord/...`) 생성에 사용된다. |
 | `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용한다. |
 | `CLAIRE_SITE_DOMAIN` | `""` | 등록 도메인 (예: `example.com`) | 운영 환경의 등록 도메인. app(`CLAIRE_FQDN`)을 포함한 모든 역할 호스트는 이 값과 같거나 그 서브도메인이어야 한다. 공개 접미사 목록으로 추정하지 않는다. app 외 역할 호스트를 두지 않는 설치와 `development`에서는 비워도 된다. |
@@ -303,9 +302,9 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ROBOTS_POLICY` | `public` | `public`, `disallow_all` | `/robots.txt` 정책. `disallow_all`이거나 `CLAIRE_ANONYMOUS_READONLY=0`이면 전체 차단(`Disallow: /`)을 응답한다. 옛 테마 호스트는 앱에 오기 전에 308으로 리디렉트된다. |
+| `CLAIRE_ROBOTS_POLICY` | `public` | `public`, `disallow_all` | `/robots.txt` 정책. `disallow_all`이거나 공개 지식베이스가 없으면 전체 차단(`Disallow: /`)을 응답한다. 옛 테마 호스트는 앱에 오기 전에 308으로 리디렉트된다. |
 | `CLAIRE_BLOCK_AI_CRAWLERS` | `1` (`true`) | `0`, `1`, `true`, `false` | `public` 정책일 때 AI 학습·스크래핑 봇(GPTBot, ClaudeBot 등)을 `robots.txt`에서 차단할지 여부. |
-| `CLAIRE_SITEMAP_ENABLED` | `1` (`true`) | `0`, `1`, `true`, `false` | `/sitemap.xml` 동적 생성 여부. `CLAIRE_ANONYMOUS_READONLY=0`이면 이 값과 관계없이 비활성이다. |
+| `CLAIRE_SITEMAP_ENABLED` | `1` (`true`) | `0`, `1`, `true`, `false` | `/sitemap.xml` 동적 생성 여부. 공개 지식베이스가 없으면 이 값과 관계없이 비활성(404)이다. |
 | `CLAIRE_SITEMAP_CACHE_TTL` | `900` | 정수 (초) | 사이트맵 인메모리 캐시 TTL. |
 | `CLAIRE_SITE_NAME` | `Claire Bible` | 문자열 | 구조화 데이터 등에 쓰는 사이트 이름. |
 
@@ -397,7 +396,6 @@ CLAIRE_GEMINI_EFFORT=medium
 # --- 웹 서비스 및 보안 ---
 CLAIRE_INJECT_TOKEN=secure_random_32_character_token_here_12345
 CLAIRE_READONLY_TOKEN=optional_readonly_agent_token_here_67890
-CLAIRE_ANONYMOUS_READONLY=1
 CLAIRE_PUBLIC_URL=https://claire.example.com
 
 # --- 저장소 및 수명주기 ---
@@ -424,7 +422,6 @@ TELEGRAM_BOT_TOKEN=
 
 # --- 웹 서비스 ---
 CLAIRE_INJECT_TOKEN=dev_insecure_owner_token_32_characters_123
-CLAIRE_ANONYMOUS_READONLY=1
 CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
 ```
 

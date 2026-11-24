@@ -41,7 +41,6 @@ class _Settings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = CROSS_ORIGIN
-    anonymous_readonly: bool = False
 
 
 class _Client:

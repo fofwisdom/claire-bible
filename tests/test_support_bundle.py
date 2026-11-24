@@ -51,7 +51,6 @@ class StubSettings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     telemetry_retention_days: int = 30
     inject_host: str = "127.0.0.1"
     inject_port: int = 8765

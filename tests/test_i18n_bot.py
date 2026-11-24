@@ -238,7 +238,6 @@ class _ApiSettings:
     inject_token: str = "owner-" + ("o" * 32)
     readonly_token: str = "readonly-" + ("r" * 32)
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     effective_provider: str = "mock"
     telegram_bot_token: str = "fake_bot_token"
     telegram_owner_chat_id: int = 0

@@ -43,7 +43,6 @@ def e2e_env(tmp_path: Path):
         fqdn="claire.example.com",
         inject_token="owner-token-secret-12345678901234",
         readonly_token="readonly-token-secret-123456789012",
-        anonymous_readonly=True,
         multi_theme=False,
         robots_policy="public",
         block_ai_crawlers=True,

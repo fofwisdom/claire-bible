@@ -45,7 +45,6 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
         CLAIRE_INJECT_TOKEN="",
         CLAIRE_READONLY_TOKEN="",
         CLAIRE_COLLABORATOR_TOKEN="",
-        CLAIRE_ANONYMOUS_READONLY=False,
     )
 
     # Insert a sample document so search/tools return content

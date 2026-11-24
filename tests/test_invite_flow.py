@@ -62,7 +62,6 @@ class _Settings:
     inject_token: str = "owner-" + "o" * 32
     readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     fqdn: str = "notes.kimhome.net"
     multi_theme: bool = True
 

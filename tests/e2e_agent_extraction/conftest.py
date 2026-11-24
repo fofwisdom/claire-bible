@@ -114,7 +114,6 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         site_domain: str = "",
         usercontent_fqdn: str = "",
         media_fqdn: str = "",
-        anonymous_readonly: bool = False,
         multi_theme: bool = True,
         provider: str = "mock",
         inject_token: str = "owner-" + ("o" * 32),
@@ -158,7 +157,6 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
             CLAIRE_SITE_DOMAIN=site_domain,
             CLAIRE_USERCONTENT_FQDN=usercontent_fqdn,
             CLAIRE_MEDIA_FQDN=media_fqdn,
-            CLAIRE_ANONYMOUS_READONLY=anonymous_readonly,
             CLAIRE_MULTI_THEME=multi_theme,
             CLAIRE_INJECT_TOKEN=inject_token,
             CLAIRE_READONLY_TOKEN=readonly_token,
@@ -467,7 +465,6 @@ def run_claire_cli(env: ClaireTestEnv, args: list[str], extra_env: dict[str, str
             "CLAIRE_PUBLIC_URL": env.public_url,
             "CLAIRE_PROVIDER": env.settings.provider,
             "CLAIRE_MULTI_THEME": "1" if env.settings.multi_theme else "0",
-            "CLAIRE_ANONYMOUS_READONLY": "1" if env.settings.anonymous_readonly else "0",
             "CLAIRE_SECRET_KEY": DEFAULT_SECRET_KEY,
         }
     )

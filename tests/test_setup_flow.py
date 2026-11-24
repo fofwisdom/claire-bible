@@ -42,7 +42,6 @@ class _Settings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     # 서버 예약 라벨(§8.1-4)의 출처. 개발 모드 공개 URL은 IP라 이 값으로 확인한다.
     fqdn: str = "notes.kimhome.net"
 

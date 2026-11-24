@@ -119,7 +119,6 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_MULTI_THEME=True,
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -183,7 +182,6 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_MULTI_THEME=True,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_PRESENTATION_ENABLED=False,
     )
     conn = dbm.connect(s.db_file)

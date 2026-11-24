@@ -37,7 +37,6 @@ def seal_env(tmp_path: Path, monkeypatch):
         vector_backend="mock",
         public_url="http://127.0.0.1:8765",
         inject_token=TOKEN,
-        anonymous_readonly=False,
     )
     app = server.create_app(settings)
     with TestClient(app, base_url=settings.public_url) as client:

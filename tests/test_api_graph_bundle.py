@@ -131,7 +131,6 @@ def _build_settings(tmp_path: Path) -> Settings:
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
 
 

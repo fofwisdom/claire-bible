@@ -47,7 +47,6 @@ def _settings(
     cors_allowed_origins: str = CROSS_ORIGIN,
     inject_token: str = OWNER_TOKEN,
     readonly_token: str = READONLY_TOKEN,
-    anonymous_readonly: bool = False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         environment=environment,
@@ -55,7 +54,6 @@ def _settings(
         cors_allowed_origins=cors_allowed_origins,
         inject_token=inject_token,
         readonly_token=readonly_token,
-        anonymous_readonly=anonymous_readonly,
         db_file=tmp_path / "claire.db",
     )
 
@@ -176,19 +174,6 @@ def test_runtime_config_validates_environment_url_origins_and_cookie_mode(tmp_pa
     assert dev.public_origin == DEV_ORIGIN
     assert dev.cors_allowed_origins == {CROSS_ORIGIN}
     assert dev.secure_cookie is False
-    assert dev.anonymous_readonly is False
-
-    anonymous = security.WebRuntimeConfig.from_settings(
-        _settings(tmp_path, anonymous_readonly=True)
-    )
-    assert anonymous.anonymous_readonly is True
-
-    legacy_settings = _settings(tmp_path)
-    del legacy_settings.anonymous_readonly
-    assert (
-        security.WebRuntimeConfig.from_settings(legacy_settings).anonymous_readonly
-        is False
-    )
 
     prod = security.WebRuntimeConfig.from_settings(
         _settings(
@@ -252,7 +237,6 @@ def test_runtime_config_validates_environment_url_origins_and_cookie_mode(tmp_pa
         ({"readonly_token": "short"}, "32-128"),
         ({"readonly_token": f"{READONLY_TOKEN} "}, "CLAIRE_READONLY_TOKEN"),
         ({"readonly_token": OWNER_TOKEN}, "must be different"),
-        ({"anonymous_readonly": "true"}, "CLAIRE_ANONYMOUS_READONLY"),
         ({"cors_allowed_origins": "*"}, "wildcard"),
         ({"cors_allowed_origins": f"{CROSS_ORIGIN}/"}, "trailing slash"),
     ],
@@ -360,7 +344,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/themes",
         "/api/syndication/dispatches",
         "/syndication/dispatches",
-        "/syndication",
         "/api/client-extraction/spec",
     }
     read_post = {"/search", "/mcp", "/share", "/entities/{entity_id}/share"}
@@ -456,7 +439,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("DELETE", "/tokens"),
         *(
             (method, path)
-            for path in ("/setup", "/me", "/api/me", "/syndication/preferences")
+            for path in ("/setup", "/me", "/api/me", "/syndication", "/syndication/preferences")
             for method in ("GET", "HEAD")
         ),
         ("PATCH", "/api/me"),
@@ -737,9 +720,12 @@ async def test_public_read_and_owner_route_policy(tmp_path):
 
     public = await _call(app, "/health")
     assert public.status == 200 and public.json()["scope"] == "public"
-    unauthenticated = await _call(app, "/graph")
-    assert unauthenticated.status == 404
-    assert unauthenticated.header("cache-control") == "no-store"
+    anon_read = await _call(app, "/graph")
+    assert anon_read.status == 200 and anon_read.json()["scope"] == "anonymous"
+    assert anon_read.header("cache-control") == "no-store"
+    unauthenticated_owner = await _call(app, "/syndication")
+    assert unauthenticated_owner.status == 404
+    assert unauthenticated_owner.header("cache-control") == "no-store"
 
     owner_headers = [("Authorization", f"Bearer {OWNER_TOKEN}")]
     readonly_headers = [("Authorization", f"Bearer {READONLY_TOKEN}")]
@@ -772,7 +758,7 @@ async def test_anonymous_readonly_allows_only_exact_read_pairs_same_or_no_origin
 ):
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
 
     no_origin = await _call(app, "/graph")
@@ -820,7 +806,7 @@ async def test_anonymous_readonly_never_replaces_valid_owner_or_readonly_scope(
 ):
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
     owner_headers = [("Authorization", f"Bearer {OWNER_TOKEN}")]
     readonly_headers = [("Authorization", f"Bearer {READONLY_TOKEN}")]
@@ -844,7 +830,7 @@ async def test_anonymous_readonly_never_replaces_valid_owner_or_readonly_scope(
 async def test_anonymous_readonly_cross_origin_still_requires_valid_bearer(tmp_path):
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
     origin = [("Origin", CROSS_ORIGIN)]
 
@@ -908,7 +894,7 @@ async def test_anonymous_readonly_does_not_fallback_from_explicit_headers_or_mix
     monkeypatch.setattr(security, "_validate_session", reject_session)
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
     unknown_bearer = "unknown-" + ("u" * 32)
     unknown_session = "s" * 43
@@ -955,7 +941,7 @@ async def test_anonymous_readonly_fallback_and_clears_expired_or_invalid_session
     monkeypatch.setattr(security, "_validate_session", reject_session)
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
     unknown_session = "s" * 43
     cookie_cases = [
@@ -999,7 +985,7 @@ async def test_anonymous_readonly_fallback_and_clears_expired_or_invalid_session
 
 
 @pytest.mark.asyncio
-async def test_authenticated_mode_rejects_expired_session_cookie_and_clears_cookie(
+async def test_owner_route_rejects_expired_session_cookie_and_clears_cookie(
     tmp_path,
     monkeypatch,
 ):
@@ -1009,12 +995,12 @@ async def test_authenticated_mode_rejects_expired_session_cookie_and_clears_cook
     monkeypatch.setattr(security, "_validate_session", reject_session)
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=False),
+        _settings(tmp_path),
     )
     unknown_session = "s" * 43
     response = await _call(
         app,
-        "/graph",
+        "/syndication",
         headers=[("Cookie", f"claire_session={unknown_session}")],
     )
     assert response.status == 404
@@ -1025,7 +1011,7 @@ async def test_authenticated_mode_rejects_expired_session_cookie_and_clears_cook
 async def test_anonymous_readonly_bootstrap_failure_redirects_and_clears_cookie(
     tmp_path,
 ):
-    settings = _settings(tmp_path, anonymous_readonly=True)
+    settings = _settings(tmp_path)
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
     conn.close()
@@ -1069,7 +1055,7 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
     monkeypatch.setattr(security, "_validate_session", validate)
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
     credential_headers = {
         "owner_bearer": [("Authorization", f"Bearer {OWNER_TOKEN}")],
@@ -1133,7 +1119,7 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
 async def test_public_routes_still_ignore_credential_material(tmp_path):
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
     response = await _call(
         app,
@@ -1155,7 +1141,7 @@ async def test_public_routes_still_ignore_credential_material(tmp_path):
 async def test_unknown_method_path_pairs_fail_closed_before_routing(tmp_path):
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
     owner = [("Authorization", f"Bearer {OWNER_TOKEN}")]
 
@@ -1351,10 +1337,14 @@ async def test_bootstrap_requires_full_session_and_sets_environment_cookie(
     )
     assert refreshed.status == 200
     assert "Max-Age=604800" in refreshed.header("set-cookie")
-    assert (await _call(dev_app, "/", query=f"t={full_session}")).status == 404
-    assert (
-        await _call(dev_app, "/", query=f"t={full_session[:7]}")
-    ).status == 404
+    consumed = await _call(dev_app, "/", query=f"t={full_session}")
+    assert consumed.status == 302
+    assert consumed.header("location") == "/"
+    assert "Max-Age=0" in (consumed.header("set-cookie") or "")
+    malformed = await _call(dev_app, "/", query=f"t={full_session[:7]}")
+    assert malformed.status == 302
+    assert malformed.header("location") == "/"
+    assert "Max-Age=0" in (malformed.header("set-cookie") or "")
     assert (
         await _call(
             dev_app,
@@ -1395,7 +1385,7 @@ async def test_bootstrap_requires_full_session_and_sets_environment_cookie(
 
 @pytest.mark.asyncio
 async def test_anonymous_head_bootstrap_is_404_and_does_not_consume_token(tmp_path):
-    settings = _settings(tmp_path, anonymous_readonly=True)
+    settings = _settings(tmp_path)
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
     bootstrap = dbm.create_session(conn, scope="owner")
@@ -1562,7 +1552,7 @@ async def test_access_log_and_security_headers_never_include_secrets(
 @pytest.mark.asyncio
 async def test_docs_and_openapi_are_publicly_accessible_without_credentials(tmp_path):
     """Verify Option A: /reference and /openapi.yaml are accessible without tokens."""
-    app = security.wrap_web_app(_inner_app(), _settings(tmp_path, anonymous_readonly=False))
+    app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
 
     ref_res = await _call(app, "/reference")
     assert ref_res.status == 200
@@ -1593,7 +1583,7 @@ async def test_share_endpoint_allows_anonymous_and_readonly_in_public_mode(tmp_p
     """공개 모드(anonymous_readonly=True)에서 누구나 POST /share 호출 가능."""
     app = security.wrap_web_app(
         _inner_app(),
-        _settings(tmp_path, anonymous_readonly=True),
+        _settings(tmp_path),
     )
 
     anon_res = await _call(
@@ -1619,24 +1609,6 @@ async def test_share_endpoint_allows_anonymous_and_readonly_in_public_mode(tmp_p
     )
     assert ro_res.status == 200
     assert ro_res.json()["scope"] == "readonly"
-
-
-@pytest.mark.asyncio
-async def test_share_endpoint_rejects_unauthenticated_in_stealth_mode(tmp_path):
-    """비공개 스텔스 모드(anonymous_readonly=False)에서는 미인증 POST /share 요청이 404 차단."""
-    app = security.wrap_web_app(
-        _inner_app(),
-        _settings(tmp_path, anonymous_readonly=False),
-    )
-
-    anon_res = await _call(
-        app,
-        "/share",
-        method="POST",
-        headers=[("Content-Type", "application/json")],
-        body=b'{"doc_id":"test-doc"}',
-    )
-    assert anon_res.status == 404
 
 
 

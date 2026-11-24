@@ -66,7 +66,6 @@ def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, K
         CLAIRE_MULTI_THEME=False,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     theme_mgr = KnowledgeBaseManager(s)
     theme0 = theme_mgr.get_kb(0)
@@ -94,7 +93,6 @@ def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, Kn
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     theme_mgr = KnowledgeBaseManager(s)
     theme0 = theme_mgr.get_kb(0)
@@ -162,7 +160,6 @@ def _create_network_mode_client(tmp_path: Path) -> tuple[TestClient, Settings, d
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)

@@ -123,6 +123,7 @@ def _setup_network_env(
 
     store = accounts_store.AccountStore(conn)
     store.set_setting("mode", "network", updated_by=1)
+    conn.execute("UPDATE knowledge_bases SET is_public = ? WHERE account_id = 1 AND is_personal = 1", (1 if anonymous_readonly else 0,))
     conn.commit()
 
     alice_session = accounts_store.create_account_session(conn, account_id=alice_id, scope="owner", now=now)
@@ -170,7 +171,6 @@ def _setup_network_env(
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=anonymous_readonly,
     )
     return s, {
         "db_file": db_file,
@@ -212,7 +212,6 @@ def _setup_single_env(tmp_path: Path, *, anonymous_readonly: bool = True):
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=anonymous_readonly,
     )
     return s, {"db_file": db_file, "admin_session": admin_session}
 

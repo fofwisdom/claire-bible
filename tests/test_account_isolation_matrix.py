@@ -143,7 +143,6 @@ def test_environment(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
 

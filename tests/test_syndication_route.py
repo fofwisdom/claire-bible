@@ -34,7 +34,6 @@ def syndication_env(tmp_path: Path):
         public_url="http://127.0.0.1:8765/",
         inject_token=OWNER_TOKEN,
         readonly_token=READONLY_TOKEN,
-        anonymous_readonly=False,
         cors_allowed_origins="",
         inject_host="127.0.0.1",
         inject_port=8765,

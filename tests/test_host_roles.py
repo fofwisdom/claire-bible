@@ -67,7 +67,6 @@ def _settings(tmp_path: Path, **overrides) -> SimpleNamespace:
         cors_allowed_origins="",
         inject_token=OWNER_TOKEN,
         readonly_token="",
-        anonymous_readonly=False,
         db_file=tmp_path / "claire.db",
         site_domain="",
         usercontent_fqdn="",
@@ -167,6 +166,7 @@ def _inner_app() -> Starlette:
         routes=[
             Route("/health", _endpoint, methods=["GET"]),
             Route("/graph", _endpoint, methods=["GET"]),
+            Route("/syndication", _endpoint, methods=["GET"]),
             Route("/admin/accounts", _endpoint, methods=["GET"]),
             Route("/static/js/app.js", _static_endpoint, methods=["GET", "POST"]),
         ]
@@ -357,7 +357,6 @@ async def test_create_app_serves_static_only_through_host_router(tmp_path):
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     app = create_app(settings=settings)
     ok = await _call(app, "/static/js/app.js", host="127.0.0.1:8765")
@@ -499,13 +498,17 @@ async def test_cookie_tossing_cannot_override_or_break_host_session(tmp_path):
         assert "claire_session" not in cookies  # 토싱된 쿠키는 건드리지도 않는다
 
     # 무효한 __Host- 옆의 유효한 claire_session을 승격하지 않는다(세션 고정 방어).
-    fixed = await _call(
+    fixed_read = await _call(
         app, "/graph", host=PROD_HOST, headers=[("Cookie", f"__Host-claire_session={'x' * 43}; claire_session={token}")]
+    )
+    assert fixed_read.status == 200 and json.loads(fixed_read.body)["scope"] == "anonymous"
+    fixed = await _call(
+        app, "/syndication", host=PROD_HOST, headers=[("Cookie", f"__Host-claire_session={'x' * 43}; claire_session={token}")]
     )
     assert fixed.status == 404
     # __Host-가 둘이면 무효 자격이다.
     doubled = await _call(
-        app, "/graph", host=PROD_HOST, headers=[("Cookie", f"__Host-claire_session={token}; __Host-claire_session={token}")]
+        app, "/syndication", host=PROD_HOST, headers=[("Cookie", f"__Host-claire_session={token}; __Host-claire_session={token}")]
     )
     assert doubled.status == 404
 

@@ -38,7 +38,6 @@ class StubSettings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
 
 
 class StubService:
@@ -474,7 +473,6 @@ def test_anonymous_search_forces_fts_without_summary_and_clamps_limit(
     settings: StubSettings,
     service: StubService,
 ) -> None:
-    settings.anonymous_readonly = True
     app = server.create_app(settings, service)
 
     with TestClient(app, base_url=settings.public_url) as anonymous_client:
@@ -507,7 +505,6 @@ def test_anonymous_search_has_separate_rate_limit_with_retry_after(
     service: StubService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    settings.anonymous_readonly = True
     monkeypatch.setattr(server, "_MAX_ANONYMOUS_SEARCH_JOBS", 0)
     app = server.create_app(settings, service)
 
@@ -527,7 +524,6 @@ def test_anonymous_search_has_separate_rate_limit_with_retry_after(
 async def test_anonymous_search_exact_four_job_cap_releases_and_isolates_hybrid(
     settings: StubSettings,
 ) -> None:
-    settings.anonymous_readonly = True
     service = BlockingSearchService(blocked_mode="fts")
     app = server.create_app(settings, service)
     transport = ASGITransport(app=app)
@@ -576,7 +572,6 @@ async def test_anonymous_search_exact_four_job_cap_releases_and_isolates_hybrid(
 async def test_all_hybrid_searches_share_four_job_cap_and_isolate_anonymous(
     settings: StubSettings,
 ) -> None:
-    settings.anonymous_readonly = True
     service = BlockingSearchService(blocked_mode="hybrid")
     app = server.create_app(settings, service)
     transport = ASGITransport(app=app)
@@ -819,11 +814,10 @@ def test_anonymous_can_create_share_link_in_public_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """공개 모드(anonymous_readonly=True)에서 익명 사용자가 공개 문서의 공유 링크를 생성할 수 있다."""
+    """공개 KB에서 익명 사용자가 공개 문서의 공유 링크를 생성할 수 있다."""
     settings = StubSettings(
         db_file=tmp_path / "claire.db",
         data_dir=tmp_path,
-        anonymous_readonly=True,
     )
     service = StubService()
     app = server.create_app(settings, service)
@@ -850,7 +844,6 @@ def test_anonymous_cannot_share_hidden_document(
     settings = StubSettings(
         db_file=tmp_path / "claire.db",
         data_dir=tmp_path,
-        anonymous_readonly=True,
     )
     service = StubService()
     app = server.create_app(settings, service)
@@ -928,7 +921,6 @@ def test_stats_ingest_effort_visibility_and_http_400_no_fallback(
     settings = EffortStubSettings(
         db_file=tmp_path / "claire.db",
         data_dir=tmp_path,
-        anonymous_readonly=True,
     )
     service = EffortStubService()
     app = server.create_app(settings, service)

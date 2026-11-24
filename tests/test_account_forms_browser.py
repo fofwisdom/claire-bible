@@ -39,7 +39,6 @@ class _Settings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = ""
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
 
 
 def _free_port() -> int:

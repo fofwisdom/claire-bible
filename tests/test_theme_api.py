@@ -31,7 +31,6 @@ def theme_app_client(tmp_path):
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
     app = create_app(settings=settings)
@@ -53,7 +52,6 @@ def test_theme_api_single_mode_behavior(tmp_path):
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=False,
     )
     app = create_app(settings=s)

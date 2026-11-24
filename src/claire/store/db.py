@@ -14,14 +14,14 @@ import secrets
 import shutil
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 47
+SCHEMA_VERSION = 48
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -904,6 +904,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v45_retire_account_extraction_mode(conn)
     _migrate_v46_preferred_languages(conn)
     _migrate_v47_lab_runs(conn)
+    _migrate_v48_anonymous_readonly(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1982,6 +1983,107 @@ def _migrate_v47_lab_runs(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_lab_runs_created ON lab_runs(created_at)")
+
+
+_ANONYMOUS_READONLY_V48_KEY = "anonymous_readonly_v48"
+
+
+def _is_memory_db(conn: sqlite3.Connection) -> bool:
+    row = conn.execute("PRAGMA database_list").fetchone()
+    return row is None or not str(row[2] or "").strip()
+
+
+def _extract_dotenv_assignment(original: str, target_key: str) -> str | None:
+    stripped = original.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    if stripped.startswith("export "):
+        stripped = stripped[7:].lstrip()
+    if "=" not in stripped:
+        return None
+    key, raw = stripped.split("=", 1)
+    if key.strip() != target_key:
+        return None
+    val = raw.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in {"'", '"'}:
+        val = val[1:-1]
+    return val
+
+
+def _comment_out_dotenv_key(path: Path, target_key: str) -> tuple[str | None, bool]:
+    """Read target_key from path and comment out active assignment lines; return (last_value, had_active_line)."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    except OSError:
+        return None, False
+
+    found_val: str | None = None
+    had_active = False
+    new_lines: list[str] = []
+    for line in lines:
+        val = _extract_dotenv_assignment(line, target_key)
+        if val is not None:
+            found_val = val
+            had_active = True
+            new_lines.append(f"# {line}" if not line.startswith("#") else line)
+        else:
+            new_lines.append(line)
+
+    if had_active:
+        try:
+            if not os.access(path, os.W_OK):
+                raise PermissionError(f"{path} is not writable")
+            path.write_text("".join(new_lines), encoding="utf-8")
+        except OSError:
+            logger.warning("schema v48: CLAIRE_ANONYMOUS_READONLY is retired; please remove it from %s", path)
+    return found_val, had_active
+
+
+def _migrate_v48_anonymous_readonly(
+    conn: sqlite3.Connection,
+    *,
+    env_files: Sequence[Path] | None = None,
+) -> None:
+    """v48 schema (LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md Section 3): retire CLAIRE_ANONYMOUS_READONLY into personal KB is_public. Idempotent; runs once per DB."""
+    if not (_table_exists(conn, "server_settings") and _table_exists(conn, "knowledge_bases")):
+        return
+    if conn.execute("SELECT 1 FROM server_settings WHERE key=?", (_ANONYMOUS_READONLY_V48_KEY,)).fetchone() is not None:
+        return
+
+    if env_files is not None:
+        target_files = list(env_files)
+    elif _is_memory_db(conn):
+        target_files = []
+    else:
+        from ..core.config import ROOT
+
+        target_files = [ROOT / ".env", ROOT / ".env.dev"]
+
+    dotenv_val: str | None = None
+    for env_path in target_files:
+        if env_path.is_file():
+            file_val, _ = _comment_out_dotenv_key(env_path, "CLAIRE_ANONYMOUS_READONLY")
+            if file_val is not None:
+                dotenv_val = file_val
+
+    proc_val = os.environ.get("CLAIRE_ANONYMOUS_READONLY")
+    if proc_val is not None:
+        logger.warning("schema v48: CLAIRE_ANONYMOUS_READONLY is retired and ignored after migration; remove it from process environment")
+
+    effective = proc_val if proc_val is not None else dotenv_val
+    if effective is not None and effective.strip() == "0":
+        conn.execute(
+            "UPDATE knowledge_bases SET is_public = 0, visibility_epoch = visibility_epoch + 1 WHERE is_personal = 1 AND is_public != 0"
+        )
+        shared_count = int(conn.execute("SELECT COUNT(*) FROM knowledge_bases WHERE is_personal = 0").fetchone()[0])
+        if shared_count > 0:
+            logger.warning("schema v48: %d shared knowledge base(s) remain public (is_public=1) while personal knowledge bases were migrated to private", shared_count)
+
+    conn.execute(
+        "INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES (?, 'done', ?, NULL)",
+        (_ANONYMOUS_READONLY_V48_KEY, time.time()),
+    )
+    conn.commit()
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:

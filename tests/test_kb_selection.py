@@ -35,7 +35,6 @@ def _settings(tmp_path) -> Settings:
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=False,
         CLAIRE_MULTI_THEME=True,
     )
 

@@ -57,7 +57,6 @@ class _Settings:
     inject_token: str = ""
     readonly_token: str = ""
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = True
     multi_theme: bool = True
     trusted_proxies: str = "10.0.0.0/8,fd00::/8"
     telemetry_retention_days: int = 30
@@ -187,7 +186,6 @@ class KfWorld:
             CLAIRE_ENVIRONMENT="production",
             CLAIRE_PUBLIC_URL=origin,
             CLAIRE_INJECT_TOKEN="owner-" + ("s" * 32),
-            CLAIRE_ANONYMOUS_READONLY=True,
             CLAIRE_MULTI_THEME=True,
         )
         conn = dbm.connect(self.settings.db_file)

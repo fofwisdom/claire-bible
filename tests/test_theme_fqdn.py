@@ -139,7 +139,6 @@ def _make_security_test_settings(tmp_path: Path) -> SimpleNamespace:
         cors_allowed_origins="",
         inject_token=OWNER_TOKEN,
         readonly_token=READONLY_TOKEN,
-        anonymous_readonly=True,
         db_file=tmp_path / "claire.db",
         ga_measurement_id="",
     )
@@ -234,7 +233,6 @@ def multi_theme_server_env(tmp_path):
         CLAIRE_PUBLIC_URL=APP_ORIGIN,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
     app = create_app(settings=settings)

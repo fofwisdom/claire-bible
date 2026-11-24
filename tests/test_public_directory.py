@@ -117,7 +117,6 @@ def _setup_network_env(tmp_path: Path):
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     return s, {
         "db_file": db_file,
@@ -265,7 +264,6 @@ def test_single_mode_serves_the_account_directory_and_the_old_path_is_gone(tmp_p
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
@@ -326,7 +324,6 @@ def test_empty_state_rendering(tmp_path: Path):
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)

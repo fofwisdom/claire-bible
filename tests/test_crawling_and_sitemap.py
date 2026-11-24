@@ -48,7 +48,6 @@ def app_settings(tmp_path: Path, tmp_db: Path) -> Settings:
         fqdn="claire.example.com",
         inject_token="owner-token-secret-12345678901234",
         readonly_token="readonly-token-secret-123456789012",
-        anonymous_readonly=True,
         multi_theme=False,
         robots_policy="public",
         block_ai_crawlers=True,
@@ -133,8 +132,8 @@ def test_robots_txt_public_rules_and_ai_blocking(app_settings: Settings) -> None
         assert "Sitemap: https://claire.example.com/sitemap.xml" in text
 
 
-def test_robots_txt_private_mode_and_disallow_all(app_settings: Settings) -> None:
-    """Test robots.txt fail-closed mode when anonymous readonly is disabled or policy is disallow_all."""
+def test_robots_txt_private_mode_and_disallow_all(app_settings: Settings, tmp_db: Path) -> None:
+    """Test robots.txt fail-closed mode when all KBs are private or policy is disallow_all."""
     # 1. robots_policy = "disallow_all"
     app_settings.robots_policy = "disallow_all"
     app = server.create_app(app_settings, StubIngestService())
@@ -143,14 +142,19 @@ def test_robots_txt_private_mode_and_disallow_all(app_settings: Settings) -> Non
         assert resp.status_code == 200
         assert resp.text.strip() == "User-agent: *\nDisallow: /"
 
-    # 2. anonymous_readonly = False
+    # 2. All KBs private (is_public = 0)
     app_settings.robots_policy = "public"
-    app_settings.anonymous_readonly = False
+    conn = dbm.connect(tmp_db)
+    conn.execute("UPDATE knowledge_bases SET is_public = 0")
+    conn.commit()
+    conn.close()
     app2 = server.create_app(app_settings, StubIngestService())
     with TestClient(app2, base_url="https://claire.example.com") as client2:
         resp2 = client2.get("/robots.txt", headers={"Host": "claire.example.com"})
         assert resp2.status_code == 200
         assert resp2.text.strip() == "User-agent: *\nDisallow: /"
+        sitemap_resp = client2.get("/sitemap.xml", headers={"Host": "claire.example.com"})
+        assert sitemap_resp.status_code == 404
 
 
 def test_sitemap_xml_generation_and_etag_caching(app_settings: Settings, tmp_db: Path) -> None:

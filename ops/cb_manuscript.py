@@ -36,7 +36,6 @@ DEFAULT_PROJECT = "claire-bible"
 DEFAULT_DEV_PROJECT = "claire-bible-dev"
 DEFAULT_WAIT_TIMEOUT = 120
 ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
-ANONYMOUS_READONLY_KEY = "CLAIRE_ANONYMOUS_READONLY"
 SITE_DOMAIN_KEY = "CLAIRE_SITE_DOMAIN"
 # Fedify sidecar (federation design, Section 4.2): the development host port of the sidecar. The sidecar is a service of each installation: federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4).
 FEDIFY_PORT_KEY = "CB_FEDIFY_PORT"
@@ -288,7 +287,6 @@ class Runtime:
     project: str
     wait_timeout: int
     bot_enabled: bool
-    anonymous_readonly: bool
     # The edge service: the authority of the public origin in production, or an empty string in development.
     edge_app_host: str = ""
 
@@ -343,7 +341,6 @@ class Runtime:
             env.pop(host_key, None)
         env.pop("CLAIRE_CLOUDFLARE_IPS_ONLY", None)
         env.pop("CLAIRE_CORS_ALLOWED_ORIGINS", None)
-        env.pop(ANONYMOUS_READONLY_KEY, None)
         env[ENVIRONMENT_KEY] = self.environment
         env["CB_ENV_FILE"] = str(self.layout.env.resolve())
         # The edge gets only the authority of the public origin, not the env file.
@@ -466,17 +463,6 @@ def _dotenv_value(raw: str, path: Path, lineno: int) -> str:
     return value[1:closing]
 
 
-def _exact_anonymous_readonly_value(raw: str, path: Path, lineno: int) -> str:
-    """Exact boolean selector does not allow dotenv quote or whitespace normalization."""
-
-    if raw not in {"0", "1"}:
-        raise ManuscriptError(
-            f"{path}:{lineno}: {ANONYMOUS_READONLY_KEY} must be "
-            "exactly 0 or 1 without surrounding whitespace."
-        )
-    return raw
-
-
 def read_dotenv(path: Path) -> dict[str, str]:
     """Read a conservative dotenv subset without evaluating any content."""
 
@@ -502,18 +488,7 @@ def read_dotenv(path: Path) -> dict[str, str]:
         key = key.strip()
         if not KEY_RE.fullmatch(key):
             raise ManuscriptError(f"{path}:{lineno}: invalid environment variable name")
-        if key == ANONYMOUS_READONLY_KEY:
-            lexical = original.rstrip("\r\n").lstrip()
-            if lexical.startswith("export "):
-                lexical = lexical[7:].lstrip()
-            _lexical_key, lexical_raw = lexical.split("=", 1)
-            values[key] = _exact_anonymous_readonly_value(
-                lexical_raw,
-                path,
-                lineno,
-            )
-        else:
-            values[key] = _dotenv_value(raw, path, lineno)
+        values[key] = _dotenv_value(raw, path, lineno)
     return values
 
 
@@ -567,15 +542,6 @@ def _resolve_environment(
     values = dict(base_values)
     if environment == DEVELOPMENT:
         development_values = read_dotenv(layout.dev_env)
-        if (
-            base_values.get(ANONYMOUS_READONLY_KEY) == "1"
-            and ANONYMOUS_READONLY_KEY not in development_values
-        ):
-            raise ManuscriptError(
-                f"{layout.dev_env} is missing {ANONYMOUS_READONLY_KEY}. "
-                "Specify 0 or 1 with `./cb-manuscript init` so development does not implicitly "
-                "inherit production anonymous settings."
-            )
         values.update(development_values)
         declared_raw = development_values.get(ENVIRONMENT_KEY, "")
         declared = _parse_environment(
@@ -929,17 +895,6 @@ def _validate_web_tokens(values: Mapping[str, str]) -> None:
         )
 
 
-def _validate_anonymous_readonly(values: Mapping[str, str]) -> bool:
-    raw = values.get(ANONYMOUS_READONLY_KEY)
-    if raw is None:
-        return False
-    if raw not in {"0", "1"}:
-        raise ManuscriptError(
-            f"{ANONYMOUS_READONLY_KEY} must be exactly 0 or 1."
-        )
-    return raw == "1"
-
-
 def _validate_fedify_port(values: Mapping[str, str], *, environment: str, port: int) -> None:
     """In development, the host port of the Fedify sidecar must be different from the other host ports."""
 
@@ -1041,7 +996,6 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
     )
     _validate_cors_origins(values, environment=environment)
     _validate_web_tokens(values)
-    anonymous_readonly = _validate_anonymous_readonly(values)
 
     bot_enabled = bool(_effective(values, "TELEGRAM_BOT_TOKEN").strip())
     _validate_fedify_port(values, environment=environment, port=parsed_port)
@@ -1053,7 +1007,6 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
         project=project,
         wait_timeout=wait_timeout,
         bot_enabled=bot_enabled,
-        anonymous_readonly=anonymous_readonly,
         edge_app_host=edge_app_host,
     )
 
@@ -1200,54 +1153,6 @@ def _ensure_inject_token(path: Path) -> bool:
     else:
         os.chmod(path, 0o600)
     return changed
-
-
-def _ensure_anonymous_readonly(path: Path) -> bool:
-    """Safely backfill missing anonymous readonly setting with default 0."""
-
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines(keepends=True)
-    matches: list[str] = []
-
-    for index, original in enumerate(lines):
-        candidate = original.strip()
-        if not candidate or candidate.startswith("#"):
-            continue
-        if candidate.startswith("export "):
-            candidate = candidate[7:].lstrip()
-        if "=" not in candidate:
-            continue
-        key, _raw = candidate.split("=", 1)
-        if key.strip() == ANONYMOUS_READONLY_KEY:
-            lexical = original.rstrip("\r\n").lstrip()
-            if lexical.startswith("export "):
-                lexical = lexical[7:].lstrip()
-            _lexical_key, lexical_raw = lexical.split("=", 1)
-            matches.append(
-                _exact_anonymous_readonly_value(
-                    lexical_raw,
-                    path,
-                    index + 1,
-                )
-            )
-
-    if len(matches) > 1:
-        raise ManuscriptError(
-            f"Duplicate {ANONYMOUS_READONLY_KEY} in {path}."
-        )
-    if matches:
-        if matches[0] not in {"0", "1"}:
-            raise ManuscriptError(
-                f"{path} {ANONYMOUS_READONLY_KEY} must be exactly 0 or 1."
-            )
-        os.chmod(path, 0o600)
-        return False
-
-    if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
-    lines.append(f"{ANONYMOUS_READONLY_KEY}=1\n")
-    _atomic_write(path, "".join(lines), mode=0o600)
-    return True
 
 
 def _detect_system_timezone() -> str:
@@ -1459,9 +1364,6 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_fqdn(layout.env, PRODUCTION):
             if "CLAIRE_FQDN" not in changes["env"]:
                 changes["env"].append("CLAIRE_FQDN")
-        if _ensure_anonymous_readonly(layout.env):
-            if ANONYMOUS_READONLY_KEY not in changes["env"]:
-                changes["env"].append(ANONYMOUS_READONLY_KEY)
         if _ensure_inject_token(layout.env):
             if "CLAIRE_INJECT_TOKEN" not in changes["env"]:
                 changes["env"].append("CLAIRE_INJECT_TOKEN")
@@ -1484,9 +1386,6 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_fqdn(layout.dev_env, DEVELOPMENT):
             if "CLAIRE_FQDN" not in changes["dev_env"]:
                 changes["dev_env"].append("CLAIRE_FQDN")
-        if _ensure_anonymous_readonly(layout.dev_env):
-            if ANONYMOUS_READONLY_KEY not in changes["dev_env"]:
-                changes["dev_env"].append(ANONYMOUS_READONLY_KEY)
         if _ensure_inject_token(layout.dev_env):
             if "CLAIRE_INJECT_TOKEN" not in changes["dev_env"]:
                 changes["dev_env"].append("CLAIRE_INJECT_TOKEN")
@@ -1517,10 +1416,6 @@ def command_init(layout: Layout) -> int:
     print(
         f"TZ: "
         f"{f'populated ({detected_tz})' if 'TZ' in changes['env'] or 'TZ' in changes['dev_env'] else 'kept'}"
-    )
-    print(
-        f"{ANONYMOUS_READONLY_KEY}: "
-        f"{'populated (default 1)' if ANONYMOUS_READONLY_KEY in changes['env'] or ANONYMOUS_READONLY_KEY in changes['dev_env'] else 'kept'}"
     )
     print(
         f"CLAIRE_INJECT_TOKEN: "
@@ -3531,12 +3426,6 @@ def command_preflight(runtime: Runtime) -> int:
     print(f"project: {runtime.project}")
     print(f"bot profile: {'enabled' if runtime.bot_enabled else 'disabled'}")
     print(f"edge service: {'enabled' if runtime.edge_enabled else 'disabled'}")
-    anonymous_status = "disabled"
-    if runtime.anonymous_readonly:
-        anonymous_status = (
-            "ENABLED - public read access (hidden documents excluded)"
-        )
-    print(f"anonymous readonly: {anonymous_status}")
     role_hosts = ", ".join(
         f"{role}={runtime.values.get(host_key, '').strip() or '(unset)'}"
         for role, host_key, _port_key in ROLE_HOST_SETTINGS
@@ -3873,7 +3762,7 @@ def build_parser() -> argparse.ArgumentParser:
             "                   every port distinct from CB_API_PORT and each other\n"
             "      production:  CLAIRE_SITE_DOMAIN required, every host equal to it or a\n"
             "                   subdomain, role hosts distinct and not a parent of CLAIRE_FQDN\n"
-            "  - Security tokens and anonymous read-only (CLAIRE_ANONYMOUS_READONLY) settings\n"
+            "  - Security tokens (CLAIRE_INJECT_TOKEN, CLAIRE_READONLY_TOKEN)\n"
             "  - Fedify sidecar host port CB_FEDIFY_PORT in development\n"
             "      (different from CB_API_PORT and the role host ports)\n"
             "  - Edge service public authority in production (from CLAIRE_FQDN or CLAIRE_PUBLIC_URL)\n"

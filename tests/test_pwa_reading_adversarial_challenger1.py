@@ -108,12 +108,12 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
     )
 
     # Alice (2):
-    # - Theme 10: default, public
+    # - Theme 10: default
     num_alice_pub = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 20)
     conn.execute(
         "INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) "
-        "VALUES (10, 10, ?, 'Alice Public Base', ?, 1, 1, ?, ?)",
-        (num_alice_pub, alice_id, now, now),
+        "VALUES (10, 10, ?, 'Alice Public Base', ?, 1, ?, ?, ?)",
+        (num_alice_pub, alice_id, 1 if anonymous_readonly else 0, now, now),
     )
     # - Theme 12: secret, private (presentation enabled)
     num_alice_priv = ids.timestamp_id("knowledge_bases", salt=salt, unix_ms=int(now * 1000) + 22)
@@ -204,7 +204,6 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=anonymous_readonly,
     )
     return s, {
         "db_file": db_file,
@@ -273,16 +272,17 @@ def test_whoami_anonymous_reader_relation_and_scope(tmp_path: Path):
         assert data["server"]["mode"] == "network"
 
 
-def test_whoami_anonymous_reader_when_anonymous_readonly_disabled(tmp_path: Path):
-    """[M3-CH-04] Anonymous access rejected when anonymous_readonly=False."""
+def test_whoami_anonymous_reader_when_kb_private(tmp_path: Path):
+    """[M3-CH-04] Anonymous /@alice/whoami returns anonymous, while private KB read endpoints reject with 404."""
     s, env = _setup_adversarial_network_env(tmp_path, anonymous_readonly=False)
     app = create_app(s)
 
     with TestClient(app, base_url=s.public_url, follow_redirects=False) as client:
         _set_session(client, None)
-        res = client.get("/@alice/whoami")
-        # Must not return 200 OK to unauthenticated users when anonymous_readonly is False
-        assert res.status_code in {401, 404}
+        who = client.get("/@alice/whoami")
+        assert who.status_code == 200 and who.json()["scope"] == "anonymous"
+        assert client.get("/@alice/documents").status_code == 404
+        assert client.get("/@alice/graph").status_code == 404
 
 
 def test_whoami_admin_visiting_member_vs_own(tmp_path: Path):

@@ -40,7 +40,6 @@ class _Settings:
     inject_token: str = "owner-" + "o" * 32
     readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = True
     multi_theme: bool = True
     usercontent_fqdn: str = ""
     media_fqdn: str = ""

@@ -54,7 +54,6 @@ def _prepare(tmp_path: Path, **overrides: Any) -> tuple[Settings, int]:
         CLAIRE_FQDN=fqdn,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN="readonly-" + "r" * 32,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
         **overrides,
     )
