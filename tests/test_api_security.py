@@ -280,7 +280,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/static/{path:path}",
         "/support/bundle/{token}",
         "/support/graph-bundle/{token}",
-        "/reference",
+        "/openapi/v1.json",
         "/openapi.yaml",
         "/.well-known/oauth-protected-resource",
         "/.well-known/oauth-authorization-server",
@@ -343,6 +343,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/api/syndication/dispatches",
         "/syndication/dispatches",
         "/api/client-extraction/spec",
+        "/reference",
     }
     read_post = {"/search", "/mcp", "/share", "/entities/{entity_id}/share"}
     # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review: ``write`` replaces ``collaborator``; presentations need ``owner``.
@@ -625,7 +626,11 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/admin/storage/test"),
         ("PUT", "/api/admin/plugins/{id}"),
         ("DELETE", "/api/admin/plugins/{id}"),
+        ("GET", "/openapi/admin.json"),
+        ("HEAD", "/openapi/admin.json"),
     }
+    from claire.api.v1 import V1_ROUTE_POLICY
+
     expected = {
         **{
             (method, path): "public"
@@ -643,7 +648,10 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         **{key: "write" for key in write_methods},
         **{("POST", path): "owner" for path in owner_post},
         **{key: "owner" for key in owner_methods},
+        ("GET", "/openapi/account.json"): "owner",
+        ("HEAD", "/openapi/account.json"): "owner",
         **{key: "admin" for key in admin_methods},
+        **{key: rule.access for key, rule in V1_ROUTE_POLICY.items()},
     }
 
     assert {
@@ -1555,12 +1563,12 @@ async def test_access_log_and_security_headers_never_include_secrets(
 
 @pytest.mark.asyncio
 async def test_docs_and_openapi_are_publicly_accessible_without_credentials(tmp_path):
-    """Verify Option A: /reference and /openapi.yaml are accessible without tokens."""
+    """Verify Option A: /reference (read) and /openapi.yaml (public) are accessible without tokens."""
     app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
 
     ref_res = await _call(app, "/reference")
     assert ref_res.status == 200
-    assert ref_res.json()["scope"] == "public"
+    assert ref_res.json()["scope"] == "anonymous"
 
     yaml_res = await _call(app, "/openapi.yaml")
     assert yaml_res.status == 200

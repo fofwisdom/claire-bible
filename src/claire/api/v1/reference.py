@@ -12,7 +12,8 @@ from typing import Any
 
 from pydantic.json_schema import models_json_schema
 
-from ..security import ROUTE_POLICY, RouteKey, RouteRule
+from .. import security as _security
+from ..security import RouteKey, RouteRule
 from .openapi import (
     API_TITLE,
     API_VERSION,
@@ -208,6 +209,7 @@ _ACCOUNT_EXCLUDED_PREFIXES: tuple[str, ...] = (
     "/auth/",
     "/.well-known/",
     "/oauth/",
+    "/openapi/",
 )
 
 _ADMIN_EXCLUDED_PREFIXES: tuple[str, ...] = (
@@ -442,14 +444,15 @@ def build_v1_openapi_spec(
     *,
     route_specs: tuple[V1RouteSpec, ...] = V1_ROUTE_SPECS,
     v1_route_policy: Mapping[RouteKey, RouteRule] = V1_ROUTE_POLICY,
-    server_route_policy: Mapping[RouteKey, RouteRule] = ROUTE_POLICY,
+    server_route_policy: Mapping[RouteKey, RouteRule] | None = None,
 ) -> dict[str, Any]:
     """Build the public OpenAPI 3.1.0 spec for `/api/v1/*`, OAuth 2.1 endpoints, and MCP docs."""
+    effective_server_policy = _security.ROUTE_POLICY if server_route_policy is None else server_route_policy
     spec = generate_v1_openapi_spec(route_specs=route_specs, route_policy=v1_route_policy)
     paths: dict[str, dict[str, Any]] = dict(spec["paths"])
 
     for proto in _OAUTH_PROTOCOL_SPECS:
-        rule = server_route_policy.get((proto.method, proto.path))
+        rule = effective_server_policy.get((proto.method, proto.path))
         if rule is None:
             raise ValueError(f"OAuth protocol route ({proto.method!r}, {proto.path!r}) missing from ROUTE_POLICY")
 
@@ -518,7 +521,7 @@ def build_v1_openapi_json(
     *,
     route_specs: tuple[V1RouteSpec, ...] = V1_ROUTE_SPECS,
     v1_route_policy: Mapping[RouteKey, RouteRule] = V1_ROUTE_POLICY,
-    server_route_policy: Mapping[RouteKey, RouteRule] = ROUTE_POLICY,
+    server_route_policy: Mapping[RouteKey, RouteRule] | None = None,
     indent: int = 2,
 ) -> str:
     """Serialize the public v1 + OAuth 2.1 OpenAPI 3.1.0 spec to JSON."""
@@ -530,7 +533,7 @@ def build_v1_openapi_yaml(
     *,
     route_specs: tuple[V1RouteSpec, ...] = V1_ROUTE_SPECS,
     v1_route_policy: Mapping[RouteKey, RouteRule] = V1_ROUTE_POLICY,
-    server_route_policy: Mapping[RouteKey, RouteRule] = ROUTE_POLICY,
+    server_route_policy: Mapping[RouteKey, RouteRule] | None = None,
 ) -> str:
     """Serialize the public v1 + OAuth 2.1 OpenAPI 3.1.0 spec to deterministic YAML."""
     spec = build_v1_openapi_spec(route_specs=route_specs, v1_route_policy=v1_route_policy, server_route_policy=server_route_policy)
@@ -539,13 +542,14 @@ def build_v1_openapi_yaml(
 
 def build_account_openapi_spec(
     *,
-    route_policy: Mapping[RouteKey, RouteRule] = ROUTE_POLICY,
+    route_policy: Mapping[RouteKey, RouteRule] | None = None,
 ) -> dict[str, Any]:
     """Build the OpenAPI 3.1.0 spec for authenticated owner account and workspace BFF routes."""
+    effective_policy = _security.ROUTE_POLICY if route_policy is None else route_policy
     return _build_policy_spec(
         title=f"{API_TITLE} - Account & Workspace BFF",
         description="Authenticated owner account management (`/api/me/*`, `/api/feeds/*`, `/api/federation/*`, `/api/invites`, `/api/auto-rule*`, `/api/support/bundles*`) and workspace BFF JSON endpoints. SSR HTML pages and retired `/tokens*` endpoints are excluded.",
-        route_policy=route_policy,
+        route_policy=effective_policy,
         include_fn=_is_account_bff_route,
         tag_fn=_tag_for_account_route,
         tag_descriptions=ACCOUNT_TAG_DESCRIPTIONS,
@@ -558,13 +562,14 @@ def build_account_openapi_spec(
 
 def build_admin_openapi_spec(
     *,
-    route_policy: Mapping[RouteKey, RouteRule] = ROUTE_POLICY,
+    route_policy: Mapping[RouteKey, RouteRule] | None = None,
 ) -> dict[str, Any]:
     """Build the OpenAPI 3.1.0 spec for server administrator operational routes."""
+    effective_policy = _security.ROUTE_POLICY if route_policy is None else route_policy
     return _build_policy_spec(
         title=f"{API_TITLE} - Admin & Operations",
         description="Server administrator API endpoints (`/api/admin/*`, `/providers*`, `/limits`, `/ingest-limits`, `/support/bundle`). SSR HTML pages under `/admin/*`, `/laboratory/*`, and `/moderation/*` are excluded.",
-        route_policy=route_policy,
+        route_policy=effective_policy,
         include_fn=_is_admin_api_route,
         tag_fn=_tag_for_admin_route,
         tag_descriptions=ADMIN_TAG_DESCRIPTIONS,
@@ -657,7 +662,13 @@ def render_reference_html(
         ],
         "sources": sources,
     }
-    config_json = html_lib.escape(json.dumps(config, ensure_ascii=False), quote=True)
+    config_json = (
+        json.dumps(config, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("'", "\\u0027")
+    )
 
     return f"""<!doctype html>
 <html lang="{html_lib.escape(safe_locale, quote=True)}" data-theme="dark">
@@ -716,7 +727,7 @@ def render_reference_html(
   <script
     id="api-reference"
     type="application/json"
-    data-configuration="{config_json}"></script>
+    data-configuration='{config_json}'></script>
   <script src="/static/docs/scalar.standalone.js"></script>
 </body>
 </html>

@@ -20,6 +20,7 @@ from starlette.applications import Starlette
 from starlette.routing import Mount, Route, compile_path
 
 from claire.api import security, server
+from claire.api.v1 import V1_ROUTE_SPECS
 
 SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespaced", "_any": "any", "_collection": "collection"}
 # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7: ``/kb`` and ``/themes`` are collections of the server at the root and of the account under ``/@{u}/``.
@@ -59,7 +60,8 @@ SYSTEM = {
     "/icon", "/font", "/fonts/NotoSansKR-Regular.woff2", "/fonts/NotoSansKR-Bold.woff2",
     "/fonts/NotoSerifKR-Regular.woff2", "/fonts/NotoSerifKR-Bold.woff2", "/fonts/D2Coding.woff2",
     "/fonts/D2CodingBold.woff2", "/p", "/silvercord/{token}", "/entity/{token}", "/p/presentation", "/image", "/images/{filename:path}",
-    "/p/images/{filename:path}", "/static/locales/{path:path}", "/static/{path:path}", "/reference", "/openapi.yaml",
+    "/p/images/{filename:path}", "/static/locales/{path:path}", "/static/{path:path}", "/reference", "/openapi/v1.json", "/openapi/account.json", "/openapi/admin.json", "/openapi.yaml",
+    *(spec.path for spec in V1_ROUTE_SPECS),
     "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",
     "/oauth/register", "/oauth/authorize", "/oauth/authorize/telegram-push", "/oauth/authorize/poll",
     "/oauth/token", "/oauth/revoke", "/oauth/device_authorization", "/device", "/mcp", "/support/bundle", "/support/bundle/{token}", "/support/graph-bundle/{token}", "/setup", "/login", "/logout", "/api/auth/reauth", "/api/locale",
@@ -145,6 +147,9 @@ ADMIN_KEYS = {
     *((m, p) for p in ("/admin/plugins", "/api/admin/plugins") for m in ("GET", "HEAD")),
     ("PUT", "/api/admin/plugins/{id}"),
     ("DELETE", "/api/admin/plugins/{id}"),
+    ("GET", "/openapi/admin.json"),
+    ("HEAD", "/openapi/admin.json"),
+    ("DELETE", "/api/v1/kbs/{kb}"),
 }
 # Network mode only: the routes for more than one account (invites). The key routes are in the two modes because the server administrator has a personal key. ActivityPub is the same in the two modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5).
 NETWORK_ONLY_KEYS: set[tuple[str, str]] = {

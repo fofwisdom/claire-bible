@@ -1960,6 +1960,8 @@
   "console.synd.common.implemented": "구현됨",
   "console.synd.common.proposal": "제안",
   "console.common.copy": "복사",
+  "console.common.api_reference": "API 레퍼런스 (/reference)",
+  "console.synd.mcp.reference_link": "API 레퍼런스 열기 (/reference)",
   "console.synd.mcp.col_channel": "채널",
   "console.synd.mcp.col_issue": "발급",
   "console.synd.mcp.col_scope": "권한",

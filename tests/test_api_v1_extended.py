@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,12 +12,11 @@ from typing import Any
 
 import pytest
 from starlette.applications import Starlette
-from starlette.routing import compile_path
 from starlette.testclient import TestClient
 
 from claire.api import security
 from claire.api.accounts_routes import prepare_auth_db, prepare_client_db
-from claire.api.v1 import V1_ROUTE_POLICY, V1_ROUTE_SPECS, build_v1_routes, generate_v1_openapi_json, generate_v1_openapi_spec, generate_v1_openapi_yaml
+from claire.api.v1 import V1_ROUTE_SPECS, build_v1_routes, generate_v1_openapi_json, generate_v1_openapi_spec, generate_v1_openapi_yaml
 from claire.api.v1.errors import v1_exception_handlers
 from claire.core import ids
 from claire.core.config import Settings
@@ -27,7 +25,7 @@ from claire.ingest.pipeline import IngestReport
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store, client_db, db as dbm, feeds as feeds_store, permalinks
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.store.token_store import reset_token_stores
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
 
 class _FakeIngestService:
@@ -93,35 +91,17 @@ def _make_settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765/",
+        CLAIRE_FQDN="http://127.0.0.1:8765",
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PLUGINS_DIR=str(plugins_dir),
-        CLAIRE_INJECT_TOKEN="owner-" + "a" * 32,
-        CLAIRE_READONLY_TOKEN="readonly-" + "b" * 32,
-        CLAIRE_ANONYMOUS_READONLY=True,
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_CORS_ALLOWED_ORIGINS="",
         CLAIRE_DATA_LIFECYCLE="purgeable",
         CLAIRE_PROVIDER="mock",
     )
 
 
-def _patch_route_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    merged = dict(security.ROUTE_POLICY)
-    merged.update(V1_ROUTE_POLICY)
-    monkeypatch.setattr(security, "ROUTE_POLICY", merged)
-    monkeypatch.setattr(security, "_EXACT_ROUTE_POLICY", {k: r for k, r in merged.items() if "{" not in k[1]})
-    monkeypatch.setattr(
-        security,
-        "_PARAM_ROUTE_POLICY",
-        tuple((m, compile_path(p)[0], r) for (m, p), r in merged.items() if "{" in p),
-    )
-
-
 @pytest.fixture()
-def ext_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_ExtWorld]:
-    reset_token_stores()
-    _patch_route_policy(monkeypatch)
+def ext_world(tmp_path: Path) -> Iterator[_ExtWorld]:
     s = _make_settings(tmp_path)
 
     conn = dbm.connect(s.db_file)
@@ -142,14 +122,9 @@ def ext_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_ExtW
         bob = acct_store.create_member(username="bob", display_name="Bob")
         acct_store.set_setting("mode", "network", updated_by=admin.id)
 
-        admin_session = accounts_store.create_account_session(conn, account_id=admin.id, scope="owner")
-        alice_session = accounts_store.create_account_session(conn, account_id=alice.id, scope="owner")
-        alice_stale_session = accounts_store.create_account_session(conn, account_id=alice.id, scope="owner", now=time.time() - 3600)
-        bob_session = accounts_store.create_account_session(conn, account_id=bob.id, scope="owner")
-
-        alice_oauth_write, _ = dbm.create_oauth_token(conn, "agent-client-1", scope="write", account_id=alice.id)
-        alice_oauth_readonly, _ = dbm.create_oauth_token(conn, "reader-client-1", scope="readonly", account_id=alice.id)
-        bob_oauth_write, _ = dbm.create_oauth_token(conn, "agent-client-2", scope="write", account_id=bob.id)
+        admin_id = admin.id
+        alice_id = alice.id
+        bob_id = bob.id
 
         alice_kb = mgr.define_kb("Alice Personal", is_personal=True, is_public=True, account_id=alice.id)
         bob_kb = mgr.define_kb("Bob Personal", is_personal=True, is_public=False, account_id=bob.id)
@@ -201,35 +176,40 @@ def ext_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_ExtW
     finally:
         cconn.close()
 
+    admin_session = issue_session_token(s, account_id=admin_id, scope="owner")
+    alice_session = issue_session_token(s, account_id=alice_id, scope="owner")
+    alice_stale_session = issue_session_token(s, account_id=alice_id, scope="owner", authenticated_ago=3600.0)
+    bob_session = issue_session_token(s, account_id=bob_id, scope="owner")
+    alice_oauth_write = issue_oauth_token(s, account_id=alice_id, scope="write", client_id="agent-client-1")
+    alice_oauth_readonly = issue_oauth_token(s, account_id=alice_id, scope="readonly", client_id="reader-client-1")
+    bob_oauth_write = issue_oauth_token(s, account_id=bob_id, scope="write", client_id="agent-client-2")
+
     fake_svc = _FakeIngestService(s)
     fake_pool = _FakeServicePool(fake_svc)
     v1_routes = build_v1_routes(s, service=fake_svc, theme_manager=mgr, service_pool=fake_pool)
     inner = Starlette(routes=v1_routes, exception_handlers=v1_exception_handlers())
     wrapped = security.wrap_web_app(inner, s, theme_manager=mgr)
     client = TestClient(wrapped, base_url="http://127.0.0.1:8765")
-    try:
-        yield _ExtWorld(
-            client=client,
-            settings=s,
-            fake_svc=fake_svc,
-            admin_session=admin_session,
-            alice_session=alice_session,
-            alice_stale_session=alice_stale_session,
-            bob_session=bob_session,
-            alice_oauth_write=alice_oauth_write,
-            alice_oauth_readonly=alice_oauth_readonly,
-            bob_oauth_write=bob_oauth_write,
-            alice_public_id=ids.format_public_id(alice.public_id),
-            bob_public_id=ids.format_public_id(bob.public_id),
-            alice_personal_number=ids.format_public_id(int(alice_kb.number or 0)),
-            bob_personal_number=ids.format_public_id(int(bob_kb.number or 0)),
-            shared_public_number=ids.format_public_id(int(shared_kb.number or 0)),
-            alice_doc_id=alice_doc,
-            bob_doc_id=bob_doc,
-            feed_item_id=feed_item_id,
-        )
-    finally:
-        reset_token_stores()
+    yield _ExtWorld(
+        client=client,
+        settings=s,
+        fake_svc=fake_svc,
+        admin_session=admin_session,
+        alice_session=alice_session,
+        alice_stale_session=alice_stale_session,
+        bob_session=bob_session,
+        alice_oauth_write=alice_oauth_write,
+        alice_oauth_readonly=alice_oauth_readonly,
+        bob_oauth_write=bob_oauth_write,
+        alice_public_id=ids.format_public_id(alice.public_id),
+        bob_public_id=ids.format_public_id(bob.public_id),
+        alice_personal_number=ids.format_public_id(int(alice_kb.number or 0)),
+        bob_personal_number=ids.format_public_id(int(bob_kb.number or 0)),
+        shared_public_number=ids.format_public_id(int(shared_kb.number or 0)),
+        alice_doc_id=alice_doc,
+        bob_doc_id=bob_doc,
+        feed_item_id=feed_item_id,
+    )
 
 
 def _bearer(token: str) -> dict[str, str]:

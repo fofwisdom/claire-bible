@@ -567,6 +567,8 @@ def _build_sidebar_html(
             is_cur = _is_active_sidebar_spec(spec, active_path)
             current = ' aria-current="page"' if is_cur else ""
             parts.append(f'    <li><a href="{escape(href)}" class="console-nav-link" data-nav-section="{escape(spec.slug)}"{current}>{icon_html(spec.icon)}<span>{escape(spec.nav_label)}</span></a></li>')
+        if admin_viewer and group_id == "admin_system":
+            parts.append(f'    <li><a href="/reference" class="console-nav-link" target="_blank" rel="noopener noreferrer">{icon_html("book")}<span>{escape(t("console.common.api_reference"))}</span></a></li>')
         parts.append("  </ul>")
         parts.append("</div>")
     return "\n      ".join(parts)
@@ -663,6 +665,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
             id="admin-mcp-rbac-card",
             icon="compass",
             badge_html=prototype_badge("admin-mcp-rbac-table", "static"),
+            actions_html=f'<a class="pref-btn" href="/reference" target="_blank" rel="noopener noreferrer">{escape(t("console.common.api_reference"))}</a>',
             aria_label=t("console.admin.mcp.rbac_label"),
         )
         return rbac_card, {}

@@ -785,9 +785,10 @@ def test_openapi_yaml_serves_valid_openapi_3_1_spec(client: TestClient) -> None:
     assert "application/yaml" in response.headers["content-type"]
     spec = yaml.safe_load(response.text)
     assert spec["openapi"].startswith("3.1")
-    assert spec["info"]["title"] == "Claire Knowledge Base API"
-    assert "/health" in spec["paths"]
-    assert "/search" in spec["paths"]
+    assert spec["info"]["title"] == "Claire Bible Public API"
+    assert "/api/v1/health" in spec["paths"]
+    assert "/api/v1/kbs/{kb}/search" in spec["paths"]
+    assert "/oauth/token" in spec["paths"]
 
 
 def test_docs_static_asset_accessible(client: TestClient) -> None:

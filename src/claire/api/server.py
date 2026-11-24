@@ -7656,29 +7656,57 @@ def create_app(
 
     static_dir = get_web_ui_renderer().static_dir
     static_dir.mkdir(parents=True, exist_ok=True)
-    static_docs_dir = static_dir / "docs"
-    docs_template_file = Path(__file__).resolve().parent / "templates" / "docs.html"
-    implementation_spec_file = (
-        Path(__file__).resolve().parent.parent.parent.parent
-        / "docs"
-        / "implementation"
-        / "openapi.yaml"
+    from .v1 import (
+        build_account_openapi_spec,
+        build_admin_openapi_spec,
+        build_v1_openapi_json,
+        build_v1_openapi_yaml,
+        build_v1_routes,
+        render_reference_html,
     )
 
-    async def docs_ui_route(_request: Request) -> Response:
-        if not docs_template_file.is_file():
-            return PlainTextResponse("Documentation UI template not found", status_code=500)
-        html = docs_template_file.read_text(encoding="utf-8")
-        return HTMLResponse(get_web_ui_renderer().inject_favicon_head_tags(html))
+    _private_no_store_headers = {
+        "Cache-Control": "private, no-store",
+        "Vary": "Cookie, Authorization",
+        "Referrer-Policy": "same-origin",
+    }
+
+    async def docs_ui_route(request: Request) -> Response:
+        principal = request_principal(request)
+        base_url = str(runtime_cfg.public_origin or "").rstrip("/") or str(request.base_url).rstrip("/")
+        html_doc = render_reference_html(
+            auth_scope=principal.scope,
+            is_admin=(principal.server_role == "admin"),
+            locale=get_locale(),
+            base_url=base_url,
+        )
+        return HTMLResponse(
+            get_web_ui_renderer().inject_favicon_head_tags(html_doc),
+            headers=_private_no_store_headers,
+        )
+
+    async def openapi_v1_json_route(_request: Request) -> Response:
+        return Response(
+            build_v1_openapi_json().encode("utf-8"),
+            media_type="application/json",
+            headers={"Content-Type": "application/json; charset=utf-8"},
+        )
+
+    async def openapi_account_json_route(_request: Request) -> Response:
+        return JSONResponse(
+            build_account_openapi_spec(),
+            headers=_private_no_store_headers,
+        )
+
+    async def openapi_admin_json_route(_request: Request) -> Response:
+        return JSONResponse(
+            build_admin_openapi_spec(),
+            headers=_private_no_store_headers,
+        )
 
     async def openapi_yaml_route(_request: Request) -> Response:
-        spec_path = static_docs_dir / "openapi.yaml"
-        if not spec_path.is_file():
-            spec_path = implementation_spec_file
-        if not spec_path.is_file():
-            return PlainTextResponse("OpenAPI specification not found", status_code=404)
         return Response(
-            spec_path.read_bytes(),
+            build_v1_openapi_yaml().encode("utf-8"),
             media_type="application/yaml",
             headers={"Content-Type": "application/yaml; charset=utf-8"},
         )
@@ -7825,7 +7853,17 @@ def create_app(
         Route("/support/graph-bundle", create_graph_bundle_route, methods=["POST"]),
         Route("/support/graph-bundle/{token}", download_graph_bundle_route, methods=["GET"]),
         Route("/reference", docs_ui_route, methods=["GET"]),
+        Route("/openapi/v1.json", openapi_v1_json_route, methods=["GET"]),
+        Route("/openapi/account.json", openapi_account_json_route, methods=["GET"]),
+        Route("/openapi/admin.json", openapi_admin_json_route, methods=["GET"]),
         Route("/openapi.yaml", openapi_yaml_route, methods=["GET"]),
+        *build_v1_routes(
+            s,
+            service=svc,
+            theme_manager=theme_mgr,
+            service_pool=service_pool,
+            namespace_directory=namespace_directory,
+        ),
         Route("/.well-known/oauth-protected-resource", handle_protected_resource_metadata, methods=["GET", "HEAD"]),
         Route("/.well-known/oauth-authorization-server", handle_authorization_server_metadata, methods=["GET", "HEAD"]),
         Route("/oauth/register", handle_register, methods=["POST"]),

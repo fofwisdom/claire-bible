@@ -55,7 +55,6 @@
   <script
     id="api-reference"
     type="application/json"
-    data-url="/openapi.yaml"
     data-configuration='{
       "theme": "kepler",
       "darkMode": true,
@@ -73,9 +72,18 @@
         "targetKey": "python",
         "clientKey": "httpx"
       },
+      "oauth2RedirectUri": "/reference",
       "authentication": {
-        "preferredSecurityScheme": "BearerAuth"
+        "preferredSecurityScheme": "OAuth2"
       },
+      "sources": [
+        {
+          "title": "Public API v1",
+          "slug": "v1",
+          "url": "/openapi/v1.json",
+          "default": true
+        }
+      ],
       "servers": [
         {
           "url": "/",

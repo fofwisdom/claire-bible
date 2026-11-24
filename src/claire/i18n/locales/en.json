@@ -1960,6 +1960,8 @@
   "console.synd.common.implemented": "Implemented",
   "console.synd.common.proposal": "Proposal",
   "console.common.copy": "Copy",
+  "console.common.api_reference": "API Reference (/reference)",
+  "console.synd.mcp.reference_link": "Open API Reference (/reference)",
   "console.synd.mcp.col_channel": "Channel",
   "console.synd.mcp.col_issue": "Issue",
   "console.synd.mcp.col_scope": "Scope",

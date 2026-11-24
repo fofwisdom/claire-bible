@@ -169,7 +169,7 @@ claire-bible/
 - [프로젝트 원칙](docs/PRINCIPLES.md): 구현 변경에도 유지되는 불변 원칙
 - [구현 상태 및 제약](docs/implementation/IMPLEMENTATION_STATUS.md): 현재 알려진 제약, 보류 결정, 테스트 기준선
 - [CLI 명령어 레퍼런스](docs/implementation/COMMANDS.md): `cb-manuscript` 및 `claire` 전체 명령어 설명서
-- [REST API 및 MCP 가이드](docs/implementation/API_AND_MCP_GUIDE.md): HTTP API, RBAC, OAuth 2.1, MCP 및 에이전트 플러그인 연동
+- [REST API 및 MCP 가이드](docs/implementation/API_AND_MCP_GUIDE.md): HTTP API, RBAC, OAuth 2.1, MCP 및 에이전트 플러그인 연동 (`/reference` 대화형 Scalar API 레퍼런스, [OpenAPI 3.1 YAML](docs/implementation/openapi.yaml))
 - [계정 및 통합 콘솔](docs/implementation/ACCOUNTS.md): 계정 수명주기, IdP, `/account/*`·`/settings/*`·`/moderation/*`·`/admin/*` 콘솔
 - [ActivityPub 연합](docs/implementation/FEDERATION.md) · [지식 연합](docs/implementation/KNOWLEDGE_FEDERATION.md): Fedify 사이드카, 원격 읽기·상호작용, 서버 간 공유 지식 연합
 - [알림 및 PWA 웹 푸시](docs/implementation/NOTIFICATIONS.md): 연계 요청 알림, Web Push(VAPID), 서비스 워커

@@ -7,8 +7,12 @@ import json
 from pathlib import Path
 import re
 import subprocess
+from types import SimpleNamespace
 from typing import Any
 
+from starlette.testclient import TestClient
+
+from claire.api import security, server
 from claire.api.security import ROUTE_POLICY
 from claire.api.v1 import (
     V1_ROUTE_POLICY,
@@ -20,6 +24,10 @@ from claire.api.v1 import (
     build_v1_openapi_yaml,
     render_reference_html,
 )
+from claire.core.config import Settings
+from claire.store import accounts as accounts_store, db as dbm
+from claire.store.knowledge_base import KnowledgeBaseManager
+from tests.auth_helpers import ensure_test_account, issue_oauth_token, issue_session_token
 
 _PATH_PARAM_RE = re.compile(r"\{([A-Za-z0-9_]+)\}")
 
@@ -210,7 +218,7 @@ def test_render_reference_html_respects_locale_role_filtering_and_offline_scalar
     assert "/openapi/account.json" not in anon_html
     assert "/openapi/admin.json" not in anon_html
 
-    match = re.search(r'data-configuration="([^"]+)"', anon_html)
+    match = re.search(r"data-configuration='([^']+)'", anon_html)
     assert match is not None
     anon_cfg = json.loads(html_lib.unescape(match.group(1)))
     assert anon_cfg["withDefaultFonts"] is False
@@ -227,3 +235,105 @@ def test_render_reference_html_respects_locale_role_filtering_and_offline_scalar
     assert "/openapi/v1.json" in admin_html
     assert "/openapi/account.json" in admin_html
     assert "/openapi/admin.json" in admin_html
+
+
+def test_generated_openapi_yaml_matches_implementation_doc_with_zero_diff() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    assert not (repo_root / "src" / "bible" / "static" / "docs" / "openapi.yaml").exists()
+    doc_path = repo_root / "docs" / "implementation" / "openapi.yaml"
+    assert doc_path.read_text(encoding="utf-8") == build_v1_openapi_yaml()
+    assert V1_ROUTE_POLICY.items() <= ROUTE_POLICY.items()
+
+
+def test_e2e_reference_and_openapi_endpoints_in_live_app(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir(parents=True, exist_ok=True)
+    settings = Settings(
+        _env_file=None,
+        CLAIRE_ENVIRONMENT="development",
+        CLAIRE_FQDN="http://127.0.0.1:8765",
+        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
+        CLAIRE_PLUGINS_DIR=str(plugins_dir),
+        CLAIRE_CORS_ALLOWED_ORIGINS="",
+        CLAIRE_DATA_LIFECYCLE="purgeable",
+        CLAIRE_PROVIDER="mock",
+    )
+    app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock", embed_model="mock-embed")))
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        accounts_store.AccountStore(conn).complete_setup(1, username="adminuser", display_name="Admin")
+        accounts_store.AccountStore(conn).set_setting("mode", "network", updated_by=1)
+    finally:
+        conn.close()
+    alice_id = ensure_test_account(settings, account_id=2, username="alice", role="member")
+    mgr = KnowledgeBaseManager(settings)
+    mgr.define_kb("Alice Personal", is_personal=True, is_public=True, account_id=alice_id)
+
+    admin_session = issue_session_token(settings, account_id=1, scope="owner")
+    alice_session = issue_session_token(settings, account_id=alice_id, scope="owner")
+    alice_write = issue_oauth_token(settings, account_id=alice_id, scope="write", client_id="ref-write-client")
+    alice_ro = issue_oauth_token(settings, account_id=alice_id, scope="readonly", client_id="ref-ro-client")
+
+    client = TestClient(app, base_url="http://127.0.0.1:8765")
+
+    # Public specs and live /api/v1/health work without credentials.
+    assert client.get("/api/v1/health").status_code == 200
+    r_v1_json = client.get("/openapi/v1.json")
+    assert r_v1_json.status_code == 200
+    assert "/api/v1/health" in r_v1_json.json()["paths"]
+    assert client.get("/openapi.yaml").text == build_v1_openapi_yaml()
+
+    # Unauthorized callers receive 404 on account/admin OpenAPI specs.
+    for hdrs in ({}, {"Authorization": f"Bearer {alice_ro}"}, {"Authorization": f"Bearer {alice_write}"}):
+        assert client.get("/openapi/account.json", headers=hdrs).status_code == 404
+        assert client.get("/openapi/admin.json", headers=hdrs).status_code == 404
+    assert client.get("/openapi/admin.json", headers={"Cookie": f"claire_session={alice_session}"}).status_code == 404
+
+    # Authorized owner receives account.json with strict isolation headers; admin receives admin.json.
+    r_acc = client.get("/openapi/account.json", headers={"Cookie": f"claire_session={alice_session}"})
+    assert r_acc.status_code == 200
+    assert r_acc.headers["cache-control"] == "private, no-store"
+    assert r_acc.headers["vary"] == "Cookie, Authorization"
+    assert r_acc.headers["referrer-policy"] == "same-origin"
+
+    r_adm = client.get("/openapi/admin.json", headers={"Cookie": f"claire_session={admin_session}"})
+    assert r_adm.status_code == 200
+    assert r_adm.headers["cache-control"] == "private, no-store"
+
+    # /reference filters tabs per caller role and renders dynamic locale + isolation headers.
+    client.cookies.clear()
+    r_ref_anon = client.get("/reference")
+    assert r_ref_anon.status_code == 200
+    assert r_ref_anon.headers["cache-control"] == "private, no-store"
+    assert r_ref_anon.headers["vary"] == "Cookie, Authorization"
+    assert "/openapi/v1.json" in r_ref_anon.text
+    assert "/openapi/account.json" not in r_ref_anon.text
+    assert "/openapi/admin.json" not in r_ref_anon.text
+
+    client.cookies.clear()
+    r_ref_owner = client.get("/reference", headers={"Cookie": f"claire_session={alice_session}", "Accept-Language": "en"})
+    assert r_ref_owner.status_code == 200
+    assert '<html lang="en" data-theme="dark">' in r_ref_owner.text
+    assert "/openapi/account.json" in r_ref_owner.text
+    assert "/openapi/admin.json" not in r_ref_owner.text
+
+    client.cookies.clear()
+    r_ref_admin = client.get("/reference", headers={"Cookie": f"claire_session={admin_session}"})
+    assert r_ref_admin.status_code == 200
+    assert "/openapi/v1.json" in r_ref_admin.text
+    assert "/openapi/account.json" in r_ref_admin.text
+    assert "/openapi/admin.json" in r_ref_admin.text
+
+    # Console /account/mcp and /admin/mcp include /reference discoverability links.
+    client.cookies.clear()
+    r_mcp_owner = client.get("/account/mcp", headers={"Cookie": f"claire_session={alice_session}"})
+    assert r_mcp_owner.status_code == 200
+    assert 'href="/reference"' in r_mcp_owner.text
+
+    client.cookies.clear()
+    r_mcp_admin = client.get("/admin/mcp", headers={"Cookie": f"claire_session={admin_session}"})
+    assert r_mcp_admin.status_code == 200
+    assert 'href="/reference"' in r_mcp_admin.text
+    assert security.ROUTE_POLICY[("GET", "/reference")].access == "read"

@@ -171,11 +171,6 @@ def _kb_summary(
     )
 
 
-def _require_multi_kb(ctx: V1Context) -> None:
-    if not getattr(ctx.settings, "multi_theme", False):
-        raise V1Error(403, "multi_theme_disabled", "Multi-KB mode is disabled (CLAIRE_MULTI_THEME=1 required)")
-
-
 def _after_kb_founded(ctx: V1Context, kb_id: int, founder_account_id: int) -> None:
     conn = dbm.connect_existing(ctx.settings.db_file)
     try:
@@ -267,7 +262,7 @@ def build_kb_handlers(ctx: V1Context) -> dict[str, Any]:
         origin = public_origin(ctx, request)
 
         def _build() -> KnowledgeBaseListResponse:
-            shared = ctx.theme_mgr.list_shared_kbs(knowledge_type=knowledge_type) if getattr(ctx.settings, "multi_theme", False) else []
+            shared = ctx.theme_mgr.list_shared_kbs(knowledge_type=knowledge_type)
             roles: dict[int, str] = {}
             states: dict[int, str] = {}
             if principal.account_id is not None:
@@ -313,7 +308,6 @@ def build_kb_handlers(ctx: V1Context) -> dict[str, Any]:
     async def create_kb(request: Request) -> JSONResponse:
         principal = enforce_v1_auth_policy(request)
         reject_retired_params(request)
-        _require_multi_kb(ctx)
         if principal.account_id is None or principal.is_anonymous:
             raise V1Error(401, "authentication_required", "Authentication required")
         body = await read_v1_json(request, CreateKnowledgeBaseRequest)
@@ -395,7 +389,6 @@ def build_kb_handlers(ctx: V1Context) -> dict[str, Any]:
     @v1_endpoint
     async def update_kb(request: Request) -> JSONResponse:
         principal = enforce_v1_auth_policy(request)
-        _require_multi_kb(ctx)
         kb = resolve_kb(ctx, request, capability="settings")
         body = await read_v1_json(request, UpdateKnowledgeBaseRequest)
         if not body.model_fields_set:
@@ -448,7 +441,6 @@ def build_kb_handlers(ctx: V1Context) -> dict[str, Any]:
     @v1_endpoint
     async def delete_kb(request: Request) -> JSONResponse:
         principal = enforce_v1_auth_policy(request)
-        _require_multi_kb(ctx)
         kb = resolve_kb(ctx, request, capability="delete")
         raw_apply = request.query_params.get("apply")
         if raw_apply not in (None, "true", "false"):

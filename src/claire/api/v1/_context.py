@@ -245,8 +245,6 @@ def resolve_kb(
             kb = ctx.theme_mgr.get_kb_by_number(number)
         except KnowledgeBaseNotFound as exc:
             raise not_found_error("Knowledge base not found") from exc
-    if not getattr(ctx.settings, "multi_theme", False) and kb.id != 0:
-        raise not_found_error("Knowledge base not found")
     require_kb(ctx, request, kb, capability)
     return kb
 

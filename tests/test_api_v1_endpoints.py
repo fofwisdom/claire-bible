@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 
 from claire.api import security
 from claire.api.accounts_routes import prepare_auth_db, prepare_client_db
-from claire.api.v1 import V1_ROUTE_POLICY, build_v1_routes
+from claire.api.v1 import build_v1_routes
 from claire.api.v1.errors import v1_exception_handlers
 from claire.core import ids
 from claire.core.config import Settings
@@ -24,7 +24,7 @@ from claire.ontology.base import Document, Entity, Relation
 from claire.retrieval.query import SearchHit, SearchResult
 from claire.store import accounts as accounts_store, db as dbm, kb_collab, permalinks, themes as themes_store
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
 
 class _FakeIngestService:
@@ -102,7 +102,6 @@ class _World:
     alice_oauth_write: str
     alice_oauth_readonly: str
     bob_oauth_write: str
-    manual_owner_token: str
     alice_personal_number: str
     shared_public_number: str
     theme_number: str
@@ -121,45 +120,17 @@ def _make_settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765/",
+        CLAIRE_FQDN="http://127.0.0.1:8765",
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PLUGINS_DIR=str(plugins_dir),
-        CLAIRE_INJECT_TOKEN="owner-" + "a" * 32,
-        CLAIRE_READONLY_TOKEN="readonly-" + "b" * 32,
-        CLAIRE_ANONYMOUS_READONLY=True,
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_CORS_ALLOWED_ORIGINS="",
         CLAIRE_DATA_LIFECYCLE="purgeable",
         CLAIRE_PROVIDER="mock",
     )
 
 
-def _patch_route_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    merged = dict(security.ROUTE_POLICY)
-    merged.update(V1_ROUTE_POLICY)
-    monkeypatch.setattr(security, "ROUTE_POLICY", merged)
-    monkeypatch.setattr(
-        security,
-        "_EXACT_ROUTE_POLICY",
-        {key: rule for key, rule in merged.items() if "{" not in key[1]},
-    )
-    from starlette.routing import compile_path
-
-    monkeypatch.setattr(
-        security,
-        "_PARAM_ROUTE_POLICY",
-        tuple(
-            (method, compile_path(path)[0], rule)
-            for (method, path), rule in merged.items()
-            if "{" in path
-        ),
-    )
-
-
 @pytest.fixture()
-def v1_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_World]:
-    reset_token_stores()
-    _patch_route_policy(monkeypatch)
+def v1_world(tmp_path: Path) -> Iterator[_World]:
     s = _make_settings(tmp_path)
 
     conn = dbm.connect(s.db_file)
@@ -180,12 +151,9 @@ def v1_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_World
         bob = acct_store.create_member(username="bob", display_name="Bob")
         acct_store.set_setting("mode", "network", updated_by=admin.id)
 
-        admin_session = accounts_store.create_account_session(conn, account_id=admin.id, scope="owner")
-        alice_session = accounts_store.create_account_session(conn, account_id=alice.id, scope="owner")
-
-        alice_oauth_write, _ = dbm.create_oauth_token(conn, "agent-client-1", scope="write", account_id=alice.id)
-        alice_oauth_readonly, _ = dbm.create_oauth_token(conn, "reader-client-1", scope="readonly", account_id=alice.id)
-        bob_oauth_write, _ = dbm.create_oauth_token(conn, "agent-client-2", scope="write", account_id=bob.id)
+        admin_id = admin.id
+        alice_id = alice.id
+        bob_id = bob.id
 
         raw_dir = s.data_dir / "raw"
         raw_dir.mkdir(parents=True, exist_ok=True)
@@ -251,35 +219,36 @@ def v1_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[_World
     finally:
         conn.close()
 
-    tok_entry = get_token_store(s.db_file.parent / "tokens.json").ensure_default_owner_token(fallback_token=s.inject_token)
+    admin_session = issue_session_token(s, account_id=admin_id, scope="owner")
+    alice_session = issue_session_token(s, account_id=alice_id, scope="owner")
+    alice_oauth_write = issue_oauth_token(s, account_id=alice_id, scope="write", client_id="agent-client-1")
+    alice_oauth_readonly = issue_oauth_token(s, account_id=alice_id, scope="readonly", client_id="reader-client-1")
+    bob_oauth_write = issue_oauth_token(s, account_id=bob_id, scope="write", client_id="agent-client-2")
+
     fake_svc = _FakeIngestService(s)
     fake_pool = _FakeServicePool(s, fake_svc)
     v1_routes = build_v1_routes(s, service=fake_svc, theme_manager=mgr, service_pool=fake_pool)
     inner = Starlette(routes=v1_routes, exception_handlers=v1_exception_handlers())
     wrapped = security.wrap_web_app(inner, s, theme_manager=mgr)
     client = TestClient(wrapped, base_url="http://127.0.0.1:8765")
-    try:
-        yield _World(
-            client=client,
-            settings=s,
-            fake_svc=fake_svc,
-            admin_session=admin_session,
-            alice_session=alice_session,
-            alice_oauth_write=alice_oauth_write,
-            alice_oauth_readonly=alice_oauth_readonly,
-            bob_oauth_write=bob_oauth_write,
-            manual_owner_token=str(tok_entry["token"]),
-            alice_personal_number=ids.format_public_id(int(alice_kb.number or 0)),
-            shared_public_number=ids.format_public_id(int(shared_kb.number or 0)),
-            theme_number=ids.format_public_id(int(theme_row["number"])),
-            doc_personal_id=doc_p,
-            doc_shared_id=doc_s,
-            ent_a_id=ent_a.id,
-            ent_b_id=ent_b.id,
-            ent_c_id=ent_c.id,
-        )
-    finally:
-        reset_token_stores()
+    yield _World(
+        client=client,
+        settings=s,
+        fake_svc=fake_svc,
+        admin_session=admin_session,
+        alice_session=alice_session,
+        alice_oauth_write=alice_oauth_write,
+        alice_oauth_readonly=alice_oauth_readonly,
+        bob_oauth_write=bob_oauth_write,
+        alice_personal_number=ids.format_public_id(int(alice_kb.number or 0)),
+        shared_public_number=ids.format_public_id(int(shared_kb.number or 0)),
+        theme_number=ids.format_public_id(int(theme_row["number"])),
+        doc_personal_id=doc_p,
+        doc_shared_id=doc_s,
+        ent_a_id=ent_a.id,
+        ent_b_id=ent_b.id,
+        ent_c_id=ent_c.id,
+    )
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -300,10 +269,9 @@ def test_health_me_and_auth_boundaries(v1_world: _World) -> None:
     assert r_anon_me.status_code == 401
     assert r_anon_me.json()["error"]["code"] == "authentication_required"
 
-    # Legacy manual token is refused on /api/v1/* (AR5).
-    r_manual = v1_world.client.get("/api/v1/me", headers=_bearer(v1_world.manual_owner_token))
-    assert r_manual.status_code == 401
-    assert r_manual.json()["error"]["code"] == "invalid_token"
+    # Unknown / retired manual-style bearer token is refused at AuthenticationMiddleware (ENV-4 / AR5).
+    r_manual = v1_world.client.get("/api/v1/me", headers=_bearer("owner-" + "a" * 32))
+    assert r_manual.status_code == 404
 
     # OAuth 2.1 readonly bearer succeeds without exposing username.
     r_oauth = v1_world.client.get("/api/v1/me", headers=_bearer(v1_world.alice_oauth_readonly))
