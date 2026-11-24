@@ -792,7 +792,7 @@ def create_app(
             finally:
                 conn.close()
         item = _kb_public_dict(kb, settings_view=is_settings_view)
-        eff_sorcerer = (kb.sorcerer or "").strip() or getattr(s, "effective_sorcerer", getattr(s, "sorcerer", "owner"))
+        eff_sorcerer = (kb.sorcerer or "").strip() or (getattr(s, "sorcerer", "") or "").strip() or "owner"
         item["sorcerer"] = (kb.sorcerer or "").strip()
         item["effective_sorcerer"] = eff_sorcerer
         item["knowledge_manager"] = eff_sorcerer
@@ -5170,7 +5170,7 @@ def create_app(
         theme, theme_settings, _ = _get_theme_ctx(request)
         include_hidden = _sees_hidden(request, theme)
         hides_sources = _hides_sources(request, theme)
-        render_format = getattr(theme_settings, "render_format", "adoc")
+        render_format = "adoc"
 
         # Keyset paging and list filters (unit LP-5). A request with no parameter gets the first 300 documents, as before, plus next_before and total.
         params = request.query_params

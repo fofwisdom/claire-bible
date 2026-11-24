@@ -20,7 +20,6 @@ from ops import cb_manuscript as cb
 def _clear_environment_selector(monkeypatch):
     monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
     monkeypatch.delenv("CB_DATA_DIR", raising=False)
-    monkeypatch.delenv("CB_VAULT_DIR", raising=False)
     monkeypatch.delenv("CB_PLUGINS_DIR", raising=False)
 
 
@@ -135,7 +134,6 @@ def test_init_is_atomic_idempotent_and_does_not_replace_user_secrets(tmp_path):
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
     assert stat.S_IMODE((tmp_path / ".env.dev").stat().st_mode) == 0o600
     assert (tmp_path / "data").is_dir()
-    assert (tmp_path / "vault").is_dir()
 
     user_token = "user-" + ("u" * 32)
     prod = prod.replace(
@@ -286,57 +284,18 @@ def test_compose_environment_canonicalizes_effective_storage_mounts(
 ):
     _write_layout(tmp_path, dev=False)
     process_data = tmp_path / "process-data"
-    process_vault = tmp_path / "process-vault"
+    process_plugins = tmp_path / "process-plugins"
     monkeypatch.setenv("CB_DATA_DIR", str(process_data))
-    monkeypatch.setenv("CB_VAULT_DIR", str(process_vault))
+    monkeypatch.setenv("CB_PLUGINS_DIR", str(process_plugins))
 
     runtime = cb.load_runtime(cb.Layout(tmp_path))
     env = runtime.compose_environment()
 
     assert env["CB_DATA_DIR"] == str(process_data.resolve())
-    assert env["CB_VAULT_DIR"] == str(process_vault.resolve())
+    assert env["CB_PLUGINS_DIR"] == str(process_plugins.resolve())
     storage = cb.resolve_storage(runtime)
     assert Path(env["CB_DATA_DIR"]) == storage.data
-    assert Path(env["CB_VAULT_DIR"]) == storage.vault
-
-
-def test_compose_environment_includes_claire_pdf_parser(tmp_path):
-    # 1. 기본값(미설정 시) default
-    _write_layout(tmp_path, dev=False)
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-    env = runtime.compose_environment()
-    assert env.get("CLAIRE_PDF_PARSER") == "default"
-
-    # 2. .env에 명시 시 전달
-    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
-    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=default\n", encoding="utf-8")
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-    env = runtime.compose_environment()
-    assert env.get("CLAIRE_PDF_PARSER") == "default"
-
-
-def test_config_preflight_rejects_pypdf_parser(tmp_path):
-    _write_layout(tmp_path, dev=False)
-    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
-    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=pypdf\n", encoding="utf-8")
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-
-    with patch.object(cb.subprocess, "run") as run:
-        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=pypdf is not supported"):
-            cb.config_preflight(runtime)
-    run.assert_not_called()
-
-
-def test_config_preflight_rejects_docling_parser(tmp_path):
-    _write_layout(tmp_path, dev=False)
-    env_content = (tmp_path / ".env").read_text(encoding="utf-8")
-    (tmp_path / ".env").write_text(env_content + "\nCLAIRE_PDF_PARSER=docling\n", encoding="utf-8")
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-
-    with patch.object(cb.subprocess, "run") as run:
-        with pytest.raises(cb.ManuscriptError, match="CLAIRE_PDF_PARSER=docling is not supported"):
-            cb.config_preflight(runtime)
-    run.assert_not_called()
+    assert Path(env["CB_PLUGINS_DIR"]) == storage.plugins
 
 
 def test_dockerfile_keeps_dynamic_identity_after_dependency_layers():
@@ -436,7 +395,6 @@ def test_dev_prefix_uses_overlay_stable_project_and_compose_environment(
     assert env["CB_ENV_FILE"] == str((tmp_path / ".env").resolve())
     assert env["CB_DEV_ENV_FILE"] == str((tmp_path / ".env.dev").resolve())
     assert env["CB_DATA_DIR"] == str((tmp_path / ".dev/data").resolve())
-    assert env["CB_VAULT_DIR"] == str((tmp_path / ".dev/vault").resolve())
     assert env["CB_PLUGINS_DIR"] == str((tmp_path / ".dev/var/plugins").resolve())
 
 
@@ -1836,7 +1794,7 @@ def test_source_revision_prefers_git_head_over_stale_embedded_file(tmp_path, mon
 
 
 def test_plugin_folder_is_separate_and_made_when_absent(tmp_path, monkeypatch):
-    """CB_PLUGINS_DIR (docs/implementation/INGESTION.md section 2.2): default ./var/plugins, made when absent, never equal to or nested with the data folder, the vault, the backups, or the project plugin folder."""
+    """CB_PLUGINS_DIR (docs/implementation/INGESTION.md section 2.2): default ./var/plugins, made when absent, never equal to or nested with the data folder, the backups, or the project plugin folder."""
     _write_layout(tmp_path, dev=False)
     runtime = cb.load_runtime(cb.Layout(tmp_path))
     storage = cb.resolve_storage(runtime)
@@ -1846,7 +1804,7 @@ def test_plugin_folder_is_separate_and_made_when_absent(tmp_path, monkeypatch):
     assert runtime.compose_environment()["CB_PLUGINS_DIR"] == str(storage.plugins)
     assert "plugins" in cb.BACKUP_COMPONENTS
 
-    for bad in (tmp_path / "data" / "plugins", tmp_path / "plugins" / "x", tmp_path / "vault" / "p"):
+    for bad in (tmp_path / "data" / "plugins", tmp_path / "plugins" / "x"):
         monkeypatch.setenv("CB_PLUGINS_DIR", str(bad))
         with pytest.raises(cb.ManuscriptError, match="CB_PLUGINS_DIR"):
             cb.resolve_storage(cb.load_runtime(cb.Layout(tmp_path)))

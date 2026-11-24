@@ -46,6 +46,6 @@ def ingest_session(args: Any) -> Iterator[IngestSession]:
     conn = dbm.connect(settings.db_file)
     try:
         dbm.init_db(conn)
-        yield IngestSession(settings, conn, get_provider(settings), make_vector_store(conn, settings.vector_backend))
+        yield IngestSession(settings, conn, get_provider(settings), make_vector_store(conn, "brute"))
     finally:
         conn.close()

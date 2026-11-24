@@ -456,12 +456,12 @@ class IngestService:
     ) -> IngestReport:
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
+        vstore = make_vector_store(conn, "brute", kb_id=self.kb_id)
         em = self.s.expand_max if expand_max is None else expand_max
         # 자동 확장 enqueue 게이트: 사용자 설정 ON + 1차 적재(자식/복구/갱신 재적재 제외).
         auto = (self.s.auto_expand and em > 0
                 and not source.startswith(("expand:", "recover", "replay", "refresh")))
-        fmt = format or self.s.render_format
+        fmt = format or "adoc"
         tid = self.kb_id
         try:
             return ingest(
@@ -748,7 +748,7 @@ class IngestService:
         client_staging = self.resolve_extraction_mode(extraction_mode) == "client"
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
+        vstore = make_vector_store(conn, "brute", kb_id=self.kb_id)
         try:
             old = dbm.get_document_row(conn, document_id, kb_id=self.kb_id)
             if old is None:
@@ -807,7 +807,7 @@ class IngestService:
                             "old_len": old_len, "new_len": len(doc.raw_text),
                             "detail_updated": False,
                             "images": len(imgs or [])}
-                fmt = format or self.s.render_format
+                fmt = format or "adoc"
                 detail_updated = ensure_document_detail(
                     conn, self.provider, doc, force=True, format=fmt, kb_id=self.kb_id,
                     settings=self.s)
@@ -848,7 +848,7 @@ class IngestService:
                 return {"status": "staged", "document_id": document_id,
                         "old_len": old_len, "new_len": len(doc.raw_text)}
 
-            fmt = format or self.s.render_format
+            fmt = format or "adoc"
             report = IngestReport(document_id=document_id)
             try:
                 ok, err = extract_resolve_store(
@@ -979,8 +979,8 @@ class IngestService:
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
-        fmt = format or self.s.render_format
+        vstore = make_vector_store(conn, "brute", kb_id=self.kb_id)
+        fmt = format or "adoc"
         try:
             if tables_only:
                 table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=False, kb_id=self.kb_id)
@@ -1033,7 +1033,7 @@ class IngestService:
 
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        fmt = format or self.s.render_format
+        fmt = format or "adoc"
         try:
             if tables_only:
                 table_docs = dbm.documents_with_tables(conn, limit=limit, check_detail=True, kb_id=self.kb_id)
@@ -1515,14 +1515,14 @@ class IngestService:
                                         except Exception as e:
                                             info["refetch_error"] = str(e)
 
-                                target_fmt = format or self.s.render_format
+                                target_fmt = format or "adoc"
 
                                 if do_graph:
                                     # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재
                                     from ..store.vectors import make_vector_store
                                     from .pipeline import IngestReport, extract_resolve_store
 
-                                    vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
+                                    vstore = make_vector_store(conn, "brute", kb_id=self.kb_id)
                                     report = IngestReport(document_id=did)
                                     # The old graph of the document is removed only after the LLM extraction is successful: a failed call keeps it.
                                     def _rollback_old_graph(did: str = did) -> None:
@@ -1871,7 +1871,7 @@ class IngestService:
                     include_hidden=include_hidden,
                     kb_id=self.kb_id,
                 )
-            vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
+            vstore = make_vector_store(conn, "brute", kb_id=self.kb_id)
             return _search(
                 conn,
                 vstore,
@@ -1919,7 +1919,7 @@ class IngestService:
         """
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        vstore = make_vector_store(conn, self.s.vector_backend, kb_id=self.kb_id)
+        vstore = make_vector_store(conn, "brute", kb_id=self.kb_id)
         report = IngestReport(document_id=document_id)
         try:
             doc = dbm.get_document(conn, document_id, kb_id=self.kb_id)

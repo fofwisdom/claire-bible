@@ -1781,9 +1781,6 @@ def ensure_document_detail(
             doc.meta = {}
         doc.meta["full_content"] = True
 
-    fmt = format or (doc.meta or {}).get("format") or (doc.meta or {}).get("render_format")
-    if not fmt:
-        fmt = resolve_job_settings(settings, provider).render_format
     # RD23: ingestion writes AsciiDoc bodies only. A format from the document meta or the settings cannot select Markdown.
     fmt = "adoc"
 

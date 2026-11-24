@@ -700,10 +700,8 @@
     const rawBudget = parseInt(document.getElementById('limit-raw-char-budget').value, 10);
     const pdfMax = parseInt(document.getElementById('limit-pdf-max-extract').value, 10);
     const pdfPaper = parseInt(document.getElementById('limit-pdf-paper-threshold').value, 10);
-    const pdfParser = document.getElementById('limit-pdf-parser').value;
     const pdfExApp = document.getElementById('limit-pdf-exclude-appendix').checked;
     const pdfExRef = document.getElementById('limit-pdf-exclude-references').checked;
-    const pdfDetectFlaws = document.getElementById('limit-pdf-detect-encoding-flaws').checked;
     const pdfPaperEff = document.getElementById('limit-pdf-paper-effort').value;
     const pdfDefEff = document.getElementById('limit-pdf-default-effort').value;
     const pdfClassEff = document.getElementById('limit-pdf-classifier-effort').value;
@@ -713,11 +711,9 @@
     const slicingStrat = document.getElementById('limit-slicing-strategy').value;
 
     const embedBudget = parseInt(document.getElementById('limit-embed-budget').value, 10);
-    const expandBudget = parseInt(document.getElementById('limit-expand-budget').value, 10);
     const expandMax = parseInt(document.getElementById('limit-expand-max').value, 10);
     const autoExpand = document.getElementById('limit-auto-expand').checked;
     const watchIntervalDays = document.getElementById('limit-watch-interval-days').value;
-    const researchBudget = parseInt(document.getElementById('limit-research-budget').value, 10);
 
     const presPdfBytes = parseInt(document.getElementById('limit-presentation-pdf-bytes').value, 10);
     const videoMax = parseInt(document.getElementById('limit-video-max-extract').value, 10);
@@ -729,10 +725,8 @@
         raw_char_budget: isNaN(rawBudget) ? 20000 : rawBudget,
         pdf_max_extract_chars: isNaN(pdfMax) ? 50000 : pdfMax,
         pdf_paper_threshold_chars: isNaN(pdfPaper) ? 15000 : pdfPaper,
-        pdf_parser: pdfParser,
         pdf_exclude_appendix: pdfExApp,
         pdf_exclude_references: pdfExRef,
-        pdf_detect_encoding_flaws: pdfDetectFlaws,
         pdf_paper_effort: pdfPaperEff,
         pdf_default_effort: pdfDefEff,
         pdf_classifier_effort: pdfClassEff,
@@ -740,11 +734,9 @@
         merged_extract_char_budget: isNaN(mergedExtBudget) ? 0 : mergedExtBudget,
         slicing_strategy: slicingStrat,
         embed_char_budget: isNaN(embedBudget) ? 8000 : embedBudget,
-        expand_char_budget: isNaN(expandBudget) ? 2000 : expandBudget,
         expand_max: isNaN(expandMax) ? 5 : expandMax,
         auto_expand: autoExpand,
         watch_interval_days: watchIntervalDays,
-        research_context_budget: isNaN(researchBudget) ? 8000 : researchBudget,
         presentation_pdf_max_bytes: isNaN(presPdfBytes) ? 67108864 : presPdfBytes,
         video_max_extract_chars: isNaN(videoMax) ? 200000 : videoMax,
         video_chunk_duration_sec: isNaN(videoChunk) ? 240 : videoChunk,
@@ -778,10 +770,8 @@
         raw_char_budget: 20000,
         pdf_max_extract_chars: 50000,
         pdf_paper_threshold_chars: 15000,
-        pdf_parser: 'default',
         pdf_exclude_appendix: true,
         pdf_exclude_references: true,
-        pdf_detect_encoding_flaws: true,
         pdf_paper_effort: 'high',
         pdf_default_effort: '',
         pdf_classifier_effort: 'low',
@@ -789,11 +779,9 @@
         merged_extract_char_budget: 0,
         slicing_strategy: 'table-exemption',
         embed_char_budget: 8000,
-        expand_char_budget: 2000,
         expand_max: 5,
         auto_expand: true,
         watch_interval_days: 1,
-        research_context_budget: 8000,
         presentation_pdf_max_bytes: 67108864,
         video_max_extract_chars: 200000,
         video_chunk_duration_sec: 240,
@@ -851,14 +839,8 @@
       + uiField({ id: 'limit-pdf-max-extract', label: trKey("console.js.panels.limits.pdf_max_extract"), controlHtml: `<input id="limit-pdf-max-extract" type="number" min="0" class="pref-input" value="${esc(lims.pdf_max_extract_chars ?? 50000)}"/>` })
       + uiField({ id: 'limit-pdf-paper-threshold', label: trKey("console.js.panels.limits.pdf_paper_threshold"), controlHtml: `<input id="limit-pdf-paper-threshold" type="number" min="0" class="pref-input" value="${esc(lims.pdf_paper_threshold_chars ?? 15000)}"/>` })
       + '</div>'
-      + uiField({
-        id: 'limit-pdf-parser',
-        label: trKey("console.js.panels.limits.pdf_parser"),
-        controlHtml: `<select id="limit-pdf-parser" class="pref-select"><option value="default" selected>${esc(trKey("console.js.panels.limits.pdf_parser_default"))}</option></select>`
-      })
       + uiToggleRow({ id: 'limit-pdf-exclude-appendix', label: trKey("console.js.panels.limits.pdf_exclude_appendix"), checked: lims.pdf_exclude_appendix !== false })
       + uiToggleRow({ id: 'limit-pdf-exclude-references', label: trKey("console.js.panels.limits.pdf_exclude_references"), checked: lims.pdf_exclude_references !== false })
-      + uiToggleRow({ id: 'limit-pdf-detect-encoding-flaws', label: trKey("console.js.panels.limits.pdf_detect_flaws"), checked: lims.pdf_detect_encoding_flaws !== false })
       + '<div class="console-form-grid">'
       + uiField({ id: 'limit-pdf-paper-effort', label: trKey("console.js.panels.limits.pdf_paper_effort"), controlHtml: `<select id="limit-pdf-paper-effort" class="pref-select">${effortOptions(lims.pdf_paper_effort || 'high', false)}</select>` })
       + uiField({ id: 'limit-pdf-default-effort', label: trKey("console.js.panels.limits.pdf_default_effort"), controlHtml: `<select id="limit-pdf-default-effort" class="pref-select">${effortOptions(lims.pdf_default_effort || '', true)}</select>` })
@@ -884,11 +866,7 @@
       bodyHtml: kgBody
     });
 
-    const ctxBody = '<div class="console-form-grid">'
-      + uiField({ id: 'limit-embed-budget', label: trKey("console.js.panels.limits.embed_budget"), controlHtml: `<input id="limit-embed-budget" type="number" min="0" class="pref-input" value="${esc(lims.embed_char_budget ?? 8000)}"/>` })
-      + uiField({ id: 'limit-research-budget', label: trKey("console.js.panels.limits.research_budget"), controlHtml: `<input id="limit-research-budget" type="number" min="0" class="pref-input" value="${esc(lims.research_context_budget ?? 8000)}"/>` })
-      + '</div>'
-      + uiField({ id: 'limit-expand-budget', label: trKey("console.js.panels.limits.expand_budget"), controlHtml: `<input id="limit-expand-budget" type="number" min="0" class="pref-input" value="${esc(lims.expand_char_budget ?? 2000)}"/>` });
+    const ctxBody = uiField({ id: 'limit-embed-budget', label: trKey("console.js.panels.limits.embed_budget"), controlHtml: `<input id="limit-embed-budget" type="number" min="0" class="pref-input" value="${esc(lims.embed_char_budget ?? 8000)}"/>` });
     h += uiCard({
       id: 'limit-context-card',
       icon: 'compass',

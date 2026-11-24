@@ -818,7 +818,7 @@ class VectorStore:
 
 def make_vector_store(
     conn: sqlite3.Connection,
-    backend_pref: str = "auto",
+    backend_pref: str = "brute",
     kb_id: int = 0,
 ) -> VectorStore:
     """설정에 따라 백엔드 선택. 현재는 brute 만 구현하므로 항상 brute 반환하되, auto/vec 요청 시 probe 결과를 로깅용으로 남긴다(추후 vec 백엔드 연결)."""

@@ -175,12 +175,9 @@ def test_compose_composite_document_web_and_pdf():
 def test_ingest_composite_service_end_to_end(tmp_path: Path):
     settings = Settings(
         db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
         provider="mock",
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.vault_dir.mkdir(parents=True, exist_ok=True)
 
     # 더미 파일 생성
     pdf_path = tmp_path / "test_presentation.pdf"
@@ -243,12 +240,9 @@ def test_ingest_composite_service_end_to_end(tmp_path: Path):
 def test_composite_recovery_in_retry_and_recover_failed(tmp_path: Path):
     settings = Settings(
         db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
         provider="mock",
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.vault_dir.mkdir(parents=True, exist_ok=True)
 
     pdf_path = tmp_path / "failed_presentation.pdf"
     pdf_path.write_bytes(b"%PDF-1.4 sample content")
@@ -340,12 +334,9 @@ async def test_telegram_on_document_routes_to_composite(tmp_path: Path):
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
         db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
         provider="mock",
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.vault_dir.mkdir(parents=True, exist_ok=True)
 
     app = build_app(settings)
 
@@ -406,12 +397,9 @@ async def test_telegram_on_document_single_file_fallback(tmp_path: Path):
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
         db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
         provider="mock",
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.vault_dir.mkdir(parents=True, exist_ok=True)
 
     app = build_app(settings)
 
@@ -470,12 +458,9 @@ def test_partial_failure_blocks_single_ingest_when_url_fails(tmp_path: Path):
 
     settings = Settings(
         db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
         provider="mock",
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.vault_dir.mkdir(parents=True, exist_ok=True)
 
     pdf_path = tmp_path / "valid_slides.pdf"
     pdf_path.write_bytes(b"%PDF-1.4 valid content")
@@ -517,12 +502,9 @@ def test_partial_failure_blocks_single_ingest_when_file_fails(tmp_path: Path):
     """첨부 파일 파싱 실패(또는 빈 파일) 시 원격 링크만 단독 적재되는 것을 차단하고 전체 오류 처리."""
     settings = Settings(
         db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
         provider="mock",
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    settings.vault_dir.mkdir(parents=True, exist_ok=True)
 
     # 0바이트 빈 파일 생성
     empty_file = tmp_path / "empty.pdf"
@@ -573,8 +555,6 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
     settings = Settings(
         telegram_bot_token="12345:fake_token_for_test",
         db_path=str(tmp_path / "data" / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        vector_backend="sqlite",
         provider="mock",
     )
     app = build_app(settings)

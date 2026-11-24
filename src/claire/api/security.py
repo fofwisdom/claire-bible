@@ -1170,14 +1170,7 @@ class WebRuntimeConfig:
             )
             origins.add(origin)
 
-        ga_id = str(
-            getattr(
-                settings,
-                "effective_ga_measurement_id",
-                getattr(settings, "ga_measurement_id", ""),
-            )
-            or ""
-        ).strip()
+        ga_id = str(getattr(settings, "ga_measurement_id", "") or "").strip()
 
         cf_ips_only = bool(getattr(settings, "cloudflare_ips_only", False))
         trusted_proxies = parse_trusted_proxies(getattr(settings, "trusted_proxies", "") or "")

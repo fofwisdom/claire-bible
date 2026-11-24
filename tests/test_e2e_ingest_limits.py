@@ -35,7 +35,6 @@ def test_e2e_ingest_limits_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyP
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         provider="mock",
         anonymous_readonly=False,

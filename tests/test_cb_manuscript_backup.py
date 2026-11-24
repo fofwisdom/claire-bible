@@ -85,9 +85,9 @@ def _write_layout(
     *,
     dev: bool = True,
     prod_data: str = "./data",
-    prod_vault: str = "./vault",
+    prod_plugins: str = "./var/plugins",
     dev_data: str = "./.dev/data",
-    dev_vault: str = "./.dev/vault",
+    dev_plugins: str = "./.dev/var/plugins",
 ) -> None:
     root.mkdir(parents=True, exist_ok=True)
     prod = "\n".join(
@@ -98,7 +98,7 @@ def _write_layout(
             "CB_API_BIND=127.0.0.1",
             "CB_API_PORT=8765",
             f"CB_DATA_DIR={prod_data}",
-            f"CB_VAULT_DIR={prod_vault}",
+            f"CB_PLUGINS_DIR={prod_plugins}",
             "CLAIRE_DB_PATH=data/claire.db",
             "CLAIRE_INJECT_TOKEN=test-only-" + ("s" * 32),
             "CLAIRE_PUBLIC_URL=https://claire.example.com/",
@@ -115,7 +115,7 @@ def _write_layout(
             "CB_API_BIND=127.0.0.1",
             "CB_API_PORT=8766",
             f"CB_DATA_DIR={dev_data}",
-            f"CB_VAULT_DIR={dev_vault}",
+            f"CB_PLUGINS_DIR={dev_plugins}",
             "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
             "CLAIRE_CORS_ALLOWED_ORIGINS=",
             "",
@@ -146,16 +146,16 @@ def _resolved_storage(root: Path, value: str) -> Path:
     return candidate if candidate.is_absolute() else root / candidate
 
 
-def _seed_storage(root: Path, *, data: str = "./data", vault: str = "./vault") -> None:
+def _seed_storage(root: Path, *, data: str = "./data", plugins: str = "./var/plugins") -> None:
     data_path = _resolved_storage(root, data)
-    vault_path = _resolved_storage(root, vault)
+    plugins_path = _resolved_storage(root, plugins)
     (data_path / "raw" / "files").mkdir(parents=True, exist_ok=True)
     (data_path / "raw" / "files" / "source.txt").write_text(
         "source-original", encoding="utf-8"
     )
     (data_path / "marker.txt").write_text("data-original", encoding="utf-8")
-    vault_path.mkdir(parents=True, exist_ok=True)
-    (vault_path / "note.md").write_text("vault-original", encoding="utf-8")
+    plugins_path.mkdir(parents=True, exist_ok=True)
+    (plugins_path / "plugin.txt").write_text("plugins-original", encoding="utf-8")
 
     conn = dbm.connect(data_path / "claire.db")
     dbm.init_db(conn)
@@ -305,7 +305,7 @@ def test_directory_and_archive_round_trip(
     assert manifest["id"] == _artifact_id(artifact)
     assert manifest["profile"] == "production"
     assert manifest["project"] == "claire-bible"
-    assert _manifest_components(manifest) == {"data", "vault", "plugins"}
+    assert _manifest_components(manifest) == {"data", "plugins"}
     assert manifest["database"]["schema_version"] == dbm.SCHEMA_VERSION
     assert manifest["database"]["schema_lineage"] == dbm.SCHEMA_LINEAGE
     assert "test-only-secret" not in json.dumps(manifest, ensure_ascii=False)
@@ -313,7 +313,7 @@ def test_directory_and_archive_round_trip(
     artifact_bytes = artifact.read_bytes() if artifact.is_file() else None
     (root / "data" / "marker.txt").write_text("data-mutated", encoding="utf-8")
     (root / "data" / "stale.txt").write_text("remove-me", encoding="utf-8")
-    (root / "vault" / "note.md").write_text("vault-mutated", encoding="utf-8")
+    (root / "var" / "plugins" / "plugin.txt").write_text("plugins-mutated", encoding="utf-8")
 
     restore_stack = DockerHarness(running=("api-id", "worker-id"))
     with _docker(restore_stack):
@@ -321,7 +321,7 @@ def test_directory_and_archive_round_trip(
 
     assert (root / "data" / "marker.txt").read_text(encoding="utf-8") == "data-original"
     assert not (root / "data" / "stale.txt").exists()
-    assert (root / "vault" / "note.md").read_text(encoding="utf-8") == "vault-original"
+    assert (root / "var" / "plugins" / "plugin.txt").read_text(encoding="utf-8") == "plugins-original"
     conn = dbm.connect(root / "data" / "claire.db")
     try:
         restored = dbm.get_document(conn, "backup-contract")
@@ -390,15 +390,15 @@ def test_backup_and_restore_component_selection(tmp_path: Path) -> None:
     artifact = _visible_artifacts(root)[0]
     manifest = _read_manifest(artifact)
     assert _manifest_components(manifest) == {"data"}
-    assert not (artifact / "payload" / "vault").exists()
+    assert not (artifact / "payload" / "plugins").exists()
     assert not any(
-        str(entry.get("path", "")).startswith("vault/")
+        str(entry.get("path", "")).startswith("plugins/")
         for entry in manifest["entries"]
         if isinstance(entry, dict)
     )
 
     (root / "data" / "marker.txt").write_text("data-mutated", encoding="utf-8")
-    (root / "vault" / "note.md").write_text("vault-must-stay", encoding="utf-8")
+    (root / "var" / "plugins" / "plugin.txt").write_text("plugins-must-stay", encoding="utf-8")
     with _docker(DockerHarness()):
         assert (
             cb.main(
@@ -409,7 +409,7 @@ def test_backup_and_restore_component_selection(tmp_path: Path) -> None:
         )
 
     assert (root / "data" / "marker.txt").read_text(encoding="utf-8") == "data-original"
-    assert (root / "vault" / "note.md").read_text(encoding="utf-8") == "vault-must-stay"
+    assert (root / "var" / "plugins" / "plugin.txt").read_text(encoding="utf-8") == "plugins-must-stay"
 
 
 def test_backup_rejects_config_component_in_v1(tmp_path: Path) -> None:
@@ -559,8 +559,8 @@ def test_restore_migration_failure_rolls_back_live_tree_and_restarts(
     (root / "data" / "current-only.txt").write_text(
         "must-survive-rollback", encoding="utf-8"
     )
-    (root / "vault" / "note.md").write_text(
-        "pre-restore-vault", encoding="utf-8"
+    (root / "var" / "plugins" / "plugin.txt").write_text(
+        "pre-restore-plugins", encoding="utf-8"
     )
 
     restore = DockerHarness(
@@ -577,8 +577,8 @@ def test_restore_migration_failure_rolls_back_live_tree_and_restarts(
         root / "data" / "current-only.txt"
     ).read_text(encoding="utf-8") == "must-survive-rollback"
     assert (
-        root / "vault" / "note.md"
-    ).read_text(encoding="utf-8") == "pre-restore-vault"
+        root / "var" / "plugins" / "plugin.txt"
+    ).read_text(encoding="utf-8") == "pre-restore-plugins"
     assert ["docker", "start", "api-id", "refresh-id"] in restore.commands
 
 
@@ -616,7 +616,7 @@ def test_prod_and_dev_profile_mismatch_is_rejected_before_stop(
 ) -> None:
     root = tmp_path / "project"
     _write_layout(root)
-    _seed_storage(root, data="./.dev/data", vault="./.dev/vault")
+    _seed_storage(root, data="./.dev/data", plugins="./.dev/var/plugins")
 
     with _docker(DockerHarness()):
         assert cb.main(["dev", "backup"], root=root) == 0
@@ -655,24 +655,24 @@ def test_foreign_schema_lineage_is_rejected_before_stop(tmp_path: Path) -> None:
 def test_relative_storage_path_overrides_are_round_tripped(tmp_path: Path) -> None:
     root = tmp_path / "project"
     data = "./state/prod-data"
-    vault = "./state/prod-vault"
-    _write_layout(root, dev=False, prod_data=data, prod_vault=vault)
-    _seed_storage(root, data=data, vault=vault)
+    plugins = "./state/prod-plugins"
+    _write_layout(root, dev=False, prod_data=data, prod_plugins=plugins)
+    _seed_storage(root, data=data, plugins=plugins)
 
     with _docker(DockerHarness()):
         assert cb.main(["backup"], root=root) == 0
     artifact = _visible_artifacts(root)[0]
     data_path = _resolved_storage(root, data)
-    vault_path = _resolved_storage(root, vault)
+    plugins_path = _resolved_storage(root, plugins)
     (data_path / "marker.txt").write_text("mutated", encoding="utf-8")
-    (vault_path / "note.md").write_text("mutated", encoding="utf-8")
+    (plugins_path / "plugin.txt").write_text("mutated", encoding="utf-8")
 
     with _docker(DockerHarness()):
         assert cb.main(["restore", str(artifact), "--yes"], root=root) == 0
     assert (data_path / "marker.txt").read_text(encoding="utf-8") == "data-original"
-    assert (vault_path / "note.md").read_text(encoding="utf-8") == "vault-original"
+    assert (plugins_path / "plugin.txt").read_text(encoding="utf-8") == "plugins-original"
     assert not (root / "data").exists()
-    assert not (root / "vault").exists()
+    assert not (root / "var" / "plugins").exists()
 
 
 def test_backup_paths_are_excluded_from_source_build_and_remote_delete() -> None:

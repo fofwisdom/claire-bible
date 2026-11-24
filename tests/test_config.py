@@ -186,24 +186,12 @@ def test_sorcerer_defaults(monkeypatch):
     settings = Settings(_env_file=None)
 
     assert settings.sorcerer == "owner"
-    assert settings.effective_sorcerer == "owner"
-    assert settings.owner == "owner"
-    assert settings.effective_owner == "owner"
-    assert settings.knowledge_manager == "owner"
-    assert settings.effective_knowledge_manager == "owner"
 
 
 def test_sorcerer_custom_env(monkeypatch):
     monkeypatch.setenv("CLAIRE_SORCERER", "merlin")
     s1 = Settings(_env_file=None)
     assert s1.sorcerer == "merlin"
-    assert s1.effective_sorcerer == "merlin"
-    assert s1.owner == "merlin"
-    assert s1.effective_owner == "merlin"
-
-    monkeypatch.setenv("CLAIRE_SORCERER", "   ")
-    s2 = Settings(_env_file=None)
-    assert s2.effective_sorcerer == "owner"
 
 
 def test_slicing_config_defaults(monkeypatch, tmp_path):
@@ -214,8 +202,6 @@ def test_slicing_config_defaults(monkeypatch, tmp_path):
     monkeypatch.delenv("CLAIRE_MERGED_EXTRACT_CHAR_BUDGET", raising=False)
     monkeypatch.delenv("CLAIRE_SLICING_STRATEGY", raising=False)
     monkeypatch.delenv("CLAIRE_EMBED_CHAR_BUDGET", raising=False)
-    monkeypatch.delenv("CLAIRE_EXPAND_CHAR_BUDGET", raising=False)
-    monkeypatch.delenv("CLAIRE_RESEARCH_CONTEXT_BUDGET", raising=False)
     monkeypatch.setenv("CB_DATA_DIR", str(tmp_path))
 
     settings = Settings(_env_file=None)
@@ -228,8 +214,6 @@ def test_slicing_config_defaults(monkeypatch, tmp_path):
     assert settings.effective_merged_extract_char_budget == 40000
     assert settings.slicing_strategy == "table-exemption"
     assert settings.embed_char_budget == 8000
-    assert settings.expand_char_budget == 2000
-    assert settings.research_context_budget == 8000
 
 
 def test_slicing_config_custom_values(monkeypatch, tmp_path):
@@ -244,8 +228,6 @@ def test_slicing_config_custom_values(monkeypatch, tmp_path):
         CLAIRE_MERGED_EXTRACT_CHAR_BUDGET=25000,
         CLAIRE_SLICING_STRATEGY="strict",
         CLAIRE_EMBED_CHAR_BUDGET=4000,
-        CLAIRE_EXPAND_CHAR_BUDGET=1500,
-        CLAIRE_RESEARCH_CONTEXT_BUDGET=5000,
     )
 
     assert settings.raw_char_budget == 15000
@@ -256,8 +238,6 @@ def test_slicing_config_custom_values(monkeypatch, tmp_path):
     assert settings.effective_merged_extract_char_budget == 25000
     assert settings.slicing_strategy == "strict"
     assert settings.embed_char_budget == 4000
-    assert settings.expand_char_budget == 1500
-    assert settings.research_context_budget == 5000
 
 
 def test_ingest_limits_file_wins_over_exported_variable(monkeypatch, tmp_path):
@@ -329,7 +309,6 @@ def test_preferred_languages_come_from_the_database_and_not_from_the_environment
     monkeypatch.setenv("PREFERRED_LANGUAGES", "fr")
     settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file))
     assert settings.effective_preferred_languages == ["ko", "ja", "zh", "en"]
-    assert settings.effective_youtube_languages == ["ko", "ja", "zh", "en"]
     # The list of a job (settings_for_context) keeps the place of en.
     assert Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), preferred_languages="en,fr").effective_preferred_languages == ["en", "fr"]
     # No database: English only.
@@ -359,3 +338,52 @@ def test_model_fields_have_no_environment_variable(monkeypatch, tmp_path):
     manager.get_config = lambda: json.loads(json.dumps(DEFAULT_PROVIDERS_CONFIG))
     effective = ProviderManager.get_settings_dict(manager)
     assert all(Settings.model_fields[field].default == effective.get(field, Settings.model_fields[field].default) for field in MODEL_FIELDS)
+
+
+def test_tier1_retired_env_vars_and_properties_are_removed(monkeypatch, tmp_path: Path):
+    """Tier 1 dead env vars and dead properties are absent on Settings while CLAIRE_PRESENTATION_PDF_MAX_BYTES remains active."""
+    retired_env = {
+        "CLAIRE_SITE_DESCRIPTION": "legacy desc",
+        "CLAIRE_EXPAND_CHAR_BUDGET": "1234",
+        "CLAIRE_RESEARCH_CONTEXT_BUDGET": "5678",
+        "CLAIRE_PDF_DETECT_ENCODING_FLAWS": "false",
+        "CLAIRE_PDF_FLAW_ESCALATE_DOCLING": "true",
+        "CLAIRE_PDF_PARSER": "pypdf",
+        "CLAIRE_RENDER_FORMAT": "md",
+        "CLAIRE_VECTOR_BACKEND": "vec",
+        "CLAIRE_VAULT_PATH": str(tmp_path / "vault"),
+    }
+    for name, value in retired_env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("CB_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("CLAIRE_PRESENTATION_PDF_MAX_BYTES", "1048576")
+
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("".join(f"{name}={value}\n" for name, value in retired_env.items()), encoding="utf-8")
+
+    settings = Settings(_env_file=dotenv)
+
+    for attr in (
+        "site_description",
+        "expand_char_budget",
+        "research_context_budget",
+        "pdf_detect_encoding_flaws",
+        "pdf_parser",
+        "render_format",
+        "vector_backend",
+        "vault_path",
+        "vault_dir",
+        "effective_ga_measurement_id",
+        "effective_sorcerer",
+        "owner",
+        "effective_owner",
+        "knowledge_manager",
+        "effective_knowledge_manager",
+        "effective_youtube_languages",
+        "allowed_users",
+        "owner_chat_id",
+    ):
+        assert not hasattr(settings, attr), f"removed attribute {attr!r} still present"
+        assert attr not in Settings.model_fields
+
+    assert settings.presentation_pdf_max_bytes == 1048576

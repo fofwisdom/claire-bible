@@ -490,11 +490,6 @@ class Settings(BaseSettings):
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
     # Plugin folder of the server administrator (docs/implementation/INGESTION.md §2.2). Not in the data folder.
     plugins_path: str = Field(default="var/plugins", alias="CLAIRE_PLUGINS_DIR")
-    # Deprecated: The vault subsystem is removed. Retained for backward compatibility.
-    vault_path: str = Field(default="", alias="CLAIRE_VAULT_PATH")
-    vector_backend: str = Field(default="auto", alias="CLAIRE_VECTOR_BACKEND")
-    # 읽기/가독 렌더링 포맷 (md: Markdown, adoc: AsciiDoc). 기본값 adoc.
-    render_format: str = Field(default="adoc", alias="CLAIRE_RENDER_FORMAT")
     # 데이터 수명주기 정책: purgeable (기본값) | append-only.
     data_lifecycle: str = Field(default="purgeable", alias="CLAIRE_DATA_LIFECYCLE")
     # 명시적 소각 허용 플래그 (0|1 또는 boolean). 기본값 True(허용).
@@ -524,10 +519,6 @@ class Settings(BaseSettings):
     pdf_exclude_appendix: bool = Field(default=True, alias="CLAIRE_PDF_EXCLUDE_APPENDIX")
     # PDF 논문 적재 시 참고문헌(References) 제외 정책
     pdf_exclude_references: bool = Field(default=True, alias="CLAIRE_PDF_EXCLUDE_REFERENCES")
-    # PDF 추출 파서 엔진 선택 (default: 기본 고속 Chromium C++ PDFium 파서)
-    pdf_parser: str = Field(default="default", alias="CLAIRE_PDF_PARSER")
-    # PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자 등) 및 스캔본 감지
-    pdf_detect_encoding_flaws: bool = Field(default=True, alias="CLAIRE_PDF_DETECT_ENCODING_FLAWS")
     # 15,000자 이상 논문 PDF 적재 시 사고/추론 레벨
     pdf_paper_effort: str = Field(default="high", alias="CLAIRE_PDF_PAPER_EFFORT")
     # 15,000자 미만 또는 비논문 PDF 적재 시 기본 레벨 (빈 문자열이면 프로바이더 기본 env 사용)
@@ -542,10 +533,6 @@ class Settings(BaseSettings):
     slicing_strategy: str = Field(default="table-exemption", alias="CLAIRE_SLICING_STRATEGY")
     # 임베딩 생성 시 본문 슬라이싱 상한
     embed_char_budget: int = Field(default=8000, alias="CLAIRE_EMBED_CHAR_BUDGET")
-    # 자동 확장 및 선별 시 컨텍스트 상한
-    expand_char_budget: int = Field(default=2000, alias="CLAIRE_EXPAND_CHAR_BUDGET")
-    # 리서치 보고서/맥락 상한
-    research_context_budget: int = Field(default=8000, alias="CLAIRE_RESEARCH_CONTEXT_BUDGET")
 
     # --- languages & localization ---
     # The preferred languages of the job (comma-separated, ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md): the server default language from the database, or the list of the account of the job (settings_for_context). No environment variable sets it.
@@ -633,14 +620,10 @@ class Settings(BaseSettings):
         default=900,
         alias="CLAIRE_SITEMAP_CACHE_TTL",
     )
-    # 사이트 브랜딩 명칭 및 메타 설명
+    # 사이트 브랜딩 명칭
     site_name: str = Field(
         default="Claire Bible",
         alias="CLAIRE_SITE_NAME",
-    )
-    site_description: str = Field(
-        default="Personal Knowledge Base and Ontology Knowledge Graph Engine",
-        alias="CLAIRE_SITE_DESCRIPTION",
     )
 
     # --- source repository ---
@@ -676,18 +659,6 @@ class Settings(BaseSettings):
         if cleaned not in {"", "en", "ko"}:
             raise ValueError("CLAIRE_LANG must be 'en', 'ko', or empty")
         return cleaned
-
-    @field_validator("render_format", mode="before")
-    @classmethod
-    def _parse_render_format(cls, value: object) -> str:
-        # RD23: the Markdown body format is closed. AsciiDoc is the only body format of ingestion. An old value md or markdown does not stop startup: it becomes adoc with a warning, because operators cannot change the server files themselves.
-        s = str(value or "adoc").strip().lower()
-        if s in ("asciidoc", "adoc"):
-            return "adoc"
-        if s in ("markdown", "md"):
-            logging.getLogger(__name__).warning("CLAIRE_RENDER_FORMAT=%s is closed (RD23); ingestion uses adoc", s)
-            return "adoc"
-        raise ValueError("CLAIRE_RENDER_FORMAT must be 'adoc'")
 
     @field_validator("same_subject_merge", mode="before")
     @classmethod
@@ -906,10 +877,6 @@ class Settings(BaseSettings):
         return self.extract_char_budget * 2
 
     @property
-    def effective_ga_measurement_id(self) -> str:
-        return self.ga_measurement_id.strip()
-
-    @property
     def is_purge_allowed(self) -> bool:
         """소각(Purge) 명령 실행 가능 여부."""
         return self.data_lifecycle == "purgeable" or self.allow_purge
@@ -917,26 +884,6 @@ class Settings(BaseSettings):
     @property
     def effective_github_repository(self) -> str:
         return self.github_repository.strip() or "fofwisdom/claire-bible"
-
-    @property
-    def effective_sorcerer(self) -> str:
-        return self.sorcerer.strip() or "owner"
-
-    @property
-    def owner(self) -> str:
-        return self.sorcerer
-
-    @property
-    def effective_owner(self) -> str:
-        return self.effective_sorcerer
-
-    @property
-    def knowledge_manager(self) -> str:
-        return self.effective_sorcerer
-
-    @property
-    def effective_knowledge_manager(self) -> str:
-        return self.effective_sorcerer
 
     @property
     def effective_source_base_url(self) -> str:
@@ -953,11 +900,6 @@ class Settings(BaseSettings):
         from ..accounts.languages import ALWAYS_LANGUAGE, parse_stored
 
         return list(parse_stored(self.preferred_languages) or (ALWAYS_LANGUAGE,))
-
-    @property
-    def effective_youtube_languages(self) -> list[str]:
-        """YouTube 등 하위 기능 호환용 선호 언어 프로퍼티 (effective_preferred_languages 위임)."""
-        return self.effective_preferred_languages
 
     @property
     def effective_vlm_language(self) -> str:
@@ -1064,20 +1006,6 @@ class Settings(BaseSettings):
         """The plugin folder (``CLAIRE_PLUGINS_DIR``). A relative path is under the app root."""
         p = Path(self.plugins_path)
         return p if p.is_absolute() else ROOT / p
-
-    @property
-    def vault_dir(self) -> Path:
-        """Deprecated property for legacy callers."""
-        p = Path(self.vault_path) if self.vault_path else (self.data_dir / "vault")
-        return p if p.is_absolute() else ROOT / p
-
-    @property
-    def allowed_users(self) -> str:
-        return self.telegram_allowed_users
-
-    @property
-    def owner_chat_id(self) -> int:
-        return self.telegram_owner_chat_id
 
     @property
     def allowed_user_ids(self) -> set[int]:

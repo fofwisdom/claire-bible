@@ -19,7 +19,6 @@ def temp_theme_env(tmp_path):
 
     settings = Settings(
         CLAIRE_DB_PATH=db_path,
-        CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
     )
@@ -36,7 +35,6 @@ def test_theme_manager_single_mode(tmp_path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=False,
     )
@@ -67,7 +65,6 @@ def test_active_theme_settings_single_mode_never_reads_registry(tmp_path):
     registry.write_text("{broken", encoding="utf-8")
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=False,
     )
@@ -290,7 +287,6 @@ def test_resolve_share_token_single_mode_fallback(tmp_path):
     data_dir.mkdir()
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=False,
     )
@@ -378,9 +374,8 @@ def test_theme_knowledge_manager_metadata_and_settings_override(temp_theme_env):
     # 2. active_theme_settings에서 테마별 sorcerer 설정 오버라이드 확인
     active = manager.active_kb_settings(manager.settings)
     themed_settings = {t.id: s for t, s in active}
-    assert themed_settings[0].effective_sorcerer == manager.settings.effective_sorcerer
-    assert themed_settings[t1.id].effective_sorcerer == "alice_architect"
-    assert themed_settings[t1.id].effective_knowledge_manager == "alice_architect"
+    assert themed_settings[0].sorcerer == manager.settings.sorcerer
+    assert themed_settings[t1.id].sorcerer == "alice_architect"
 
     # 3. 테마 수정으로 지식 관리자 변경
     t1_updated = manager.update_kb(t1.id, sorcerer="bob_curator")

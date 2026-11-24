@@ -36,8 +36,6 @@ DEFAULT_INGEST_LIMITS_CONFIG: dict[str, Any] = {
         "pdf_paper_threshold_chars": 15000,
         "pdf_exclude_appendix": True,
         "pdf_exclude_references": True,
-        "pdf_parser": "default",
-        "pdf_detect_encoding_flaws": True,
         "pdf_paper_effort": "high",
         "pdf_default_effort": "",
         "pdf_classifier_effort": "low",
@@ -48,14 +46,11 @@ DEFAULT_INGEST_LIMITS_CONFIG: dict[str, Any] = {
         # 4. 임베딩 벡터 생성 상황
         "embed_char_budget": 8000,
         # 5. 링크 확장 탐색 상황
-        "expand_char_budget": 2000,
         "expand_max": 5,
         "auto_expand": True,
         "same_subject_merge": "off",
         "watch_interval_days": 1.0,
-        # 6. 심층 리서치 상황
-        "research_context_budget": 8000,
-        # 7. 미디어 / 프레젠테이션 / 비디오 수집 상황
+        # 6. 미디어 / 프레젠테이션 / 비디오 수집 상황
         "presentation_pdf_max_bytes": 67108864,
         "video_max_extract_chars": 200000,
         "video_chunk_duration_sec": 240,
@@ -70,9 +65,6 @@ MIGRATED_LIMIT_ENV_VARS: set[str] = {
     "CLAIRE_PDF_PAPER_THRESHOLD_CHARS",
     "CLAIRE_PDF_EXCLUDE_APPENDIX",
     "CLAIRE_PDF_EXCLUDE_REFERENCES",
-    "CLAIRE_PDF_PARSER",
-    "CLAIRE_PDF_DETECT_ENCODING_FLAWS",
-    "CLAIRE_PDF_FLAW_ESCALATE_DOCLING",
     "CLAIRE_PDF_PAPER_EFFORT",
     "CLAIRE_PDF_DEFAULT_EFFORT",
     "CLAIRE_PDF_CLASSIFIER_EFFORT",
@@ -80,11 +72,9 @@ MIGRATED_LIMIT_ENV_VARS: set[str] = {
     "CLAIRE_MERGED_EXTRACT_CHAR_BUDGET",
     "CLAIRE_SLICING_STRATEGY",
     "CLAIRE_EMBED_CHAR_BUDGET",
-    "CLAIRE_EXPAND_CHAR_BUDGET",
     "CLAIRE_EXPAND_MAX",
     "CLAIRE_AUTO_EXPAND",
     "CLAIRE_WATCH_INTERVAL_DAYS",
-    "CLAIRE_RESEARCH_CONTEXT_BUDGET",
     "CLAIRE_PRESENTATION_PDF_MAX_BYTES",
     "CLAIRE_VIDEO_MAX_EXTRACT_CHARS",
     "CLAIRE_VIDEO_CHUNK_DURATION_SEC",
@@ -92,7 +82,6 @@ MIGRATED_LIMIT_ENV_VARS: set[str] = {
 }
 
 VALID_SLICING_STRATEGIES = ("table-exemption", "strict")
-VALID_PDF_PARSERS = ("default",)
 VALID_EFFORTS = ("low", "medium", "high")
 # The modes of the same-subject source merge (owner decision, 2026-11-18): "off" (default) or "shadow" (record the judgement, store the child as its own document). No mode merges.
 VALID_SAME_SUBJECT_MERGE_MODES = ("off", "shadow")
@@ -250,9 +239,7 @@ class IngestLimitManager:
             "extract_char_budget",
             "merged_extract_char_budget",
             "embed_char_budget",
-            "expand_char_budget",
             "expand_max",
-            "research_context_budget",
             "video_max_extract_chars",
             "video_chunk_duration_sec",
             "vlm_max_images",
@@ -284,14 +271,6 @@ class IngestLimitManager:
                     f"slicing_strategy must be one of {VALID_SLICING_STRATEGIES}, got '{strat}'"
                 )
             curr_limits["slicing_strategy"] = strat
-
-        if "pdf_parser" in incoming_limits:
-            parser = str(incoming_limits["pdf_parser"]).strip().lower()
-            if parser not in VALID_PDF_PARSERS:
-                raise ValueError(
-                    f"pdf_parser must be one of {VALID_PDF_PARSERS}, got '{parser}'"
-                )
-            curr_limits["pdf_parser"] = parser
 
         if "pdf_paper_effort" in incoming_limits:
             eff = str(incoming_limits["pdf_paper_effort"]).strip().lower()
@@ -330,7 +309,6 @@ class IngestLimitManager:
         bool_fields = (
             "pdf_exclude_appendix",
             "pdf_exclude_references",
-            "pdf_detect_encoding_flaws",
             "auto_expand",
         )
         for bf in bool_fields:
@@ -373,9 +351,7 @@ class IngestLimitManager:
             "CLAIRE_EXTRACT_CHAR_BUDGET": "extract_char_budget",
             "CLAIRE_MERGED_EXTRACT_CHAR_BUDGET": "merged_extract_char_budget",
             "CLAIRE_EMBED_CHAR_BUDGET": "embed_char_budget",
-            "CLAIRE_EXPAND_CHAR_BUDGET": "expand_char_budget",
             "CLAIRE_EXPAND_MAX": "expand_max",
-            "CLAIRE_RESEARCH_CONTEXT_BUDGET": "research_context_budget",
             "CLAIRE_PRESENTATION_PDF_MAX_BYTES": "presentation_pdf_max_bytes",
             "CLAIRE_VIDEO_MAX_EXTRACT_CHARS": "video_max_extract_chars",
             "CLAIRE_VIDEO_CHUNK_DURATION_SEC": "video_chunk_duration_sec",
@@ -391,7 +367,6 @@ class IngestLimitManager:
         bool_mappings = {
             "CLAIRE_PDF_EXCLUDE_APPENDIX": "pdf_exclude_appendix",
             "CLAIRE_PDF_EXCLUDE_REFERENCES": "pdf_exclude_references",
-            "CLAIRE_PDF_DETECT_ENCODING_FLAWS": "pdf_detect_encoding_flaws",
             "CLAIRE_AUTO_EXPAND": "auto_expand",
         }
         for env_k, field_k in bool_mappings.items():
@@ -405,11 +380,6 @@ class IngestLimitManager:
                 days = 0.0
             if days > 0:
                 lims["watch_interval_days"] = days
-
-        if "CLAIRE_PDF_PARSER" in collected and collected["CLAIRE_PDF_PARSER"].strip():
-            p = collected["CLAIRE_PDF_PARSER"].strip().lower()
-            if p in VALID_PDF_PARSERS:
-                lims["pdf_parser"] = p
 
         if "CLAIRE_SLICING_STRATEGY" in collected and collected["CLAIRE_SLICING_STRATEGY"].strip():
             s = collected["CLAIRE_SLICING_STRATEGY"].strip().lower()
