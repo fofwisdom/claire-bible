@@ -59,11 +59,30 @@ def _media_html(media: dict[str, Any], *, strip_effort: bool = False) -> str:
     return _code(model_val)
 
 
-def _svg_clip(text: str, max_len: int = 26) -> str:
+def _svg_char_units(ch: str) -> float:
+    code = ord(ch)
+    if code <= 127:
+        return 1.0
+    if ch in ("·", "→", "…", "≥", "≤", "↔", "–"):
+        return 1.05
+    return 1.75
+
+
+def _svg_clip_px(text: str, max_px: float, *, char_px: float = 6.0) -> str:
+    """Clip SVG label text so rendered glyph width stays inside the box width."""
     clean = str(text or "-").strip() or "-"
-    if len(clean) <= max_len:
-        return clean
-    return clean[: max_len - 1] + "…"
+    budget = max(4.0, max_px / char_px)
+    used = 0.0
+    for idx, ch in enumerate(clean):
+        w = _svg_char_units(ch)
+        if used + w > budget:
+            cut = idx
+            while cut > 0 and used + 1.05 > budget:
+                cut -= 1
+                used -= _svg_char_units(clean[cut])
+            return clean[:cut] + "…"
+        used += w
+    return clean
 
 
 def _svg_slot_label(row: dict[str, Any] | None) -> str:
@@ -119,10 +138,14 @@ def _svg_node(
     lines: list[tuple[str, str]],
 ) -> str:
     """Build one SVG node rectangle with title, subtitle, and model lines."""
-    text_parts: list[str] = [f'<text class="pg-node-title" x="{x + 10}" y="{y + 19}">{escape(_svg_clip(title, 28))}</text>']
+    inner_px = float(max(40, w - 20))
+    title_text = _svg_clip_px(title, inner_px, char_px=6.8)
+    text_parts: list[str] = [f'<text class="pg-node-title" x="{x + 10}" y="{y + 19}">{escape(title_text)}</text>']
     cur_y = y + 35
     for cls, line in lines:
-        text_parts.append(f'<text class="{cls}" x="{x + 10}" y="{cur_y}">{escape(_svg_clip(line, 30))}</text>')
+        char_px = 6.1 if cls == "pg-node-model" else 5.8
+        clipped = _svg_clip_px(line, inner_px, char_px=char_px)
+        text_parts.append(f'<text class="{cls}" x="{x + 10}" y="{cur_y}">{escape(clipped)}</text>')
         cur_y += 15
     return f'<g><rect class="pg-node pg-node-{escape(kind)}" x="{x}" y="{y}" width="{w}" height="{h}" rx="8" />{"".join(text_parts)}</g>'
 
@@ -130,15 +153,15 @@ def _svg_node(
 def _graph_card(settings: Any, view: dict[str, Any], *, admin_viewer: bool) -> str:
     """Build the top SVG overview diagram card inside Tab 1."""
     slots = {str(row["slot"]): row for row in view["slots"]}
-    embed_model = _svg_clip(str(view.get("embed_model") or "-"), 24)
-    stt_label = _svg_clip(_svg_media_label(view["stt"]), 24)
-    vlm_label = _svg_clip(_svg_media_label(view["vlm"], strip_effort=True), 24)
-    classify_label = _svg_clip(_svg_slot_label(slots.get("classify")), 24)
-    extract_label = _svg_clip(_svg_slot_label(slots.get("extract_graph")), 22)
-    summary_label = _svg_clip(_svg_slot_label(slots.get("summarize")), 26)
-    detail_label = _svg_clip(_svg_slot_label(slots.get("render_detail")), 22)
-    judge_label = _svg_clip(_svg_slot_label(slots.get("entity_judge")), 22)
-    rel_label = _svg_clip(_svg_slot_label(slots.get("relation_judge")), 22)
+    embed_model = str(view.get("embed_model") or "-")
+    stt_label = _svg_media_label(view["stt"])
+    vlm_label = _svg_media_label(view["vlm"], strip_effort=True)
+    classify_label = _svg_slot_label(slots.get("classify"))
+    extract_label = _svg_slot_label(slots.get("extract_graph"))
+    summary_label = _svg_slot_label(slots.get("summarize"))
+    detail_label = _svg_slot_label(slots.get("render_detail"))
+    judge_label = _svg_slot_label(slots.get("entity_judge"))
+    rel_label = _svg_slot_label(slots.get("relation_judge"))
     has_text_ai = all(row.get("available", True) for row in (slots.get("extract_graph"), slots.get("summarize")) if row)
     same_summary = has_text_ai and _same_spec(slots.get("extract_graph"), slots.get("summarize"))
     auto = f"{float(getattr(settings, 'sim_tier_auto_merge', 0.93)):.2f}"
@@ -158,23 +181,23 @@ def _graph_card(settings: Any, view: dict[str, Any], *, admin_viewer: bool) -> s
         '<path class="pg-edge" d="M 698 70 L 722 70" marker-end="url(#pg-arrow)" />',
         _svg_node(724, 34, 232, 72, kind="rule", title=_k("graph.node.dedup_title"), lines=[("pg-node-sub", _k("graph.node.dedup_sub"))]),
         # Connectors from entry lane to API lane and agent client lane
-        '<path class="pg-edge" d="M 840 106 L 840 126 L 140 126 L 140 162" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge" d="M 840 106 L 840 126 L 147 126 L 147 162" marker-end="url(#pg-arrow)" />',
         '<path class="pg-edge pg-edge-dashed" d="M 38 106 L 38 444" marker-end="url(#pg-arrow)" />',
         # Upper main lane: server API path
         '<rect class="pg-lane" x="54" y="136" width="916" height="266" rx="10" />',
         f'<text class="pg-lane-label" x="68" y="154">{escape(_k("graph.lane.api"))}</text>',
-        _svg_node(68, 164, 144, 74, kind="ai", title=_k("graph.node.extract_title"), lines=[("pg-node-sub", _k("graph.node.extract_sub")), ("pg-node-model", extract_label)]),
-        _svg_node(236, 164, 212, 62, kind="ai", title=_k("graph.node.summary_title"), lines=[("pg-node-sub", _k("graph.node.summary_sub")), ("pg-node-model", summary_label)]),
-        '<path class="pg-edge' + (" pg-edge-dashed" if same_summary else "") + '" d="M 212 190 L 234 190" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge pg-edge-dashed" d="M 212 222 L 224 222 L 224 238 L 234 268" marker-end="url(#pg-arrow)" />',
-        f'<text class="pg-edge-label" x="236" y="241">{escape(_k("graph.edge.bypass"))}</text>',
-        '<path class="pg-edge" d="M 342 226 L 342 246" marker-end="url(#pg-arrow)" />',
-        _svg_node(68, 284, 144, 102, kind="ai", title=_k("graph.node.detail_title"), lines=[("pg-node-sub", _k("graph.node.detail_sub")), ("pg-node-model", detail_label), ("pg-node-sub", _k("graph.node.detail_note"))]),
-        '<path class="pg-edge pg-edge-dashed" d="M 140 238 L 140 282" marker-end="url(#pg-arrow)" />',
+        _svg_node(68, 164, 158, 74, kind="ai", title=_k("graph.node.extract_title"), lines=[("pg-node-sub", _k("graph.node.extract_sub")), ("pg-node-model", extract_label)]),
+        _svg_node(248, 164, 210, 62, kind="ai", title=_k("graph.node.summary_title"), lines=[("pg-node-sub", _k("graph.node.summary_sub")), ("pg-node-model", summary_label)]),
+        '<path class="pg-edge' + (" pg-edge-dashed" if same_summary else "") + '" d="M 226 190 L 246 190" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge pg-edge-dashed" d="M 226 222 L 236 222 L 236 238 L 246 268" marker-end="url(#pg-arrow)" />',
+        f'<text class="pg-edge-label" x="248" y="241">{escape(_k("graph.edge.bypass"))}</text>',
+        '<path class="pg-edge" d="M 353 226 L 353 246" marker-end="url(#pg-arrow)" />',
+        _svg_node(68, 284, 158, 102, kind="ai", title=_k("graph.node.detail_title"), lines=[("pg-node-sub", _k("graph.node.detail_sub")), ("pg-node-model", detail_label), ("pg-node-sub", _k("graph.node.detail_note"))]),
+        '<path class="pg-edge pg-edge-dashed" d="M 147 238 L 147 282" marker-end="url(#pg-arrow)" />',
         _svg_node(
-            236,
             248,
-            212,
+            248,
+            210,
             140,
             kind="ai",
             title=_k("graph.node.resolve_title"),
@@ -186,40 +209,40 @@ def _graph_card(settings: Any, view: dict[str, Any], *, admin_viewer: bool) -> s
                 ("pg-node-model", f"judge: {judge_label}"),
             ],
         ),
-        '<path class="pg-edge" d="M 212 204 L 224 204 L 224 282 L 234 282" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge" d="M 226 204 L 236 204 L 236 282 L 246 282" marker-end="url(#pg-arrow)" />',
     ]
 
     if admin_viewer:
-        svg_parts.append(_svg_node(472, 164, 174, 62, kind="shadow", title=_k("graph.node.jev_title"), lines=[("pg-node-sub", _k("graph.node.jev_sub")), ("pg-node-model", f"{jev_model} · {jev_state}")]))
-        svg_parts.append('<path class="pg-edge pg-edge-dashed" d="M 448 268 L 460 268 L 460 195 L 470 195" marker-end="url(#pg-arrow)" />')
+        svg_parts.append(_svg_node(480, 164, 178, 62, kind="shadow", title=_k("graph.node.jev_title"), lines=[("pg-node-sub", _k("graph.node.jev_sub")), ("pg-node-model", f"{jev_model} · {jev_state}")]))
+        svg_parts.append('<path class="pg-edge pg-edge-dashed" d="M 458 268 L 469 268 L 469 195 L 478 195" marker-end="url(#pg-arrow)" />')
 
     svg_parts.extend([
-        _svg_node(472, 242, 174, 44, kind="rule", title=_k("graph.node.record_title"), lines=[("pg-node-sub", _k("graph.node.record_sub"))]),
-        _svg_node(472, 294, 174, 44, kind="rule", title=_k("graph.node.relations_title"), lines=[("pg-node-sub", _k("graph.node.relations_sub"))]),
-        _svg_node(472, 346, 174, 48, kind="ai", title=_k("graph.node.links_title"), lines=[("pg-node-model", f"relational → {rel_label}")]),
-        '<path class="pg-edge" d="M 448 292 L 470 264" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 448 316 L 470 316" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 448 368 L 470 368" marker-end="url(#pg-arrow)" />',
-        _svg_node(670, 268, 130, 76, kind="rule", title=_k("graph.node.lineage_title"), lines=[("pg-node-sub", _k("graph.node.lineage_sub"))]),
-        '<path class="pg-edge" d="M 646 264 L 668 292" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 646 316 L 668 306" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 646 368 L 668 320" marker-end="url(#pg-arrow)" />',
-        _svg_node(824, 224, 132, 66, kind="ai", title=_k("graph.node.watch_title"), lines=[("pg-node-sub", _k("graph.node.watch_sub")), ("pg-node-model", classify_label)]),
-        _svg_node(824, 312, 132, 66, kind="rule", title=_k("graph.node.expand_title"), lines=[("pg-node-sub", _k("graph.node.expand_sub"))]),
-        '<path class="pg-edge" d="M 800 296 L 822 257" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 800 316 L 822 345" marker-end="url(#pg-arrow)" />',
+        _svg_node(480, 238, 178, 44, kind="rule", title=_k("graph.node.record_title"), lines=[("pg-node-sub", _k("graph.node.record_sub"))]),
+        _svg_node(480, 290, 178, 44, kind="rule", title=_k("graph.node.relations_title"), lines=[("pg-node-sub", _k("graph.node.relations_sub"))]),
+        _svg_node(480, 342, 178, 54, kind="ai", title=_k("graph.node.links_title"), lines=[("pg-node-sub", _k("graph.node.links_sub")), ("pg-node-model", rel_label)]),
+        '<path class="pg-edge" d="M 458 292 L 478 260" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge" d="M 458 312 L 478 312" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge" d="M 458 369 L 478 369" marker-end="url(#pg-arrow)" />',
+        _svg_node(678, 268, 128, 76, kind="rule", title=_k("graph.node.lineage_title"), lines=[("pg-node-sub", _k("graph.node.lineage_sub"))]),
+        '<path class="pg-edge" d="M 658 260 L 676 292" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge" d="M 658 312 L 676 306" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge" d="M 658 369 L 676 320" marker-end="url(#pg-arrow)" />',
+        _svg_node(824, 224, 134, 66, kind="ai", title=_k("graph.node.watch_title"), lines=[("pg-node-sub", _k("graph.node.watch_sub")), ("pg-node-model", classify_label)]),
+        _svg_node(824, 312, 134, 66, kind="rule", title=_k("graph.node.expand_title"), lines=[("pg-node-sub", _k("graph.node.expand_sub"))]),
+        '<path class="pg-edge" d="M 806 296 L 822 257" marker-end="url(#pg-arrow)" />',
+        '<path class="pg-edge" d="M 806 316 L 822 345" marker-end="url(#pg-arrow)" />',
         # Lower parallel lane: agent client path
         '<rect class="pg-lane" x="10" y="414" width="960" height="136" rx="10" />',
         f'<text class="pg-lane-label" x="24" y="432">{escape(_k("graph.lane.client"))}</text>',
-        _svg_node(24, 446, 162, 88, kind="rule", title=_k("graph.node.stage_title"), lines=[("pg-node-sub", _k("graph.node.stage_sub"))]),
-        '<path class="pg-edge" d="M 186 490 L 206 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(208, 446, 176, 88, kind="client", title=_k("graph.node.mcp_title"), lines=[("pg-node-sub", _k("graph.node.mcp_sub"))]),
-        '<path class="pg-edge" d="M 384 490 L 404 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(406, 446, 194, 88, kind="ai", title=_k("graph.node.validate_title"), lines=[("pg-node-sub", _k("graph.node.validate_sub")), ("pg-node-model", embed_model)]),
-        '<path class="pg-edge" d="M 600 490 L 620 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(622, 446, 186, 88, kind="rule", title=_k("graph.node.cresolve_title"), lines=[("pg-node-sub", _k("graph.node.cresolve_sub"))]),
-        '<path class="pg-edge" d="M 808 490 L 828 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(830, 446, 126, 88, kind="client", title=_k("graph.node.commit_title"), lines=[("pg-node-sub", _k("graph.node.commit_sub"))]),
+        _svg_node(24, 446, 160, 88, kind="rule", title=_k("graph.node.stage_title"), lines=[("pg-node-sub", _k("graph.node.stage_sub"))]),
+        '<path class="pg-edge" d="M 184 490 L 202 490" marker-end="url(#pg-arrow)" />',
+        _svg_node(204, 446, 174, 88, kind="client", title=_k("graph.node.mcp_title"), lines=[("pg-node-sub", _k("graph.node.mcp_sub"))]),
+        '<path class="pg-edge" d="M 378 490 L 396 490" marker-end="url(#pg-arrow)" />',
+        _svg_node(398, 446, 192, 88, kind="ai", title=_k("graph.node.validate_title"), lines=[("pg-node-sub", _k("graph.node.validate_sub")), ("pg-node-model", embed_model)]),
+        '<path class="pg-edge" d="M 590 490 L 608 490" marker-end="url(#pg-arrow)" />',
+        _svg_node(610, 446, 202, 88, kind="rule", title=_k("graph.node.cresolve_title"), lines=[("pg-node-sub", _k("graph.node.cresolve_sub"))]),
+        '<path class="pg-edge" d="M 812 490 L 830 490" marker-end="url(#pg-arrow)" />',
+        _svg_node(832, 446, 126, 88, kind="client", title=_k("graph.node.commit_title"), lines=[("pg-node-sub", _k("graph.node.commit_sub"))]),
     ])
 
     svg_html = (
