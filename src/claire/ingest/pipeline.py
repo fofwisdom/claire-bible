@@ -597,9 +597,10 @@ def _ingest_core(
         )
     report.inbox_id = inbox_id
 
+    bind_fn = getattr(provider, "bind_lineage", None)
     lineage_ctx = (
-        provider.bind_lineage()
-        if (not stage_only and isinstance(getattr(provider, "lineage", None), LineageCollector) and callable(getattr(provider, "bind_lineage", None)))
+        bind_fn()
+        if (not stage_only and isinstance(getattr(provider, "lineage", None), LineageCollector) and callable(bind_fn))
         else contextlib.nullcontext()
     )
 
