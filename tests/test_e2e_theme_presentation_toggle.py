@@ -16,6 +16,7 @@ from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.knowledge_base import get_kb_manager
+from tests.auth_helpers import bearer_headers
 
 
 def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
@@ -33,8 +34,6 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
     data_dir.mkdir(parents=True)
     vault_dir.mkdir(parents=True)
 
-    owner_token = "owner-" + ("e" * 32)
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
     public_url = "http://127.0.0.1:8765"
 
     s = Settings(
@@ -43,7 +42,6 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_DATA_LIFECYCLE="purgeable",
     )
 
@@ -55,6 +53,7 @@ def test_e2e_theme_presentation_toggle_lifecycle(tmp_path: Path, monkeypatch):
     dbm.set_document_detail(conn0, "doc-0", detail="= Title 0\n== Slide\nBody 0", format="adoc")
     conn0.commit()
     conn0.close()
+    owner_headers = bearer_headers(s, scope="owner")
 
     # 2. Define Theme 1 (presentation_enabled=True) and Theme 2 (presentation_enabled=False)
     mgr = get_kb_manager(s)

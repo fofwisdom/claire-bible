@@ -17,7 +17,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 
@@ -25,13 +25,11 @@ PUBLIC_URL = "http://127.0.0.1:8765"
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith(("CLAIRE_", "GEMINI_")):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _db(tmp_path: Path) -> Path:
@@ -131,9 +129,8 @@ def _app(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
         conn.close()
     auth_db.connect_auth_db(auth_db.auth_db_path(data_dir)).close()
     settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_DATA_DIR=str(data_dir), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=PUBLIC_URL, GEMINI_API_KEY=gemini_key)
-    tokens = get_token_store(data_dir=data_dir)
-    admin = {"Authorization": f"Bearer {tokens.create_token(name='admin', scope='owner', account_id=1)['token']}", "Origin": PUBLIC_URL}
-    member = {"Authorization": f"Bearer {tokens.create_token(name='member', scope='owner', account_id=2)['token']}", "Origin": PUBLIC_URL}
+    admin = {**bearer_headers(db_file, account_id=1, scope="owner"), "Origin": PUBLIC_URL}
+    member = {**bearer_headers(db_file, account_id=2, scope="owner"), "Origin": PUBLIC_URL}
     client = TestClient(server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock"))), base_url=PUBLIC_URL)
     return SimpleNamespace(client=client, admin=admin, member=member, db_file=db_file)
 

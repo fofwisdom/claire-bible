@@ -19,7 +19,7 @@ from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ADMIN_DOC_TITLE = "Lineage record of another account"
@@ -28,13 +28,11 @@ ADMIN_DOC_TITLE = "Lineage record of another account"
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith(("CLAIRE_", "GEMINI_")):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
@@ -66,11 +64,8 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
     )
-    tokens = get_token_store(data_dir=data_dir)
-    admin = tokens.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    member = tokens.create_token(name="member-owner", scope="owner", account_id=2)["token"]
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
-    return SimpleNamespace(settings=settings, db_file=db_file, client=TestClient(app, base_url=PUBLIC_URL), admin={"Authorization": f"Bearer {admin}"}, member={"Authorization": f"Bearer {member}"})
+    return SimpleNamespace(settings=settings, db_file=db_file, client=TestClient(app, base_url=PUBLIC_URL), admin=bearer_headers(db_file, account_id=1, scope="owner"), member=bearer_headers(db_file, account_id=2, scope="owner"))
 
 
 def _add_document_with_lineage(db_file: Path) -> None:

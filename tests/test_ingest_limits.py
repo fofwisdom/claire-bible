@@ -17,6 +17,7 @@ from claire.core.ingest_limit_manager import (
     comment_out_env_file_limits,
     get_ingest_limit_manager,
 )
+from tests.auth_helpers import bearer_headers
 
 
 def test_comment_out_env_file_limits(tmp_path: Path):
@@ -30,7 +31,7 @@ def test_comment_out_env_file_limits(tmp_path: Path):
         "CLAIRE_EXPAND_MAX=7\n"
         "# Already commented\n"
         "# CLAIRE_EXTRACT_CHAR_BUDGET=20000\n"
-        "CLAIRE_INJECT_TOKEN=test-token-12345678901234567890\n",
+        "CLAIRE_FQDN=claire.example.com\n",
         encoding="utf-8",
     )
 
@@ -40,7 +41,7 @@ def test_comment_out_env_file_limits(tmp_path: Path):
     lines = env_file.read_text(encoding="utf-8").splitlines()
     assert "CLAIRE_ENVIRONMENT=production" in lines
     assert "CB_API_PORT=8765" in lines
-    assert "CLAIRE_INJECT_TOKEN=test-token-12345678901234567890" in lines
+    assert "CLAIRE_FQDN=claire.example.com" in lines
     assert "# Already commented" in lines
 
     commented_budget = [l for l in lines if "CLAIRE_RAW_CHAR_BUDGET=15000" in l]
@@ -148,11 +149,9 @@ def test_settings_loads_from_ingest_limits_json(tmp_path: Path):
 
 def test_api_limits_endpoints(tmp_path: Path):
     """Test /limits and /ingest-limits GET and PATCH endpoints."""
-    owner_token = "owner-secret-token-123456789012345678"
     db_file = tmp_path / "claire.db"
     settings = Settings(
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_FQDN="127.0.0.1:8765",
     )
@@ -165,7 +164,7 @@ def test_api_limits_endpoints(tmp_path: Path):
     assert resp.status_code == 404
 
     # 2. Authenticated GET -> 200
-    headers = {"Authorization": f"Bearer {owner_token}"}
+    headers = bearer_headers(db_file, scope="owner")
     resp = client.get("/limits", headers=headers)
     assert resp.status_code == 200
     data = resp.json()

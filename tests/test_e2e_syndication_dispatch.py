@@ -12,13 +12,7 @@ from tests.kb_paths import kb_url, seed
 from claire.api.server import create_app
 from claire.core.config import Settings
 from claire.store import db as dbm
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-COLLAB_TOKEN = "collab-" + ("c" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
-COLLAB_HEADERS = {"Authorization": f"Bearer {COLLAB_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture
@@ -38,28 +32,26 @@ def e2e_dispatch_client(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_COLLABORATOR_TOKEN=COLLAB_TOKEN,
     )
 
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
     conn.close()
 
+    owner_headers = bearer_headers(settings, scope="owner")
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)
-    return client, settings
+    return client, settings, owner_headers
 
 
 def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
-    client, settings = e2e_dispatch_client
+    client, settings, owner_headers = e2e_dispatch_client
 
     # 1. Create Theme 1: AI Research
     res_t1 = client.post(
         "/kb",
         json={"knowledge_type": "real", "label": "인공지능 연구", "description": "AI 모델 연구 테마", "icon": "🧠"},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_t1.status_code == 201
     theme1_id = res_t1.json()["knowledge_base"]["id"]
@@ -73,7 +65,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
             "description": "보안 위협 및 취약점 분석",
             "icon": "🛡️",
         },
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_t2.status_code == 201
     shared2_id = res_t2.json()["knowledge_base"]["id"]
@@ -88,15 +80,15 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert doc_id
 
     # 4. Verify initial isolation: Document is in Theme 1, not in Theme 2
-    docs_t1 = client.get(kb_url(settings, theme1_id, "/documents"), headers=OWNER_HEADERS).json()
+    docs_t1 = client.get(kb_url(settings, theme1_id, "/documents"), headers=owner_headers).json()
     assert len(docs_t1["documents"]) == 1
     assert docs_t1["documents"][0]["id"] == doc_id
 
-    docs_t2 = client.get(kb_url(settings, theme2_id, "/documents"), headers=OWNER_HEADERS).json()
+    docs_t2 = client.get(kb_url(settings, theme2_id, "/documents"), headers=owner_headers).json()
     assert len(docs_t2["documents"]) == 0
 
     # 5. Dispatch from the shared knowledge base 1 to the personal knowledge base via POST /api/syndication/dispatch
-    refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": theme1_id, "target_kb_id": shared2_id}, headers=OWNER_HEADERS)
+    refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": theme1_id, "target_kb_id": shared2_id}, headers=owner_headers)
     assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_by_contribution"})
     applied_focus = "적대적 공격 탐지 관점 분석"
     dispatch_resp = client.post(
@@ -107,7 +99,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
             "target_kb_id": theme2_id,
             "focus": applied_focus,
         },
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert dispatch_resp.status_code == 200
     d_data = dispatch_resp.json()
@@ -123,11 +115,11 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert target_doc_id != doc_id
 
     # 6. Verify target document in Theme 2
-    docs_t2_after = client.get(kb_url(settings, theme2_id, "/documents"), headers=OWNER_HEADERS).json()
+    docs_t2_after = client.get(kb_url(settings, theme2_id, "/documents"), headers=owner_headers).json()
     assert len(docs_t2_after["documents"]) == 1
     assert docs_t2_after["documents"][0]["id"] == target_doc_id
 
-    detail_resp = client.get(kb_url(settings, theme2_id, "/document") + f"?id={target_doc_id}", headers=OWNER_HEADERS)
+    detail_resp = client.get(kb_url(settings, theme2_id, "/document") + f"?id={target_doc_id}", headers=owner_headers)
     assert detail_resp.status_code == 200
     detail_data = detail_resp.json()
     assert detail_data["id"] == target_doc_id
@@ -137,7 +129,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert detail_data["meta"]["syndication"]["source_document_id"] == doc_id
 
     # 7. Verify source document in Theme 1 is intact
-    docs_t1_after = client.get(kb_url(settings, theme1_id, "/documents"), headers=OWNER_HEADERS).json()
+    docs_t1_after = client.get(kb_url(settings, theme1_id, "/documents"), headers=owner_headers).json()
     assert len(docs_t1_after["documents"]) == 1
     assert docs_t1_after["documents"][0]["id"] == doc_id
 
@@ -167,7 +159,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     # 9. Verify GET /api/syndication/dispatches
     dispatches_resp = client.get(
         f"/api/syndication/dispatches?kb_id={theme1_id}",
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert dispatches_resp.status_code == 200
     disp_list = dispatches_resp.json()
@@ -178,7 +170,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     assert matched[0]["target_kb_id"] == theme2_id
 
     # 10. Alternate path POST /syndication/dispatch: no source means no default (CT23) -> 400; with the source -> 200
-    no_source = client.post("/syndication/dispatch", json={"doc_id": doc_id, "target_theme": theme2_id}, headers=OWNER_HEADERS)
+    no_source = client.post("/syndication/dispatch", json={"doc_id": doc_id, "target_theme": theme2_id}, headers=owner_headers)
     assert no_source.status_code == 400
     dispatch2_resp = client.post(
         "/syndication/dispatch",
@@ -187,7 +179,7 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
             "source_theme": theme1_id,
             "target_theme": theme2_id,
         },
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert dispatch2_resp.status_code == 200
     d2_data = dispatch2_resp.json()
@@ -198,14 +190,14 @@ def test_e2e_syndication_cross_theme_dispatch(e2e_dispatch_client):
     # Verify alternate paths: GET /syndication/dispatches
     list2_resp = client.get(
         f"/syndication/dispatches?target_kb_id={theme2_id}",
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert list2_resp.status_code == 200
     assert list2_resp.json()["count"] >= 2
 
 
 def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
-    client, settings = e2e_dispatch_client
+    client, settings, owner_headers = e2e_dispatch_client
 
     # 1. Anonymous request to POST /api/syndication/dispatch is rejected
     anon_post = client.post(
@@ -222,7 +214,7 @@ def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
     err_doc = client.post(
         "/api/syndication/dispatch",
         json={"target_kb_id": 1},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert err_doc.status_code == 400
 
@@ -230,7 +222,7 @@ def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
     err_target = client.post(
         "/api/syndication/dispatch",
         json={"document_id": "doc_xyz"},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert err_target.status_code == 400
 
@@ -238,6 +230,6 @@ def test_syndication_dispatch_access_controls_and_errors(e2e_dispatch_client):
     err_nonexistent = client.post(
         "/api/syndication/dispatch",
         json={"document_id": "doc_does_not_exist", "source_kb_id": 0, "target_kb_id": 0},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert err_nonexistent.status_code == 404

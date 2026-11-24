@@ -10,16 +10,8 @@ from claire.api.server import create_app
 from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.token_store import get_token_store
 from claire.store.queries import document_detail
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-WRITE_TOKEN = "write-" + ("w" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-WRITE_HEADERS = {"Authorization": f"Bearer {WRITE_TOKEN}"}
-READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture
@@ -38,14 +30,10 @@ def raw_test_context(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
     )
 
     conn = dbm.connect(Path(db_path))
     dbm.init_db(conn)
-    # A token with the scope ``write`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6) reads the raw file.
-    get_token_store(data_dir=data_dir).create_api_token(name="writer", scope="write", token=WRITE_TOKEN)
 
     # 1. Document with raw_inbox file
     doc_id = "doc-raw-001"
@@ -103,13 +91,19 @@ def raw_test_context(tmp_path: Path):
     conn.commit()
     conn.close()
 
+    headers = {
+        "owner": bearer_headers(settings, scope="owner"),
+        "write": bearer_headers(settings, scope="write"),
+        "readonly": bearer_headers(settings, scope="readonly"),
+    }
+
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)
-    return client, settings, doc_id, doc_id_meta, doc_id_evil, raw_pdf_content, art_pdf_content
+    return client, settings, doc_id, doc_id_meta, doc_id_evil, raw_pdf_content, art_pdf_content, headers
 
 
 def test_document_detail_has_raw_file_and_no_path_leak(raw_test_context):
-    client, settings, doc_id, doc_id_meta, _, _, _ = raw_test_context
+    client, settings, doc_id, doc_id_meta, _, _, _, _ = raw_test_context
     conn = dbm.connect_existing(settings.db_file, readonly=True)
     try:
         detail = document_detail(conn, doc_id)
@@ -132,8 +126,8 @@ def test_document_detail_has_raw_file_and_no_path_leak(raw_test_context):
 
 
 def test_document_raw_route_owner_access(raw_test_context):
-    client, _, doc_id, _, _, raw_pdf_content, _ = raw_test_context
-    resp = client.get(f"/document/raw?id={doc_id}", headers=OWNER_HEADERS)
+    client, _, doc_id, _, _, raw_pdf_content, _, headers = raw_test_context
+    resp = client.get(f"/document/raw?id={doc_id}", headers=headers["owner"])
     assert resp.status_code == 200
     assert resp.content == raw_pdf_content
     assert resp.headers["content-type"] == "application/pdf"
@@ -143,66 +137,66 @@ def test_document_raw_route_owner_access(raw_test_context):
 
 
 def test_document_raw_route_write_scope_access(raw_test_context):
-    client, _, doc_id, _, _, raw_pdf_content, _ = raw_test_context
-    resp = client.get(f"/document/raw?id={doc_id}", headers=WRITE_HEADERS)
+    client, _, doc_id, _, _, raw_pdf_content, _, headers = raw_test_context
+    resp = client.get(f"/document/raw?id={doc_id}", headers=headers["write"])
     assert resp.status_code == 200
     assert resp.content == raw_pdf_content
     assert resp.headers["content-type"] == "application/pdf"
 
 
 def test_document_raw_route_anonymous_blocked(raw_test_context):
-    client, _, doc_id, _, _, _, _ = raw_test_context
+    client, _, doc_id, _, _, _, _, _ = raw_test_context
     resp = client.get(f"/document/raw?id={doc_id}")
     assert resp.status_code == 404
 
 
 def test_document_raw_route_readonly_blocked(raw_test_context):
-    client, _, doc_id, _, _, _, _ = raw_test_context
-    resp = client.get(f"/document/raw?id={doc_id}", headers=READONLY_HEADERS)
+    client, _, doc_id, _, _, _, _, headers = raw_test_context
+    resp = client.get(f"/document/raw?id={doc_id}", headers=headers["readonly"])
     # A credential of the account whose scope is too small gets 403 (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6).
     assert (resp.status_code, resp.json()) == (403, {"error": "scope_insufficient", "scope": "readonly", "required": "write"})
 
 
 def test_document_raw_route_path_traversal_blocked(raw_test_context):
-    client, _, _, _, doc_id_evil, _, _ = raw_test_context
-    resp = client.get(f"/document/raw?id={doc_id_evil}", headers=OWNER_HEADERS)
+    client, _, _, _, doc_id_evil, _, _, headers = raw_test_context
+    resp = client.get(f"/document/raw?id={doc_id_evil}", headers=headers["owner"])
     assert resp.status_code == 404
 
 
 def test_document_raw_missing_id(raw_test_context):
-    client, _, _, _, _, _, _ = raw_test_context
-    resp = client.get("/document/raw", headers=OWNER_HEADERS)
+    client, _, _, _, _, _, _, headers = raw_test_context
+    resp = client.get("/document/raw", headers=headers["owner"])
     assert resp.status_code == 400
 
 
 def test_document_raw_route_head_request(raw_test_context):
-    client, _, doc_id, _, _, _, _ = raw_test_context
-    resp = client.head(f"/document/raw?id={doc_id}", headers=WRITE_HEADERS)
+    client, _, doc_id, _, _, _, _, headers = raw_test_context
+    resp = client.head(f"/document/raw?id={doc_id}", headers=headers["write"])
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/pdf"
     assert "secret_research.pdf" in resp.headers["content-disposition"]
 
 
 def test_robots_txt_contains_disallow_raw(raw_test_context):
-    client, _, _, _, _, _, _ = raw_test_context
+    client, _, _, _, _, _, _, _ = raw_test_context
     resp = client.get("/robots.txt")
     assert resp.status_code == 200
     assert "Disallow: /document/raw" in resp.text
 
 
 def test_document_raw_from_presentation_pdf_meta(raw_test_context):
-    client, _, _, doc_id_meta, _, _, art_pdf_content = raw_test_context
-    resp = client.get(f"/document/raw?id={doc_id_meta}", headers=WRITE_HEADERS)
+    client, _, _, doc_id_meta, _, _, art_pdf_content, headers = raw_test_context
+    resp = client.get(f"/document/raw?id={doc_id_meta}", headers=headers["write"])
     assert resp.status_code == 200
     assert resp.content == art_pdf_content
 
 
 def test_e2e_role_gated_raw_document_access(raw_test_context):
     """End-to-end test verifying document detail, share page gating, and raw file download access control."""
-    client, settings, doc_id, _, _, raw_pdf_content, _ = raw_test_context
+    client, settings, doc_id, _, _, raw_pdf_content, _, headers = raw_test_context
 
     # Step 1: Create a share token for the document
-    share_resp = client.post("/share", json={"doc_id": doc_id}, headers=OWNER_HEADERS)
+    share_resp = client.post("/share", json={"doc_id": doc_id}, headers=headers["owner"])
     assert share_resp.status_code == 200
     share_token = share_resp.json()["token"]
 
@@ -218,7 +212,7 @@ def test_e2e_role_gated_raw_document_access(raw_test_context):
     assert "file://" not in anon_page_resp.text
 
     # Step 3: The item view never has the raw file link (PERMALINK_UNIFICATION_DESIGN.md Section 6): a member gets it in the workspace. The account of this server has no USERNAME, thus no workspace path: each caller gets the item view.
-    collab_page_resp = client.get(f"/silvercord/{share_token}", headers=WRITE_HEADERS)
+    collab_page_resp = client.get(f"/silvercord/{share_token}", headers=headers["write"])
     assert collab_page_resp.status_code == 200
     assert '"can_access_raw": false' in collab_page_resp.text or '"can_access_raw":false' in collab_page_resp.text
 
@@ -228,15 +222,15 @@ def test_e2e_role_gated_raw_document_access(raw_test_context):
     assert anon_raw_resp.status_code == 404
 
     # Readonly -> 403
-    readonly_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=READONLY_HEADERS)
+    readonly_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=headers["readonly"])
     assert readonly_raw_resp.status_code == 403
 
     # Write scope -> 200 with raw binary content
-    collab_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=WRITE_HEADERS)
+    collab_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=headers["write"])
     assert collab_raw_resp.status_code == 200
     assert collab_raw_resp.content == raw_pdf_content
 
     # Owner -> 200 with raw binary content
-    owner_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=OWNER_HEADERS)
+    owner_raw_resp = client.get(f"/document/raw?id={doc_id}", headers=headers["owner"])
     assert owner_raw_resp.status_code == 200
     assert owner_raw_resp.content == raw_pdf_content

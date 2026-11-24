@@ -20,11 +20,8 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
-OWNER_TOKEN = "owner-" + "o" * 32
-READONLY_TOKEN = "readonly-" + "r" * 32
 PASSWORD = "correct-horse-battery-99"
 
 
@@ -34,8 +31,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     fqdn: str = "claire.example.com"
     multi_theme: bool = True
@@ -84,10 +79,8 @@ def _isolate(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("CLAIRE_SECRET_KEY", "44" * 32)
     reset_secret_service()
-    reset_token_stores()
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def test_e2e_case_preserving_usernames_and_rename_lifecycle(tmp_path: Path) -> None:

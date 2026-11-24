@@ -36,10 +36,7 @@ from claire.ops.support_bundle import (
     sanitize_sensitive_data,
     validate_bundle_days,
 )
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 @dataclass
@@ -48,8 +45,6 @@ class StubSettings:
     data_dir: Path
     environment: str = "development"
     public_url: str = "http://127.0.0.1:8765"
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     telemetry_retention_days: int = 30
     inject_host: str = "127.0.0.1"
@@ -64,8 +59,6 @@ class StubSettings:
         return {
             "environment": self.environment,
             "public_url": self.public_url,
-            "inject_token": self.inject_token,
-            "readonly_token": self.readonly_token,
             "telemetry_retention_days": self.telemetry_retention_days,
             "secret_api_key": "super_secret_12345",
         }
@@ -284,7 +277,6 @@ def test_support_bundle_creation_and_zstd_archive(tmp_path: Path):
     # Sanitized config 검증
     config_name = [n for n in names if n.endswith("config_sanitized.json")][0]
     config_data = json.loads(tar.extractfile(config_name).read().decode("utf-8"))
-    assert config_data["inject_token"] == "***REDACTED***"
     assert config_data["secret_api_key"] == "***REDACTED***"
 
     # Storage 진단은 실제 해석 경로, 파일 identity, DB 후보를 내용 없이 기록한다.
@@ -531,6 +523,7 @@ def test_support_bundle_api_endpoints(tmp_path: Path):
     s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
     _seed_db(s.db_file)
     _seed_telemetry(s.data_dir)
+    owner_headers = bearer_headers(s.db_file, account_id=1, scope="owner")
 
     app = server.create_app(s)
     with TestClient(app, base_url=s.public_url) as client:
@@ -540,7 +533,7 @@ def test_support_bundle_api_endpoints(tmp_path: Path):
 
 
         # 2. 정상 생성 POST /support/bundle (Owner 헤더)
-        res = client.post("/support/bundle", headers=OWNER_HEADERS, json={"days": 1})
+        res = client.post("/support/bundle", headers=owner_headers, json={"days": 1})
         assert res.status_code == 200
         data = res.json()
         assert "bundle_id" in data
@@ -557,7 +550,7 @@ def test_support_bundle_api_endpoints(tmp_path: Path):
         telemetry_conn.close()
 
         # 3. 보관 기한 초과 days 요청 -> 400 Bad Request
-        res = client.post("/support/bundle", headers=OWNER_HEADERS, json={"days": 40})
+        res = client.post("/support/bundle", headers=owner_headers, json={"days": 40})
         assert res.status_code == 400
         assert "cannot exceed telemetry retention limit" in res.json()["error"]
 
@@ -584,7 +577,6 @@ def test_support_bundle_cli(tmp_path: Path, monkeypatch, capsys):
 
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
     monkeypatch.setenv("CLAIRE_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
 
     parser = build_parser()
 

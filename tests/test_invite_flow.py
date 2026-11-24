@@ -45,7 +45,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import SecretDecryptionError, SecretService, get_secret_service, reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import issue_session_token
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
@@ -59,8 +59,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = "owner-" + "o" * 32
-    readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
     fqdn: str = "notes.kimhome.net"
     multi_theme: bool = True
@@ -106,13 +104,11 @@ def _extract_session_token(response) -> str | None:
 @pytest.fixture(autouse=True)
 def _isolate_env_and_secrets(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 @pytest.fixture
@@ -776,9 +772,8 @@ def test_bearer_owner_api_token_invite_post_and_patch_without_origin(settings: _
     member_id, _ = _setup_member(settings, "bearer_member")
     _set_member_invites_enabled(settings, True)
 
-    tok_store = get_token_store(data_dir=settings.data_dir)
-    admin_bearer = tok_store.create_token(name="admin-owner-cli", scope="owner", account_id=1)["token"]
-    member_bearer = tok_store.create_token(name="member-owner-cli", scope="owner", account_id=member_id)["token"]
+    admin_bearer = issue_session_token(settings, account_id=1, scope="owner")
+    member_bearer = issue_session_token(settings, account_id=member_id, scope="owner")
     client = _make_client(settings)
 
     admin_create = client.request("POST", "/api/invites", bearer=admin_bearer, origin=None, json={"max_uses": 2, "note": "cli-admin"})

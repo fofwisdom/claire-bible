@@ -28,7 +28,6 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import reset_token_stores
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SECRET_KEY = "44" * 32
@@ -99,7 +98,6 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
     """Build isolated Claire ASGI instances backed by tmp_path SQLite files and MockProvider."""
     _clear_sensitive_env(monkeypatch)
     monkeypatch.setenv("CLAIRE_SECRET_KEY", DEFAULT_SECRET_KEY)
-    reset_token_stores()
     reset_secret_service()
     get_settings.cache_clear()
 
@@ -116,11 +114,8 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         media_fqdn: str = "",
         multi_theme: bool = True,
         provider: str = "mock",
-        inject_token: str = "owner-" + ("o" * 32),
-        readonly_token: str = "",
         seed_members: tuple[str, ...] = ("alice", "bob"),
         server_mode: str = "network",
-        manual_tokens_retired: bool = False,
         plugins_dir: Path | None = None,
         extra_env: dict[str, str] | None = None,
     ) -> ClaireTestEnv:
@@ -134,13 +129,10 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
 
         _clear_sensitive_env(monkeypatch)
         monkeypatch.setenv("CLAIRE_SECRET_KEY", DEFAULT_SECRET_KEY)
-        if manual_tokens_retired:
-            monkeypatch.setenv("CLAIRE_MANUAL_TOKENS_RETIRED", "1")
         if extra_env:
             for env_key, env_val in extra_env.items():
                 monkeypatch.setenv(env_key, env_val)
 
-        reset_token_stores()
         reset_secret_service()
         get_settings.cache_clear()
 
@@ -156,8 +148,6 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
             CLAIRE_SITE_DOMAIN=site_domain,
             CLAIRE_USERCONTENT_FQDN=usercontent_fqdn,
             CLAIRE_MEDIA_FQDN=media_fqdn,
-            CLAIRE_INJECT_TOKEN=inject_token,
-            CLAIRE_READONLY_TOKEN=readonly_token,
         )
 
         app = server.create_app(settings)
@@ -232,7 +222,6 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
         yield _build
     finally:
         stack.close()
-        reset_token_stores()
         reset_secret_service()
         get_settings.cache_clear()
 

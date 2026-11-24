@@ -25,9 +25,8 @@ from claire.api.security import WebRuntimeConfig
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
-OWNER_TOKEN = "owner-" + "o" * 32
-READONLY_TOKEN = "readonly-" + "r" * 32
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
 PASSWORD = "correct-horse-battery"
@@ -39,8 +38,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     # 서버 예약 라벨(§8.1-4)의 출처. 개발 모드 공개 URL은 IP라 이 값으로 확인한다.
     fqdn: str = "notes.kimhome.net"
@@ -152,10 +149,12 @@ def test_auth_db_is_prepared_at_startup(client, settings):
 def test_setup_is_404_without_admin_session(client, settings):
     assert client.request("GET", "/setup").status_code == 404
     assert client.request("POST", "/setup", data=_form()).status_code == 404
-    # bearer(환경 owner 토큰 = 관리자 계정)도 404다. 사람의 세션 채널만 설정할 수 있다.
-    assert client.request("GET", "/setup", bearer=OWNER_TOKEN).status_code == 404
-    assert client.request("POST", "/setup", bearer=OWNER_TOKEN, data=_form()).status_code == 404
-    assert client.request("GET", "/setup", bearer=READONLY_TOKEN).status_code == 404
+    owner_bearer = issue_session_token(settings, account_id=1, scope="owner")
+    ro_bearer = issue_oauth_token(settings, account_id=1, scope="readonly")
+    # Bearer credentials cannot complete /setup; only cookie/X-Session channels can.
+    assert client.request("GET", "/setup", bearer=owner_bearer).status_code == 404
+    assert client.request("POST", "/setup", bearer=owner_bearer, data=_form()).status_code == 404
+    assert client.request("GET", "/setup", bearer=ro_bearer).status_code == 404
     assert _admin(settings).status == "setup_required"
 
 
@@ -166,14 +165,18 @@ def test_root_redirects_admin_session_to_setup_but_not_bearer(client, settings):
         assert response.status_code == 302
         assert response.headers["location"] == "/setup"
     # KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 3: only the admin session goes to /setup. Each other request to / gets the page "setup not complete"; there is no other target.
-    response = client.request("GET", "/", bearer=OWNER_TOKEN)
+    owner_bearer = issue_session_token(settings, account_id=1, scope="owner")
+    response = client.request("GET", "/", bearer=owner_bearer)
     assert response.status_code == 503
     assert "location" not in response.headers
     assert response.headers["cache-control"] == "no-store"
     assert 'data-setup-state="setup_required"' in response.text
     assert "Setup necessary" in response.text
-    # This server has no anonymous reading: an anonymous request gets the 404 of each closed route before the route runs (``tests/test_single_mode_redirects.py`` checks the page for an anonymous request with anonymous reading).
-    assert client.request("GET", "/").status_code == 404
+    # With default public KB visibility (schema v48), an anonymous GET / also receives the 503 setup_required page without redirecting to /setup.
+    anon_resp = client.request("GET", "/")
+    assert anon_resp.status_code == 503
+    assert "location" not in anon_resp.headers
+    assert 'data-setup-state="setup_required"' in anon_resp.text
 
 
 def test_setup_page_shows_both_confirmation_notices(client, settings):

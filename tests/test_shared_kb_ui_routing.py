@@ -19,19 +19,17 @@ from claire.store import db as dbm
 from claire.store import themes as themes_store
 from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 @pytest.fixture
@@ -73,12 +71,11 @@ def ui_env(tmp_path: Path):
     conn.commit()
     conn.close()
     app = server.create_app(settings)
-    store = get_token_store(data_dir=data_dir)
-    admin_tok = store.create_token("admin-owner", "owner", account_id=1)["token"]
-    alice_tok = store.create_token("alice-owner", "owner", account_id=2)["token"]
+    admin_hdr = bearer_headers(settings, account_id=1, scope="owner")
+    alice_hdr = bearer_headers(settings, account_id=2, scope="owner")
     client = TestClient(app, base_url=settings.public_url, follow_redirects=False)
     numbers = SimpleNamespace(kb=ids.format_public_id(shared.number), personal=ids.format_public_id(manager.personal_kb_for(2).number), theme=ids.format_public_id(int(theme["number"])))
-    return client, {"Authorization": f"Bearer {admin_tok}"}, {"Authorization": f"Bearer {alice_tok}"}, numbers
+    return client, admin_hdr, alice_hdr, numbers
 
 
 def test_shared_kb_console_routes_and_admin_isolation(ui_env):

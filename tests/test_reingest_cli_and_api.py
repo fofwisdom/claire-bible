@@ -19,12 +19,7 @@ from claire.ingest.pipeline import IngestReport, ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.vectors import make_vector_store
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def test_cli_reingest_parser_options():
@@ -160,8 +155,6 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
-    monkeypatch.setenv("CLAIRE_READONLY_TOKEN", READONLY_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
     monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
 
@@ -197,18 +190,20 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
     assert rep.document_id is not None
     doc_id = rep.document_id
 
+    owner_headers = bearer_headers(db_file, scope="owner")
+    readonly_headers = bearer_headers(db_file, scope="readonly")
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
     # 1. Anonymous / Readonly cannot purge
-    res_ro = client.post("/document/purge", json={"target": doc_id}, headers=READONLY_HEADERS)
+    res_ro = client.post("/document/purge", json={"target": doc_id}, headers=readonly_headers)
     assert res_ro.status_code in (403, 404)
 
     # 2. Owner dry-run purge
     res_dry = client.post(
         "/document/purge",
         json={"target": doc_id, "dry_run": True},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_dry.status_code == 200
     data_dry = res_dry.json()
@@ -219,7 +214,7 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
     res_purge = client.post(
         "/document/purge",
         json={"target": doc_id, "dry_run": False, "tombstone": True},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_purge.status_code == 200
     data_purge = res_purge.json()
@@ -238,7 +233,7 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
         res_reing = client.post(
             "/reingest",
             json={"target": url, "untombstone": True},
-            headers=OWNER_HEADERS,
+            headers=owner_headers,
         )
         assert res_reing.status_code == 200
         data_reing = res_reing.json()

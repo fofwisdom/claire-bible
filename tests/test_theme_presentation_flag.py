@@ -21,6 +21,7 @@ from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
+from tests.auth_helpers import bearer_headers
 
 
 def test_theme_info_presentation_flag_serialization_io(tmp_path: Path):
@@ -106,20 +107,17 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
     data_dir.mkdir(parents=True)
     vault_dir.mkdir(parents=True)
 
-    owner_token = "owner-" + ("k" * 32)
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
-
     s = Settings(
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=owner_token,
     )
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
+    owner_headers = bearer_headers(s, scope="owner")
 
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
@@ -167,16 +165,12 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
     data_dir.mkdir(parents=True)
     vault_dir.mkdir(parents=True)
 
-    owner_token = "owner-" + ("m" * 32)
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
-
     s = Settings(
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=owner_token,
     )
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -185,6 +179,7 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
     dbm.insert_document(conn, doc)
     dbm.set_document_detail(conn, doc_id, detail="= Slide One\n== Title\nHello world", format="adoc")
     conn.close()
+    owner_headers = bearer_headers(s, scope="owner")
 
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:

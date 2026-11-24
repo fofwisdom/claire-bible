@@ -1048,6 +1048,7 @@ def create_account_session(
     scope: str = "owner",
     replace_token: str | None = None,
     now: float | None = None,
+    ttl_seconds: float | None = None,
 ) -> str:
     """사람이 방금 인증한 세션을 새로 발급한다(로그인, /setup 확정). ``authenticated_at=now``.
 
@@ -1058,15 +1059,14 @@ def create_account_session(
     if conn.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone() is None:
         raise AccountNotFound(account_id)
     when = time.time() if now is None else now
+    ttl = dbm.SESSION_TTL if ttl_seconds is None else float(ttl_seconds)
     token = secrets.token_urlsafe(32)
     try:
         if replace_token:
             conn.execute("DELETE FROM auth_sessions WHERE session_token=?", (replace_token,))
         conn.execute(
-            "INSERT INTO auth_sessions "
-            "(nonce, session_token, approved, created_at, expires_at, scope, account_id, authenticated_at) "
-            "VALUES (?, ?, 1, ?, ?, ?, ?, ?)",
-            (token, token, when, when + dbm.SESSION_TTL, scope, account_id, when),
+            "INSERT INTO auth_sessions (nonce, session_token, approved, created_at, expires_at, scope, account_id, authenticated_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)",
+            (token, token, when, when + ttl, scope, account_id, when),
         )
     except BaseException:
         conn.rollback()

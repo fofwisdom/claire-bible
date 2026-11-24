@@ -23,7 +23,7 @@ from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
 from claire.store.telemetry import record_mcp_telemetry
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 SECRET_ADMIN_USERNAME = "hidden_operator_p1"
@@ -36,7 +36,6 @@ NEW_ADMIN_PATHS: tuple[str, ...] = (
     "/admin/providers",
     "/admin/limits",
     "/admin/themes",
-    "/admin/tokens",
     "/admin/audit",
     "/admin/mcp",
     "/admin/webmcp",
@@ -53,7 +52,6 @@ ALL_SETTINGS_SECTION_PATHS: tuple[str, ...] = (
     "/account/federation",
     "/account/providers",
     "/settings/kb",
-    "/account/tokens",
     "/settings/reader",
     "/settings/connections",
     "/settings/feeds",
@@ -71,13 +69,11 @@ MODERATION_OWNER_SECTION_PATHS: tuple[str, ...] = ("/moderation/kb",)
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _upsert_account(conn, account_id: int, public_id: int, username: str, role: str) -> None:
@@ -132,13 +128,6 @@ def console_env(tmp_path: Path):
     alice_def = _insert_theme(tm, settings, kb_id=20, seq=2, number=(2 << 56) | 20, label="Alice Default", account_id=2, is_personal=True)
     bob_def = _insert_theme(tm, settings, kb_id=30, seq=3, number=(3 << 56) | 30, label="Bob Default", account_id=3, is_personal=True)
 
-    tok_store = get_token_store(data_dir=data_dir)
-    admin_owner_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    admin_collab_tok = tok_store.create_token(name="admin-collab", scope="write", account_id=1)["token"]
-    admin_ro_tok = tok_store.create_token(name="admin-ro", scope="readonly", account_id=1)["token"]
-    alice_owner_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    alice_collab_tok = tok_store.create_token(name="alice-collab", scope="write", account_id=2)["token"]
-
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     client = TestClient(app, base_url=PUBLIC_URL)
     return SimpleNamespace(
@@ -149,11 +138,11 @@ def console_env(tmp_path: Path):
         admin_extra=admin_extra,
         alice_def=alice_def,
         bob_def=bob_def,
-        admin_owner={"Authorization": f"Bearer {admin_owner_tok}"},
-        admin_collab={"Authorization": f"Bearer {admin_collab_tok}"},
-        admin_ro={"Authorization": f"Bearer {admin_ro_tok}"},
-        alice_owner={"Authorization": f"Bearer {alice_owner_tok}"},
-        alice_collab={"Authorization": f"Bearer {alice_collab_tok}"},
+        admin_owner=bearer_headers(db_file, account_id=1, scope="owner"),
+        admin_collab=bearer_headers(db_file, account_id=1, scope="write"),
+        admin_ro=bearer_headers(db_file, account_id=1, scope="readonly"),
+        alice_owner=bearer_headers(db_file, account_id=2, scope="owner"),
+        alice_collab=bearer_headers(db_file, account_id=2, scope="write"),
     )
 
 
@@ -247,9 +236,8 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert r_settings_kb.status_code == 302
     assert r_settings_kb.headers["location"] == f"/settings/reader?kb={console_env.alice_def.number}"
 
-    # D3: Admin accessing /account/tokens redirects 302 to /admin/tokens. Legacy /settings/themes redirects admin 308 to /moderation/themes.
+    # Legacy /settings/themes redirects admin 308 to /moderation/themes; retired token routes return 404.
     for path, status, target in (
-        ("/account/tokens", 302, "/admin/tokens"),
         ("/settings/themes", 308, "/moderation/themes"),
         ("/admin/kb", 308, "/moderation/oversight"),
         ("/admin/themes", 308, "/moderation/themes"),
@@ -261,7 +249,11 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
         assert adm_page.status_code == 200, target
         assert adm_page.headers["referrer-policy"] == "same-origin"
 
-    # Legacy /settings/themes redirects regular member to /settings/kb, while /settings/kb, /account/tokens, and /moderation/kb return 200.
+    for retired in ("/account/tokens", "/admin/tokens", "/settings/tokens"):
+        assert client.get(retired, headers=console_env.admin_owner, follow_redirects=False).status_code == 404, retired
+        assert client.get(retired, headers=console_env.alice_owner, follow_redirects=False).status_code == 404, retired
+
+    # Legacy /settings/themes redirects regular member to /settings/kb, while /settings/kb and /moderation/kb return 200.
     mem_themes_redirect = client.get("/settings/themes", headers=console_env.alice_owner, follow_redirects=False)
     assert (mem_themes_redirect.status_code, mem_themes_redirect.headers["location"]) == (308, "/settings/kb")
     for legacy_path, target in (("/settings/kb/manage", "/moderation/kb"), (f"/settings/kb/{console_env.admin_extra.number}", f"/moderation/kb/{console_env.admin_extra.number}")):
@@ -272,7 +264,7 @@ def test_index_redirects_and_d3_admin_theme_token_redirects(console_env):
     assert client.get("/settings/kb/999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
     assert client.get(f"/moderation/kb/{console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
     assert client.get("/moderation/kb/999999", headers=console_env.alice_owner, follow_redirects=False).status_code == 404
-    for path in ("/settings/kb", "/account/tokens", "/moderation/kb", f"/moderation/kb/{console_env.admin_extra.number}"):
+    for path in ("/settings/kb", "/moderation/kb", f"/moderation/kb/{console_env.admin_extra.number}"):
         mem_page = client.get(path, headers=console_env.alice_owner, follow_redirects=False)
         assert mem_page.status_code == 200, path
         assert mem_page.headers["referrer-policy"] == "same-origin"
@@ -285,7 +277,7 @@ def test_old_settings_paths_of_the_account_pages_redirect_with_308(console_env):
     _set_mode(console_env.db_file, "network")
     client = console_env.client
     redirects = console_routes.LEGACY_SETTINGS_ACCOUNT_REDIRECTS
-    assert redirects["/settings/account"] == "/account/profile" and redirects["/settings/keys"] == "/account/providers" and len(redirects) == 12
+    assert redirects["/settings/account"] == "/account/profile" and redirects["/settings/keys"] == "/account/providers" and len(redirects) == 11
     # The bundles page moved to /support/bundles: its two old paths go there.
     assert redirects["/settings/bundles"] == redirects["/account/bundles"] == "/support/bundles"
     assert set(redirects.values()) <= {spec.path for spec in (*console_routes.ALL_ACCOUNT_SPECS, *console_routes.SUPPORT_SPECS)}
@@ -296,13 +288,11 @@ def test_old_settings_paths_of_the_account_pages_redirect_with_308(console_env):
         assert client.get(old, headers=console_env.alice_collab, follow_redirects=False).status_code == 404, old
     with_query = client.get(f"/settings/mcp?kb={console_env.alice_def.number}", headers=console_env.alice_owner, follow_redirects=False)
     assert (with_query.status_code, with_query.headers["location"]) == (308, f"/account/mcp?kb={console_env.alice_def.number}")
-    # The administrator: the old token path goes to /account/tokens, and that page goes to /admin/tokens (D3).
-    admin_tokens = client.get("/settings/tokens", headers=console_env.admin_owner, follow_redirects=False)
-    assert (admin_tokens.status_code, admin_tokens.headers["location"]) == (308, "/account/tokens")
+    assert client.get("/settings/tokens", headers=console_env.admin_owner, follow_redirects=False).status_code == 404
 
 
 def test_sidebar_groups_put_the_account_pages_before_the_knowledge_base_pages(console_env):
-    """The sidebar has the two account groups (workspace, ai) first, then the groups of ``/settings/*``; the AI group has the provider, MCP, WebMCP, and token pages."""
+    """The sidebar has the two account groups (workspace, ai) first, then the groups of ``/settings/*``; the AI group has the provider, MCP, and WebMCP pages."""
     import re
 
     _set_mode(console_env.db_file, "network")
@@ -312,7 +302,7 @@ def test_sidebar_groups_put_the_account_pages_before_the_knowledge_base_pages(co
     groups = {m.group(1): re.findall(r'href="([^"?]+)', m.group(2)) for m in re.finditer(r'data-nav-group="([a-z_]+)">(.*?)</ul>', sidebar, re.S)}
     assert groups["workspace"] == ["/account/profile", "/account/security", "/account/invites", "/account/federation", "/account/telegram", "/account/notifications", "/account/backups"]
     assert groups["support"] == ["/support/bundles", "/support/pipeline"]
-    assert groups["ai"] == ["/account/providers", "/account/mcp", "/account/webmcp", "/account/tokens"]
+    assert groups["ai"] == ["/account/providers", "/account/mcp", "/account/webmcp"]
     assert groups["kb"] == ["/settings/kb"] and groups["syndication"][0] == "/settings/reader" and len(groups["syndication"]) == 7
     assert 'data-active-area="account"' in html and 'data-nav-section="providers" aria-current="page"' in html
 
@@ -350,7 +340,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
     assert member_settings.status_code == 200
     assert 'href="/account/profile"' in member_settings.text
     assert 'href="/settings/kb"' in member_settings.text
-    assert 'href="/account/tokens"' in member_settings.text
+    assert 'href="/account/tokens"' not in member_settings.text
     assert 'href="/settings/feeds"' in member_settings.text
     assert 'href="/moderation/kb"' not in member_settings.text
     assert 'href="/moderation/oversight"' not in member_settings.text
@@ -405,7 +395,7 @@ def test_unified_sidebar_and_strict_server_side_admin_dom_stripping(console_env)
         assert 'href="/admin/idp"' in sidebar
         assert 'href="/admin/providers"' in sidebar
         assert 'href="/admin/limits"' in sidebar
-        assert 'href="/admin/tokens"' in sidebar
+        assert 'href="/admin/tokens"' not in sidebar
         assert 'href="/admin/audit"' in sidebar
         assert 'href="/admin/mcp"' in sidebar
         assert 'href="/admin/webmcp"' in sidebar
@@ -548,7 +538,6 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
         "limits": ("admin", "/admin/limits", 'id="admin-limits-host"', 'data-admin-panel-host="limits"'),
         "kb": ("moderation", "/moderation/oversight", 'id="admin-kb-host"', 'id="admin-kb-card"'),
         "themes": ("moderation", "/moderation/themes", 'id="admin-themes-host"', 'data-admin-panel-host="themes"'),
-        "tokens": ("admin", "/admin/tokens", 'id="admin-tokens-host"', 'id="pref-mcp-clients-tbody"'),
         "audit": ("admin", "/admin/audit", 'id="admin-audit-actions-tbody"', 'id="pref-mcp-audit-tbody"'),
         "mcp": ("admin", "/admin/mcp", 'id="pref-mcp-rbac-tbody"', 'id="admin-mcp-rbac-card"'),
         "webmcp": ("admin", "/admin/webmcp", 'id="admin-webmcp-policy-card"', 'id="admin-webmcp-enabled"'),
@@ -584,7 +573,6 @@ def test_all_eight_admin_sections_render_unified_shell_and_preserve_member_theme
 ADMIN_PROTOTYPE_MARKERS: dict[str, tuple[tuple[str, str], ...]] = {
     "/admin/accounts": (("admin-accounts-byok-switch", "prototype"), ("admin-accounts-isolation-table", "static")),
     "/admin/idp": (("admin-idp-login-policy", "prototype"), ("admin-idp-login-simulator", "simulation")),
-    "/admin/tokens": (("admin-token-policy-summary", "static"),),
     "/admin/mcp": (("admin-mcp-rbac-table", "static"),),
     "/admin/webmcp": (("admin-webmcp-global-switch", "client_only"),),
 }

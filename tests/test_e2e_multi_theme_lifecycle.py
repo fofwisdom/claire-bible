@@ -18,6 +18,7 @@ from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.knowledge_base import get_kb_manager
 from claire.telegram.bot import _settle_status
+from tests.auth_helpers import bearer_headers
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")
@@ -40,7 +41,6 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     data_dir.mkdir(parents=True)
     vault_dir.mkdir(parents=True)
 
-    owner_token = "owner-" + ("o" * 32)
     public_url = "http://127.0.0.1:8765"
 
     s = Settings(
@@ -49,7 +49,6 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_DATA_LIFECYCLE="purgeable",
     )
 
@@ -151,7 +150,7 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
     resp_share = client.post(
         f"/kb/{ids.format_public_id(theme1.number)}/share",
         json={"doc_id": doc_id},
-        headers={"Authorization": f"Bearer {owner_token}"},
+        headers=bearer_headers(s, scope="owner"),
     )
     assert resp_share.status_code == 200
     share_json = resp_share.json()

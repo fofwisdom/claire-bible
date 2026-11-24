@@ -29,7 +29,7 @@ from claire.store import db as dbm
 from claire.store import provider_keys
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
@@ -42,15 +42,15 @@ TEST_MASTER_KEY_HEX = "33" * 32
 BYOK_CANARY = "canary-console-e2e-key-4d5e6f708192a3b4"
 MODES = ("single", "network")
 
-ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "tokens", "mcp", "webmcp")
+ADMIN_SECTIONS: tuple[str, ...] = ("server", "federation", "accounts", "idp", "providers", "limits", "mcp", "webmcp")
 MODERATION_ADMIN_SECTIONS: tuple[tuple[str, str], ...] = (("kb", "/moderation/oversight"), ("themes", "/moderation/themes"))
-# The owner sections as (slug, path): the account pages are in /account/*, the knowledge base pages are in /settings/*. The administrator has /admin/tokens in place of /account/tokens (D3).
+# The owner sections as (slug, path): the account pages are in /account/*, the knowledge base pages are in /settings/*.
 OWNER_SECTIONS: tuple[tuple[str, str], ...] = (
     *((slug, f"/account/{slug}") for slug in ("profile", "security", "invites", "federation", "providers", "mcp", "webmcp")),
     *((slug, f"/settings/{slug}") for slug in ("kb", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml")),
 )
-MEMBER_OWNER_SECTIONS: tuple[tuple[str, str], ...] = (*OWNER_SECTIONS, ("tokens", "/account/tokens"))
-ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/admin/kb", "/admin/themes", "/moderation/oversight", "/moderation/themes", "/api/admin/mcp/telemetry")
+MEMBER_OWNER_SECTIONS: tuple[tuple[str, str], ...] = OWNER_SECTIONS
+ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/admin/tokens", "/admin/kb", "/admin/themes", "/moderation/oversight", "/moderation/themes", "/api/admin/mcp/telemetry")
 
 
 @pytest.fixture(autouse=True)
@@ -61,11 +61,9 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     # 저장소 루트 data/auth/master.key를 만들지 않도록 마스터 키를 환경변수로 준다.
     monkeypatch.setenv("CLAIRE_SECRET_KEY", TEST_MASTER_KEY_HEX)
     reset_secret_service()
-    reset_token_stores()
     secret_scrub._reset_for_tests()
     yield
     reset_secret_service()
-    reset_token_stores()
     secret_scrub._reset_for_tests()
 
 
@@ -128,11 +126,6 @@ def console_e2e(tmp_path: Path):
     alice_theme = _insert_theme(tm, settings, kb_id=20, seq=2, number=(2 << 56) | 20, label="Alice Console Garden", account_id=2, is_personal=True)
     bob_theme = _insert_theme(tm, settings, kb_id=30, seq=3, number=(3 << 56) | 30, label="Bob Console Secret", account_id=3, is_personal=True)
 
-    tok_store = get_token_store(data_dir=data_dir)
-    admin_tok = tok_store.create_token(name="admin-owner-e2e", scope="owner", account_id=1)["token"]
-    alice_tok = tok_store.create_token(name="alice-owner-e2e", scope="owner", account_id=2)["token"]
-    alice_collab_tok = tok_store.create_token(name="alice-collab-e2e", scope="write", account_id=2)["token"]
-
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     with TestClient(app, base_url=PUBLIC_URL) as client:
         yield SimpleNamespace(
@@ -143,9 +136,9 @@ def console_e2e(tmp_path: Path):
             admin_theme=admin_theme,
             alice_theme=alice_theme,
             bob_theme=bob_theme,
-            admin={"Authorization": f"Bearer {admin_tok}"},
-            alice={"Authorization": f"Bearer {alice_tok}"},
-            alice_collab={"Authorization": f"Bearer {alice_collab_tok}"},
+            admin=bearer_headers(db_file, account_id=1, scope="owner"),
+            alice=bearer_headers(db_file, account_id=2, scope="owner"),
+            alice_collab=bearer_headers(db_file, account_id=2, scope="write"),
         )
 
 
@@ -191,6 +184,7 @@ def _assert_admin_sidebar(body: str, path: str) -> None:
     assert 'href="/settings/kb/manage"' not in body, path
     assert 'href="/settings/themes"' not in body, path
     assert 'href="/account/tokens"' not in body, path
+    assert 'href="/admin/tokens"' not in body, path
 
 
 def _assert_moderation_sidebar(body: str, path: str, *, is_admin: bool) -> None:
@@ -305,10 +299,9 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
         _assert_admin_sidebar(body, path)
         assert f'data-active-section="{slug}"' in body, path
 
-    # D3 & legacy compatibility redirects: /account/tokens -> 302 /admin/tokens; /moderation -> 302 /moderation/kb; legacy /settings/themes, /settings/kb/manage, /settings/kb/{n}, /admin/kb, /admin/themes -> 308.
+    # Legacy compatibility redirects: /moderation -> 302 /moderation/kb; legacy /settings/themes, /settings/kb/manage, /settings/kb/{n}, /admin/kb, /admin/themes -> 308; retired token routes return 404.
     for path, status, target in (
         ("/moderation", 302, "/moderation/kb"),
-        ("/account/tokens", 302, "/admin/tokens"),
         ("/settings/themes", 308, "/moderation/themes"),
         ("/settings/kb/manage", 308, "/moderation/kb"),
         (f"/settings/kb/{env.admin_theme.number}", 308, f"/moderation/kb/{env.admin_theme.number}"),
@@ -319,6 +312,8 @@ def test_admin_console_navigation_across_all_sections(console_e2e, mode: str):
         assert resp.status_code == status, path
         assert resp.headers["location"] == target, path
         _assert_console_page(_get(env, resp.headers["location"], env.admin), target)
+    for retired in ("/account/tokens", "/admin/tokens", "/settings/tokens"):
+        assert _get(env, retired, env.admin).status_code == 404, retired
 
     telemetry = _get(env, "/api/admin/mcp/telemetry", env.admin)
     assert telemetry.status_code == 200
@@ -417,7 +412,7 @@ def test_member_byok_flow_at_settings_keys_is_write_only(console_e2e, monkeypatc
 
     page = _assert_console_page(_get(env, "/account/providers", env.alice), "/account/providers")
     assert 'data-keys-mode="byok"' in page
-    assert 'data-settings-form="provider-key-put"' in page
+    assert 'data-settings-form="provider-key"' in page
     assert "/admin" not in page
 
     session_headers = _member_session_headers(env, 2)
@@ -464,9 +459,11 @@ def test_single_mode_whoami_has_no_username_and_the_account_page_shows_it(consol
     assert who.json() == {"scope": "owner", "server": {"mode": "single"}, "relation": "owner", "is_admin": True}
     _assert_no_username_leak(who, "/whoami")
 
-    for path, status in (("/admin", 302), ("/account", 302), ("/settings", 302), ("/moderation", 302), ("/settings/themes", 308), ("/account/tokens", 302), ("/settings/kb/manage", 308), ("/admin/kb", 308), ("/admin/themes", 308)):
+    for path, status in (("/admin", 302), ("/account", 302), ("/settings", 302), ("/moderation", 302), ("/settings/themes", 308), ("/settings/kb/manage", 308), ("/admin/kb", 308), ("/admin/themes", 308)):
         resp = _get(env, path, env.admin)
         assert resp.status_code == status, path
+    for retired in ("/account/tokens", "/admin/tokens", "/settings/tokens"):
+        assert _get(env, retired, env.admin).status_code == 404, retired
 
     for slug in ADMIN_SECTIONS:
         path = f"/admin/{slug}"

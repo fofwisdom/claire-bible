@@ -19,6 +19,7 @@ from claire.ingest import service as svcmod
 from claire.ingest.service import IngestService
 from claire.ontology.base import Document
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 
 PARENT = "https://parent.example/post"
 SAME = "https://same.example/repo"
@@ -47,7 +48,6 @@ def _run(argv: list[str], capsys) -> tuple[int, str]:
 
 
 def test_shadow_mode_from_setting_to_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
-    token = "e2e-owner-token-shadow-0123456789abcdef"
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     db_file = data_dir / "claire.db"
@@ -62,9 +62,9 @@ def test_shadow_mode_from_setting_to_report(tmp_path: Path, monkeypatch: pytest.
     conn.close()
 
     # 1. The server administrator selects the shadow mode. A merge mode is refused.
-    settings = Settings(CLAIRE_ENVIRONMENT="development", CLAIRE_INJECT_TOKEN=token, CLAIRE_DB_PATH=str(db_file), CLAIRE_FQDN="127.0.0.1:8765", provider="mock")
+    settings = Settings(CLAIRE_ENVIRONMENT="development", CLAIRE_DB_PATH=str(db_file), CLAIRE_FQDN="127.0.0.1:8765", provider="mock")
     client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = bearer_headers(db_file, scope="owner")
     assert client.get("/limits", headers=headers).json()["limits"]["same_subject_merge"] == "off"
     assert client.patch("/limits", headers=headers, json={"limits": {"same_subject_merge": "on"}}).status_code == 400
     assert client.patch("/limits", headers=headers, json={"limits": {"same_subject_merge": "shadow"}}).status_code == 200

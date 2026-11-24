@@ -12,10 +12,7 @@ from claire.api.server import create_app
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store import queries
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 @dataclass
@@ -25,8 +22,6 @@ class _Settings:
     vault_dir: Path
     environment: str = "development"
     public_url: str = "http://127.0.0.1:8765"
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     vector_backend: str = "brute"
     effective_provider: str = "mock"
@@ -126,11 +121,12 @@ def test_documents_page_null_fetched_at_is_last(tmp_path: Path) -> None:
 
 def test_get_documents_default_response_is_unchanged_plus_additive_fields(tmp_path: Path) -> None:
     settings, order = _seed(tmp_path)
+    owner_headers = bearer_headers(settings, scope="owner")
     conn = dbm.connect(settings.db_file)
     expected_owner = queries.documents_list(conn, limit=300, include_hidden=True, kb_id=0)
     conn.close()
     with TestClient(create_app(settings), base_url=settings.public_url) as client:
-        body = client.get("/documents", headers=OWNER_HEADERS).json()
+        body = client.get("/documents", headers=owner_headers).json()
         assert set(body) == {"documents", "format_status", "kb_id", "theme_label", "next_before", "total"}
         assert body["documents"] == expected_owner
         assert [d["id"] for d in body["documents"]] == order
@@ -142,6 +138,7 @@ def test_get_documents_default_response_is_unchanged_plus_additive_fields(tmp_pa
 
 def test_get_documents_pages_exclude_hidden_documents_for_the_anonymous_scope(tmp_path: Path) -> None:
     settings, order = _seed(tmp_path)
+    owner_headers = bearer_headers(settings, scope="owner")
     visible = [i for i in order if i not in ("d03", "d08")]
     with TestClient(create_app(settings), base_url=settings.public_url) as client:
         def fetch(headers):
@@ -164,15 +161,16 @@ def test_get_documents_pages_exclude_hidden_documents_for_the_anonymous_scope(tm
         assert client.get("/documents", params=[("id", "d03"), ("id", "d04")]).json()["documents"][0]["id"] == "d04"
         assert len(client.get("/documents", params=[("id", "d03"), ("id", "d04")]).json()["documents"]) == 1
 
-        owner_ids, _ = _all_pages(fetch(OWNER_HEADERS), 3)
+        owner_ids, _ = _all_pages(fetch(owner_headers), 3)
         assert owner_ids == order
 
 
 def test_get_documents_filters_and_parameter_errors(tmp_path: Path) -> None:
     settings, order = _seed(tmp_path)
+    owner_headers = bearer_headers(settings, scope="owner")
     with TestClient(create_app(settings), base_url=settings.public_url) as client:
         def ids(**params):
-            res = client.get("/documents", params=params, headers=OWNER_HEADERS)
+            res = client.get("/documents", params=params, headers=owner_headers)
             assert res.status_code == 200
             return [d["id"] for d in res.json()["documents"]], res.json()["total"]
 
@@ -188,7 +186,7 @@ def test_get_documents_filters_and_parameter_errors(tmp_path: Path) -> None:
         assert ids(detail="mismatched") == ([], 0)
         assert ids(id="d05") == (["d05"], 1)
         for params in ({"limit": "0"}, {"limit": "301"}, {"limit": "x"}, {"before": "abc"}, {"before": "nan:d01"}, {"pinned": "yes"}, {"detail": "other"}):
-            assert client.get("/documents", params=params, headers=OWNER_HEADERS).status_code == 400, params
+            assert client.get("/documents", params=params, headers=owner_headers).status_code == 400, params
 
 
 def test_documents_page_cursor_id_with_colon_literal_like_characters_and_theme_scope(tmp_path: Path) -> None:
@@ -234,10 +232,11 @@ def test_documents_page_cursor_id_with_colon_literal_like_characters_and_theme_s
 
 def test_get_documents_parameter_errors_have_fixed_messages(tmp_path: Path) -> None:
     settings, _order = _seed(tmp_path)
+    owner_headers = bearer_headers(settings, scope="owner")
     with TestClient(create_app(settings), base_url=settings.public_url) as client:
         for value in ("abc", "1.5", "9" * 5000, "0", "301"):
-            res = client.get("/documents", params={"limit": value}, headers=OWNER_HEADERS)
+            res = client.get("/documents", params={"limit": value}, headers=owner_headers)
             assert res.status_code == 400 and res.json() == {"error": "limit must be an integer 1..300"}, value
         for value in ("garbage", "abc:def", "nan:x", "9" * 5000 + ":x", "1:"):
-            res = client.get("/documents", params={"before": value}, headers=OWNER_HEADERS)
+            res = client.get("/documents", params={"before": value}, headers=owner_headers)
             assert res.status_code == 400 and res.json() == {"error": "before must be <fetched_at>:<id>"}, value

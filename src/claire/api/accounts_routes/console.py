@@ -2,7 +2,6 @@
 
 - ``/admin``, ``/admin/*``, ``/moderation/oversight``, and ``/moderation/themes`` are for administrators only (``server_role == "admin"``, ``scope == "owner"``); other callers get 404.
 - ``/account``, ``/account/*``, ``/settings``, ``/settings/*``, ``/moderation``, ``/moderation/kb``, and ``/support/bundles`` are ``_system("owner")`` surfaces for account owners (``scope == "owner"``). ``/account/*`` has the pages of the account of the caller; ``/settings/*`` has the pages of a knowledge base (shared knowledge, syndication).
-- An administrator who opens ``/account/tokens`` gets a 302 redirect to ``/admin/tokens`` and does not see ``/account/tokens`` in the sidebar.
 - Legacy routes (the old ``/settings/*`` paths of the ``/account/*`` pages, ``/account/bundles``, ``/settings/kb/manage``, ``/settings/kb/{number}``, ``/settings/themes``, ``/admin/kb``, ``/admin/themes``) return 308 redirects after stealth authorization checks.
 - Non-admin HTML responses never contain ``/admin/*`` links, ``/moderation/oversight``, ``/moderation/themes``, or administrator script bundles.
 """
@@ -76,12 +75,6 @@ from .common import icon_html, open_auth_db
 
 # 유저 단위 기능 화면(api.accounts_routes.features가 본문을 그리고 console_features.js가 동작을 맡는다).
 FEATURE_SETTINGS_SLUGS: frozenset[str] = frozenset({"telegram", "bundles", "backups"})  # "bundles" is the page /support/bundles
-
-def _tokens_deprecation_banner_html() -> str:
-    """Render the deprecation banner pointing operators and users to OAuth 2.1 in /account/mcp."""
-    mcp_link = '<a href="/account/mcp">/account/mcp</a>'
-    message = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": mcp_link})
-    return console_notice(f'<span data-icon="warning"></span> {message}', tone="warn", attrs={"data-deprecated": "tokens", "role": "status"})
 
 
 ADMIN_INDEX_PATH = "/admin"
@@ -223,13 +216,6 @@ ACCOUNT_AI_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="graph",
         theme_scoped=True,
     ),
-    ConsoleSectionSpec(
-        slug="tokens",
-        path="/account/tokens",
-        area="account",
-        group_id="ai",
-        icon="key",
-    ),
 )
 
 # The laboratory (/laboratory/*, LABORATORY_DESIGN.md): the server administrator only; api.accounts_routes.laboratory renders the bodies.
@@ -248,7 +234,7 @@ ALL_ACCOUNT_SPECS: tuple[ConsoleSectionSpec, ...] = (
 LEGACY_SETTINGS_ACCOUNT_REDIRECTS: dict[str, str] = {
     "/settings/account": "/account/profile",
     "/settings/keys": "/account/providers",
-    **{f"/settings/{slug}": f"/account/{slug}" for slug in ("invites", "federation", "telegram", "notifications", "backups", "mcp", "webmcp", "tokens")},
+    **{f"/settings/{slug}": f"/account/{slug}" for slug in ("invites", "federation", "telegram", "notifications", "backups", "mcp", "webmcp")},
     # The bundles page moved from /account/bundles (and before that /settings/bundles) to /support/bundles.
     "/settings/bundles": SUPPORT_BUNDLES_SPEC.path,
     "/account/bundles": SUPPORT_BUNDLES_SPEC.path,
@@ -410,13 +396,6 @@ ADMIN_CONSOLE_GROUP_5_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="puzzle",
     ),
     ConsoleSectionSpec(
-        slug="tokens",
-        path="/admin/tokens",
-        area="admin",
-        group_id="admin_system",
-        icon="key",
-    ),
-    ConsoleSectionSpec(
         slug="audit",
         path="/admin/audit",
         area="admin",
@@ -565,16 +544,7 @@ def _build_sidebar_html(
     else:
         groups = [
             ("workspace", t("console.group.workspace"), list(ACCOUNT_WORKSPACE_SPECS)),
-            (
-                "ai",
-                t("console.group.ai"),
-                [
-                    spec
-                    for spec in ACCOUNT_AI_SPECS
-                    # D3: admin manages tokens in /admin/tokens.
-                    if not (admin_viewer and spec.slug == "tokens")
-                ],
-            ),
+            ("ai", t("console.group.ai"), list(ACCOUNT_AI_SPECS)),
             ("kb", t("console.group.kb"), list(SETTINGS_KB_SPECS)),
             ("syndication", t("console.group.syndication"), list(SETTINGS_GROUP_2_SPECS)),
             ("support", t("console.group.support"), list(SUPPORT_SPECS)),
@@ -667,90 +637,6 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
         # Theme judgement console (/moderation/themes): console_admin.js loads data from GET /api/admin/themes and GET /api/admin/reputations.
         body = console_host("admin-themes-host", loading_text=t("console.common.loading"), panel_host="admin:themes", outer_id="admin-themes-card", attrs={"aria-label": t("console.section.moderation.themes.title")})
         return body, {}
-
-    if slug == "tokens":
-        conn = open_db(ctx)
-        try:
-            oauth_rows = conn.execute(
-                "SELECT c.client_id, c.client_name, c.redirect_uris, c.created_at, MAX(t.expires_at) "
-                "FROM oauth_clients c LEFT JOIN oauth_tokens t ON c.client_id = t.client_id "
-                "GROUP BY c.client_id ORDER BY c.created_at DESC"
-            ).fetchall()
-        except Exception:
-            oauth_rows = []
-        finally:
-            conn.close()
-
-        client_trs: list[str] = []
-        oauth_clients_list: list[dict[str, Any]] = []
-        for cid, cname, ruris_raw, created_at, max_exp in oauth_rows:
-            try:
-                ruris = json.loads(ruris_raw) if isinstance(ruris_raw, str) else []
-            except Exception:
-                ruris = [str(ruris_raw)] if ruris_raw else []
-            ruri_str = ", ".join(str(u) for u in ruris) if ruris else "-"
-            created_str = format_ts(created_at)
-            exp_str = format_ts(max_exp) if max_exp else t("console.admin.tokens.no_token")
-            client_trs.append(
-                f"<tr>"
-                f"<td><strong>{escape(cname or 'External MCP Client')}</strong></td>"
-                f'<td><code class="pref-mono">{escape(cid)}</code><br/><span class="pref-mono" style="color:var(--muted)">{escape(ruri_str)}</span></td>'
-                f"<td>{escape(created_str)}</td>"
-                f"<td>{escape(exp_str)}</td>"
-                f"</tr>"
-            )
-            oauth_clients_list.append(
-                {
-                    "client_id": cid,
-                    "client_name": cname or "External MCP Client",
-                    "redirect_uris": ruris,
-                    "created_at": created_at,
-                    "expires_at": max_exp,
-                }
-            )
-        clients_tbody = (
-            "".join(client_trs)
-            if client_trs
-            else f'<tr><td colspan="4" style="color:var(--muted);text-align:center;">{escape(t("console.admin.tokens.clients_empty"))}</td></tr>'
-        )
-        notice_banner = _tokens_deprecation_banner_html()
-        tokens_host_html = console_host(
-            "admin-tokens-host",
-            loading_text=t("console.admin.tokens.loading"),
-            panel_host="admin:tokens",
-            outer_id="admin-tokens-manager-card",
-            attrs={"aria-label": t("console.admin.tokens.manager_label")},
-        )
-        clients_table_html = console_table(
-            [t("console.oauth.col_client_name"), "client_id · redirect_uris", t("console.admin.tokens.col_registered"), t("console.admin.tokens.col_expires")],
-            clients_tbody,
-            tbody_id="pref-mcp-clients-tbody",
-        )
-        clients_card_html = console_card(
-            escape(t("console.admin.tokens.clients_title")),
-            clients_table_html,
-            id="admin-oauth-clients-card",
-            icon="lock",
-            hint_html=t_code("console.admin.tokens.clients_hint", register="/oauth/register", authorize="/oauth/authorize"),
-            aria_label=t("console.admin.tokens.clients_label"),
-        )
-        policy_kv_html = console_kv(
-            [
-                {"label_html": t_code("console.admin.tokens.policy_permanent", prefix="cb_…"), "value_html": t_code("console.admin.tokens.policy_permanent_desc", owner="owner", write="write", readonly="readonly", revoke="/tokens/revoke")},
-                {"label": t("console.admin.tokens.policy_oauth"), "value_html": t_code("console.admin.tokens.policy_oauth_desc", readonly="readonly")},
-                {"label": t("console.admin.tokens.policy_session"), "value_html": t_code("console.admin.tokens.policy_session_desc", reauth="/api/auth/reauth")},
-            ]
-        )
-        policy_card_html = console_card(
-            escape(t("console.admin.tokens.policy_title")),
-            prototype_note("admin-token-policy-summary", t("console.admin.tokens.policy_note")) + policy_kv_html,
-            id="admin-token-policy-card",
-            icon="shield",
-            badge_html=prototype_badge("admin-token-policy-summary", "static"),
-            aria_label=t("console.admin.tokens.policy_label"),
-        )
-        body = notice_banner + tokens_host_html + clients_card_html + policy_card_html
-        return body, {"oauth_clients": oauth_clients_list}
 
     if slug == "audit":
         from .console_audit_panels import admin_audit_body
@@ -935,7 +821,7 @@ def _build_settings_account_section(
 ) -> SettingsSectionRender:
     """The bodies of the ``/account/*`` sections other than ``mcp`` and ``webmcp``, and of ``/settings/kb`` and the owner moderation section (design P3-a).
 
-    - Only existing APIs (C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``/api/me/provider-keys*``, ``/api/invites``, ``/themes``, ``/tokens``.
+    - Only existing APIs (C1): ``/api/me``, ``/api/me/password``, ``/api/auth/reauth``, ``/api/me/identities*``, ``/api/me/provider-keys*``, ``/api/invites``, ``/themes``.
     - A response for an account that is not the server administrator has no ``/admin/*`` link (invariant 3). Only the server administrator gets the ``/admin/providers`` link.
     """
     if principal.account_id is None or principal.account_id != account.id:
@@ -967,10 +853,6 @@ def _build_settings_account_section(
             extra_bootstrap={"account": {"public_id": str(account.public_id), "display_name": account.display_name, "username": account.username}},
             extra_scripts_html='<script src="/static/js/console_kb.js" defer></script>',
         )
-    elif spec.slug == "tokens":
-        if admin_viewer:
-            raise RuntimeError("/account/tokens must redirect the admin to /admin/tokens")
-        body, extra = _settings_tokens_body(ctx, account=account)
     elif spec.slug == "notifications":
         # The session of the page marks the devices that this browser session subscribed (PWA_NOTIFICATION_DESIGN.md PN4 rule 3).
         return SettingsSectionRender(
@@ -1601,77 +1483,6 @@ def _account_providers_body(
     return body, {"keys_mode": "byok", "has_password": has_password}
 
 
-def _settings_own_oauth_clients(ctx: AccountsContext, account_id: int) -> list[dict[str, Any]]:
-    """Select active OAuth clients with grants belonging to the caller account (oauth_tokens.account_id), never exposing token secrets."""
-    conn = open_db(ctx)
-    try:
-        rows = conn.execute(
-            "SELECT c.client_id, c.client_name, c.redirect_uris, MIN(t.created_at), MAX(t.expires_at), COUNT(t.token), "
-            "GROUP_CONCAT(DISTINCT COALESCE(NULLIF(t.granted_scope, ''), t.scope, 'readonly')), MAX(t.last_used_at) "
-            "FROM oauth_tokens t JOIN oauth_clients c ON c.client_id = t.client_id "
-            "WHERE t.account_id = ? AND t.rotated_at IS NULL AND t.revoked_at IS NULL GROUP BY c.client_id ORDER BY MIN(t.created_at) DESC",
-            (account_id,),
-        ).fetchall()
-    finally:
-        conn.close()
-    clients: list[dict[str, Any]] = []
-    for client_id, client_name, redirect_uris_raw, first_issued, last_expiry, token_count, scopes_raw, last_used_at in rows:
-        redirect_uris = json.loads(redirect_uris_raw)
-        if not isinstance(redirect_uris, list):
-            raise ValueError(f"oauth_clients.redirect_uris is not a JSON list for client {client_id!r}")
-        clients.append(
-            {
-                "client_id": str(client_id),
-                "client_name": client_name or "External MCP Client",
-                "redirect_uris": [str(u) for u in redirect_uris],
-                "first_issued_at": first_issued,
-                "expires_at": last_expiry,
-                "token_count": int(token_count),
-                "scope": str(scopes_raw or "readonly"),
-                "last_used_at": last_used_at,
-            }
-        )
-    return clients
-
-
-def _settings_tokens_body(ctx: AccountsContext, *, account: accounts_store.Account) -> tuple[str, dict[str, Any]]:
-    clients = _settings_own_oauth_clients(ctx, account.id)
-    notice_banner = _tokens_deprecation_banner_html()
-    trs = "".join(
-        "<tr>"
-        f"<td><strong>{escape(c['client_name'])}</strong></td>"
-        f'<td><code class="pref-mono">{escape(c["client_id"])}</code><br/><span class="pref-mono" style="color:var(--muted)">{escape(", ".join(c["redirect_uris"]) or "-")}</span></td>'
-        f"<td>{escape(format_ts(c['first_issued_at']))}</td>"
-        f"<td>{escape(format_ts(c['expires_at']))}</td>"
-        f"<td>{escape(c['token_count'])}</td>"
-        "</tr>"
-        for c in clients
-    )
-    tbody = trs or f'<tr><td colspan="5" style="color:var(--muted);text-align:center;">{escape(t("console.settings.tokens.clients_empty"))}</td></tr>'
-    tokens_host = console_host(
-        "settings-tokens-host",
-        loading_text=t("console.settings.tokens.loading"),
-        panel_host="settings:tokens",
-        outer_id="settings-tokens-manager-card",
-        attrs={"aria-label": t("console.settings.tokens.manager_label")},
-    )
-    clients_table_html = (
-        '<div class="pref-table-wrap"><table class="pref-table">'
-        f"<thead><tr><th>{escape(t('console.oauth.col_client_name'))}</th><th>client_id · redirect_uris</th><th>{escape(t('console.settings.tokens.col_first_issued'))}</th><th>{escape(t('console.settings.tokens.col_last_expiry'))}</th><th>{escape(t('console.settings.tokens.col_count'))}</th></tr></thead>"
-        f"<tbody data-oauth-clients-tbody>{tbody}</tbody>"
-        "</table></div>"
-    )
-    clients_card = console_card(
-        escape(t("console.settings.tokens.clients_title")),
-        clients_table_html,
-        id="settings-oauth-clients",
-        icon="lock",
-        hint_html=t_code("console.settings.tokens.clients_hint", authorize="/oauth/authorize"),
-        aria_label=t("console.settings.tokens.clients_label"),
-    )
-    return notice_banner + tokens_host + clients_card, {"oauth_clients": clients}
-
-
 def _render_console_section(
     ctx: AccountsContext,
     *,
@@ -2034,12 +1845,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if spec is None:
             return not_found()
         raw_theme = request.query_params.get("kb") if "kb" in request.query_params else None
-        # D3: admin accessing /account/tokens redirects 302 to /admin/tokens.
-        if is_admin(principal) and spec.slug == "tokens":
-            ok, validated_theme = await asyncio.to_thread(_validated_theme_query, request, principal)
-            if not ok:
-                return not_found()
-            return _redirect(_append_theme_query("/admin/tokens", validated_theme))
         return await asyncio.to_thread(
             _render_console_section,
             ctx,

@@ -102,12 +102,12 @@ class AccountThemeScope:
 # 이전 이름. 관리자 봇도 같은 범위 규칙을 쓴다.
 AdminThemeScope = AccountThemeScope
 
-# 운영자(관리자 계정) 봇에서만 쓰는 명령. 멤버 계정 봇은 이 명령을 거부한다(서버 세션·토큰·전체 현황을 다루기 때문이다).
-ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webro", "token", "status"})
+# 운영자(관리자 계정) 봇에서만 쓰는 명령. 멤버 계정 봇은 이 명령을 거부한다(서버 세션·전체 현황을 다루기 때문이다).
+ADMIN_ONLY_COMMANDS: frozenset[str] = frozenset({"web", "webro", "status"})
 # 운영자 봇에서만 받는 콜백(OAuth 승인 푸시).
 ADMIN_ONLY_CALLBACK_PREFIXES: tuple[str, ...] = ("oauth_appr:", "oauth_deny:")
 # The commands of the Telegram command menu, in menu order. The description of each command is the catalog key ``bot.command.<name>``.
-COMMAND_MENU: tuple[str, ...] = ("kb", "help", "status", "support", "export", "repo", "search", "ingest", "token", "web", "webro", "failed", "retry", "start")
+COMMAND_MENU: tuple[str, ...] = ("kb", "help", "status", "support", "export", "repo", "search", "ingest", "web", "webro", "failed", "retry", "start")
 
 
 def resolve_update_locale(update: Any, *, owner_locale: str | None, settings: Any) -> str:
@@ -773,12 +773,76 @@ def _is_allowed(user_id: int | None, settings: Settings | None = None) -> bool:
     return user_id in allow
 
 
+_EPHEMERAL_BUNDLE_SESSION_TTL = 60.0
+
+
+def _issue_ephemeral_bundle_session(settings, *, account_id: int = dbm.ADMIN_ACCOUNT_ID) -> str:
+    """Issue a short-lived owner X-Session row in claire.db for internal bundle API delegation."""
+    from ..store import accounts as accounts_store
+
+    conn = dbm.connect(settings.db_file)
+    try:
+        dbm.init_db(conn)
+        return accounts_store.create_account_session(conn, account_id=int(account_id), scope="owner", ttl_seconds=_EPHEMERAL_BUNDLE_SESSION_TTL)
+    finally:
+        conn.close()
+
+
+def _revoke_ephemeral_bundle_session(settings, session_token: str) -> None:
+    """Delete the ephemeral bundle session immediately after the internal API call completes."""
+    if not session_token:
+        return
+    try:
+        conn = dbm.connect_existing(settings.db_file, readonly=False)
+    except Exception:
+        return
+    try:
+        conn.execute("DELETE FROM auth_sessions WHERE session_token=?", (session_token,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def _post_bundle_api(settings, *, api_url: str, path: str, json_body: dict[str, Any], account_id: int, url_env_name: str, api_label: str, transport=None) -> dict[str, Any]:
+    """Call an internal Compose API bundle endpoint with an ephemeral account-bound X-Session."""
+    parsed = urlsplit(api_url)
+    if parsed.scheme != "http" or parsed.hostname != "api" or parsed.username is not None or parsed.password is not None or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise RuntimeError(f"{url_env_name} must be the Compose-internal http://api:<port> URL")
+    public_authority = urlsplit(str(settings.public_url)).netloc
+    if not public_authority:
+        raise RuntimeError(f"CLAIRE_FQDN is required for the internal {api_label} API")
+
+    import httpx
+
+    session_token = await asyncio.to_thread(_issue_ephemeral_bundle_session, settings, account_id=account_id)
+    try:
+        async with httpx.AsyncClient(timeout=300.0, transport=transport) as client:
+            response = await client.post(
+                f"{api_url}{path}",
+                headers={
+                    "X-Session": session_token,
+                    # The TCP destination is the Compose service, while the hardened API continues to enforce its canonical public Host.
+                    "Host": public_authority,
+                },
+                json=json_body,
+            )
+    finally:
+        await asyncio.to_thread(_revoke_ephemeral_bundle_session, settings, session_token)
+    if response.status_code != 200:
+        raise RuntimeError(f"{api_label} API creation failed with HTTP {response.status_code}")
+    try:
+        return response.json()
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{api_label} API returned an invalid response") from exc
+
+
 async def _create_support_bundle_for_delivery(
     settings,
     *,
     days: int,
     target: str | None,
     channel: str,
+    account_id: int = dbm.ADMIN_ACCOUNT_ID,
     transport=None,
 ):
     """Create through the API service that also serves the public download."""
@@ -794,42 +858,18 @@ async def _create_support_bundle_for_delivery(
             request_context={"channel": channel},
         )
 
-    parsed = urlsplit(api_url)
-    if (
-        parsed.scheme != "http"
-        or parsed.hostname != "api"
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.path not in {"", "/"}
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise RuntimeError(
-            "CLAIRE_SUPPORT_BUNDLE_API_URL must be the Compose-internal http://api:<port> URL"
-        )
-    public_authority = urlsplit(str(settings.public_url)).netloc
-    if not public_authority:
-        raise RuntimeError("CLAIRE_FQDN is required for the internal Support Bundle API")
-
-    import httpx
-
-    async with httpx.AsyncClient(timeout=300.0, transport=transport) as client:
-        response = await client.post(
-            f"{api_url}/support/bundle",
-            headers={
-                "Authorization": f"Bearer {settings.inject_token}",
-                # The TCP destination is the Compose service, while the hardened
-                # API correctly continues to enforce its canonical public Host.
-                "Host": public_authority,
-            },
-            json={"days": days, "target": target, "source_channel": channel},
-        )
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Support Bundle API creation failed with HTTP {response.status_code}"
-        )
+    payload = await _post_bundle_api(
+        settings,
+        api_url=api_url,
+        path="/support/bundle",
+        json_body={"days": days, "target": target, "source_channel": channel},
+        account_id=account_id,
+        url_env_name="CLAIRE_SUPPORT_BUNDLE_API_URL",
+        api_label="Support Bundle",
+        transport=transport,
+    )
     try:
-        return SupportBundleInfo.from_dict(response.json())
+        return SupportBundleInfo.from_dict(payload)
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError("Support Bundle API returned an invalid response") from exc
 
@@ -839,16 +879,13 @@ async def _create_graph_bundle_for_delivery(
     *,
     kb_id: int = 0,
     channel: str,
+    account_id: int = dbm.ADMIN_ACCOUNT_ID,
     transport=None,
 ):
     """Create graph bundle through the internal API service or local thread."""
     from ..ops.graph_bundle import GraphBundleInfo, create_graph_bundle
 
-    api_url = str(
-        getattr(settings, "graph_bundle_api_url", "")
-        or getattr(settings, "support_bundle_api_url", "")
-        or ""
-    ).rstrip("/")
+    api_url = str(getattr(settings, "graph_bundle_api_url", "") or getattr(settings, "support_bundle_api_url", "") or "").rstrip("/")
     if not api_url:
         return await asyncio.to_thread(
             create_graph_bundle,
@@ -857,40 +894,18 @@ async def _create_graph_bundle_for_delivery(
             request_context={"channel": channel},
         )
 
-    parsed = urlsplit(api_url)
-    if (
-        parsed.scheme != "http"
-        or parsed.hostname != "api"
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.path not in {"", "/"}
-        or parsed.query
-        or parsed.fragment
-    ):
-        raise RuntimeError(
-            "CLAIRE_GRAPH_BUNDLE_API_URL must be the Compose-internal http://api:<port> URL"
-        )
-    public_authority = urlsplit(str(settings.public_url)).netloc
-    if not public_authority:
-        raise RuntimeError("CLAIRE_FQDN is required for the internal Graph Bundle API")
-
-    import httpx
-
-    async with httpx.AsyncClient(timeout=300.0, transport=transport) as client:
-        response = await client.post(
-            f"{api_url}/support/graph-bundle",
-            headers={
-                "Authorization": f"Bearer {settings.inject_token}",
-                "Host": public_authority,
-            },
-            json={"kb_id": kb_id, "source_channel": channel},
-        )
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Graph Bundle API creation failed with HTTP {response.status_code}"
-        )
+    payload = await _post_bundle_api(
+        settings,
+        api_url=api_url,
+        path="/support/graph-bundle",
+        json_body={"kb_id": kb_id, "source_channel": channel},
+        account_id=account_id,
+        url_env_name="CLAIRE_GRAPH_BUNDLE_API_URL",
+        api_label="Graph Bundle",
+        transport=transport,
+    )
     try:
-        return GraphBundleInfo.from_dict(response.json())
+        return GraphBundleInfo.from_dict(payload)
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError("Graph Bundle API returned an invalid response") from exc
 
@@ -2243,100 +2258,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             disable_web_page_preview=True,
         )
 
-    async def on_token(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-        """API 및 MCP 상시 이용 토큰 관리 (조회/생성/폐기)."""
-        if not _is_allowed(update.effective_user.id if update.effective_user else None):
-            return
-        if await _refuse_member(update):
-            return
-        msg = update.effective_message
-        if not msg:
-            return
-
-        args = ctx.args or []
-        subcmd = args[0].lower() if args else "list"
-
-        def _token_action():
-            from ..store.token_store import get_token_store
-
-            store = get_token_store(data_dir=svc.s.data_dir)
-            if subcmd in ("list", "ls"):
-                return ("list", store.list_api_tokens(include_revoked=False))
-            elif subcmd in ("create", "new", "add"):
-                if len(args) < 2:
-                    return ("error", _t("bot.token.usage_create"))
-                name = args[1].strip()
-                scope = args[2].strip().lower() if len(args) >= 3 else "readonly"
-                if scope not in ("owner", "write", "readonly"):
-                    return ("error", _t("bot.token.invalid_scope", scope=scope))
-                try:
-                    created = store.create_api_token(name=name, scope=scope, expires_in_days=None)
-                except PermissionError as exc:
-                    return ("error", str(exc))
-                return ("created", created)
-            elif subcmd in ("revoke", "delete", "rm"):
-                if len(args) < 2:
-                    return ("error", _t("bot.token.usage_revoke"))
-                target = args[1].strip()
-                revoked = store.revoke_api_token(target)
-                return ("revoked", revoked, target)
-            else:
-                return ("help", None)
-
-        res = await asyncio.to_thread(_token_action)
-        action_type = res[0]
-
-        deprecation_line = "\n<i>Deprecated: manual tokens will be retired; use OAuth 2.1 in /account/mcp.</i>"
-
-        if action_type == "list":
-            tokens = res[1]
-            if not tokens:
-                await msg.reply_text(
-                    _t("bot.token.none") + deprecation_line,
-                    parse_mode="HTML",
-                )
-                return
-
-            lines = [_t("bot.token.list_title", count=len(tokens)) + "\n"]
-            for t in tokens:
-                raw_t = t["token"]
-                prefix = raw_t[:8] if len(raw_t) >= 8 else raw_t[:4]
-                suffix = raw_t[-4:] if len(raw_t) >= 8 else ""
-                masked = f"<code>{_h(prefix)}...{_h(suffix)}</code>"
-                lines.append(_t("bot.token.list_item", id=t["id"], name=_h(t["name"]), scope=_h(t["scope"]), masked=masked))
-            lines.append("\n" + _t("bot.token.hint_create"))
-            lines.append(_t("bot.token.hint_revoke"))
-            lines.append(deprecation_line.strip())
-            await msg.reply_text("\n".join(lines), parse_mode="HTML")
-
-        elif action_type == "created":
-            created = res[1]
-            raw_token = created["token"]
-            base_url = s.public_url.rstrip("/") if s.public_url else f"http://127.0.0.1:{getattr(s, 'inject_port', 8765)}"
-            mcp_url = f"{base_url}/mcp"
-            text = (
-                _t("bot.token.created", id=created["id"], name=_h(created["name"]), scope=_h(created["scope"]), token=_h(raw_token), mcp_url=_h(mcp_url))
-                + deprecation_line
-            )
-            await msg.reply_text(text, parse_mode="HTML")
-
-        elif action_type == "revoked":
-            revoked, target = res[1], res[2]
-            if revoked:
-                await msg.reply_text(_t("bot.token.revoked", target=_h(target)), parse_mode="HTML")
-            else:
-                await msg.reply_text(_t("bot.token.revoke_not_found", target=_h(target)), parse_mode="HTML")
-
-        elif action_type == "error":
-            await msg.reply_text(f"⚠️ {res[1]}")
-
-        else:
-            await msg.reply_text(
-                _t("bot.token.help"),
-                parse_mode="HTML",
-            )
-
-
     async def on_status(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         if not _is_allowed(update.effective_user.id if update.effective_user else None):
             return
@@ -2723,7 +2644,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
     app.add_handler(CommandHandler("ingest", _localized(on_ingest)))
     app.add_handler(CommandHandler("web", _localized(on_web)))
     app.add_handler(CommandHandler("webro", _localized(on_webro)))
-    app.add_handler(CommandHandler(["token", "tokens", "key"], _localized(on_token)))
     app.add_handler(CommandHandler("failed", _localized(on_failed)))
     app.add_handler(CommandHandler("retry", _localized(on_retry)))
     app.add_handler(CallbackQueryHandler(_localized(on_callback)))

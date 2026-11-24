@@ -21,9 +21,9 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import get_kb_manager
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
-OWNER_TOKEN = "owner-" + "o" * 32
 PASSWORD = "Correct-Horse-Battery-123!"
 MEMBER_PUBLIC_ID = 223456789012
 STALE = 16 * 60.0
@@ -49,8 +49,6 @@ def _prepare(tmp_path: Path, **overrides: Any) -> tuple[Settings, int]:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=fqdn,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN="readonly-" + "r" * 32,
         **overrides,
     )
     conn = dbm.connect(settings.db_file)
@@ -142,7 +140,7 @@ def test_profile_switch_needs_no_recent_authentication(env):
 
 
 def test_bearer_credential_can_make_the_change(env):
-    bearer = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    bearer = bearer_headers(env.settings, account_id=1, scope="owner")
     accepted = env.client.request("PATCH", "/api/me", headers=bearer, json={"profile_public": 1})
     assert accepted.status_code == 200 and accepted.json()["profile_public"] == 1
     assert _is_public(env.settings, 1) is True
@@ -215,7 +213,7 @@ def test_profile_page_has_the_alternate_link_of_the_actor(env):
     kb_priv = env.client.request("GET", "/@member_alpha/kb", headers={"Accept": "text/html"})
     assert kb_priv.status_code == 200 and '<meta name="robots" content="noindex, nofollow"/>' in kb_priv.text and kb_priv.headers["x-robots-tag"] == "noindex, nofollow"
     sitemap_priv = env.client.request("GET", "/sitemap.xml")
-    assert sitemap_priv.status_code == 200 and "/p?s=" not in sitemap_priv.text
+    assert sitemap_priv.status_code == 404
 
     # 3. Private personal KB (is_public=0): owner sees workspace; non-owners get 200 basic landing page on GET/HEAD /@{username}/ while personal KB subpaths return 404.
     conn = dbm.connect_existing(env.settings.db_file)

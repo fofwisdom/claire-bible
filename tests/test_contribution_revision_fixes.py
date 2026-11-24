@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_contribution_data_fixes import KOREA_MORE, _at_entity, _contribution, _documents, _entities, _new_root_version, _run_jobs
-from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _personal_document, world  # noqa: F401 (fixtures)
 from tests.test_curation_and_fork import theme  # noqa: F401 (fixture)
 
 from claire.collaboration import contributions

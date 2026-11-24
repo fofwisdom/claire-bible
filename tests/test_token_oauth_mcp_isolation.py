@@ -1,7 +1,6 @@
-"""Tests for multi-account isolation across TokenStore, OAuth 2.1, and MCP tools (P3 L3-e).
+"""Tests for multi-account isolation across OAuth 2.1 and MCP tools (P3 L3-e).
 
 Covers:
-- TokenStore multi-account isolation: create_token requires account_id, list_tokens filtering, cross-account revocation prevention
 - OAuth 2.1 isolation: account_id binding, inactive/suspended/purged account rejection on authorize/token/refresh, redirect_uri mismatch, same_origin CSRF defense, confidential client_secret check, telegram-push admin restriction
 - MCP tools isolation: ContextVar[Principal] reference, account-owned theme scoping, collaborator visibility gating, readonly connection verification, port preservation in allowed_hosts
 - End-to-end integration test of multi-account OAuth to MCP flow
@@ -47,14 +46,6 @@ from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
-from claire.store.token_store import TokenStore, reset_token_stores
-
-
-@pytest.fixture(autouse=True)
-def cleanup_tokens():
-    reset_token_stores()
-    yield
-    reset_token_stores()
 
 
 def _add_member_account(conn: sqlite3.Connection, account_id: int, username: str, status: str = "active") -> None:
@@ -86,8 +77,6 @@ def _create_test_config(tmp_path: Path, public_origin: str = "http://127.0.0.1:8
         expected_authority="127.0.0.1:8765",
         cors_allowed_origins=frozenset(),
         secure_cookie=False,
-        owner_token="",
-        readonly_token="",
         db_file=db_file,
         data_dir=tmp_path,
         trusted_proxies=(),
@@ -124,62 +113,7 @@ def _build_oauth_test_app(config: WebRuntimeConfig, settings: Any = None) -> Sta
     return CORSPolicyMiddleware(app, config)
 
 
-# --- 1. TokenStore Multi-Account Isolation Tests --------------------------------
-
-
-def test_token_store_create_token_requires_account_id(tmp_path: Path) -> None:
-    store = TokenStore(storage_path=tmp_path / "tokens.json")
-
-    # Omitting account_id must raise TypeError
-    with pytest.raises(TypeError, match="create_token missing required argument"):
-        store.create_token(name="Missing Account")
-
-    # Explicit account_id works
-    tok = store.create_token(name="Member Token", account_id=2)
-    assert tok["name"] == "Member Token"
-    assert tok["account_id"] == 2
-    assert tok["token"].startswith("cb_")
-
-
-def test_token_store_list_and_revoke_isolation(tmp_path: Path) -> None:
-    store = TokenStore(storage_path=tmp_path / "tokens.json")
-
-    tok_admin = store.create_token(name="Admin Token", account_id=1, scope="owner")
-    tok_member = store.create_token(name="Member Token", account_id=2, scope="readonly")
-
-    # list_tokens filtering
-    admin_tokens = store.list_tokens(account_id=1)
-    member_tokens = store.list_tokens(account_id=2)
-    all_tokens = store.list_tokens()
-
-    assert len(admin_tokens) == 1
-    assert admin_tokens[0]["token"] == tok_admin["token"]
-    assert len(member_tokens) == 1
-    assert member_tokens[0]["token"] == tok_member["token"]
-    assert len(all_tokens) == 2
-
-    # Cross-account get_token returns None
-    assert store.get_token(tok_admin["token"], account_id=2) is None
-    assert store.get_token(tok_admin["token"], account_id=1) is not None
-    assert store.get_token(tok_member["token"], account_id=1) is None
-    assert store.get_token(tok_member["token"], account_id=2) is not None
-
-    # Cross-account revocation is rejected
-    revoked = store.revoke_token(tok_admin["token"], account_id=2)
-    assert revoked is False
-    assert store.validate_api_token(tok_admin["token"]) is not None
-
-    revoked_by_id = store.revoke_api_token(tok_admin["id"], account_id=2)
-    assert revoked_by_id is False
-    assert store.validate_api_token(tok_admin["token"]) is not None
-
-    # Own revocation succeeds
-    revoked_own = store.revoke_token(tok_admin["token"], account_id=1)
-    assert revoked_own is True
-    assert store.validate_api_token(tok_admin["token"]) is None
-
-
-# --- 2. OAuth 2.1 Multi-Account & Security Isolation Tests -----------------------
+# --- 1. OAuth 2.1 Multi-Account & Security Isolation Tests -----------------------
 
 
 def test_oauth_register_blocks_dangerous_schemes(tmp_path: Path) -> None:
@@ -740,8 +674,6 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
         expected_authority="127.0.0.1:8765",
         cors_allowed_origins=frozenset(),
         secure_cookie=False,
-        owner_token="",
-        readonly_token="",
         db_file=db_file,
         data_dir=tmp_path,
         trusted_proxies=(),

@@ -9,10 +9,7 @@ from starlette.testclient import TestClient
 from claire.api.server import create_app
 from claire.i18n import load_catalog
 from claire.store import db as dbm
-
-OWNER_TOKEN = "o" * 32
-COLLAB_TOKEN = "c" * 32
-READONLY_TOKEN = "r" * 32
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture
@@ -32,8 +29,6 @@ def syndication_env(tmp_path: Path):
         vault_path=str(vault_dir),
         environment="development",
         public_url="http://127.0.0.1:8765/",
-        inject_token=OWNER_TOKEN,
-        readonly_token=READONLY_TOKEN,
         cors_allowed_origins="",
         inject_host="127.0.0.1",
         inject_port=8765,
@@ -46,18 +41,24 @@ def syndication_env(tmp_path: Path):
             self.provider = SimpleNamespace()
 
     app = create_app(settings, service=DummyService(settings))
-    return app
+    return SimpleNamespace(
+        app=app,
+        db_file=db_file,
+        owner_headers=bearer_headers(db_file, scope="owner"),
+        write_headers=bearer_headers(db_file, scope="write"),
+        readonly_headers=bearer_headers(db_file, scope="readonly"),
+    )
 
 
 def test_syndication_and_preferences_routes_io_interface(syndication_env) -> None:
-    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
+    with TestClient(syndication_env.app, base_url="http://127.0.0.1:8765") as client:
         # Gate G8: Unauthenticated access is forbidden or not found
         res_unauthed = client.get("/syndication")
         assert res_unauthed.status_code in {401, 404}
         res_prefs_unauthed = client.get("/syndication/preferences")
         assert res_prefs_unauthed.status_code in {401, 404}
 
-        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        headers = syndication_env.owner_headers
         res_public = client.get("/syndication", headers=headers)
         assert res_public.status_code == 200
         assert "Claire Bible — Syndication" in res_public.text
@@ -113,8 +114,8 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
 
 def test_old_prototype_route_is_removed(syndication_env) -> None:
     """RD20: the prototype left the app path. ``/prototype/syndication`` is 404 like any path not in ROUTE_POLICY."""
-    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    with TestClient(syndication_env.app, base_url="http://127.0.0.1:8765") as client:
+        headers = syndication_env.owner_headers
         for method in ("GET", "HEAD"):
             assert client.request(method, "/prototype/syndication", headers=headers).status_code == 404, method
             assert client.request(method, "/prototype/syndication").status_code in {401, 404}, method
@@ -148,8 +149,8 @@ def _legacy_prefs_url(tab: str | None, theme: str | None = None) -> str:
 
 @pytest.mark.parametrize("tab, admin_target, _member_target", LEGACY_TAB_TABLE)
 def test_legacy_preferences_tab_redirects_admin(syndication_env, tab, admin_target, _member_target) -> None:
-    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    with TestClient(syndication_env.app, base_url="http://127.0.0.1:8765") as client:
+        headers = syndication_env.owner_headers
         for method in ("GET", "HEAD"):
             res = client.request(method, _legacy_prefs_url(tab), headers=headers, follow_redirects=False)
             assert res.status_code == 302, (method, tab)
@@ -159,8 +160,8 @@ def test_legacy_preferences_tab_redirects_admin(syndication_env, tab, admin_targ
 
 
 def test_legacy_preferences_preserves_valid_theme_for_settings_targets(syndication_env) -> None:
-    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    with TestClient(syndication_env.app, base_url="http://127.0.0.1:8765") as client:
+        headers = syndication_env.owner_headers
         kb0 = client.get("/kb", headers=headers).json()["personal_kb"]["number"]
         base = client.get(f"/syndication/preferences?tab=feeds&kb={kb0}", headers=headers, follow_redirects=False)
         assert base.status_code == 302
@@ -185,27 +186,27 @@ def test_legacy_preferences_preserves_valid_theme_for_settings_targets(syndicati
     "/syndication/preferences?tab=nope&kb=0",
 ])
 def test_legacy_preferences_unknown_tab_or_theme_is_404(syndication_env, url) -> None:
-    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    with TestClient(syndication_env.app, base_url="http://127.0.0.1:8765") as client:
+        headers = syndication_env.owner_headers
         res = client.get(url, headers=headers, follow_redirects=False)
         assert res.status_code == 404, url
         assert "location" not in res.headers
 
 
-@pytest.mark.parametrize("token", [COLLAB_TOKEN, READONLY_TOKEN, None])
-def test_legacy_preferences_requires_owner(syndication_env, token) -> None:
-    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
+@pytest.mark.parametrize("role", ["write", "readonly", None])
+def test_legacy_preferences_requires_owner(syndication_env, role) -> None:
+    with TestClient(syndication_env.app, base_url="http://127.0.0.1:8765") as client:
+        headers = syndication_env.write_headers if role == "write" else (syndication_env.readonly_headers if role == "readonly" else {})
         for tab in ("reader", "idp", "nope"):
             res = client.get(f"/syndication/preferences?tab={tab}", headers=headers, follow_redirects=False)
-            assert res.status_code in {401, 403, 404}, (token, tab)
+            assert res.status_code in {401, 403, 404}, (role, tab)
             assert "location" not in res.headers
 
 
 def test_live_syndication_ships_no_prototype_seeds(syndication_env) -> None:
     """The live /syndication page has no mock seeds or simulated federation factories."""
-    with TestClient(syndication_env, base_url="http://127.0.0.1:8765") as client:
-        owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    with TestClient(syndication_env.app, base_url="http://127.0.0.1:8765") as client:
+        owner_headers = syndication_env.owner_headers
         res_live = client.get("/syndication", headers=owner_headers)
         assert res_live.status_code == 200
         assert "CLAIRE_SYND_SEEDS" not in res_live.text

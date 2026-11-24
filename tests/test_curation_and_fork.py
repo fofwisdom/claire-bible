@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _graph, _personal_document, no_llm, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _contribute, _graph, _personal_document, no_llm, world  # noqa: F401 (fixtures)
 
 from claire.core import ids
 from claire.store import db as dbm

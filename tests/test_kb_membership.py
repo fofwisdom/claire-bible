@@ -22,18 +22,10 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store.knowledge_base import KnowledgeBaseManager, validate_seed_entities
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
-OWNER_TOKEN = "owner-" + ("s" * 32)
 ACCOUNTS = {"admin": 1, "ann": 2, "ben": 3, "cho": 4, "dee": 5}
-
-
-@pytest.fixture(autouse=True)
-def _fresh_token_stores():
-    reset_token_stores()
-    yield
-    reset_token_stores()
 
 
 @pytest.fixture
@@ -46,7 +38,6 @@ def world(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     conn = dbm.connect(settings.db_file)
     try:
@@ -62,8 +53,7 @@ def world(tmp_path: Path):
         conn.commit()
     finally:
         conn.close()
-    tokens = get_token_store(data_dir=settings.data_dir)
-    bearer = {name: {"Authorization": f"Bearer {tokens.create_api_token(name=name, scope='owner', account_id=account_id)['token']}"} for name, account_id in ACCOUNTS.items()}
+    bearer = {name: bearer_headers(settings, account_id=account_id, scope="owner") for name, account_id in ACCOUNTS.items()}
     public = {name: ids.format_public_id((1 << 57) + account_id) for name, account_id in ACCOUNTS.items()}
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
         made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real", "seed_entities": ["Seoul", "Busan"]}, headers=bearer["ann"])
@@ -196,7 +186,7 @@ def test_join_with_approval_approve_and_leave(world) -> None:
     assert _membership(world, "ben") == ("member", "pending")
     # An anonymous request, a ``write`` token, and a personal knowledge base have no join.
     assert client.post(join).status_code == 404
-    write = {"Authorization": f"Bearer {get_token_store(data_dir=world.settings.data_dir).create_api_token(name='w', scope='write', account_id=4)['token']}"}
+    write = bearer_headers(world.settings, account_id=4, scope="write")
     assert client.post(join, headers=write).json()["error"] == "scope_insufficient"
 
     # Each reader gets the active members; the pending entry goes only to an account with ``people``.

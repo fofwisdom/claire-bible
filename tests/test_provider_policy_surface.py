@@ -36,7 +36,7 @@ from claire.store import provider_keys
 from claire.store import queries as store_queries
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import issue_session_token
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 TEST_MASTER_KEY_HEX = "22" * 32
@@ -53,11 +53,9 @@ def _isolate_env_and_secrets(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("CLAIRE_SECRET_KEY", TEST_MASTER_KEY_HEX)
     reset_secret_service()
-    reset_token_stores()
     secret_scrub._reset_for_tests()
     yield
     reset_secret_service()
-    reset_token_stores()
     secret_scrub._reset_for_tests()
 
 
@@ -149,10 +147,9 @@ def _build_env(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
     alice_pub = _setup_theme(tm, db_file, kb_id=21, seq=3, label="Alice Talks", account_id=2, presentation=True)
     bob_def = _setup_theme(tm, db_file, kb_id=30, seq=4, label="Bob Default", account_id=3, is_personal=True)
 
-    toks = get_token_store(data_dir=data_dir)
-    admin_tok = toks.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    alice_tok = toks.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    bob_tok = toks.create_token(name="bob-owner", scope="owner", account_id=3)["token"]
+    admin_tok = issue_session_token(db_file, account_id=1, scope="owner")
+    alice_tok = issue_session_token(db_file, account_id=2, scope="owner")
+    bob_tok = issue_session_token(db_file, account_id=3, scope="owner")
 
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     client = TestClient(app, base_url=PUBLIC_URL)

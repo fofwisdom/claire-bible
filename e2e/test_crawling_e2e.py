@@ -23,6 +23,7 @@ from starlette.testclient import TestClient
 from claire.api import server
 from claire.core.config import Settings
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture
@@ -37,11 +38,8 @@ def e2e_env(tmp_path: Path):
         _env_file=None,
         db_path=str(db_file),
         data_path=str(tmp_path),
-        vault_path=str(tmp_path / "vault"),
         environment="production",
         fqdn="claire.example.com",
-        inject_token="owner-token-secret-12345678901234",
-        readonly_token="readonly-token-secret-123456789012",
         robots_policy="public",
         block_ai_crawlers=True,
         sitemap_enabled=True,
@@ -55,7 +53,7 @@ def e2e_env(tmp_path: Path):
 
 def test_public_site_crawling_and_indexing_e2e_journey(e2e_env) -> None:
     settings, app, db_file = e2e_env
-    owner_headers = {"Authorization": f"Bearer {settings.inject_token}"}
+    owner_headers = bearer_headers(db_file, account_id=1, scope="owner")
 
     # Step 1: Ingest / seed a public document into the database
     conn = dbm.connect(db_file)
@@ -95,7 +93,7 @@ def test_public_site_crawling_and_indexing_e2e_journey(e2e_env) -> None:
 
         # Verify allowed knowledge paths
         assert "Allow: /$" in robots_txt
-        assert "Allow: /p?" in robots_txt
+        assert "Allow: /silvercord/" in robots_txt
         assert "Allow: /static/" in robots_txt
 
         # Verify search DoS and administrative route protections

@@ -535,7 +535,7 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
     def _resolve_oauth_client(principal: Principal | None, conn: sqlite3.Connection | None = None) -> str | None:
         if principal is None or principal.account_id is None or not principal.credential_id:
             return None
-        if principal.credential_id.startswith(("env:", "api:")) or principal.channel in ("cookie", "x-session"):
+        if principal.channel in ("cookie", "x-session"):
             return None
         key = (int(principal.account_id), str(principal.credential_id))
         if key in oauth_client_cache:

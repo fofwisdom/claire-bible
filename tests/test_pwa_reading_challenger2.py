@@ -18,7 +18,6 @@ from claire.core.config import Settings
 from claire.ontology.base import Document
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.token_store import reset_token_stores
 from tests.test_pwa_reading import _setup_multi_account_network_env
 
 
@@ -27,9 +26,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     for name in list(os.environ):
         if name.startswith("CLAIRE_"):
             monkeypatch.delenv(name, raising=False)
-    reset_token_stores()
     yield
-    reset_token_stores()
 
 
 def test_app_js_effective_scope_node_permutation_oracle():

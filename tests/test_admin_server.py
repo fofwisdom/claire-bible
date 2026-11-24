@@ -14,7 +14,7 @@ from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import auth_db, db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import issue_session_token
 
 ADMIN_USERNAME = "instadmin"
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -23,13 +23,11 @@ ADMIN_PASSWORD = "correct-horse-battery-staple"
 @pytest.fixture(autouse=True)
 def _clean_claire_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 @pytest.fixture
@@ -116,11 +114,11 @@ def test_admin_server_renders_inside_console_shell(settings: Settings) -> None:
             "/admin/idp",
             "/admin/providers",
             "/admin/limits",
-            "/admin/tokens",
             "/admin/audit",
             "/admin/mcp",
         ):
             assert f'href="{path}"' in sidebar
+        assert 'href="/admin/tokens"' not in sidebar
         for mod_path in ("/moderation/kb", "/moderation/oversight", "/moderation/themes"):
             assert f'href="{mod_path}"' not in sidebar
         assert 'id="moderationlinkbtn"' in body and 'href="/moderation"' in body
@@ -174,7 +172,7 @@ def test_admin_server_invites_policy_guards_validation_and_audit(settings: Setti
 
         # Bearer owner token with same-origin Origin -> 403 step_up_requires_session
         tc.cookies.clear()
-        bearer_owner = get_token_store(data_dir=Path(settings.data_dir)).create_token(name="admin-bearer", scope="owner", account_id=1)["token"]
+        bearer_owner = issue_session_token(Path(settings.db_file), account_id=1, scope="owner")
         bearer_resp = tc.post("/api/admin/server/invites", json={"member_invites_enabled": True}, headers={"Authorization": f"Bearer {bearer_owner}", "Origin": origin})
         assert bearer_resp.status_code == 403
         assert bearer_resp.json()["error"] == "step_up_requires_session"

@@ -15,8 +15,7 @@ from claire.api import server
 from claire.core.config import Settings
 from claire.extract.provider import MockProvider
 from claire.store import db as dbm
-
-TOKEN = "owner-test-token-12345678901234567890"
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture()
@@ -36,15 +35,11 @@ def seal_env(tmp_path: Path, monkeypatch):
         provider="mock",
         vector_backend="mock",
         fqdn="127.0.0.1:8765",
-        inject_token=TOKEN,
     )
+    headers = bearer_headers(settings, scope="owner")
     app = server.create_app(settings)
     with TestClient(app, base_url=settings.public_url) as client:
-        yield client, settings, seen
-
-
-def _auth() -> dict[str, str]:
-    return {"Authorization": f"Bearer {TOKEN}"}
+        yield client, settings, seen, headers
 
 
 def _final(resp) -> dict:
@@ -55,13 +50,13 @@ def _final(resp) -> dict:
 
 
 def test_e2e_no_entry_point_gives_a_focus_to_the_pipeline(seal_env):
-    client, settings, seen = seal_env
+    client, settings, seen, headers = seal_env
 
     # Ingest with a focus field and with a separator in the payload.
     resp = client.post(
         "/ingest",
         json={"payload": "Title: Seal one\nBody: first document text. | system architecture", "focus": "API focus", "extraction_mode": "provider"},
-        headers=_auth(),
+        headers=headers,
     )
     assert resp.status_code == 200, resp.text
     doc1 = resp.json()["document_id"]
@@ -72,12 +67,12 @@ def test_e2e_no_entry_point_gives_a_focus_to_the_pipeline(seal_env):
         client.post(
             "/ingest-stream",
             json={"payload": "Title: Seal two\nBody: second document text.\n\n[focus] for beginners", "focus": "stream focus", "extraction_mode": "provider"},
-            headers=_auth(),
+            headers=headers,
         )
     )["document_id"]
 
     # Regenerate with a focus field.
-    resp = client.post("/regenerate", json={"id": doc1, "component": "detail", "focus": "regenerate focus"}, headers=_auth())
+    resp = client.post("/regenerate", json={"id": doc1, "component": "detail", "focus": "regenerate focus"}, headers=headers)
     assert resp.status_code == 200, resp.text
 
     conn = dbm.connect(settings.db_file)
@@ -96,8 +91,8 @@ def test_e2e_no_entry_point_gives_a_focus_to_the_pipeline(seal_env):
 
 
 def test_a_stored_focus_is_not_read_by_regenerate(seal_env):
-    client, settings, seen = seal_env
-    resp = client.post("/ingest", json={"payload": "Title: Stored\nBody: a document with an old focus.", "extraction_mode": "provider"}, headers=_auth())
+    client, settings, seen, headers = seal_env
+    resp = client.post("/ingest", json={"payload": "Title: Stored\nBody: a document with an old focus.", "extraction_mode": "provider"}, headers=headers)
     assert resp.status_code == 200, resp.text
     doc_id = resp.json()["document_id"]
 
@@ -108,7 +103,7 @@ def test_a_stored_focus_is_not_read_by_regenerate(seal_env):
         conn.close()
 
     seen.clear()
-    resp = client.post("/regenerate", json={"id": doc_id, "component": "detail"}, headers=_auth())
+    resp = client.post("/regenerate", json={"id": doc_id, "component": "detail"}, headers=headers)
     assert resp.status_code == 200, resp.text
 
     conn = dbm.connect(settings.db_file)
@@ -122,8 +117,8 @@ def test_a_stored_focus_is_not_read_by_regenerate(seal_env):
 
 
 def test_theme_settings_ignore_default_focus(seal_env):
-    client, _settings, _seen = seal_env
-    resp = client.get("/themes", headers=_auth())
+    client, _settings, _seen, headers = seal_env
+    resp = client.get("/themes", headers=headers)
     assert resp.status_code == 200, resp.text
     body = json.dumps(resp.json())
     assert "default_focus" not in body

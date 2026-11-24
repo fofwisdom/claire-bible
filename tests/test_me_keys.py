@@ -31,7 +31,6 @@ from claire.store.secrets import SecretService, reset_secret_service
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
-OWNER_TOKEN = "owner-" + "o" * 32
 ADMIN_PASSWORD = "Correct-Horse-Battery-123!"
 TEST_MASTER_KEY_HEX = "11" * 32
 # 키 모양 패턴(AIza…, sk-…)에 걸리지 않는 카나리아. 정규식 스크럽이 아니라 "싣지 않음"을 확인한다.
@@ -47,8 +46,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
     fqdn: str = "notes.kimhome.net"
     multi_theme: bool = True
@@ -300,7 +297,7 @@ def test_register_returns_metadata_only_and_never_leaks(env, verify_calls, caplo
 
     page = c.request("GET", "/account/providers", session=sess)
     assert page.status_code == 200
-    assert "My API key" in page.text and "root" in page.text and meta["fingerprint"] in page.text
+    assert "My API key" in page.text and meta["fingerprint"] in page.text
 
 
     # 다시 검증과 삭제까지 거친 뒤 전체 응답·로그를 확인한다.

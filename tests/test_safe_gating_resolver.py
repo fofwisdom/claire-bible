@@ -269,16 +269,16 @@ def test_rollback_resolution_api_route(tmp_path):
     from claire.api import server
     from claire.core.config import Settings
     from claire.ingest.service import IngestService
+    from tests.auth_helpers import bearer_headers
 
     db_path = tmp_path / "claire.db"
-    owner_token = "owner-" + ("o" * 32)
     settings = Settings(
         db_path=str(db_path),
         data_dir=tmp_path / "data",
-        inject_token=owner_token,
         environment="development",
         fqdn="127.0.0.1:8765",
     )
+    owner_headers = bearer_headers(db_path, scope="owner")
     svc = IngestService(settings)
     app = server.create_app(settings, svc)
     client = TestClient(app, base_url=settings.public_url)
@@ -335,7 +335,7 @@ def test_rollback_resolution_api_route(tmp_path):
     resp = client.post(
         "/resolution/rollback",
         json={"document_id": "doc_merge_test", "entity": "Claude Code CLI"},
-        headers={"Authorization": f"Bearer {owner_token}"},
+        headers=owner_headers,
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -364,7 +364,7 @@ def test_rollback_resolution_api_route(tmp_path):
     resp2 = client.post(
         "/resolution/rollback",
         json={"document_id": "doc_merge_test", "entity": "Claude Code CLI"},
-        headers={"Authorization": f"Bearer {owner_token}"},
+        headers=owner_headers,
     )
     assert resp2.status_code == 200
     assert resp2.json()["ok"] is False
@@ -377,6 +377,7 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
     from claire.api import server
     from claire.core.config import Settings
     from claire.extract.provider import emit_progress
+    from tests.auth_helpers import bearer_headers
 
     class StreamingTestService:
         def __init__(self, s):
@@ -418,14 +419,13 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
             )
 
     db_path = tmp_path / "claire.db"
-    owner_token = "owner-" + ("o" * 32)
     settings = Settings(
         db_path=str(db_path),
         data_dir=tmp_path / "data",
-        inject_token=owner_token,
         environment="development",
         fqdn="127.0.0.1:8765",
     )
+    owner_headers = bearer_headers(db_path, scope="owner")
     svc = StreamingTestService(settings)
     app = server.create_app(settings, svc)
     client = TestClient(app, base_url=settings.public_url)
@@ -433,7 +433,7 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
     resp = client.post(
         "/ingest-stream",
         json={"payload": "https://example.com/test", "extraction_mode": "provider"},
-        headers={"Authorization": f"Bearer {owner_token}"},
+        headers=owner_headers,
     )
     assert resp.status_code == 200
     events = [json.loads(line) for line in resp.text.splitlines() if line.strip()]
@@ -463,18 +463,16 @@ def test_get_resolution_decisions_global_api_route(tmp_path):
     from claire.api import server
     from claire.core.config import Settings
     from claire.ingest.service import IngestService
+    from tests.auth_helpers import bearer_headers
 
     db_path = tmp_path / "claire.db"
-    readonly_token = "read-" + ("r" * 32)
-    owner_token = "owner-" + ("o" * 32)
     settings = Settings(
         db_path=str(db_path),
         data_dir=tmp_path / "data",
-        inject_token=owner_token,
-        readonly_token=readonly_token,
         environment="development",
         fqdn="127.0.0.1:8765",
     )
+    readonly_headers = bearer_headers(db_path, scope="readonly")
     svc = IngestService(settings)
     app = server.create_app(settings, svc)
     client = TestClient(app, base_url=settings.public_url)
@@ -527,7 +525,7 @@ def test_get_resolution_decisions_global_api_route(tmp_path):
     # 2. GET /resolution/decisions 조회 (Read 권한으로 접근 가능)
     resp = client.get(
         "/resolution/decisions?limit=10",
-        headers={"Authorization": f"Bearer {readonly_token}"},
+        headers=readonly_headers,
     )
     assert resp.status_code == 200
     data = resp.json()

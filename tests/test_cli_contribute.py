@@ -11,7 +11,7 @@ import shlex
 import pytest
 
 from tests.test_auto_contribution import KOREA, _document
-from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _personal_document, world  # noqa: F401 (fixtures)
 
 from claire import cli
 from claire.collaboration import theme_judgement

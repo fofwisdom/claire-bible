@@ -29,8 +29,6 @@ class StubSettings:
     public_url: str = "http://127.0.0.1:8765"
     inject_host: str = "127.0.0.1"
     inject_port: int = 8765
-    inject_token: str = "owner-" + ("o" * 32)
-    readonly_token: str = "readonly-" + ("r" * 32)
     cors_allowed_origins: str = ""
     effective_provider: str = "mock"
     telegram_bot_token: str = ""

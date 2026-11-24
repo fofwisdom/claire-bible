@@ -118,33 +118,22 @@ def test_init_is_atomic_idempotent_and_does_not_replace_user_secrets(tmp_path):
     (tmp_path / ".env").unlink()
     (tmp_path / ".env.dev").unlink()
 
-    prod_token = "prod-" + ("p" * 32)
-    dev_token = "dev-" + ("d" * 32)
-    with patch.object(cb.secrets, "token_urlsafe", side_effect=[prod_token, dev_token]):
-        assert cb.main(["init"], root=tmp_path) == 0
+    assert cb.main(["init"], root=tmp_path) == 0
 
     prod = (tmp_path / ".env").read_text(encoding="utf-8")
     dev = (tmp_path / ".env.dev").read_text(encoding="utf-8")
-    assert f"CLAIRE_INJECT_TOKEN={prod_token}" in prod
-    assert f"CLAIRE_INJECT_TOKEN={dev_token}" in dev
+    assert "CLAIRE_ENVIRONMENT=production" in prod
+    assert "CLAIRE_ENVIRONMENT=development" in dev
     assert "GEMINI_API_KEY=" in prod
     assert "TELEGRAM_BOT_TOKEN=" in prod
     assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
     assert stat.S_IMODE((tmp_path / ".env.dev").stat().st_mode) == 0o600
     assert (tmp_path / "data").is_dir()
 
-    user_token = "user-" + ("u" * 32)
-    prod = prod.replace(
-        f"CLAIRE_INJECT_TOKEN={prod_token}",
-        f"CLAIRE_INJECT_TOKEN={user_token}",
-    )
+    prod = prod.replace("GEMINI_API_KEY=", "GEMINI_API_KEY=user-gemini-key")
     (tmp_path / ".env").write_text(prod, encoding="utf-8")
-    with patch.object(cb.secrets, "token_urlsafe") as generate:
-        assert cb.main(["init"], root=tmp_path) == 0
-    generate.assert_not_called()
-    assert f"CLAIRE_INJECT_TOKEN={user_token}" in (
-        tmp_path / ".env"
-    ).read_text(encoding="utf-8")
+    assert cb.main(["init"], root=tmp_path) == 0
+    assert "GEMINI_API_KEY=user-gemini-key" in (tmp_path / ".env").read_text(encoding="utf-8")
 
 
 def test_init_migrates_missing_environment_selectors_without_replacing_secrets(
@@ -314,48 +303,6 @@ def test_dockerfile_keeps_dynamic_identity_after_dependency_layers():
         Path(__file__).resolve().parents[1] / "docker-compose.yml"
     ).read_text(encoding="utf-8")
     assert 'CLAIRE_APP_ROOT: "/app"' in compose
-
-
-def test_load_runtime_validates_readonly_token_rules(tmp_path):
-    _write_layout(tmp_path, dev=False)
-    # 1. Blank readonly token is allowed (fail-closed default)
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-    assert runtime.values.get("CLAIRE_READONLY_TOKEN") == ""
-
-    # 2. Valid readonly token is allowed
-    readonly_secret = "readonly-" + ("r" * 32)
-    (tmp_path / ".env").write_text(
-        (tmp_path / ".env")
-        .read_text(encoding="utf-8")
-        .replace("CLAIRE_READONLY_TOKEN=", f"CLAIRE_READONLY_TOKEN={readonly_secret}"),
-        encoding="utf-8",
-    )
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-    assert runtime.values.get("CLAIRE_READONLY_TOKEN") == readonly_secret
-
-    # 3. Invalid token (too short) is rejected
-    (tmp_path / ".env").write_text(
-        (tmp_path / ".env")
-        .read_text(encoding="utf-8")
-        .replace(
-            f"CLAIRE_READONLY_TOKEN={readonly_secret}",
-            "CLAIRE_READONLY_TOKEN=short",
-        ),
-        encoding="utf-8",
-    )
-    with pytest.raises(cb.ManuscriptError, match="CLAIRE_READONLY_TOKEN"):
-        cb.load_runtime(cb.Layout(tmp_path))
-
-    # 4. Readonly token identical to inject token is rejected
-    owner = runtime.values["CLAIRE_INJECT_TOKEN"]
-    (tmp_path / ".env").write_text(
-        (tmp_path / ".env")
-        .read_text(encoding="utf-8")
-        .replace("CLAIRE_READONLY_TOKEN=short", f"CLAIRE_READONLY_TOKEN={owner}"),
-        encoding="utf-8",
-    )
-    with pytest.raises(cb.ManuscriptError, match="must be different"):
-        cb.load_runtime(cb.Layout(tmp_path))
 
 
 def test_dotenv_is_parsed_as_data_not_executed(tmp_path):

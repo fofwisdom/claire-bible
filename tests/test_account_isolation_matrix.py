@@ -48,8 +48,8 @@ from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
-from claire.store.token_store import TokenStore, get_token_store, reset_token_stores
 from claire.ops.support_bundle import create_support_bundle
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -58,13 +58,11 @@ PUBLIC_URL = "http://127.0.0.1:8765"
 @pytest.fixture(autouse=True)
 def _isolate_env_and_stores(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _add_account(conn: sqlite3.Connection, account_id: int, username: str, role: str = "member", status: str = "active") -> None:
@@ -158,12 +156,11 @@ def test_environment(tmp_path: Path):
     bob_def = _setup_theme(tm, settings, kb_id=30, seq=5, label="Bob Default", account_id=3, is_personal=True, is_public=True)
     bob_pub = _setup_theme(tm, settings, kb_id=31, seq=6, label="Bob Public", account_id=3, is_personal=False, is_public=True)
 
-    # 4. TokenStore and tokens:
-    tok_store = get_token_store(data_dir=data_dir)
-    alice_owner_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    alice_write_tok = tok_store.create_token(name="alice-write", scope="write", account_id=2)["token"]
-    alice_ro_tok = tok_store.create_token(name="alice-ro", scope="readonly", account_id=2)["token"]
-    bob_owner_tok = tok_store.create_token(name="bob-owner", scope="owner", account_id=3)["token"]
+    # 4. Credentials (owner sessions + OAuth 2.1 tokens):
+    alice_owner_tok = issue_session_token(db_file, account_id=2, scope="owner")
+    alice_write_tok = issue_oauth_token(db_file, account_id=2, scope="write")
+    alice_ro_tok = issue_oauth_token(db_file, account_id=2, scope="readonly")
+    bob_owner_tok = issue_session_token(db_file, account_id=3, scope="owner")
 
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     client = TestClient(app, base_url=PUBLIC_URL)
@@ -174,7 +171,6 @@ def test_environment(tmp_path: Path):
         settings=settings,
         client=client,
         tm=tm,
-        tok_store=tok_store,
         alice_def=alice_def,
         alice_pub=alice_pub,
         alice_collab=alice_collab,
@@ -323,49 +319,16 @@ def test_permission_matrix_cross_account(test_environment):
 
 
 def test_tokens_route_multi_account_isolation(test_environment):
-    """Verify /tokens endpoints isolate tokens strictly by caller Principal.account_id."""
+    """Verify retired /tokens endpoints return 404 for all callers."""
     env = test_environment
     client = env.client
     alice_headers = {"Authorization": f"Bearer {env.alice_owner_tok}"}
     bob_headers = {"Authorization": f"Bearer {env.bob_owner_tok}"}
 
-    # 1. Alice creates token via API
-    res_a = client.post("/tokens", json={"name": "Alice Key 1", "scope": "readonly"}, headers=alice_headers)
-    assert res_a.status_code == 201
-    tok_a_id = res_a.json()["token"]["id"]
-
-    # 2. Bob creates token via API
-    res_b = client.post("/tokens", json={"name": "Bob Key 1", "scope": "readonly"}, headers=bob_headers)
-    assert res_b.status_code == 201
-    tok_b_id = res_b.json()["token"]["id"]
-
-    # 3. Verify in TokenStore that tokens are bound to their respective account IDs
-    rec_a = env.tok_store.get_token(tok_a_id)
-    rec_b = env.tok_store.get_token(tok_b_id)
-    assert rec_a["account_id"] == 2
-    assert rec_b["account_id"] == 3
-
-    # 4. Alice lists tokens: sees only Alice's tokens, not Bob's
-    list_a = client.get("/tokens", headers=alice_headers).json()["tokens"]
-    a_ids = [t["id"] for t in list_a]
-    assert tok_a_id in a_ids
-    assert tok_b_id not in a_ids
-
-    # 5. Bob lists tokens: sees only Bob's tokens, not Alice's
-    list_b = client.get("/tokens", headers=bob_headers).json()["tokens"]
-    b_ids = [t["id"] for t in list_b]
-    assert tok_b_id in b_ids
-    assert tok_a_id not in b_ids
-
-    # 6. Alice attempts to revoke Bob's token -> 404
-    res_revoke_cross = client.post("/tokens/revoke", json={"id": tok_b_id}, headers=alice_headers)
-    assert res_revoke_cross.status_code == 404
-    assert env.tok_store.get_token(tok_b_id)["revoked_at"] is None
-
-    # 7. Bob revokes Bob's token -> 200
-    res_revoke_own = client.post("/tokens/revoke", json={"id": tok_b_id}, headers=bob_headers)
-    assert res_revoke_own.status_code == 200
-    assert env.tok_store.get_token(tok_b_id)["revoked_at"] is not None
+    for headers in ({}, alice_headers, bob_headers):
+        assert client.get("/tokens", headers=headers).status_code == 404
+        assert client.post("/tokens", json={"name": "Key 1", "scope": "readonly"}, headers=headers).status_code == 404
+        assert client.post("/tokens/revoke", json={"id": 1}, headers=headers).status_code == 404
 
 
 # --- 3. Graph Bundle Isolation Tests -----------------------------------------
@@ -568,14 +531,8 @@ def test_e2e_multi_account_isolation_and_lifecycle(test_environment, tmp_path: P
     team_num = team_theme["number"]
     assert team_theme["account_id"] is None and team_theme["created_by_account_id"] == 2  # a shared knowledge base has no owner; Alice is its founder and first moderator
 
-    # Step 2: Alice issues a write token via /tokens API
-    res_tok = client.post(
-        "/tokens",
-        json={"name": "Alice Team Agent Key", "scope": "write"},
-        headers=alice_owner_hdr,
-    )
-    assert res_tok.status_code == 201
-    collab_token = res_tok.json()["token"]["token"]
+    # Step 2: Issue an OAuth 2.1 write token for Alice
+    collab_token = issue_oauth_token(env.db_file, account_id=2, scope="write")
     collab_hdr = {"Authorization": f"Bearer {collab_token}"}
 
     # Step 3: Ingest writes only to the personal knowledge base (CT4, CT23): no ingest into the team theme -> 403

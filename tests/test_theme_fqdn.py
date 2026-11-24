@@ -29,11 +29,8 @@ from claire.store.knowledge_base import (
     validate_fqdn,
     validate_ga_measurement_id,
 )
+from tests.auth_helpers import bearer_headers
 
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
 APP_HOST = "127.0.0.1:8765"
 APP_ORIGIN = f"http://{APP_HOST}"
 
@@ -136,8 +133,6 @@ def _make_security_test_settings(tmp_path: Path) -> SimpleNamespace:
         environment="development",
         public_url="http://192.0.2.10:8766",
         cors_allowed_origins="",
-        inject_token=OWNER_TOKEN,
-        readonly_token=READONLY_TOKEN,
         db_file=tmp_path / "claire.db",
         ga_measurement_id="",
     )
@@ -230,16 +225,14 @@ def multi_theme_server_env(tmp_path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=APP_ORIGIN,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
     )
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)
     return client, settings, app
 
 
-def _create_theme(client: TestClient, label: str, **extra) -> tuple[int, str]:
-    r = client.post("/kb", json={"knowledge_type": "real", "label": label, "is_public": True, **extra}, headers=OWNER_HEADERS)
+def _create_theme(client: TestClient, settings: Settings, label: str, **extra) -> tuple[int, str]:
+    r = client.post("/kb", json={"knowledge_type": "real", "label": label, "is_public": True, **extra}, headers=bearer_headers(settings, scope="owner"))
     assert r.status_code == 201, r.text
     theme = r.json()["knowledge_base"]
     return theme["id"], theme["number"]
@@ -255,7 +248,8 @@ def _theme_number(settings: Settings, kb_id: int) -> int:
 
 def test_migrated_theme_fqdn_redirects_to_canonical_theme_path(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
-    kb_id, _ = _create_theme(client, "AI 전용")
+    owner_headers = bearer_headers(settings, scope="owner")
+    kb_id, _ = _create_theme(client, settings, "AI 전용")
     _set_legacy_fqdn(settings.db_file, kb_id, " AI.Example.com ")
     number = _theme_number(settings, kb_id)
 
@@ -275,7 +269,7 @@ def test_migrated_theme_fqdn_redirects_to_canonical_theme_path(multi_theme_serve
     # 쓰기 메서드는 리다이렉트하지 않는다.
     assert client.post("/search", json={"q": "x"}, headers={"Host": "ai.example.com"}).status_code == 421
     assert (
-        client.post("/kb", json={"knowledge_type": "real", "label": "x"}, headers={"Host": "ai.example.com", **OWNER_HEADERS}).status_code
+        client.post("/kb", json={"knowledge_type": "real", "label": "x"}, headers={"Host": "ai.example.com", **owner_headers}).status_code
         == 421
     )
     # 정적 자산도 레거시 호스트에서 직접 열리지 않고 정본 경로로 간다.
@@ -286,7 +280,7 @@ def test_migrated_theme_fqdn_redirects_to_canonical_theme_path(multi_theme_serve
 
 def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
     client, settings, _ = multi_theme_server_env
-    kb_id, _ = _create_theme(client, "일몰 테마")
+    kb_id, _ = _create_theme(client, settings, "일몰 테마")
     _set_legacy_fqdn(settings.db_file, kb_id, "old.example.com")
 
     def status(host: str = "old.example.com") -> int:
@@ -312,43 +306,45 @@ def test_legacy_host_sunset_and_deleted_theme(multi_theme_server_env):
 
 
 def test_unregistered_hosts_are_misdirected_for_everyone(multi_theme_server_env):
-    client, _, _ = multi_theme_server_env
-    _create_theme(client, "기밀 테마")
+    client, settings, _ = multi_theme_server_env
+    owner_headers = bearer_headers(settings, scope="owner")
+    _create_theme(client, settings, "기밀 테마")
     for host in ("ai.example.com", "secret.example.com"):
         for path in ("/", "/documents", "/themes"):
             anon = client.get(path, headers={"Host": host})
             assert anon.status_code == 421, (host, path)
             assert "기밀 테마" not in anon.text
-            assert client.get(path, headers={"Host": host, **OWNER_HEADERS}).status_code == 421
+            assert client.get(path, headers={"Host": host, **owner_headers}).status_code == 421
 
 
 def test_theme_api_rejects_fqdn_and_keeps_ga_lifecycle(multi_theme_server_env):
     """POST·PATCH /themes: FQDN 입력은 폐지됐고(O5) GA4 설정은 그대로다."""
     client, settings, _ = multi_theme_server_env
+    owner_headers = bearer_headers(settings, scope="owner")
 
     for fqdn in ("research.example.com", "http://invalid-fqdn/"):
-        assert client.post("/kb", json={"knowledge_type": "real", "label": "FQDN", "fqdn": fqdn}, headers=OWNER_HEADERS).status_code == 400
+        assert client.post("/kb", json={"knowledge_type": "real", "label": "FQDN", "fqdn": fqdn}, headers=owner_headers).status_code == 400
 
     r_bad_ga = client.post(
         "/kb",
         json={"knowledge_type": "real", "label": "잘못된 GA", "ga_measurement_id": "UA-12345"},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert r_bad_ga.status_code == 400
     assert "유효하지 않은 Google Analytics 측정 ID 형식입니다" in r_bad_ga.json().get("error", "")
 
-    kb_id, _ = _create_theme(client, "신규 연구", ga_measurement_id="G-RESEARCH01")
+    kb_id, _ = _create_theme(client, settings, "신규 연구", ga_measurement_id="G-RESEARCH01")
     r_patch_fqdn = client.patch(
-        f"/kb/{kb_number(settings, kb_id)}/", json={"fqdn": "new-research.example.com"}, headers=OWNER_HEADERS
+        f"/kb/{kb_number(settings, kb_id)}/", json={"fqdn": "new-research.example.com"}, headers=owner_headers
     )
     assert r_patch_fqdn.status_code == 400
 
     r_patch = client.patch(
-        f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": "G-RESEARCH02"}, headers=OWNER_HEADERS
+        f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": "G-RESEARCH02"}, headers=owner_headers
     )
     assert r_patch.status_code == 200
     assert r_patch.json()["knowledge_base"]["ga_measurement_id"] == "G-RESEARCH02"
 
-    r_clear = client.patch(f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": ""}, headers=OWNER_HEADERS)
+    r_clear = client.patch(f"/kb/{kb_number(settings, kb_id)}/", json={"ga_measurement_id": ""}, headers=owner_headers)
     assert r_clear.status_code == 200
     assert not r_clear.json()["knowledge_base"].get("ga_measurement_id")

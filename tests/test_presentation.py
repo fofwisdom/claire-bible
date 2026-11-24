@@ -237,13 +237,13 @@ A test slide for API routes.
     conn.commit()
     conn.close()
 
-    owner_token = "owner-" + ("o" * 32)
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    from tests.auth_helpers import bearer_headers
+
+    owner_headers = bearer_headers(db_file, scope="owner")
 
     s = Settings(
         db_path=str(db_file),
         data_dir=tmp_path,
-        inject_token=owner_token,
         environment="development",
         fqdn="127.0.0.1:8765",
     )
@@ -553,13 +553,13 @@ def test_api_presentation_compose_and_adoc(tmp_path: Path):
     conn.commit()
     conn.close()
 
-    owner_token = "owner-" + ("z" * 32)
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    from tests.auth_helpers import bearer_headers
+
+    owner_headers = bearer_headers(db_file, scope="owner")
 
     s = Settings(
         db_path=str(db_file),
         data_dir=tmp_path,
-        inject_token=owner_token,
         environment="development",
         fqdn="127.0.0.1:8765",
     )
@@ -759,12 +759,12 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
     conn.commit()
     conn.close()
 
-    owner_token = "owner-" + ("a" * 32)
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    from tests.auth_helpers import bearer_headers
+
+    owner_headers = bearer_headers(db_file, scope="owner")
     s = Settings(
         db_path=str(db_file),
         data_dir=tmp_path,
-        inject_token=owner_token,
         environment="development",
         fqdn="127.0.0.1:8765",
     )

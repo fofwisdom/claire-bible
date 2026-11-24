@@ -57,7 +57,6 @@ BACKUP_ID_RE = re.compile(r"^cb-[0-9]{8}(?:-[0-9]{6})?$")
 PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
-WEB_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 LEGACY_CONTAINERS = (
     "claire_bot",
     "claire_api",
@@ -162,9 +161,6 @@ APP_ONE_OFF_COMMANDS = {
     "presentation",
     "export-graph",
     "import-graph",
-    "token",
-    "key",
-    "api-key",
     "server",
     "federation",
     "feeds",
@@ -848,24 +844,6 @@ def _validate_cors_origins(
         seen.add(origin)
 
 
-def _validate_web_tokens(values: Mapping[str, str]) -> None:
-    owner = values.get("CLAIRE_INJECT_TOKEN", "")
-    readonly = values.get("CLAIRE_READONLY_TOKEN", "")
-    if not WEB_TOKEN_RE.fullmatch(owner):
-        raise ManuscriptError(
-            "CLAIRE_INJECT_TOKEN must be a 32-128 character URL-safe token. "
-            "Run `./cb-manuscript init` to generate a token."
-        )
-    if readonly and not WEB_TOKEN_RE.fullmatch(readonly):
-        raise ManuscriptError(
-            "CLAIRE_READONLY_TOKEN must be empty or a 32-128 character URL-safe token."
-        )
-    if readonly and secrets.compare_digest(owner, readonly):
-        raise ManuscriptError(
-            "CLAIRE_INJECT_TOKEN and CLAIRE_READONLY_TOKEN must be different."
-        )
-
-
 def _validate_fedify_port(values: Mapping[str, str], *, environment: str, port: int) -> None:
     """In development, the host port of the Fedify sidecar must be different from the other host ports."""
 
@@ -962,7 +940,6 @@ def load_runtime(layout: Layout, *, legacy_dev: bool = False) -> Runtime:
         port=parsed_port,
     )
     _validate_cors_origins(values, environment=environment)
-    _validate_web_tokens(values)
 
     bot_enabled = bool(_effective(values, "TELEGRAM_BOT_TOKEN").strip())
     _validate_fedify_port(values, environment=environment, port=parsed_port)
@@ -1072,54 +1049,6 @@ def _ensure_environment_selector(path: Path, expected: str) -> bool:
 
     _atomic_write(path, "".join(lines), mode=0o600)
     return True
-
-
-def _ensure_inject_token(path: Path) -> bool:
-    """Generate empty inject token and verify strength of existing value."""
-
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines(keepends=True)
-    found = False
-    changed = False
-    generated: str | None = None
-
-    for index, original in enumerate(lines):
-        candidate = original.strip()
-        if not candidate or candidate.startswith("#"):
-            continue
-        if candidate.startswith("export "):
-            candidate = candidate[7:].lstrip()
-        if "=" not in candidate:
-            continue
-        key, raw = candidate.split("=", 1)
-        if key.strip() != "CLAIRE_INJECT_TOKEN":
-            continue
-        found = True
-        value = _dotenv_value(raw, path, index + 1)
-        if value:
-            if not WEB_TOKEN_RE.fullmatch(value):
-                raise ManuscriptError(
-                    f"{path} CLAIRE_INJECT_TOKEN must be a 32-128 character URL-safe token."
-                )
-            break
-        generated = generated or secrets.token_urlsafe(32)
-        newline = "\n" if original.endswith("\n") else ""
-        lines[index] = f"CLAIRE_INJECT_TOKEN={generated}{newline}"
-        changed = True
-        break
-
-    if not found:
-        generated = secrets.token_urlsafe(32)
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        lines.append(f"CLAIRE_INJECT_TOKEN={generated}\n")
-        changed = True
-
-    if changed:
-        _atomic_write(path, "".join(lines), mode=0o600)
-    else:
-        os.chmod(path, 0o600)
-    return changed
 
 
 def _detect_system_timezone() -> str:
@@ -1275,9 +1204,6 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_timezone(layout.env):
             if "TZ" not in changes["env"]:
                 changes["env"].append("TZ")
-        if _ensure_inject_token(layout.env):
-            if "CLAIRE_INJECT_TOKEN" not in changes["env"]:
-                changes["env"].append("CLAIRE_INJECT_TOKEN")
 
     dev_example = (
         layout.dev_env_example
@@ -1294,9 +1220,6 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_timezone(layout.dev_env):
             if "TZ" not in changes["dev_env"]:
                 changes["dev_env"].append("TZ")
-        if _ensure_inject_token(layout.dev_env):
-            if "CLAIRE_INJECT_TOKEN" not in changes["dev_env"]:
-                changes["dev_env"].append("CLAIRE_INJECT_TOKEN")
 
     return changes
 
@@ -1324,10 +1247,6 @@ def command_init(layout: Layout) -> int:
     print(
         f"TZ: "
         f"{f'populated ({detected_tz})' if 'TZ' in changes['env'] or 'TZ' in changes['dev_env'] else 'kept'}"
-    )
-    print(
-        f"CLAIRE_INJECT_TOKEN: "
-        f"{'created' if 'CLAIRE_INJECT_TOKEN' in changes['env'] or 'CLAIRE_INJECT_TOKEN' in changes['dev_env'] else 'kept'}"
     )
     print("data/, certs/: ready")
     return 0
@@ -3645,7 +3564,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Create .env and .env.dev environment files and initialize the data/ directory.\n\n"
             "Actions:\n"
             "  - Copy templates from .env.example and .env.dev.example (preserves existing files)\n"
-            "  - Generate CLAIRE_INJECT_TOKEN and CLAIRE_READONLY_TOKEN\n"
             "  - Create data/ directory with secure permissions (0700)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -3670,7 +3588,6 @@ def build_parser() -> argparse.ArgumentParser:
             "                   every port distinct from CB_API_PORT and each other\n"
             "      production:  CLAIRE_SITE_DOMAIN required, every host equal to it or a\n"
             "                   subdomain, role hosts distinct and not a parent of CLAIRE_FQDN\n"
-            "  - Security tokens (CLAIRE_INJECT_TOKEN, CLAIRE_READONLY_TOKEN)\n"
             "  - Fedify sidecar host port CB_FEDIFY_PORT in development\n"
             "      (different from CB_API_PORT and the role host ports)\n"
             "  - Edge service public authority in production (from CLAIRE_FQDN)\n"

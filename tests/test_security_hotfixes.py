@@ -22,16 +22,10 @@ from claire.core.config import Settings
 from claire_bible.web.pages import shared_html
 from claire.ontology.base import Document
 from claire.store import db as dbm
-from claire.store.token_store import get_token_store
+from tests.auth_helpers import bearer_headers
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC_JS = ROOT / "src" / "bible" / "static" / "js"
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-WRITE_TOKEN = "write-" + ("w" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-WRITE_HEADERS = {"Authorization": f"Bearer {WRITE_TOKEN}"}
 
 SANDBOX_CSP = "sandbox; default-src 'none'"
 XSS_NAME = "<script>alert(1)</script>"
@@ -51,14 +45,10 @@ def ctx(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
     )
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
     conn.close()
-    # A token with the scope ``write`` (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6) reads the raw file.
-    get_token_store(data_dir=data_dir).create_api_token(name="writer", scope="write", token=WRITE_TOKEN)
     return settings, data_dir
 
 
@@ -184,7 +174,7 @@ def test_share_page_route_does_not_emit_raw_detail_html(ctx) -> None:
     conn.commit()
     conn.close()
     with _client(settings) as client:
-        share = client.post("/share", json={"doc_id": "doc-share-xss"}, headers=OWNER_HEADERS)
+        share = client.post("/share", json={"doc_id": "doc-share-xss"}, headers=bearer_headers(settings, scope="owner"))
         assert share.status_code == 200
         page = client.get(f"/p?s={share.json()['token']}")
         assert page.status_code == 200
@@ -231,7 +221,7 @@ def test_document_raw_active_types_are_downloaded(ctx, name: str, content: bytes
     settings, data_dir = ctx
     _add_raw(settings, data_dir, "doc-active", name, content)
     with _client(settings) as client:
-        resp = client.get("/document/raw?id=doc-active", headers=WRITE_HEADERS)
+        resp = client.get("/document/raw?id=doc-active", headers=bearer_headers(settings, scope="write"))
         assert resp.status_code == 200
         assert resp.content == content
         assert resp.headers["content-type"] == "application/octet-stream"
@@ -252,7 +242,7 @@ def test_document_raw_safe_types_stay_inline(ctx, name: str, content: bytes, cty
     settings, data_dir = ctx
     _add_raw(settings, data_dir, "doc-safe", name, content)
     with _client(settings) as client:
-        resp = client.get("/document/raw?id=doc-safe", headers=WRITE_HEADERS)
+        resp = client.get("/document/raw?id=doc-safe", headers=bearer_headers(settings, scope="write"))
         assert resp.status_code == 200
         assert resp.headers["content-type"] == ctype
         assert resp.headers["content-disposition"].startswith("inline;")
@@ -273,7 +263,7 @@ def test_document_raw_filename_is_rfc5987_encoded(ctx) -> None:
     conn.commit()
     conn.close()
     with _client(settings) as client:
-        resp = client.get("/document/raw?id=doc-name", headers=WRITE_HEADERS)
+        resp = client.get("/document/raw?id=doc-name", headers=bearer_headers(settings, scope="write"))
         disp = resp.headers["content-disposition"]
         assert disp.startswith('inline; filename="')
         ascii_part = disp.split('filename="', 1)[1].split('"', 1)[0]
@@ -284,11 +274,12 @@ def test_document_raw_filename_is_rfc5987_encoded(ctx) -> None:
 
 def test_document_raw_error_responses_carry_sandbox_headers(ctx) -> None:
     settings, _ = ctx
+    owner_headers = bearer_headers(settings, scope="owner")
     with _client(settings) as client:
-        missing = client.get("/document/raw", headers=OWNER_HEADERS)
+        missing = client.get("/document/raw", headers=owner_headers)
         assert missing.status_code == 400
         _assert_sandbox_headers(missing)
-        nf = client.get("/document/raw?id=nope", headers=OWNER_HEADERS)
+        nf = client.get("/document/raw?id=nope", headers=owner_headers)
         assert nf.status_code == 404
         _assert_sandbox_headers(nf)
 

@@ -39,10 +39,9 @@ from claire.store import db as dbm
 from claire.store import notifications as store
 from claire.store.knowledge_base import get_kb_manager
 from claire.store.secrets import SecretService, reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
-OWNER_TOKEN = "owner-" + ("n" * 32)
 ACCOUNTS = {"admin": 1, "ann": 2, "ben": 3, "cho": 4}
 
 # RFC 8291 Section 5 and Appendix A.
@@ -67,10 +66,8 @@ def _isolate(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("CLAIRE_SECRET_KEY", "33" * 32)
     reset_secret_service()
-    reset_token_stores()
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 # --- Web Push protocol (external library) ---------------------------------------------------------------------------
@@ -223,11 +220,9 @@ def _make_world(tmp_path: Path):
     (tmp_path / "data").mkdir(parents=True)
     settings = Settings(
         CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     conn = dbm.connect(settings.db_file)
     try:
@@ -243,8 +238,7 @@ def _make_world(tmp_path: Path):
         conn.commit()
     finally:
         conn.close()
-    tokens = get_token_store(data_dir=settings.data_dir)
-    bearer = {name: {"Authorization": f"Bearer {tokens.create_api_token(name=name, scope='owner', account_id=account_id)['token']}"} for name, account_id in ACCOUNTS.items()}
+    bearer = {name: bearer_headers(settings.db_file, account_id=account_id, scope="owner") for name, account_id in ACCOUNTS.items()}
     public = {name: ids.format_public_id((1 << 57) + account_id) for name, account_id in ACCOUNTS.items()}
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
         made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real", "seed_entities": ["Seoul", "Busan"]}, headers=bearer["ann"])

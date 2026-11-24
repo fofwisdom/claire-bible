@@ -285,8 +285,6 @@ def build_syndication_section(
         raise ValueError("selected theme is not in owned_themes")
 
     client_href = f"{_syndication_base_href(mode, account)}?tab=client&kb={ref}"
-    tokens_href = "/admin/tokens" if admin_viewer else "/account/tokens"
-    tokens_label = t("console.synd.tokens_label_admin") if admin_viewer else t("console.synd.tokens_label")
     oauth_grants: list[dict[str, Any]] = []
     marketplace_repo: str | None = None
     onboarding_progress: dict[str, Any] = {}
@@ -307,13 +305,9 @@ def build_syndication_section(
         f"<td class=\"pref-actions\"><button type=\"button\" class=\"pref-btn\" data-oauth-revoke-grant=\"{escape(str(g['grant_id']))}\">{escape(t('console.oauth.revoke'))}</button></td></tr>"
         for g in oauth_grants
     ) or f'<tr><td colspan="6" style="color:var(--muted);text-align:center;">{escape(t("console.settings.tokens.clients_empty"))}</td></tr>'
-    deprecation_notice_html = interpolate(escape(t("console.tokens.deprecation_notice")), {"mcp": '<a href="/account/mcp">/account/mcp</a>'})
     values = {
         "client_href": escape(client_href),
-        "tokens_href": escape(tokens_href),
-        "tokens_label": escape(tokens_label),
         "oauth_grants_rows": grant_rows,
-        "deprecation_notice_html": deprecation_notice_html,
         "agent_extraction_guide_html": _render_agent_extraction_guide_block(onboarding_progress) if slug == "mcp" else "",
         "agent_clients_delivery_html": _render_agent_marketplace_block(marketplace_repo) if marketplace_repo is not None else "",
     }

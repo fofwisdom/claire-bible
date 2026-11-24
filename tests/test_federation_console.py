@@ -24,9 +24,9 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import federation as federation_store
 from claire.store.secrets import reset_secret_service
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
-OWNER_TOKEN = "owner-" + "o" * 32
 PASSWORD = "Correct-Horse-Battery-123!"
 ALPHA_PUBLIC_ID = 223456789012
 BETA_PUBLIC_ID = 223456789099
@@ -45,8 +45,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
     fqdn: str = "127.0.0.1:8765"
     multi_theme: bool = True
@@ -423,7 +421,7 @@ def test_member_and_anonymous_principal_cannot_read_or_change_domain_blocks(env,
 
 def test_bearer_credential_of_the_admin_cannot_change_domain_blocks(env):
     _db(env.settings, lambda conn: federation_store.add_domain_block(conn, "kept.example", created_by=1, now=50.0))
-    bearer = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    bearer = bearer_headers(env.settings.db_file, account_id=1, scope="owner")
 
     added = env.client.request("POST", BLOCKS_PATH, headers=bearer, json={"domain": "spam.example"})
     removed = env.client.request("DELETE", BLOCKS_PATH, headers=bearer, json={"domain": "kept.example"})

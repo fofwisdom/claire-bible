@@ -14,11 +14,7 @@ from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.knowledge_base import get_kb_manager
-from claire.store.token_store import get_token_store
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture
@@ -38,8 +34,6 @@ def dispatch_account_env(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
     )
 
     conn = dbm.connect(settings.db_file)
@@ -61,11 +55,6 @@ def dispatch_account_env(tmp_path: Path):
     t4 = theme_mgr.define_kb("Private Sandbox", account_id=member_id, knowledge_type="real")
     theme_mgr.define_kb("Researcher Two", account_id=member_id, is_personal=True)
 
-    # Create API tokens for member account 2
-    tok_store = get_token_store(data_dir=settings.data_dir)
-    tok_collab = tok_store.create_api_token(name="member2-collab", scope="write", account_id=member_id)
-    tok_owner = tok_store.create_api_token(name="member2-owner", scope="owner", account_id=member_id)
-
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)
 
@@ -77,8 +66,9 @@ def dispatch_account_env(tmp_path: Path):
         "theme2_id": t2.id,
         "theme3_id": t3.id,
         "theme4_id": t4.id,
-        "member_collab_headers": {"Authorization": f"Bearer {tok_collab['token']}"},
-        "member_owner_headers": {"Authorization": f"Bearer {tok_owner['token']}"},
+        "owner_headers": bearer_headers(settings, scope="owner"),
+        "member_collab_headers": bearer_headers(settings, account_id=member_id, scope="write"),
+        "member_owner_headers": bearer_headers(settings, account_id=member_id, scope="owner"),
     }
 
 
@@ -97,14 +87,14 @@ def test_syndication_dispatch_records_principal_account_id(dispatch_account_env)
     assert doc_id
 
     # The copy is an ingest: a shared knowledge base as the target gets 403 (CT4; SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 route review).
-    refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": t2_id}, headers=OWNER_HEADERS)
+    refused = client.post("/api/syndication/dispatch", json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": t2_id}, headers=env["owner_headers"])
     assert (refused.status_code, refused.json()) == (403, {"error": "kb_ingest_by_contribution"})
 
     # Dispatch from the shared knowledge base 1 to the personal knowledge base of the caller (Account ID 1)
     dispatch_res = client.post(
         "/api/syndication/dispatch",
         json={"document_id": doc_id, "source_kb_id": t1_id, "target_kb_id": 0, "focus": "Alignment focus"},
-        headers=OWNER_HEADERS,
+        headers=env["owner_headers"],
     )
     assert dispatch_res.status_code == 200
     d_data = dispatch_res.json()
@@ -166,7 +156,7 @@ def test_syndication_dispatch_cross_account_permission_enforcement(dispatch_acco
     res_other = client.post(
         "/api/syndication/dispatch",
         json={"document_id": doc1_id, "source_kb_id": t1_id, "target_kb_id": member_personal.id},
-        headers=OWNER_HEADERS,
+        headers=env["owner_headers"],
     )
     assert res_other.status_code in {403, 404}
 
@@ -215,14 +205,14 @@ def test_syndication_dispatches_query_filtering_by_account_id(dispatch_account_e
         conn.close()
 
     # Query without filter: both dispatches appear
-    res_all = client.get("/api/syndication/dispatches", headers=OWNER_HEADERS)
+    res_all = client.get("/api/syndication/dispatches", headers=env["owner_headers"])
     assert res_all.status_code == 200
     all_ids = {d["id"] for d in res_all.json()["dispatches"]}
     assert d_admin in all_ids
     assert d_member in all_ids
 
     # Query filtered by account_id=1
-    res_admin = client.get("/api/syndication/dispatches?account_id=1", headers=OWNER_HEADERS)
+    res_admin = client.get("/api/syndication/dispatches?account_id=1", headers=env["owner_headers"])
     assert res_admin.status_code == 200
     admin_dispatches = res_admin.json()["dispatches"]
     assert any(d["id"] == d_admin for d in admin_dispatches)
@@ -231,7 +221,7 @@ def test_syndication_dispatches_query_filtering_by_account_id(dispatch_account_e
         assert d["dispatched_by_account_id"] == 1
 
     # Query filtered by dispatched_by_account_id=<member_id>
-    res_member = client.get(f"/api/syndication/dispatches?dispatched_by_account_id={member_id}", headers=OWNER_HEADERS)
+    res_member = client.get(f"/api/syndication/dispatches?dispatched_by_account_id={member_id}", headers=env["owner_headers"])
     assert res_member.status_code == 200
     member_dispatches = res_member.json()["dispatches"]
     assert any(d["id"] == d_member for d in member_dispatches)

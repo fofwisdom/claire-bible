@@ -21,7 +21,7 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -84,13 +84,11 @@ class _ConsoleHtmlInspector(HTMLParser):
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _upsert_account(conn, account_id: int, public_id: int, username: str, role: str) -> None:
@@ -143,10 +141,6 @@ def console_env(tmp_path: Path):
     shared_kb = _insert_theme(tm, settings, kb_id=11, seq=1, number=(1 << 56) | 11, label="Shared Research", account_id=1, is_personal=False)
     alice_def = _insert_theme(tm, settings, kb_id=20, seq=2, number=(2 << 56) | 20, label="Alice Default", account_id=2, is_personal=True)
 
-    tok_store = get_token_store(data_dir=data_dir)
-    admin_owner_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    alice_owner_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     client = TestClient(app, base_url=PUBLIC_URL)
     return SimpleNamespace(
@@ -154,8 +148,8 @@ def console_env(tmp_path: Path):
         client=client,
         shared_kb=shared_kb,
         alice_def=alice_def,
-        admin_owner={"Authorization": f"Bearer {admin_owner_tok}"},
-        alice_owner={"Authorization": f"Bearer {alice_owner_tok}"},
+        admin_owner=bearer_headers(db_file, account_id=1, scope="owner"),
+        alice_owner=bearer_headers(db_file, account_id=2, scope="owner"),
     )
 
 
@@ -221,9 +215,9 @@ def test_console_ui_host_and_control_builders() -> None:
     assert "console-subcard" not in admin_host
     assert 'class="card"' not in admin_host
 
-    settings_host = console_ui.console_host("settings-tokens-host", panel_host="settings:tokens")
-    assert 'data-settings-panel-host="tokens"' in settings_host
-    assert 'data-console-host="tokens"' in settings_host
+    settings_host = console_ui.console_host("settings-mcp-host", panel_host="settings:mcp")
+    assert 'data-settings-panel-host="mcp"' in settings_host
+    assert 'data-console-host="mcp"' in settings_host
 
     inferred_host = console_ui.console_host("settings-kb-host", panel_host="kb")
     assert 'data-settings-panel-host="kb"' in inferred_host
@@ -309,7 +303,9 @@ def test_all_console_html_routes_match_shell_contract_and_isolation(console_env)
         assert "console-sidebar" in inspector.ids, path
         assert inspector.nested_cards == [], (path, inspector.nested_cards)
 
-    assert "/account/tokens" in rendered_member_pages and "/support/bundles" in rendered_member_pages and "/support/pipeline" in rendered_member_pages
+    assert "/account/mcp" in rendered_member_pages and "/support/bundles" in rendered_member_pages and "/support/pipeline" in rendered_member_pages
+    assert "/account/tokens" not in rendered_member_pages
+    assert "/admin/tokens" not in rendered_admin_pages
     assert f"/moderation/kb/{shared_number}" in rendered_member_pages
 
 

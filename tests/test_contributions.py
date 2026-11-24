@@ -26,10 +26,9 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
-OWNER_TOKEN = "owner-" + ("s" * 32)
 ACCOUNTS = {"admin": 1, "ann": 2, "ben": 3, "cho": 4}
 # A stored extraction with entities and relations (the JSON of ``ExtractionResult``).
 EXTRACTION = {
@@ -46,13 +45,6 @@ EXTRACTION = {
         {"source": "Seoul", "target": "Nowhere", "type": "part_of"},
     ],
 }
-
-
-@pytest.fixture(autouse=True)
-def _fresh_token_stores():
-    reset_token_stores()
-    yield
-    reset_token_stores()
 
 
 # True while a test helper ingests a source document: that ingest uses the model, as each ingest does.
@@ -118,7 +110,6 @@ def world(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     conn = dbm.connect(settings.db_file)
     try:
@@ -138,10 +129,8 @@ def world(tmp_path: Path):
     for username, account_id in ACCOUNTS.items():
         if account_id != 1:
             manager.define_kb(f"{username} home", account_id=account_id, is_personal=True, is_public=True)
-    tokens = get_token_store(data_dir=settings.data_dir)
-
     def bearer(name: str, scope: str = "owner") -> dict[str, str]:
-        return {"Authorization": f"Bearer {tokens.create_api_token(name=f'{name}-{scope}', scope=scope, account_id=ACCOUNTS[name])['token']}"}
+        return bearer_headers(settings, account_id=ACCOUNTS[name], scope=scope)
 
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
         ann, ben, cho, admin = bearer("ann"), bearer("ben"), bearer("cho"), bearer("admin")

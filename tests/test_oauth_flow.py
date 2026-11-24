@@ -25,8 +25,6 @@ class StubSettings:
     public_url: str = "http://127.0.0.1:8765"
     inject_host: str = "127.0.0.1"
     inject_port: int = 8765
-    inject_token: str = "owner-" + ("o" * 32)
-    readonly_token: str = "readonly-" + ("r" * 32)
     cors_allowed_origins: str = ""
     effective_provider: str = "mock"
     telegram_bot_token: str = ""
@@ -600,9 +598,9 @@ def test_oauth_device_authorization_grant_and_modern_web_headers_e2e(tmp_path: P
         assert logout.headers.get("clear-site-data") == '"cookies", "storage", "cache"'
 
 
-def test_ae3_manual_token_deprecation_headers_and_retirement_toggle(tmp_path: Path) -> None:
+def test_ae3_manual_tokens_retired_and_oauth_unheadered(tmp_path: Path) -> None:
     from claire.store import accounts as accounts_store
-    from claire.store.token_store import get_token_store
+    from tests.auth_helpers import issue_oauth_token
 
     s = _settings(tmp_path)
     with TestClient(_app(s), base_url=s.public_url) as client:
@@ -612,33 +610,21 @@ def test_ae3_manual_token_deprecation_headers_and_retirement_toggle(tmp_path: Pa
         conn.close()
 
         client.cookies.set("claire_session", session_tok)
-        created = client.post("/tokens", json={"name": "legacy-script", "scope": "readonly"}, headers={"Origin": s.public_url})
-        assert created.status_code == 201
-        assert created.headers.get("deprecation") == "true"
-        assert 'rel="successor-version"' in (created.headers.get("link") or "")
-        assert created.json()["deprecated"] is True
-        raw_tok = created.json()["token"]["token"]
+        assert client.get("/tokens").status_code == 404
+        assert client.post("/tokens", json={"name": "legacy-script", "scope": "readonly"}, headers={"Origin": s.public_url}).status_code == 404
+        assert client.post("/tokens/revoke", json={"id": 1}, headers={"Origin": s.public_url}).status_code == 404
 
         client.cookies.clear()
-        api_resp = client.post("/mcp", headers={"Authorization": f"Bearer {raw_tok}"}, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        oauth_tok = issue_oauth_token(s.db_file, account_id=1, scope="readonly")
+        api_resp = client.post("/mcp", headers={"Authorization": f"Bearer {oauth_tok}"}, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         assert api_resp.status_code == 200
-        assert api_resp.headers.get("deprecation") == "true"
-        assert 'rel="successor-version"' in (api_resp.headers.get("link") or "")
-
-        client.cookies.set("claire_session", session_tok)
-        store = get_token_store(data_dir=s.data_dir)
-        store.set_retired(True)
-        assert store.validate_api_token(raw_tok) is None
-        assert client.post("/tokens", json={"name": "blocked"}, headers={"Origin": s.public_url}).status_code == 410
-        client.cookies.clear()
-        assert client.post("/mcp", headers={"Authorization": f"Bearer {raw_tok}"}, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).status_code == 401
+        assert "deprecation" not in api_resp.headers
 
 
-def test_oauth_client_credentials_redirect_safety_and_token_store_reload(tmp_path: Path) -> None:
-    """Verify redirect URI control-char/scheme checks, mismatched Basic/body credentials, and TokenStore disk reload."""
+def test_oauth_client_credentials_redirect_safety(tmp_path: Path) -> None:
+    """Verify redirect URI control-char/scheme checks and mismatched Basic/body credentials."""
     from starlette.requests import Request
     from claire.api.oauth import ClientCredentialConflictError, _extract_client_credentials, _is_safe_redirect_uri
-    from claire.store.token_store import TokenStore
 
     assert _is_safe_redirect_uri("https://example.com\nLocation: evil") is False
     assert _is_safe_redirect_uri("java\tscript:alert(1)") is False
@@ -658,12 +644,6 @@ def test_oauth_client_credentials_redirect_safety_and_token_store_reload(tmp_pat
     with pytest.raises(ClientCredentialConflictError):
         _extract_client_credentials(bad_hdr_req, {})
     assert _extract_client_credentials(req, {"client_id": "client_a"}) == ("client_a", "secret_a")
-
-    store = TokenStore(data_dir=tmp_path)
-    store.set_retired(True)
-    assert store.is_retired() is True
-    store.storage_path.unlink()
-    assert store.is_retired() is False
 
 
 def test_oauth_tx_idp_handoff_csrf_and_device_next_e2e(tmp_path: Path) -> None:

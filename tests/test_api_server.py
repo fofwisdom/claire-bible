@@ -20,13 +20,19 @@ from starlette.testclient import TestClient
 from claire.api import security, server
 from claire.extract.provider import emit_progress
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+OWNER_HEADERS: dict[str, str] = {}
+READONLY_HEADERS: dict[str, str] = {}
 # 단일 테마 모드에서 요청이 쓰는 테마 (server._get_theme_ctx 의 기본 테마)
 REQUEST_THEME_ID = 0
+
+
+def _seed_headers(s: Any) -> None:
+    OWNER_HEADERS.clear()
+    OWNER_HEADERS.update(bearer_headers(s.db_file, account_id=1, scope="owner"))
+    READONLY_HEADERS.clear()
+    READONLY_HEADERS.update(bearer_headers(s.db_file, account_id=1, scope="readonly"))
 
 
 @dataclass
@@ -35,8 +41,6 @@ class StubSettings:
     data_dir: Path
     environment: str = "development"
     public_url: str = "http://127.0.0.1:8765"
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
 
 
@@ -127,7 +131,9 @@ class BlockingSearchService(StubService):
 
 @pytest.fixture
 def settings(tmp_path: Path) -> StubSettings:
-    return StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    s = StubSettings(db_file=tmp_path / "claire.db", data_dir=tmp_path)
+    _seed_headers(s)
+    return s
 
 
 @pytest.fixture
@@ -922,6 +928,7 @@ def test_stats_ingest_effort_visibility_and_http_400_no_fallback(
         db_file=tmp_path / "claire.db",
         data_dir=tmp_path,
     )
+    _seed_headers(settings)
     service = EffortStubService()
     app = server.create_app(settings, service)
 

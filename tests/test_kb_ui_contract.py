@@ -5,7 +5,7 @@ HTTP level: the titles in the views of contributions and submissions, ``membersh
 
 from __future__ import annotations
 
-from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _personal_document, no_llm, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _contribute, _personal_document, no_llm, world  # noqa: F401 (fixtures)
 
 from claire.collaboration import contributions
 from claire.core import ids

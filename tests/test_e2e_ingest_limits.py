@@ -12,11 +12,11 @@ from claire.api.server import create_app
 from claire.core.config import Settings, get_settings
 from claire.ingest.pipeline import ingest
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 
 
 def test_e2e_ingest_limits_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """E2E test: update limits via API and verify the ingestion pipeline respects new limits."""
-    owner_token = "e2e-owner-token-12345678901234567890"
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     db_file = data_dir / "claire.db"
@@ -33,7 +33,6 @@ def test_e2e_ingest_limits_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     settings = Settings(
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_FQDN="127.0.0.1:8765",
         provider="mock",
@@ -41,7 +40,7 @@ def test_e2e_ingest_limits_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     app = create_app(settings)
     client = TestClient(app, base_url="http://127.0.0.1:8765")
-    headers = {"Authorization": f"Bearer {owner_token}"}
+    headers = bearer_headers(db_file, scope="owner")
 
     # Step 1: Verify initial default limit (raw_char_budget = 20,000)
     resp = client.get("/limits", headers=headers)

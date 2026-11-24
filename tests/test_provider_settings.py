@@ -20,9 +20,9 @@ from claire.store import auth_db, provider_keys
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
-OWNER_TOKEN = "owner-provider-settings-" + "x" * 16
 TEST_MASTER_KEY_HEX = "5a" * 32
 KEY_CANARY = "AIzaProviderSettingsCanary1234567890"
 
@@ -67,7 +67,6 @@ def _world(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
         GEMINI_API_KEY=gemini_key,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     return SimpleNamespace(settings=settings, data_dir=data_dir, db_file=db_file, auth_file=auth_db.auth_db_path(data_dir))
 
@@ -150,7 +149,7 @@ def test_providers_patch_saves_each_part_and_refuses_what_does_not_apply(tmp_pat
     repo_providers = Path("data/providers.json")
     before = repo_providers.read_bytes() if repo_providers.is_file() else None
     app = server.create_app(world.settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
-    owner = {"Authorization": f"Bearer {OWNER_TOKEN}", "Origin": PUBLIC_URL, "Accept": "application/json"}
+    owner = {**bearer_headers(world.db_file, scope="owner"), "Origin": PUBLIC_URL, "Accept": "application/json"}
     with TestClient(app, base_url=PUBLIC_URL) as client:
         # Google AI Studio becomes the main provider with a key; then the key is deleted, and a save of another part is still stored (only a change of the main provider is checked).
         keyed = client.patch("/providers", headers=owner, json={"active_provider": "gemini", "providers": {"gemini": {"api_key": "AIzaServerKey1234567890abcdef"}}})

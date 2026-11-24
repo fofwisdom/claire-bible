@@ -276,7 +276,6 @@ def test_purge_document_matrix_and_active(tmp_path: Path):
 
 
 def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
-    import secrets
     from unittest.mock import MagicMock
     from starlette.testclient import TestClient
     from claire.api import server
@@ -284,6 +283,7 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     from claire.ingest.active import clear_active_ingest, set_active_ingest
     from claire.ontology.base import Document
     from claire.store import db as dbm
+    from tests.auth_helpers import bearer_headers
 
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -308,15 +308,13 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
         result={"document_id": doc_id, "title": "Sample Doc with Matrix", "heatmap_matrix": {"rows": ["Ent1"]}},
     )
 
-    owner_tok = secrets.token_urlsafe(32)
-    read_tok = secrets.token_urlsafe(32)
     s = Settings(
         db_path=str(db_file),
         environment="development",
         fqdn="127.0.0.1:8765",
-        inject_token=owner_tok,
-        readonly_token=read_tok,
     )
+    owner_headers = bearer_headers(db_file, scope="owner")
+    read_headers = bearer_headers(db_file, scope="readonly")
     svc = MagicMock()
     app = server.create_app(s, svc)
     client = TestClient(app, base_url="http://127.0.0.1:8765")
@@ -325,7 +323,7 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     r_ro = client.post(
         "/document/matrix/purge",
         json={"id": doc_id},
-        headers={"Authorization": f"Bearer {read_tok}"},
+        headers=read_headers,
     )
     assert r_ro.status_code == 403
 
@@ -333,7 +331,7 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     r_owner = client.post(
         "/document/matrix/purge",
         json={"id": doc_id},
-        headers={"Authorization": f"Bearer {owner_tok}"},
+        headers=owner_headers,
     )
     assert r_owner.status_code == 200
     assert r_owner.json() == {"id": doc_id, "purged": True}
@@ -346,7 +344,7 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     assert "heatmap_matrix" not in doc_after.meta
 
     # 4. /documents API 조회 시 heatmap_matrix 가 null 임을 검증 (신규 접속자 비노출 보장)
-    r_docs = client.get("/documents", headers={"Authorization": f"Bearer {read_tok}"})
+    r_docs = client.get("/documents", headers=read_headers)
     assert r_docs.status_code == 200
     docs_list = r_docs.json().get("documents") or []
     target_in_list = next((d for d in docs_list if d["id"] == doc_id), None)

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _graph, _personal_document, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _contribute, _graph, _personal_document, world  # noqa: F401 (fixtures)
 
 from claire import cli
 from claire.ops import account_backup

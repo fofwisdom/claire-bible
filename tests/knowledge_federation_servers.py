@@ -54,8 +54,6 @@ class _Settings:
     public_url: str
     fqdn: str
     environment: str = "production"
-    inject_token: str = ""
-    readonly_token: str = ""
     cors_allowed_origins: str = ""
     multi_theme: bool = True
     trusted_proxies: str = "10.0.0.0/8,fd00::/8"
@@ -174,7 +172,7 @@ class KfWorld:
     def __init__(self, tmp_path: Path, origin: str) -> None:
         from claire.core.config import Settings
         from claire.store.knowledge_base import KnowledgeBaseManager
-        from claire.store.token_store import get_token_store
+        from tests.auth_helpers import bearer_headers
 
         directory = tmp_path / origin.split("//", 1)[1]
         (directory / "data").mkdir(parents=True)
@@ -184,7 +182,6 @@ class KfWorld:
             CLAIRE_PROVIDER="mock",
             CLAIRE_ENVIRONMENT="production",
             CLAIRE_FQDN=origin.split("//", 1)[1],
-            CLAIRE_INJECT_TOKEN="owner-" + ("s" * 32),
         )
         conn = dbm.connect(self.settings.db_file)
         try:
@@ -205,7 +202,7 @@ class KfWorld:
         for username, account_id in self.ACCOUNTS.items():
             if account_id != 1:
                 self.manager.define_kb(f"{username} home", account_id=account_id, is_personal=True, is_public=True)
-        self._tokens = get_token_store(data_dir=self.settings.data_dir)
+        self._bearer_headers = bearer_headers
         self._bearers: dict[str, dict[str, str]] = {}
         self.client = TestClient(server.create_app(settings=self.settings), base_url=origin, follow_redirects=False)
         self.client.__enter__()
@@ -223,8 +220,7 @@ class KfWorld:
 
     def headers(self, name: str) -> dict[str, str]:
         if name not in self._bearers:
-            token = self._tokens.create_api_token(name=f"{name}-owner", scope="owner", account_id=self.ACCOUNTS[name])["token"]
-            self._bearers[name] = {"Authorization": f"Bearer {token}", "Origin": self.origin}
+            self._bearers[name] = {**self._bearer_headers(self.settings, account_id=self.ACCOUNTS[name], scope="owner"), "Origin": self.origin}
         return self._bearers[name]
 
     def db(self, fn: Any) -> Any:

@@ -142,6 +142,8 @@ def test_batch_select_primary_labels(tmp_path: Path):
 
 
 def test_api_primary_label_endpoint(tmp_path: Path):
+    from tests.auth_helpers import bearer_headers
+
     db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -155,17 +157,12 @@ def test_api_primary_label_endpoint(tmp_path: Path):
     dbm.upsert_entity(conn, ent)
     conn.close()
 
-    owner_token = "owner-" + ("o" * 32)
-    readonly_token = "readonly-" + ("r" * 32)
-
     class StubSettings:
         def __init__(self):
             self.db_file = db_file
             self.data_dir = tmp_path
             self.environment = "development"
             self.public_url = "http://127.0.0.1:8765"
-            self.inject_token = owner_token
-            self.readonly_token = readonly_token
             self.cors_allowed_origins = ""
 
     class StubService:
@@ -174,8 +171,8 @@ def test_api_primary_label_endpoint(tmp_path: Path):
 
     settings = StubSettings()
     app = server.create_app(settings, StubService())
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
-    readonly_headers = {"Authorization": f"Bearer {readonly_token}"}
+    owner_headers = bearer_headers(db_file, scope="owner")
+    readonly_headers = bearer_headers(db_file, scope="readonly")
 
     with TestClient(security.wrap_web_app(app, settings), base_url=settings.public_url) as client:
         # 1. Readonly 사용자는 fail-closed(404) 또는 401/403 거부되어야 함

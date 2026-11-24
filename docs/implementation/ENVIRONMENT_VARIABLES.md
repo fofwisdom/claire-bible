@@ -276,8 +276,6 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | `CLAIRE_INJECT_PORT` | `8765` / `8766` | 정수 (`1~65535`) | API 서버 내부 포트 번호. |
 | `CLAIRE_SUPPORT_BUNDLE_API_URL` | Compose가 `http://api:<CB_API_PORT>`로 주입 | Compose 내부 URL | Telegram이 다운로드 담당 API에 Support Bundle 생성을 위임하는 내부 전용 주소. 사용자가 `.env`에 설정하지 않는다. |
 | `CLAIRE_GRAPH_BUNDLE_API_URL` | `""` | Compose 내부 URL | Telegram이 그래프 번들 생성을 위임할 API URL. 비어 있으면 `CLAIRE_SUPPORT_BUNDLE_API_URL`을 쓰고, 둘 다 비면 같은 프로세스에서 직접 만든다. |
-| `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Owner 토큰. 정적 환경변수 통제에서 분리되어 기동 시 `data/auth/api_tokens.json`으로 이관되며, 직접 사용 시 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 웹 콘솔 `/account/mcp` OAuth 2.1 사용을 권장한다. |
-| `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Readonly 조회 토큰. 기동 시 `data/auth/api_tokens.json`으로 이관되며, 사용 시 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 `/account/mcp` OAuth 2.1(`readonly` 스코프)을 권장한다. |
 | `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명. Host 헤더 검증, Same-Origin 판정, 고유 주소(`/silvercord/...`) 및 `Settings.public_url` 구성에 사용된다. |
 | `CLAIRE_SITE_DOMAIN` | `""` | 등록 도메인 (예: `example.com`) | 운영 환경의 등록 도메인. app(`CLAIRE_FQDN`)을 포함한 모든 역할 호스트는 이 값과 같거나 그 서브도메인이어야 한다. 공개 접미사 목록으로 추정하지 않는다. app 외 역할 호스트를 두지 않는 설치와 `development`에서는 비워도 된다. |
 | `CLAIRE_USERCONTENT_FQDN` | `""` | 호스트명 (운영 예: `usercontent.example.com`, 개발 예: `127.0.0.1:8767`) | 계정이 만든 HTML을 그리는 usercontent 역할 호스트. 쿠키를 읽지도 쓰지도 않는다. 개발에서는 app과 같은 IPv4의 다른 포트다. 네트워크 모드 운영 환경에서는 필수다. P2에서는 모든 경로가 404다. |
@@ -388,8 +386,6 @@ CLAIRE_PROVIDER=gemini
 CLAIRE_GEMINI_EFFORT=medium
 
 # --- 웹 서비스 및 보안 ---
-CLAIRE_INJECT_TOKEN=secure_random_32_character_token_here_12345
-CLAIRE_READONLY_TOKEN=optional_readonly_agent_token_here_67890
 CLAIRE_FQDN=claire.example.com
 
 # --- 저장소 및 수명주기 ---
@@ -415,7 +411,6 @@ GEMINI_API_KEY=
 TELEGRAM_BOT_TOKEN=
 
 # --- 웹 서비스 ---
-CLAIRE_INJECT_TOKEN=dev_insecure_owner_token_32_characters_123
 CLAIRE_FQDN=127.0.0.1:8766
 ```
 

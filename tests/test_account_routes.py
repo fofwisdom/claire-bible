@@ -21,9 +21,8 @@ from claire.api.principal import STEP_UP_WINDOW_SECONDS, Principal
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
-OWNER_TOKEN = "owner-" + "o" * 32
-READONLY_TOKEN = "readonly-" + "r" * 32
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
 USERNAME = "kim_lee"
@@ -37,8 +36,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
 
 
@@ -132,14 +129,16 @@ def test_admin_accounts_hidden_from_everyone_but_the_admin(client, settings):
     _activate_admin(settings)
     member_id = _add_member(settings)
     member_session = _session(settings, member_id)
+    ro_bearer = issue_oauth_token(settings, account_id=1, scope="readonly")
+    owner_bearer = issue_session_token(settings, account_id=1, scope="owner")
     for path in ("/admin/accounts", "/api/admin/accounts", "/api/admin/accounts/signup-trace"):
         assert client.request("GET", path).status_code == 404
-        assert client.request("GET", path, bearer=READONLY_TOKEN).status_code == 404
+        assert client.request("GET", path, bearer=ro_bearer).status_code == 404
         assert client.request("GET", path, session=_session(settings, scope="readonly")).status_code == 404
         # 멤버의 owner 세션도 관리자 경로에서는 404다(존재를 숨긴다).
         assert client.request("GET", path, session=member_session).status_code == 404
         assert client.request("GET", path, session=_session(settings)).status_code == 200
-        assert client.request("GET", path, bearer=OWNER_TOKEN).status_code == 200
+        assert client.request("GET", path, bearer=owner_bearer).status_code == 200
     # 계정 메타데이터만 있고 쓰기·콘텐츠 경로는 없다(K5).
     assert client.request("PATCH", "/api/admin/accounts", session=_session(settings), json={}).status_code == 404
 
@@ -225,7 +224,7 @@ def test_me_read_and_display_name_update(client, settings):
 
 def test_me_bearer_owner_reads_admin_account(client, settings):
     _activate_admin(settings)
-    me = client.request("GET", "/api/me", bearer=OWNER_TOKEN)
+    me = client.request("GET", "/api/me", bearer=issue_session_token(settings, account_id=1, scope="owner"))
     assert me.status_code == 200 and me.json()["username"] == USERNAME
 
 
@@ -366,7 +365,7 @@ def test_settings_account_profile_public_toggle_e2e(client, settings):
 
 def test_require_recent_auth_contract():
     now = 1_000_000.0
-    bearer = Principal(1, "admin", "owner", "bearer", "env:owner")
+    bearer = Principal(1, "admin", "owner", "bearer", "session:1")
     stale = Principal(1, "admin", "owner", "cookie", "s", now - STEP_UP_WINDOW_SECONDS - 1)
     fresh = Principal(1, "admin", "owner", "x-session", "s", now - 5)
     denied = require_recent_auth(bearer, now=now)
@@ -380,16 +379,17 @@ def test_require_recent_auth_contract():
 def test_password_change_requires_step_up(client, settings):
     _activate_admin(settings)
     stale = _session(settings, authenticated_ago=STEP_UP_WINDOW_SECONDS + 60)
+    owner_bearer = issue_session_token(settings, account_id=1, scope="owner")
     body = {"current_password": PASSWORD, "new_password": NEW_PASSWORD}
 
     response = client.request("POST", "/api/me/password", session=stale, json=body)
     assert response.status_code == 401 and response.json()["error"] == "reauth_required"
-    response = client.request("POST", "/api/me/password", bearer=OWNER_TOKEN, json=body)
+    response = client.request("POST", "/api/me/password", bearer=owner_bearer, json=body)
     assert response.status_code == 403 and response.json()["error"] == "step_up_requires_session"
 
     wrong = client.request("POST", "/api/auth/reauth", session=stale, json={"password": "nope-nope-nope"})
     assert wrong.status_code == 403 and wrong.json()["error"] == "invalid_password"
-    assert client.request("POST", "/api/auth/reauth", bearer=OWNER_TOKEN, json={"password": PASSWORD}).status_code == 403
+    assert client.request("POST", "/api/auth/reauth", bearer=owner_bearer, json={"password": PASSWORD}).status_code == 403
     ok = client.request("POST", "/api/auth/reauth", session=stale, json={"password": PASSWORD})
     assert ok.status_code == 200 and ok.json()["ok"] is True
 
@@ -435,6 +435,7 @@ def test_password_change_revokes_other_sessions_only(client, settings):
     others = [_session(settings), _session(settings, scope="readonly")]
     member_id = _add_member(settings)
     member_session = _session(settings, member_id)
+    oauth_ro = issue_oauth_token(settings, account_id=1, scope="readonly")
 
     response = client.request(
         "POST", "/api/me/password", session=current,
@@ -445,8 +446,8 @@ def test_password_change_revokes_other_sessions_only(client, settings):
     assert _session_exists(settings, current)
     assert not any(_session_exists(settings, t) for t in others)
     assert _session_exists(settings, member_session)
-    # 환경변수·API 토큰은 비밀번호에서 나온 자격증명이 아니므로 그대로다.
-    assert client.request("GET", "/api/me", bearer=OWNER_TOKEN).status_code == 200
+    # OAuth tokens are not password-backed sessions, so they remain active.
+    assert client.request("GET", f"/@{USERNAME}/whoami", bearer=oauth_ro).status_code == 200
 
     auth = _auth(settings)
     try:

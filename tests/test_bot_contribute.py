@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _personal_document, world  # noqa: F401 (fixtures)
 
 from claire.telegram import bot as telegram_bot
 from claire.core import ids

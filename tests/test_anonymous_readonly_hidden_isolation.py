@@ -10,9 +10,7 @@ from starlette.testclient import TestClient
 from claire.api.server import create_app
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
+from tests.auth_helpers import bearer_headers
 
 
 @dataclass
@@ -22,8 +20,6 @@ class _Settings:
     vault_dir: Path
     environment: str = "development"
     public_url: str = "http://127.0.0.1:8765"
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     multi_theme: bool = True
     vector_backend: str = "brute"
@@ -198,7 +194,7 @@ def test_hidden_document_and_entity_isolation_for_anonymous(tmp_path: Path) -> N
         assert stats_res.json()["documents"] == 1  # 공개 문서만 카운트
 
         # === 2. 소유자 (Owner) 토큰 요청 ===
-        owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+        owner_headers = bearer_headers(db_file, scope="owner")
         owner_docs = client.get("/documents", headers=owner_headers)
         assert owner_docs.status_code == 200
         owner_doc_ids = [d["id"] for d in owner_docs.json()["documents"]]

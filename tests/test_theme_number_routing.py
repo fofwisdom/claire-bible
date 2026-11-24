@@ -30,7 +30,6 @@ from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
-from claire.store.token_store import reset_token_stores
 from tests.single_mode import complete_admin_setup
 
 ADMIN_LEGACY_UNIX_MS = dbm.ADMIN_LEGACY_PUBLIC_ID_UNIX_MS
@@ -42,9 +41,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     for name in list(os.environ):
         if name.startswith("CLAIRE_"):
             monkeypatch.delenv(name, raising=False)
-    reset_token_stores()
     yield
-    reset_token_stores()
 
 
 def _init_test_db(db_file: Path) -> sqlite3.Connection:

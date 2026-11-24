@@ -16,10 +16,8 @@ from claire.api.security import ROUTE_POLICY, wrap_web_app
 from claire.api.server import create_app
 from claire.ontology.base import Document, Entity
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 from tests.single_mode import complete_admin_setup
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
 
 
 @dataclass
@@ -29,8 +27,6 @@ class _Settings:
     vault_dir: Path
     environment: str = "development"
     public_url: str = "http://127.0.0.1:8765"
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     vector_backend: str = "brute"
     effective_provider: str = "mock"
@@ -119,6 +115,7 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
     conn.close()
     # Single mode serves the admin namespace at ``/@{username}/`` after the first setup; ``/`` and the root paths redirect to it (KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
     ns = "/@" + complete_admin_setup(db_file)
+    owner_headers = bearer_headers(db_file, scope="owner")
 
     settings = _Settings(
         db_file=db_file,
@@ -194,7 +191,6 @@ def test_all_anonymous_reads_preserve_database_data_and_vault(tmp_path: Path) ->
         assert all(h["id"] != "entity-1" for h in hidden_search.json()["hits"])
 
         # 소유자(owner) 토큰으로 요청 시에는 숨김 문서/엔티티 정상 접근
-        owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}"}
         owner_docs = client.get(ns + "/documents", headers=owner_headers)
         assert owner_docs.status_code == 200
         assert any(doc["id"] == "doc-1" and doc["hidden"] == 1 for doc in owner_docs.json()["documents"])

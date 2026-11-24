@@ -28,9 +28,9 @@ from claire.store import queries
 from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.raw import load_artifact
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
 from claire.store.vectors import make_vector_store
 from claire.telegram.bot import _settle_status, build_app, parse_extraction_mode_flag
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 
@@ -56,14 +56,12 @@ class _SpyProvider:
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Any:
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith(("CLAIRE_", "CB_")):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("CLAIRE_SECRET_KEY", "77" * 32)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _add_account(conn: sqlite3.Connection, account_id: int, username: str, *, role: str = "member") -> None:
@@ -113,17 +111,13 @@ def _setup_network_env(tmp_path: Path) -> SimpleNamespace:
         CLAIRE_FQDN="127.0.0.1:8765",
     )
     KnowledgeBaseManager(settings).reload()
-    tokens = get_token_store(data_dir=data_dir)
-    alice_tok = tokens.create_token(name="alice", scope="owner", account_id=2)["token"]
-    bob_tok = tokens.create_token(name="bob", scope="owner", account_id=3)["token"]
-    admin_tok = tokens.create_token(name="admin", scope="owner", account_id=1)["token"]
     return SimpleNamespace(
         settings=settings,
         data_dir=data_dir,
         db_file=db_file,
-        alice_headers={"Authorization": f"Bearer {alice_tok}", "Origin": PUBLIC_URL},
-        bob_headers={"Authorization": f"Bearer {bob_tok}", "Origin": PUBLIC_URL},
-        admin_headers={"Authorization": f"Bearer {admin_tok}", "Origin": PUBLIC_URL},
+        alice_headers={**bearer_headers(settings, account_id=2, scope="owner"), "Origin": PUBLIC_URL},
+        bob_headers={**bearer_headers(settings, account_id=3, scope="owner"), "Origin": PUBLIC_URL},
+        admin_headers={**bearer_headers(settings, account_id=1, scope="owner"), "Origin": PUBLIC_URL},
         anonymous_headers={},
         alice_public_id=str((1 << 57) + 2),
         bob_public_id=str((1 << 57) + 3),

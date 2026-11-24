@@ -20,14 +20,13 @@ from starlette.applications import Starlette
 from starlette.routing import Mount, Route, compile_path
 
 from claire.api import security, server
-from claire.store.token_store import reset_token_stores
 
 SURFACE_HELPERS = {"_root": "root", "_system": "system", "_namespaced": "namespaced", "_any": "any", "_collection": "collection"}
 # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7: ``/kb`` and ``/themes`` are collections of the server at the root and of the account under ``/@{u}/``.
 COLLECTION_KEYS = {("GET", "/kb"), ("HEAD", "/kb"), ("GET", "/themes"), ("HEAD", "/themes")}
 
 ROOT = {"/"}
-ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-limits", "/tokens", "/tokens/revoke",
+ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-limits",
        "/me", "/api/me", "/api/me/password", "/api/me/username", "/api/invites", "/api/me/provider-keys", "/api/me/provider-keys/verify",
        "/api/me/identities", "/api/me/identities/oidc/{id}/start", "/api/me/identities/oidc/{id}",
        # 유저 단위 기능(텔레그램 봇·서포트 번들·데이터 번들·백업)
@@ -74,7 +73,7 @@ SYSTEM = {
     # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)
     "/api/admin/federation/known-servers", "/api/admin/federation/journal", "/api/admin/federation/journal/{entry_id}", "/api/admin/federation/journal/{entry_id}/replay",
     "/auth/oidc/{id}/start", "/auth/oidc/{id}/callback", "/invite/complete", "/admin/idp", "/api/admin/idp",
-    "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/audit", "/admin/mcp", "/admin/webmcp",
+    "/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/audit", "/admin/mcp", "/admin/webmcp",
     "/api/admin/mcp/telemetry",
     "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
     "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
@@ -87,8 +86,8 @@ SYSTEM = {
     # The steps of one document and the AI of each step, for each account.
     "/support/pipeline",
     # The old /settings/* paths of the /account/* pages: 308 redirects.
-    "/settings/account", "/settings/keys", "/settings/invites", "/settings/federation", "/settings/telegram", "/settings/notifications", "/settings/bundles", "/settings/backups", "/settings/mcp", "/settings/webmcp", "/settings/tokens",
-    "/settings", "/account", "/account/profile", "/account/security", "/account/invites", "/account/providers", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes", "/account/tokens",
+    "/settings/account", "/settings/keys", "/settings/invites", "/settings/federation", "/settings/telegram", "/settings/notifications", "/settings/bundles", "/settings/backups", "/settings/mcp", "/settings/webmcp",
+    "/settings", "/account", "/account/profile", "/account/security", "/account/invites", "/account/providers", "/settings/kb", "/settings/kb/manage", "/settings/kb/{kb_number:int}", "/settings/themes",
     "/moderation", "/moderation/kb", "/moderation/kb/{kb_number:int}", "/moderation/oversight", "/moderation/themes",
     "/settings/reader", "/settings/connections", "/settings/feeds", "/settings/tags", "/settings/rules",
     "/settings/outbound", "/settings/opml", "/account/mcp", "/account/webmcp",
@@ -137,7 +136,7 @@ ADMIN_KEYS = {
     *((m, "/moderation/themes") for m in ("GET", "HEAD")),
     *((m, "/admin/idp") for m in ("GET", "HEAD")),
     *((m, "/api/admin/idp") for m in ("GET", "HEAD", "PUT")),
-    *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/tokens", "/admin/audit", "/admin/mcp", "/admin/webmcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
+    *((m, p) for p in ("/admin", "/admin/providers", "/admin/limits", "/admin/themes", "/admin/audit", "/admin/mcp", "/admin/webmcp", "/api/admin/mcp/telemetry") for m in ("GET", "HEAD")),
     *((m, p) for p in ("/admin/backups", "/api/admin/account-backups") for m in ("GET", "HEAD")),
     ("POST", "/api/admin/account-backups/restore"),
     *((m, p) for p in ("/admin/storage", "/api/admin/storage") for m in ("GET", "HEAD")),
@@ -268,8 +267,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = "http://127.0.0.1:8765"
-    inject_token: str = "owner-" + "o" * 32
-    readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
 
 
@@ -278,13 +275,11 @@ def mounted_app(tmp_path: Path, monkeypatch) -> Starlette:
     for name in list(os.environ):
         if name.startswith("CLAIRE_"):
             monkeypatch.delenv(name, raising=False)
-    reset_token_stores()
     service = SimpleNamespace(provider=SimpleNamespace(name="stub"))
     app = server.create_app(_Settings(db_file=tmp_path / "claire.db", data_dir=tmp_path), service)
     while not isinstance(app, Starlette):
         app = app.app
     yield app
-    reset_token_stores()
 
 
 def _mounted_keys(app: Starlette) -> list[tuple[str, str]]:

@@ -1,5 +1,5 @@
-/* Claire user console controller for the /account sections profile, security, federation, providers, and tokens. Design P3-a.
- * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, /api/me/provider-keys*, /api/federation/status, /api/federation/followers, /tokens.
+/* Claire user console controller for the /account sections profile, security, federation, and providers. Design P3-a.
+ * Calls only existing APIs: /api/me, /api/me/password, /api/auth/reauth, /api/me/identities*, /api/me/provider-keys*, /api/federation/status, /api/federation/followers.
  * Server text goes into the DOM only through textContent. No inline handlers. No /admin/* calls.
  */
 (function () {
@@ -720,22 +720,11 @@
     });
   }
 
-  function initManagers(section) {
-    var panels = window.ClaireManagePanels || {};
-    // The console page has no app.js apiUrl/rootUrl. Unprefixed /tokens resolves to the caller's own account (N3). The page /settings/kb (console_kb.js) has the function of the old /settings/themes.
-    if (section === "tokens") {
-      var tokHost = document.getElementById("settings-tokens-host");
-      if (tokHost && typeof panels.renderTokenManager === "function") {
-        panels.renderTokenManager(tokHost, { showClose: false, canWrite: true, isAdmin: false, rootUrl: "/" });
-      }
-    }
-  }
-
   function init() {
     var bootstrap = parseBootstrap();
     if (!bootstrap || bootstrap.area !== "account") return;
     var section = bootstrap.section;
-    if (["profile", "security", "federation", "providers", "tokens"].indexOf(section) < 0) return;
+    if (["profile", "security", "federation", "providers"].indexOf(section) < 0) return;
     var extra = bootstrap.settings_account || {};
     bindForms();
     if (section === "profile") {
@@ -750,7 +739,6 @@
         refreshKeys();
       }
     }
-    initManagers(section);
   }
 
   if (document.readyState === "loading") {

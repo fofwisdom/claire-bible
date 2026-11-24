@@ -18,10 +18,7 @@ from claire.ingest.pipeline import ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.vectors import make_vector_store
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def test_e2e_reingest_and_purge_lifecycle(tmp_path: Path, monkeypatch):
@@ -37,7 +34,6 @@ def test_e2e_reingest_and_purge_lifecycle(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
     monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
 
@@ -111,14 +107,15 @@ def test_e2e_reingest_and_purge_lifecycle(tmp_path: Path, monkeypatch):
     conn.close()
 
     # Step 5: WebUI API endpoint /document/purge (Dry-run and Apply)
+    owner_headers = bearer_headers(db_file, scope="owner")
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
-    res_dry = client.post("/document/purge", json={"target": reingested_row, "dry_run": True}, headers=OWNER_HEADERS)
+    res_dry = client.post("/document/purge", json={"target": reingested_row, "dry_run": True}, headers=owner_headers)
     assert res_dry.status_code == 200
     assert res_dry.json()["dry_run"] is True
 
-    res_del = client.post("/document/purge", json={"target": reingested_row, "dry_run": False, "tombstone": False}, headers=OWNER_HEADERS)
+    res_del = client.post("/document/purge", json={"target": reingested_row, "dry_run": False, "tombstone": False}, headers=owner_headers)
     assert res_del.status_code == 200
     assert res_del.json()["deleted_documents"] == 1
 
@@ -127,7 +124,7 @@ def test_e2e_reingest_and_purge_lifecycle(tmp_path: Path, monkeypatch):
         res_stream = client.post(
             "/reingest-stream",
             json={"target": test_url, "full_content": True},
-            headers=OWNER_HEADERS,
+            headers=owner_headers,
         )
         assert res_stream.status_code == 200
         lines = [line for line in res_stream.text.split("\n") if line.strip()]
