@@ -21,7 +21,7 @@ class GeminiVisionProvider(VisionTranscriptProvider):
 
     def __init__(self, settings: Any = None) -> None:
         super().__init__(settings)
-        from ...accounts.provider_policy import context_of
+        from ...accounts.provider_policy import context_of, split_gemini_model_and_effort
         from ...core.config import get_settings
 
         s = settings or get_settings()
@@ -36,7 +36,9 @@ class GeminiVisionProvider(VisionTranscriptProvider):
                 register_secret(self.api_key)
         else:
             self.api_key = s.gemini_api_key
-        self.model = s.vlm_model or getattr(s, "gemini_model", None) or "gemini-3.8-flash"
+        raw_model = str(getattr(s, "vlm_model", None) or "").strip() or str(getattr(s, "gemini_model", None) or "").strip() or "gemini-3.8-flash"
+        api_model, _ = split_gemini_model_and_effort(raw_model)
+        self.model = api_model or raw_model
         self.max_images = getattr(s, "vlm_max_images", 20)
         self.language = getattr(s, "effective_vlm_language", None) or (s.effective_preferred_languages[0] if getattr(s, "effective_preferred_languages", None) else "ko")
 

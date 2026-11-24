@@ -269,3 +269,174 @@ def test_embedding_task_types_fixed_and_retired_cli_rejected_from_server_scope(t
         pm.update_config({"active_provider": "antigravity"}, server_scope=True)
     with pytest.raises(ValueError):
         pm.update_config({"feature_routing": {"extract_graph": {"provider": "codex"}}}, server_scope=True)
+
+
+def test_feature_routed_provider_fixed_effort_and_per_document_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify FeatureRoutedProvider records fixed model effort and isolates lineage across documents."""
+    from claire.extract.provider import LineageCollector
+    from claire.ingest.pipeline import ingest
+
+    class _FakeStageProvider:
+        def __init__(self, prov_name: str, model_name: str, effort: str = "") -> None:
+            self.name = prov_name
+            self.model = model_name
+            self.effort = effort
+            self.embed_model = model_name
+
+        def has_embed_capability(self) -> bool:
+            return False
+
+        def classify_paper(self, doc: Document, *, effort: str | None = None):
+            return (True, "paper")
+
+        def classify_watch(self, doc: Document) -> dict:
+            return {"watch": False, "interval_days": None, "reason": "static"}
+
+        def extract(self, doc: Document, ontology_block: str = "", *, effort: str | None = None) -> ExtractionResult:
+            return ExtractionResult(summary="Summary for " + doc.id, entities=[], relations=[], model=self.model)
+
+        def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
+            return "Summary for " + doc.id
+
+        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+            return "= Detail\n\nBody for " + doc.id
+
+    import claire.extract.provider as provider_mod
+
+    monkeypatch.setattr(provider_mod, "_build_direct_provider", lambda slot_settings: _FakeStageProvider(slot_settings.provider, slot_settings.gemini_model, getattr(slot_settings, "gemini_effort", "")))
+
+    settings = Settings(
+        _env_file=None,
+        CLAIRE_PROVIDER="gemini",
+        CLAIRE_ENVIRONMENT="development",
+        GEMINI_API_KEY="test-key",
+        GEMINI_MODEL="gemini-3.8-flash-medium",
+        feature_routing={
+            "extract_graph": {"provider": "gemini", "model": "gemini-3.8-flash-medium"},
+            "classify": {"provider": "gemini", "model": "gemini-3.8-flash-low"},
+            "render_detail": {"provider": "gemini", "model": "gemini-3.8-flash-high"},
+        },
+    )
+    routed = get_provider(settings)
+    assert isinstance(routed, FeatureRoutedProvider)
+
+    # LineageCollector.reset clears events and JEV data.
+    col = LineageCollector()
+    col.record_stage(stage="extract_graph", requested_provider="gemini", requested_model="m", requested_effort="low", final_provider="gemini", final_model="m")
+    col.set_jev({"enabled": True})
+    col.reset()
+    assert col.events == [] and col.jev == {}
+
+    conn = _memory_db()
+    vstore = VectorStore(conn, "brute")
+
+    pdf_doc = Document(id="doc_iso_pdf", title="arXiv PDF", raw_text="Abstract\n" + "P" * 400, source_type="pdf", content_hash="h_iso_1")
+    rep1 = ingest("dummy-pdf", conn=conn, provider=routed, vstore=vstore, prefetched=pdf_doc, settings=settings, effort="high")
+    assert rep1.error is None
+    stored1 = dbm.get_document(conn, pdf_doc.id)
+    assert stored1 is not None
+    stages1 = [ev["stage"] for ev in stored1.meta["model_lineage"]["stages"]]
+    assert {"classify", "extract_graph", "render_detail", "classify_watch"} <= set(stages1)
+    finals1 = stored1.meta["model_lineage"]["final_output_models"]
+    assert finals1["extract_graph"]["effort"] == "medium"
+    assert finals1["classify"]["effort"] == "low"
+    assert finals1["render_detail"]["effort"] == "high"
+    assert finals1["classify_watch"]["effort"] == "low"
+
+    # Second document on the same routed provider must not inherit classify from the PDF document.
+    text_doc = Document(id="doc_iso_text", title="Plain Note", raw_text="Short standalone text document.", source_type="text", content_hash="h_iso_2")
+    rep2 = ingest("dummy-text", conn=conn, provider=routed, vstore=vstore, prefetched=text_doc, settings=settings)
+    assert rep2.error is None
+    stored2 = dbm.get_document(conn, text_doc.id)
+    assert stored2 is not None
+    stages2 = [ev["stage"] for ev in stored2.meta["model_lineage"]["stages"]]
+    assert "classify" not in stages2
+    assert {"extract_graph", "render_detail", "classify_watch"} <= set(stages2)
+    assert routed.lineage.events == []
+
+
+def test_direct_provider_lineage_completeness_and_gate1_embed_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify direct provider lineage records classify, render_detail, conditional embed, entity_judge, relation_judge, and classify_watch."""
+    import claire.extract.resolver as resolver_mod
+    from claire.ingest.pipeline import ingest
+
+    monkeypatch.setattr(resolver_mod, "_get_tier_thresholds", lambda: (0.93, 0.72, 0.70, 0.55, False))
+
+    class _DirectProvider:
+        name = "gemini"
+        model = "gemini-3.8-flash-medium"
+        embed_model = "gemini-embedding-001"
+        effort = "medium"
+
+        def __init__(self) -> None:
+            self.embed_calls = 0
+
+        def has_embed_capability(self) -> bool:
+            return True
+
+        def classify_paper(self, doc: Document, *, effort: str | None = None):
+            return (True, "paper")
+
+        def classify_watch(self, doc: Document) -> dict:
+            return {"watch": True, "interval_days": 1, "reason": "leaderboard"}
+
+        def extract(self, doc: Document, ontology_block: str = "", *, effort: str | None = None) -> ExtractionResult:
+            if doc.id == "doc_gate1":
+                return ExtractionResult(summary="Gate 1 summary", entities=[ExtractedEntity(name="AlphaTool", type="Tool", observations=["tool"])], relations=[], model=self.model)
+            return ExtractionResult(summary="Full summary", entities=[ExtractedEntity(name="AlphaTool Variant", type="Tool", observations=["improved version"])], relations=[], model=self.model)
+
+        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+            if doc.id == "doc_gate1":
+                raise RuntimeError("detail boom")
+            return "= Detail\n\nRendered content"
+
+        def embed(self, text: str, *, task_type: str | None = None, title: str | None = None) -> list[float]:
+            self.embed_calls += 1
+            return [1.0, 0.0, 0.0]
+
+        def judge_same_entity(self, mc, *, document_id: str | None = None) -> bool:
+            return False
+
+        def judge_relationship(self, rc, *, document_id: str | None = None) -> RelationJudgement:
+            return RelationJudgement(has_relation=True, relation_type="uses", direction="forward", confidence=0.9)
+
+    conn = _memory_db()
+    vstore = VectorStore(conn, "brute")
+    existing = Entity(type="Tool", name="AlphaTool", observations=["existing tool"], sources=["d0"])
+    rel_cand = Entity(type="Tool", name="BetaLib", observations=["related library"], sources=["d0"])
+    dbm.upsert_entity(conn, existing)
+    dbm.upsert_entity(conn, rel_cand)
+    vstore.put(existing.id, [0.80, 0.60, 0.0], "gemini-embedding-001")
+    vstore.put(rel_cand.id, [0.58, 0.81, 0.0], "gemini-embedding-001")
+
+    prov = _DirectProvider()
+    settings = Settings(_env_file=None, CLAIRE_PROVIDER="gemini", GEMINI_API_KEY="k", GEMINI_MODEL="gemini-3.8-flash-medium", GEMINI_EMBED_MODEL="gemini-embedding-001", CLAIRE_ENVIRONMENT="development")
+
+    # Doc 1: Gate 1 exact match skips embed(); render_detail raises -> recorded with status="error".
+    doc1 = Document(id="doc_gate1", title="arXiv Paper", raw_text="Abstract\n" + "X" * 300, source_type="pdf", content_hash="h_d1")
+    rep1 = ingest("d1", conn=conn, provider=prov, vstore=vstore, prefetched=doc1, settings=settings)
+    assert rep1.error is None
+    assert prov.embed_calls == 0
+    stored1 = dbm.get_document(conn, doc1.id)
+    assert stored1 is not None
+    finals1 = stored1.meta["model_lineage"]["final_output_models"]
+    assert "embed" not in finals1
+    assert finals1["classify"]["effort"] == "medium"
+    assert finals1["render_detail"]["status"] == "error"
+    assert finals1["classify_watch"]["status"] == "ok"
+    assert rep1.model_lineage == stored1.meta["model_lineage"]
+
+    # Doc 2: embed(), entity_judge, relation_judge, render_detail(ok), classify_watch all recorded.
+    doc2 = Document(id="doc_full", title="Text Note", raw_text="Body text comparing tools.", source_type="text", content_hash="h_d2")
+    rep2 = ingest("d2", conn=conn, provider=prov, vstore=vstore, prefetched=doc2, settings=settings)
+    assert rep2.error is None
+    assert prov.embed_calls == 1
+    stored2 = dbm.get_document(conn, doc2.id)
+    assert stored2 is not None
+    finals2 = stored2.meta["model_lineage"]["final_output_models"]
+    assert finals2["embed"]["calls"] == 1
+    assert finals2["render_detail"]["status"] == "ok"
+    assert finals2["entity_judge"]["effort"] == "medium"
+    assert finals2["relation_judge"]["calls"] == 1
+    assert finals2["classify_watch"]["status"] == "ok"
+    conn.close()

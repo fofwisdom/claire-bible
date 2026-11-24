@@ -18,6 +18,7 @@ from .provider_policy import (
     admin_context,
     byok_context,
     settings_for_context,
+    split_gemini_model_and_effort,
     tier_context,
 )
 
@@ -51,7 +52,9 @@ def _media_row(settings: Any, kind: str) -> dict[str, Any]:
     if kind == "stt":
         model = str(getattr(settings, "stt_model", "") or "").strip() or STT_MODEL
     else:
-        model = str(getattr(settings, "vlm_model", "") or "").strip() or str(getattr(settings, "gemini_model", "") or "")
+        raw_model = str(getattr(settings, "vlm_model", "") or "").strip() or str(getattr(settings, "gemini_model", "") or "").strip()
+        api_model, _ = split_gemini_model_and_effort(raw_model)
+        model = api_model or raw_model
     return {"enabled": enabled, "provider": provider, "model": model, "ready": enabled and reason is None, "problem": reason}
 
 

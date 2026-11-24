@@ -325,3 +325,63 @@ def test_adaptive_effort_in_pipeline(monkeypatch: pytest.MonkeyPatch):
     assert mock_prov.extract.call_args.kwargs.get("effort") == "medium"
 
     conn.close()
+
+
+def test_fixed_effort_gemini_model_clamps_adaptive_and_explicit_effort(monkeypatch: pytest.MonkeyPatch):
+    """Verify fixed-effort Gemini models use the encoded effort instead of adaptive or explicit effort."""
+    from claire.ingest.pipeline import ensure_document_detail
+
+    monkeypatch.setenv("CLAIRE_PDF_PAPER_THRESHOLD_CHARS", "100")
+    monkeypatch.setenv("CLAIRE_PDF_PAPER_EFFORT", "high")
+    monkeypatch.setenv("CLAIRE_PDF_DEFAULT_EFFORT", "low")
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    dbm.init_db(conn)
+    vstore = make_vector_store(conn, "mock")
+
+    extract_efforts: list[str | None] = []
+    detail_efforts: list[str | None] = []
+
+    class _FixedGeminiDouble:
+        name = "gemini"
+        model = "gemini-3.8-flash-medium"
+        effort = "low"
+
+        def has_embed_capability(self) -> bool:
+            return False
+
+        def classify_paper(self, doc: Document, *, effort: str | None = None):
+            return (True, "paper")
+
+        def extract(self, doc: Document, ontology_block: str = "", *, effort: str | None = None) -> ExtractionResult:
+            extract_efforts.append(effort)
+            return ExtractionResult(summary="Summary text", entities=[], relations=[], model=self.model)
+
+        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+            detail_efforts.append(effort)
+            return "= Detail\n\nBody text"
+
+    prov = _FixedGeminiDouble()
+    doc_paper = Document(id="doc_fixed_1", title="arXiv Paper", raw_text="Abstract\n" + "A" * 500, source_type="pdf", content_hash="h_fixed_1")
+    report = ingest("dummy", conn=conn, provider=prov, vstore=vstore, prefetched=doc_paper)
+    assert report.error is None
+    assert report.effort == "medium"
+    assert extract_efforts == ["medium"]
+    assert detail_efforts == ["medium"]
+
+    stored = dbm.get_document(conn, doc_paper.id)
+    assert stored is not None and stored.meta["applied_effort"] == "medium"
+
+    assert ensure_document_detail(conn, prov, doc_paper, force=True, effort="high") is True
+    assert detail_efforts[-1] == "medium"
+
+    # Bare Gemini model keeps adaptive PDF paper effort.
+    prov.model = "gemini-3.8-flash"
+    doc_bare = Document(id="doc_bare_1", title="arXiv Bare Paper", raw_text="Abstract\n" + "B" * 500, source_type="pdf", content_hash="h_bare_1")
+    report_bare = ingest("dummy2", conn=conn, provider=prov, vstore=vstore, prefetched=doc_bare)
+    assert report_bare.error is None
+    assert report_bare.effort == "high"
+    assert extract_efforts[-1] == "high"
+    assert detail_efforts[-1] == "high"
+    conn.close()

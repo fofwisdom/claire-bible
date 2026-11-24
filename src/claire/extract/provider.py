@@ -19,6 +19,7 @@ ExtractionResult 스키마 (provider 가 채워야 할 계약):
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import inspect
 import re
@@ -774,15 +775,17 @@ class LineageCollector:
         final_model: str,
         status: str = "ok",
         duration_ms: float | None = None,
+        calls: int = 1,
         fallback_occurred: bool = False,
         fallback_reason: str = "",
         detail: str = "",
     ) -> None:
         dur = round(float(duration_ms), 2) if duration_ms is not None else None
+        call_inc = max(1, int(calls))
         with self._lock:
             for existing in self.events:
                 if existing["stage"] == stage and existing["final_provider"] == final_provider and existing["final_model"] == final_model and existing["status"] == status and existing["requested_effort"] == requested_effort:
-                    existing["calls"] = int(existing.get("calls", 1)) + 1
+                    existing["calls"] = int(existing.get("calls", 1)) + call_inc
                     if dur is not None:
                         prev = existing.get("duration_ms") or 0.0
                         existing["duration_ms"] = round(float(prev) + dur, 2)
@@ -798,11 +801,17 @@ class LineageCollector:
                 "final_model": final_model,
                 "status": status,
                 "duration_ms": dur,
-                "calls": 1,
+                "calls": call_inc,
                 "fallback_occurred": bool(fallback_occurred),
                 "fallback_reason": fallback_reason,
                 "detail": detail,
             })
+
+    def reset(self) -> None:
+        """Clear all recorded stage events and JEV data."""
+        with self._lock:
+            self.events.clear()
+            self.jev.clear()
 
     def set_jev(self, payload: dict[str, Any]) -> None:
         with self._lock:
@@ -839,7 +848,8 @@ class FeatureRoutedProvider:
         from ..accounts.provider_policy import context_of
 
         self.settings = settings
-        self.lineage = LineageCollector()
+        self._default_lineage = LineageCollector()
+        self._lineage_local = threading.local()
         self.provider_context = context_of(settings)
         self.credential_key = getattr(self.provider_context, "credential_key", "admin") if self.provider_context else "admin"
         self.usage_hooks = None
@@ -850,6 +860,43 @@ class FeatureRoutedProvider:
         self.name = eg_prov
         self.model = eg_model
         self.effort = eg_effort
+
+    @property
+    def lineage(self) -> LineageCollector:
+        """Return the thread-local collector when bound, or the default collector."""
+        bound = getattr(self._lineage_local, "collector", None)
+        return bound if isinstance(bound, LineageCollector) else self._default_lineage
+
+    @lineage.setter
+    def lineage(self, value: LineageCollector) -> None:
+        self._default_lineage = value
+
+    def has_bound_lineage(self) -> bool:
+        """Return True if the current thread has a bound collector."""
+        return isinstance(getattr(self._lineage_local, "collector", None), LineageCollector)
+
+    def reset_lineage(self) -> LineageCollector:
+        """Clear the active lineage collector and return it."""
+        collector = self.lineage
+        collector.reset()
+        return collector
+
+    @contextmanager
+    def bind_lineage(self, collector: LineageCollector | None = None):
+        """Bind an isolated collector to the current thread for one document run."""
+        prev = getattr(self._lineage_local, "collector", None)
+        active = collector if collector is not None else LineageCollector()
+        self._lineage_local.collector = active
+        try:
+            yield active
+        finally:
+            if prev is None:
+                try:
+                    delattr(self._lineage_local, "collector")
+                except AttributeError:
+                    pass
+            else:
+                self._lineage_local.collector = prev
 
     def slot_spec(self, slot: str) -> tuple[str, str, str]:
         with self._lock:
@@ -892,8 +939,14 @@ class FeatureRoutedProvider:
         return getattr(prov, "name", "") != "unavailable"
 
     def _call_stage(self, stage: str, fn: Any, *, effort_override: str | None = None, result_model_attr: str | None = None) -> Any:
+        from ..accounts.provider_policy import split_gemini_model_and_effort
+
         req_prov, req_model, req_effort = self.slot_spec(stage)
         eff_label = effort_override if effort_override is not None else req_effort
+        if str(req_prov).lower() == "gemini" and stage != "embed":
+            _, fixed_eff = split_gemini_model_and_effort(req_model)
+            if fixed_eff is not None:
+                eff_label = fixed_eff
         prov = self.slot_provider(stage)
         actual_prov = str(getattr(prov, "name", req_prov) or req_prov)
         started = time.perf_counter()

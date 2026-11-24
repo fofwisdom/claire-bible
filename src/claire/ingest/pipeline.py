@@ -8,6 +8,7 @@ fetch_fn 을 주입 가능하게 하여 네트워크 없이 테스트한다.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import copy
 import json
 import re
@@ -18,8 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..accounts.provider_policy import ProviderPolicyError, context_of
-from ..extract.provider import Provider, RelationCandidate, emit_progress
+from ..accounts.provider_policy import ProviderPolicyError, context_of, split_gemini_model_and_effort
+from ..extract.provider import LineageCollector, Provider, RelationCandidate, emit_progress
 from ..extract.resolver import _call_provider_embed, resolve_or_create
 from ..ontology.base import Document, Entity, Relation
 from ..ontology.registry import (
@@ -51,6 +52,68 @@ def provider_effort(provider: Any, default: str = "medium") -> str:
     """프로바이더의 기본 effort 문자열. 자리표시자(``UnavailableProvider``)처럼 문자열이 아니면 ``default``."""
     value = getattr(provider, "effort", default)
     return value if isinstance(value, str) and value else default
+
+
+def _effective_provider_effort(provider: Any, requested_effort: str | None, *, slot: str = "extract_graph") -> str:
+    """Return effective effort, using any fixed effort encoded in a Gemini model name."""
+    slot_spec_fn = getattr(provider, "slot_spec", None)
+    spec = slot_spec_fn(slot) if callable(slot_spec_fn) else None
+    if isinstance(spec, (tuple, list)) and len(spec) >= 2:
+        prov_name, model_name = spec[0], spec[1]
+    else:
+        prov_name = getattr(provider, "name", "")
+        model_name = getattr(provider, "model", "")
+    if str(prov_name or "").strip().lower() == "gemini" and isinstance(model_name, str):
+        _, fixed_eff = split_gemini_model_and_effort(model_name)
+        if fixed_eff is not None:
+            return fixed_eff
+    return requested_effort or provider_effort(provider)
+
+
+def _record_classify_watch_lineage(
+    conn: sqlite3.Connection,
+    provider: Any,
+    doc: Document,
+    report: IngestReport,
+    *,
+    duration_ms: float,
+    kb_id: int,
+) -> None:
+    """Record classify_watch stage in doc.meta['model_lineage'] and persist doc.meta."""
+    slot_spec_fn = getattr(provider, "slot_spec", None)
+    spec = slot_spec_fn("classify") if callable(slot_spec_fn) else None
+    if isinstance(spec, (tuple, list)) and len(spec) >= 3:
+        cw_prov = str(spec[0] or "?")
+        cw_model = str(spec[1] or cw_prov)
+        cw_req_eff: str | None = str(spec[2] or "") or None
+    else:
+        cw_prov = str(getattr(provider, "name", "?") or "?")
+        raw_model = getattr(provider, "model", "")
+        cw_model = str(raw_model if isinstance(raw_model, str) and raw_model else cw_prov)
+        cw_req_eff = None
+    cw_eff = _effective_provider_effort(provider, cw_req_eff, slot="classify")
+    existing = doc.meta.get("model_lineage") if isinstance(doc.meta, dict) else None
+    collector = LineageCollector()
+    if isinstance(existing, dict):
+        collector.events = [dict(ev) for ev in (existing.get("stages") or []) if isinstance(ev, dict)]
+        collector.jev = dict(existing.get("jev") or {})
+    collector.record_stage(
+        stage="classify_watch",
+        requested_provider=cw_prov,
+        requested_model=cw_model,
+        requested_effort=cw_eff,
+        final_provider=cw_prov,
+        final_model=cw_model,
+        status="ok",
+        duration_ms=duration_ms,
+    )
+    updated_lineage = collector.summarize()
+    if doc.meta is None:
+        doc.meta = {}
+    doc.meta["model_lineage"] = updated_lineage
+    report.model_lineage = updated_lineage
+    if getattr(doc, "id", None):
+        dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=kb_id)
 
 
 def resolve_job_settings(settings: Any = None, provider: Any = None) -> Any:
@@ -468,7 +531,10 @@ def _complete_server_extraction(
     if run_watch_and_expand:
         if not doc.partial and not source.startswith(("expand:", "recover", "replay", "refresh", "research")):
             emit_progress("주기 갱신 콘텐츠 여부 판단 중…")
-            ensure_watch_classification(conn, provider, doc, kb_id=tid)
+            cw_started = time.perf_counter()
+            if ensure_watch_classification(conn, provider, doc, kb_id=tid):
+                cw_ms = (time.perf_counter() - cw_started) * 1000.0
+                _record_classify_watch_lineage(conn, provider, doc, report, duration_ms=cw_ms, kb_id=tid)
         if expand_max > 0 and not doc.partial:
             if auto_expand:
                 dbm.enqueue_expand(conn, doc.id, kb_id=tid)
@@ -531,6 +597,12 @@ def _ingest_core(
         )
     report.inbox_id = inbox_id
 
+    lineage_ctx = (
+        provider.bind_lineage()
+        if (not stage_only and isinstance(getattr(provider, "lineage", None), LineageCollector) and callable(getattr(provider, "bind_lineage", None)))
+        else contextlib.nullcontext()
+    )
+
     with active_job(
         data_dir,
         kind="ingest",
@@ -539,7 +611,7 @@ def _ingest_core(
         theme_label=tlabel,
         title=prefetched.title if prefetched else None,
         source=source,
-    ) as job:
+    ) as job, lineage_ctx:
         from ..extract.provider import _progress_local, set_progress_callback
 
         prev_cb = getattr(_progress_local, "cb", None)
@@ -1217,6 +1289,40 @@ def extract_resolve_store(
     if not valid:
         return False, f"insufficient_content: {guard_err}"
 
+    has_provider_lineage = isinstance(getattr(provider, "lineage", None), LineageCollector)
+    bind_fn = getattr(provider, "bind_lineage", None)
+    has_bound_fn = getattr(provider, "has_bound_lineage", None)
+    need_bind = has_provider_lineage and callable(bind_fn) and not (callable(has_bound_fn) and has_bound_fn())
+    if need_bind:
+        with bind_fn():
+            return _extract_resolve_store_impl(
+                conn, provider, vstore, doc, report,
+                format=format, focus=focus, effort=effort, full_content=full_content,
+                on_progress=on_progress, kb_id=kb_id, settings=settings, before_store=before_store,
+            )
+    return _extract_resolve_store_impl(
+        conn, provider, vstore, doc, report,
+        format=format, focus=focus, effort=effort, full_content=full_content,
+        on_progress=on_progress, kb_id=kb_id, settings=settings, before_store=before_store,
+    )
+
+
+def _extract_resolve_store_impl(
+    conn: sqlite3.Connection,
+    provider: Provider,
+    vstore: VectorStore,
+    doc: Document,
+    report: IngestReport,
+    *,
+    format: str | None = None,
+    focus: str | None = None,
+    effort: str | None = None,
+    full_content: bool = False,
+    on_progress: Callable[[str, str], None] | None = None,
+    kb_id: int | None = None,
+    settings: Any = None,
+    before_store: Callable[[], None] | None = None,
+) -> tuple[bool, str | None]:
     tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
     settings = resolve_job_settings(settings, provider)
     eff = effort
@@ -1240,6 +1346,7 @@ def extract_resolve_store(
                 eff = settings.pdf_default_effort or provider_effort(provider)
         else:
             eff = provider_effort(provider)
+    eff = _effective_provider_effort(provider, eff, slot="extract_graph")
 
     if doc.meta is None:
         doc.meta = {}
@@ -1283,11 +1390,17 @@ def extract_resolve_store(
         except Exception:
             pass
 
-    from ..extract.provider import LineageCollector, _accepts_kwarg
+    from ..extract.provider import _accepts_kwarg
 
     provider_lineage = getattr(provider, "lineage", None)
     has_provider_lineage = isinstance(provider_lineage, LineageCollector)
     lineage = provider_lineage if has_provider_lineage else LineageCollector()
+    if not has_provider_lineage and isinstance(doc.meta.get("paper_classification"), dict):
+        p_name = str(getattr(provider, "name", "?") or "?")
+        raw_p_model = getattr(provider, "model", "")
+        p_model = raw_p_model if isinstance(raw_p_model, str) and raw_p_model else p_name
+        classify_eff = _effective_provider_effort(provider, getattr(settings, "pdf_classifier_effort", "low"), slot="classify")
+        lineage.record_stage(stage="classify", requested_provider=p_name, requested_model=p_model, requested_effort=classify_eff, final_provider=p_name, final_model=p_model, status="ok")
     if doc.meta.get("vlm_transcribed") and doc.meta.get("vlm_model"):
         lineage.record_stage(stage="vlm", requested_provider=str(doc.meta.get("vlm_provider") or "gemini"), requested_model=str(doc.meta.get("vlm_model") or ""), requested_effort="", final_provider=str(doc.meta.get("vlm_provider") or "gemini"), final_model=str(doc.meta.get("vlm_model") or ""), status="ok")
 
@@ -1308,17 +1421,21 @@ def extract_resolve_store(
     extract_ms = (time.perf_counter() - extract_started) * 1000.0
     if not has_provider_lineage:
         p_name = str(getattr(provider, "name", "?") or "?")
-        p_model = str(getattr(result, "model", "") or getattr(provider, "model", "") or p_name)
+        raw_res_model = getattr(result, "model", "")
+        raw_p_model = getattr(provider, "model", "")
+        p_model = str((raw_res_model if isinstance(raw_res_model, str) and raw_res_model else "") or (raw_p_model if isinstance(raw_p_model, str) and raw_p_model else "") or p_name)
         lineage.record_stage(stage="extract_graph", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok", duration_ms=extract_ms)
 
     # Decouple summary generation when the summarize slot overrides extract_graph.
     separate_summarize = False
     sum_effort = eff
-    if hasattr(provider, "slot_spec"):
-        eg_spec = provider.slot_spec("extract_graph")
-        sum_spec = provider.slot_spec("summarize")
-        separate_summarize = eg_spec != sum_spec
-        sum_effort = sum_spec[2] or eff
+    slot_spec_fn = getattr(provider, "slot_spec", None)
+    if callable(slot_spec_fn):
+        eg_spec = slot_spec_fn("extract_graph")
+        sum_spec = slot_spec_fn("summarize")
+        if isinstance(eg_spec, (tuple, list)) and isinstance(sum_spec, (tuple, list)) and len(sum_spec) >= 3:
+            separate_summarize = eg_spec != sum_spec
+            sum_effort = _effective_provider_effort(provider, sum_spec[2] or eff, slot="summarize")
     if separate_summarize:
         if on_progress:
             on_progress("LLM 요약 별도 생성", f"provider={sum_spec[0]}, model={sum_spec[1]}")
@@ -1333,7 +1450,9 @@ def extract_resolve_store(
         result.summary = (sum_text or "").strip()
     elif not has_provider_lineage:
         p_name = str(getattr(provider, "name", "?") or "?")
-        p_model = str(getattr(result, "model", "") or getattr(provider, "model", "") or p_name)
+        raw_res_model = getattr(result, "model", "")
+        raw_p_model = getattr(provider, "model", "")
+        p_model = str((raw_res_model if isinstance(raw_res_model, str) and raw_res_model else "") or (raw_p_model if isinstance(raw_p_model, str) and raw_p_model else "") or p_name)
         lineage.record_stage(stage="summarize", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok" if (result.summary and result.summary.strip()) else "empty", duration_ms=extract_ms)
 
     if before_store is not None:
@@ -1358,16 +1477,18 @@ def extract_resolve_store(
     # 가독 렌더(detail) — 구조화 추출과 독립된 별도 LLM 호출. 그래프와 무관해
     # 실패해도 적재를 깨지 않는다(조용히 건너뜀). refresh/reextract 도 같은 경로라 갱신됨.
     detail_effort = eff
-    if effort is None and hasattr(provider, "slot_spec"):
-        detail_spec = provider.slot_spec("render_detail")
-        if detail_spec[2]:
+    if effort is None and callable(slot_spec_fn):
+        detail_spec = slot_spec_fn("render_detail")
+        if isinstance(detail_spec, (tuple, list)) and len(detail_spec) >= 3 and detail_spec[2]:
             detail_effort = detail_spec[2]
+    detail_effort = _effective_provider_effort(provider, detail_effort, slot="render_detail")
 
     if on_progress:
         on_progress("LLM 가독 상세(detail) 렌더링 생성", f"format={format or '기본'}, effort={detail_effort}")
     emit_progress(f"LLM 가독 상세(detail) 렌더링 생성{eff_badge}")
 
     detail_err_box: list[str] = []
+    detail_started = time.perf_counter()
     detail_ok = ensure_document_detail(
         conn,
         provider,
@@ -1381,6 +1502,12 @@ def extract_resolve_store(
         kb_id=tid,
         settings=settings,
     )
+    detail_ms = (time.perf_counter() - detail_started) * 1000.0
+    if not has_provider_lineage:
+        p_name = str(getattr(provider, "name", "?") or "?")
+        raw_p_model = getattr(provider, "model", "")
+        p_model = raw_p_model if isinstance(raw_p_model, str) and raw_p_model else p_name
+        lineage.record_stage(stage="render_detail", requested_provider=p_name, requested_model=p_model, requested_effort=detail_effort, final_provider=p_name, final_model=p_model, status="ok" if detail_ok else "error", duration_ms=detail_ms, detail=(detail_err_box[0][:240] if (not detail_ok and detail_err_box) else ""))
     if not detail_ok:
         report.detail_rendered = False
         err_detail = detail_err_box[0] if detail_err_box else "타임아웃 또는 모델 오류"
@@ -1427,6 +1554,8 @@ def extract_resolve_store(
         on_progress("지식 그래프 엔티티 해소/병합", f"추출된 엔티티 {total_entities}개")
     emit_progress(f"지식 그래프 엔티티 해소/병합 ({total_entities}개)")
 
+    embed_calls = [0]
+    embed_ms = [0.0]
     for idx_e, ee in enumerate(result.entities, 1):
         etype, prov = classify_entity_type(ee.type)
         if ee.proposed_type:
@@ -1440,7 +1569,12 @@ def extract_resolve_store(
                 from ..extract.frame import format_entity_frame
 
                 frame_text = format_entity_frame(ee)
-                return _call_provider_embed(provider, frame_text, title=ee.name, model=_model if _model and _model != embed_pin.model else None)
+                t0 = time.perf_counter()
+                try:
+                    return _call_provider_embed(provider, frame_text, title=ee.name, model=_model if _model and _model != embed_pin.model else None)
+                finally:
+                    embed_calls[0] += 1
+                    embed_ms[0] += (time.perf_counter() - t0) * 1000.0
 
             embed_callable = _embed
 
@@ -1614,6 +1748,8 @@ def extract_resolve_store(
                 if cand is not None:
                     eval_items.append((e_node, cand, score))
 
+            bind_fn = getattr(provider, "bind_lineage", None)
+
             def _evaluate_candidate(item: tuple[Entity, Any, float]):
                 e_node, cand, score = item
                 if on_progress:
@@ -1633,21 +1769,31 @@ def extract_resolve_store(
                     similarity_score=score,
                     context=f"문서: {doc.title or doc.id}\n요약: {report.summary[:300]}",
                 )
-                try:
+                ctx_mgr = bind_fn(lineage) if (has_provider_lineage and callable(bind_fn)) else contextlib.nullcontext()
+                with ctx_mgr:
                     try:
-                        judgement = judge_rel_method(rc, document_id=doc.id)
-                    except TypeError:
-                        judgement = judge_rel_method(rc)
-                except Exception:  # noqa: BLE001
-                    judgement = None
+                        try:
+                            judgement = judge_rel_method(rc, document_id=doc.id)
+                        except TypeError:
+                            judgement = judge_rel_method(rc)
+                    except Exception:  # noqa: BLE001
+                        judgement = None
                 return (e_node, cand, judgement)
 
+            rel_judge_started = time.perf_counter()
             max_workers = min(len(eval_items), max(1, getattr(provider, "max_concurrency", 2)))
             if max_workers > 1 and len(eval_items) > 1:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                     judged_results = list(executor.map(_evaluate_candidate, eval_items))
             else:
                 judged_results = [_evaluate_candidate(item) for item in eval_items]
+            rel_judge_ms = (time.perf_counter() - rel_judge_started) * 1000.0
+            if not has_provider_lineage and eval_items:
+                p_name = str(getattr(provider, "name", "?") or "?")
+                raw_p_model = getattr(provider, "model", "")
+                p_model = raw_p_model if isinstance(raw_p_model, str) and raw_p_model else p_name
+                rj_eff = _effective_provider_effort(provider, eff, slot="relation_judge")
+                lineage.record_stage(stage="relation_judge", requested_provider=p_name, requested_model=p_model, requested_effort=rj_eff, final_provider=p_name, final_model=p_model, status="ok", duration_ms=rel_judge_ms, calls=len(eval_items))
 
             for e_node, cand, judgement in judged_results:
                 if judgement and judgement.has_relation and judgement.relation_type:
@@ -1683,14 +1829,16 @@ def extract_resolve_store(
 
     if not has_provider_lineage:
         p_name = str(getattr(provider, "name", "?") or "?")
-        p_model = str(getattr(provider, "model", "") or p_name)
-        if has_embed:
-            lineage.record_stage(stage="embed", requested_provider=embed_pin.provider or p_name, requested_model=embed_pin.model or p_model, requested_effort="", final_provider=embed_pin.provider or p_name, final_model=embed_pin.model or p_model, status="ok")
+        raw_p_model = getattr(provider, "model", "")
+        p_model = raw_p_model if isinstance(raw_p_model, str) and raw_p_model else p_name
+        if has_embed and embed_calls[0] > 0:
+            lineage.record_stage(stage="embed", requested_provider=embed_pin.provider or p_name, requested_model=embed_pin.model or p_model, requested_effort="", final_provider=embed_pin.provider or p_name, final_model=embed_pin.model or p_model, status="ok", duration_ms=embed_ms[0], calls=embed_calls[0])
         if decisions:
             all_cands = [c for d in decisions for c in (getattr(d, "candidates", None) or [])]
             judge_cands = [c for c in all_cands if c.get("outcome") in ("judge_same", "judge_different")]
             if judge_cands:
-                lineage.record_stage(stage="entity_judge", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok", duration_ms=sum(float(c.get("judge_ms") or 0.0) for c in judge_cands))
+                ej_eff = _effective_provider_effort(provider, eff, slot="entity_judge")
+                lineage.record_stage(stage="entity_judge", requested_provider=p_name, requested_model=p_model, requested_effort=ej_eff, final_provider=p_name, final_model=p_model, status="ok", duration_ms=sum(float(c.get("judge_ms") or 0.0) for c in judge_cands), calls=len(judge_cands))
     if decisions:
         shadows = [getattr(d, "shadow", None) for d in decisions if getattr(d, "shadow", None)]
         last_shadow = shadows[-1] if shadows else {}
@@ -1838,7 +1986,11 @@ def ensure_document_detail(
             else:
                 eff = settings.pdf_default_effort or provider_effort(provider)
         else:
-            eff = (provider.slot_spec("render_detail")[2] if hasattr(provider, "slot_spec") else "") or provider_effort(provider)
+            slot_spec_fn = getattr(provider, "slot_spec", None)
+            spec = slot_spec_fn("render_detail") if callable(slot_spec_fn) else None
+            slot_eff = spec[2] if isinstance(spec, (tuple, list)) and len(spec) >= 3 else ""
+            eff = slot_eff or provider_effort(provider)
+    eff = _effective_provider_effort(provider, eff, slot="render_detail")
 
     try:
         try:

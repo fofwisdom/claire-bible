@@ -138,3 +138,43 @@ def test_vlm_language_handling_and_korean_prompt():
             language="ko",
         )
         assert res_en_detected.language == "en"
+
+
+def test_gemini_vision_and_provider_view_strip_embedded_effort():
+    """Verify GeminiVisionProvider and provider_view pass the real API model name."""
+    from claire.accounts.provider_view import describe_server_providers
+
+    s_vlm = Settings(
+        _env_file=None,
+        provider="gemini",
+        gemini_api_key="mock-key",
+        enable_vlm_transcription=True,
+        vlm_model="gemini-4-hydrogen-medium",
+        gemini_model="gemini-3.8-flash-high",
+    )
+    provider = GeminiVisionProvider(s_vlm)
+    assert provider.model == "gemini-4-hydrogen"
+
+    mock_client = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.text = "=== Card 1\nTranscribed text"
+    mock_client.models.generate_content.return_value = mock_resp
+
+    with patch.object(provider, "_get_client", return_value=mock_client), patch.object(provider, "_download_image", return_value=(b"fake-bytes", "image/jpeg")):
+        res = provider.transcribe_images([{"url": "https://example.com/c1.jpg"}], title="Card")
+    assert res.model == "gemini-4-hydrogen"
+    assert mock_client.models.generate_content.call_args.kwargs["model"] == "gemini-4-hydrogen"
+
+    view_vlm = describe_server_providers(s_vlm)
+    assert view_vlm["vlm"]["model"] == "gemini-4-hydrogen"
+
+    s_fallback = Settings(
+        _env_file=None,
+        provider="gemini",
+        gemini_api_key="mock-key",
+        enable_vlm_transcription=True,
+        vlm_model="",
+        gemini_model="gemini-3.8-flash-high",
+    )
+    assert GeminiVisionProvider(s_fallback).model == "gemini-3.8-flash"
+    assert describe_server_providers(s_fallback)["vlm"]["model"] == "gemini-3.8-flash"
