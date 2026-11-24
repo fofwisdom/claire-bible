@@ -24,6 +24,17 @@ test('admin providers: what applies now, fixed STT, and a result next to the but
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
 
+  // Four tabs (owner selection Q1); the status tab is first and selected. The embedding card of the shared knowledge bases is in the tab of the key and the models.
+  const tabs = page.locator('#prov-tabs [role="tab"]');
+  await expect(tabs).toHaveCount(4);
+  expect(await tabs.evaluateAll(els => els.map(el => el.getAttribute('data-tab')))).toEqual(['status', 'model', 'stt', 'advanced']);
+  await expect(page.locator('#prov-tabs [role="tab"][data-tab="status"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[data-tabpanel="model"] #admin-providers-embed-card')).toHaveCount(1);
+  const openTab = async (id) => {
+    await page.locator(`#prov-tabs [role="tab"][data-tab="${id}"]`).click();
+    await expect(page.locator(`#prov-tabs [role="tab"][data-tab="${id}"]`)).toHaveAttribute('aria-selected', 'true');
+  };
+
   const effective = page.locator('#prov-effective-card');
   await expect(effective).toBeVisible();
   await expect(effective.locator('[data-prov-effective="stt"]')).toContainText('gemini-3.5-transcribe');
@@ -33,6 +44,7 @@ test('admin providers: what applies now, fixed STT, and a result next to the but
   for (const gone of ['#prov-lineage-svg', '#prov-lineage-visualizer-card', '#prov-member-tier-card', '#prov-route-stt-model', '#prov-route-vlm-model', '#prov-stt-prov', '#prov-save-btn']) {
     await expect(page.locator(gone)).toHaveCount(0);
   }
+  await openTab('stt');
   await expect(page.locator('#prov-stt-fixed')).toContainText('바꿀 수 없습니다');
 
   // STT: save a language; the result is next to the button and the status card shows the new value. Then restore it.
@@ -49,6 +61,7 @@ test('admin providers: what applies now, fixed STT, and a result next to the but
   await expectStatusNextToButton(sttForm, sttSave, '저장했습니다');
 
   // Models: a model for one feature (advanced) shows in the status card. Then restore it.
+  await openTab('model');
   const modelForm = page.locator('#prov-model-form');
   await modelForm.locator('#prov-routing summary').click();
   const summarize = page.locator('#prov-route-summarize-model');
@@ -71,8 +84,8 @@ test('admin providers: what applies now, fixed STT, and a result next to the but
   await expect(page.locator('#prov-gemini-key')).toBeFocused();
 
   // Advanced (development server): the test provider switch exists. Its change to Google AI Studio without a key fails next to the button, and the switch keeps the value that the person set. With a key the save would change the main provider: the test does not save then.
+  await openTab('advanced');
   const advForm = page.locator('#prov-advanced-form');
-  await advForm.locator('#prov-advanced summary').click();
   const mock = page.locator('#prov-mock-enabled');
   await expect(mock).toBeVisible();
   const noKey = await page.locator('#prov-key-form [data-prov-key-state="unset"]').count() === 1;
@@ -103,8 +116,10 @@ test('admin providers on a production server: no test provider switch, and the p
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#prov-problems')).toContainText('API 키가 없어 AI 작업을 하지 않습니다');
   await expect(page.locator('#prov-effective-card [data-prov-effective="text"]')).toContainText('동작 안 함');
+  await page.locator('#prov-tabs [role="tab"][data-tab="model"]').click();
   await expect(page.locator('#prov-key-form [data-prov-key-state="unset"]')).toBeVisible();
-  await page.locator('#prov-advanced summary').click();
+  await page.locator('#prov-tabs [role="tab"][data-tab="advanced"]').click();
+  await expect(page.locator('#prov-advanced-form')).toBeVisible();
   await expect(page.locator('#prov-mock-enabled')).toHaveCount(0);
 });
 

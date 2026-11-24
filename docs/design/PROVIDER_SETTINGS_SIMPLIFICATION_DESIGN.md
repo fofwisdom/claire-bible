@@ -1,6 +1,6 @@
 # AI provider settings: simple pages that show what applies (`PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN`)
 
-- **Status**: Implemented as option A (2026-11-24). The owner selects among the options of Section 6 after the implementation (owner request: "implement all, then ask for the selection"). Current behavior: [`PROVIDERS.md`](../implementation/PROVIDERS.md) §5A, [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) §5.8.
+- **Status**: Implemented as option A (2026-11-24). Owner selections of Section 6 (2026-11-24): Q2–Q4 A; Q1 A with the tabs of B only (no sticky save bar). Implemented. Current behavior: [`PROVIDERS.md`](../implementation/PROVIDERS.md) §5A, [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) §5.8.
 - **Visual prototype**: [`prototypes/provider_settings_prototype.html`](prototypes/provider_settings_prototype.html) (administrator A and B, account A and B, problem → solution).
 - **Related**: [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) (`AED4-rev`, `AED6`, `AED8`), [`CONSOLE_LAYOUT_DESIGN.md`](CONSOLE_LAYOUT_DESIGN.md), [`MULTI_PROVIDER_DESIGN.md`](MULTI_PROVIDER_DESIGN.md).
 
@@ -53,6 +53,8 @@
 - `search-hidden-content`: the advanced parts are `<details>` (searchable with "Find in page").
 
 ## 6. Selections for the owner
+
+Owner answer (2026-11-24): Q2, Q3, Q4: A. Q1: A plus the tabs of B (status, key and models, transcription, advanced); each form keeps its own save and its result next to its buttons. The advanced form has no closed `<details>` in its tab.
 
 | Question | A (implemented) | B (prototype) |
 | :--- | :--- | :--- |

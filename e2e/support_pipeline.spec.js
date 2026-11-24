@@ -44,13 +44,16 @@ test('admin providers: the STT card shows the video order and links to the pipel
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1360, height: 900 });
   await authenticateOwner(page, 'pipeline02');
-  await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
+  // The link of /support/pipeline opens the STT tab.
+  await page.goto('/admin/providers#prov-stt-form', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#prov-tabs [role="tab"][data-tab="stt"]')).toHaveAttribute('aria-selected', 'true');
 
   const sttOrder = page.locator('#prov-stt-form #prov-stt-order');
   await expect(sttOrder).toBeVisible();
   expect(await sttOrder.locator('[data-stt-order]').evaluateAll(els => els.map(el => el.getAttribute('data-stt-order')))).toEqual(['manual', 'automatic', 'stt']);
   await expect(sttOrder).toContainText('CLAIRE_PREFERRED_LANGUAGES');
   await expect(page.locator('#prov-effective-card a[data-prov-pipeline-link]')).toHaveAttribute('href', '/support/pipeline');
+  await expect(page.locator('#prov-effective-card')).toBeHidden();
   await expectNoRawKeys(page);
 
   await sttOrder.locator('a[href="/support/pipeline#pipeline-stt-order"]').click();

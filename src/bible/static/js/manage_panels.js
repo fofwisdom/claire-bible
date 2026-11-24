@@ -63,7 +63,7 @@
     return String(t.id ?? '0').trim();
   }
 
-  const _provState = { container: null, opts: {}, config: null };
+  const _provState = { container: null, opts: {}, config: null, activeTab: 'status' };
   const _limitState = { container: null, opts: {}, config: null };
   const _themeState = { container: null, opts: {}, themes: [] };
   const _tokenState = { container: null, opts: {}, tokens: [], newCreatedToken: null, retired: false, deprecationNotice: '' };
@@ -489,22 +489,62 @@
       // The test provider exists only on a development server: the server refuses it in production.
       fields += uiToggleRow({ id: 'prov-mock-enabled', label: trKey('console.js.panels.providers.adv.mock'), desc: trKey('console.js.panels.providers.adv.mock_hint'), checked: (cfg.active_provider || '') === 'mock' });
     }
+    // The tab "advanced" keeps this form out of sight until the person opens the tab (owner selection Q1: tabs).
     return uiCard({
       tag: 'form', id: 'prov-advanced-form', icon: 'settings', title: trKey('console.js.panels.providers.adv.title'), split: false, attrs: { 'data-prov-form': 'advanced' },
-      bodyHtml: `<details class="pref-disclosure" id="prov-advanced"><summary>${esc(trKey('console.js.panels.providers.adv.summary'))}</summary>${fields}${actionsWithStatus(submitBtn(trKey('console.js.panels.providers.adv.save'), 'save', 'accent'))}</details>`
+      bodyHtml: fields + actionsWithStatus(submitBtn(trKey('console.js.panels.providers.adv.save'), 'save', 'accent'))
     });
+  }
+
+  // The tabs of /admin/providers (owner selection Q1 of PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md: tabs only). Each form keeps its own save and its result next to its buttons.
+  const PROVIDER_TABS = [
+    { id: 'status', icon: 'check-circle' },
+    { id: 'model', icon: 'key' },
+    { id: 'stt', icon: 'mic' },
+    { id: 'advanced', icon: 'settings' }
+  ];
+
+  // The tab that holds the element of the address fragment (for example /admin/providers#prov-stt-form), selected and scrolled to after the render.
+  function openProviderTabOfHash(target) {
+    const id = decodeURIComponent((window.location.hash || '').slice(1));
+    const el = id ? document.getElementById(id) : null;
+    if (!el || !target.contains(el)) return;
+    const panel = el.closest('[role="tabpanel"][data-tabpanel]');
+    const tab = panel ? target.querySelector(`#prov-tabs [role="tab"][data-tab="${panel.getAttribute('data-tabpanel')}"]`) : null;
+    if (tab && tab.getAttribute('aria-selected') !== 'true') tab.click();
+    el.scrollIntoView({ block: 'start' });
   }
 
   function renderProviderManagerDOM() {
     const target = _provState.container;
     if (!target || !_provState.config) return;
     const cfg = _provState.config;
-    target.innerHTML = renderEffectiveCardHtml(cfg) + renderKeyFormHtml(cfg) + renderModelFormHtml(cfg) + renderSttFormHtml(cfg) + renderAdvancedFormHtml(cfg);
+    // The card of the embedding models is outside this container in the page markup; it moves into the tab of the key and the models.
+    const embedCard = document.getElementById('admin-providers-embed-card');
+    if (embedCard) embedCard.remove();
+    const html = {
+      status: renderEffectiveCardHtml(cfg),
+      model: renderKeyFormHtml(cfg) + renderModelFormHtml(cfg),
+      stt: renderSttFormHtml(cfg),
+      advanced: renderAdvancedFormHtml(cfg)
+    };
+    target.innerHTML = window.ClaireUi.renderTabs({
+      id: 'prov-tabs',
+      ariaLabel: trKey('console.js.panels.providers.tabs_label'),
+      active: _provState.activeTab || 'status',
+      tabs: PROVIDER_TABS.map(tab => ({ id: tab.id, icon: tab.icon, label: trKey(`console.js.panels.providers.tab.${tab.id}`), html: html[tab.id] }))
+    });
+    // The embedding models of the shared knowledge bases (console_admin.js fills that card) belong to the tab of the key and the models.
+    const modelPanel = target.querySelector('[data-tabpanel="model"] .claire-panel-inner');
+    if (embedCard && modelPanel) modelPanel.appendChild(embedCard);
     if (target.dataset.provBound !== '1') {
       target.dataset.provBound = '1';
       target.addEventListener('submit', onProviderFormSubmit);
+      target.addEventListener('claire:tabchange', ev => { _provState.activeTab = ev.detail.tab; });
     }
+    window.ClaireUi.enhance(target);
     enhanceConsoleDom();
+    openProviderTabOfHash(target);
   }
 
   // After a save: the status card and the state of the key show the new config; the forms keep what the person typed.

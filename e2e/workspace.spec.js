@@ -795,9 +795,9 @@ test('provider management lives in the admin console and the root topbar shows o
 
   // 5. The provider page (PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): what applies now first, then one form for each part. e2e/provider_settings.spec.js checks the forms and their results.
   await expect(detailPane.getByRole('heading', { level: 2, name: /지금 적용 중인 설정/ })).toBeVisible();
-  const effTop = await page.locator('#prov-effective-card').evaluate(el => el.getBoundingClientRect().top);
-  const keyTop = await page.locator('#prov-key-form').evaluate(el => el.getBoundingClientRect().top);
-  expect(effTop).toBeLessThan(keyTop);
+  // The status tab comes first; the key and the models are in the second tab.
+  await expect(page.locator('#prov-tabs [role="tab"]').first()).toHaveAttribute('data-tab', 'status');
+  await page.locator('#prov-tabs [role="tab"][data-tab="model"]').click();
   await expect(page.locator('#prov-gemini-model')).toBeVisible();
   expect(await page.locator('#prov-gemini-model').evaluate(el => el.tagName)).toBe('SELECT');
   await expect(page.locator('#prov-active-select')).toHaveCount(0);

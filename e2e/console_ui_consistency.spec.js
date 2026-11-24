@@ -60,7 +60,8 @@ const MOBILE_REPRESENTATIVE_ROUTES = [
   '/moderation/themes',
 ];
 
-const EXPECT_TOC_ROUTES = new Set(['/account/profile', '/admin/providers', '/admin/server']);
+// /admin/providers has tabs (owner selection Q1 of PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md): the tabs replace the list of the page.
+const EXPECT_TOC_ROUTES = new Set(['/account/profile', '/admin/server']);
 
 let ownerStorageState = null;
 
