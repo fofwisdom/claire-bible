@@ -14,6 +14,7 @@ docs/
 ├── FAVICON.md                  # 파비콘 3D 기하학 그래픽 디자인 명세
 ├── design/                     # [설계] 의도와 이유: 구현을 마치지 않은 아키텍처, 구현을 마친 작업의 설계 원칙 (현재 상태는 말하지 않음)
 │   │   # 미구현 또는 일부 구현 (상태 줄에 구현된 부분과 구현 문서 링크)
+│   ├── API_V1_AND_REFERENCE_DESIGN.md     # 버전드 공개 REST API(/api/v1/*) 신설(안 B), 단일 /reference 권한별 Scalar 다중 문서 탭, 코드 기반 OpenAPI 3.1 생성·CI 게이트, 소유자 결정 AR1–AR10 확정(2026-11-24), 미구현(선행: LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md)
 │   ├── CLAUDE_AGENT_CLIENT_DESIGN.md      # Claude용 claire 플러그인 실동작: CL0–CL8 구현(v0.4.0 공통 사양 진화는 AGENT_CLIENT_COMMON_SPEC.md → API_AND_MCP_GUIDE.md §3.4, EXTERNAL_ACCESS.md), CL9(업로드 링크) 미구현, CL10(Cowork·claude.ai) 설계 없음, 결정 CD1–CD4 확정
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
 │   ├── EXPANSION_DESIGN.md
@@ -23,6 +24,7 @@ docs/
 │   ├── INGEST_ADAPTER_PLUGIN_DESIGN.md    # 적재 어댑터 플러그인화(프로젝트 플러그인 폴더·플러그인 폴더 분리·매니페스트·리비전·추종 커밋·겹침 배타 선택·관리자 켜기/끄기), PL0–PL4 구현
 │   ├── JEV_SHADOW_EVALUATION_DESIGN.md    # Jev shadow 전용(필터·하이브리드 제거), 정기 평가의 엔티티 쌍 검토 백엔드 구현(→ GRAPH_BUNDLE_REVIEW.md §5.5), 이용자 판정 프런트엔드·R7 미구현, 평가 결과 JEV_EVALUATION.md
 │   ├── KNOWLEDGE_FEDERATION_DESIGN.md     # 서버 간 지식 연합, KF0–KF6 구현, 남은 일 KA1–KA5, 루트 페이지 최근 활동 형태는 design/prototypes/recent_activity_prototypes.html 평가 대기(KD15)
+│   ├── LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md  # CLAIRE_ANONYMOUS_READONLY 제거(스키마 v48 개인 KB 자동 비공개 전환), 죽은·레거시·정책 환경변수(Tier 1–3) 정리, 전 서비스 레거시 수동 토큰 완전 퇴역, 소유자 결정 ER1–ER9 확정(2026-11-24), 미구현
 │   ├── MULTI_ACCOUNT_NAMESPACE_AND_SINGLE_FQDN_DESIGN.md  # P0–P7 구현, 남은 계획은 폐기(2026-11-19): /explore 통합 뷰는 /directory·/themes로, 계정 간 발행 본문은 기여로 대체
 │   ├── PERMALINK_UNIFICATION_DESIGN.md    # 문서·노트의 고유 주소 /silvercord/{주소 토큰}(ActivityPub 종류 전용), 엔티티 주소 /entity/{주소 토큰}, 용어 규칙(엔티티·노드·그래프·관계), 소유자 결정 완료(2026-11-23), 일부 구현(→ implementation/PERMALINKS.md)
 │   ├── PUBLIC_DOMAIN_BLOCK_LIST_DESIGN.md  # 차단 도메인 공개 목록 제안(BQ1–BQ6 소유자 답변 대기), 미구현
