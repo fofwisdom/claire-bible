@@ -244,11 +244,12 @@ A test slide for API routes.
         db_path=str(db_file),
         data_dir=tmp_path,
         inject_token=owner_token,
-        render_format="adoc",
-        presentation_enabled=True,
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
     )
+    from claire.store.knowledge_base import KnowledgeBaseManager
+
+    KnowledgeBaseManager(s).update_kb(0, presentation_enabled=True)
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
         # 1. Check status before creation
@@ -559,11 +560,12 @@ def test_api_presentation_compose_and_adoc(tmp_path: Path):
         db_path=str(db_file),
         data_dir=tmp_path,
         inject_token=owner_token,
-        render_format="adoc",
-        presentation_enabled=True,
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
     )
+    from claire.store.knowledge_base import KnowledgeBaseManager
+
+    KnowledgeBaseManager(s).update_kb(0, presentation_enabled=True)
     app = create_app(s)
     with TestClient(app, base_url=s.public_url, raise_server_exceptions=False) as client:
         with patch.object(get_slide_renderer(), "compile_presentation_html", new_callable=AsyncMock) as mock_compile:
@@ -763,11 +765,12 @@ def test_presentation_option_a_and_async_generation(tmp_path: Path):
         db_path=str(db_file),
         data_dir=tmp_path,
         inject_token=owner_token,
-        render_format="adoc",
-        presentation_enabled=True,
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
     )
+    from claire.store.knowledge_base import KnowledgeBaseManager
+
+    KnowledgeBaseManager(s).update_kb(0, presentation_enabled=True)
     app = create_app(s)
     # The patch stays active until the client closes: the request with wait=false starts the generation as a background task, and the client waits for that task at exit. A patch that ends earlier lets the task call the real compiler, and the test then waits without end.
     target_file = tmp_path / "presentations" / f"{doc_id}.html"
@@ -941,7 +944,7 @@ def test_presentation_image_routes_direct_and_prefixed(tmp_path: Path):
     settings = Settings(
         db_path=str(db_path),
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
     )
     app = create_app(settings)
     # GateMiddleware가 없어져 정적·이미지 경로도 Host 판정을 받는다(설계 §5.1). 공개 authority로 부른다.

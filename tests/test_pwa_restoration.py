@@ -123,9 +123,8 @@ def _setup_pwa_network_env(tmp_path: Path, *, anonymous_readonly: bool = True):
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_SESSION_SECRET="test-secret-pwa-restore",
     )
     return s, {
@@ -156,7 +155,7 @@ def _setup_pwa_single_env(tmp_path: Path):
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_SINGLE_MODE=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_SESSION_SECRET="test-secret-pwa-restore",
     )
     return s, {"db_file": db_file, "admin_session": admin_session}

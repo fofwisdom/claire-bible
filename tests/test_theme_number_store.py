@@ -30,15 +30,13 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.delenv(key, raising=False)
 
 
-def _settings(tmp_path: Path, *, multi: bool, **extra: object) -> Settings:
+def _settings(tmp_path: Path, **extra: object) -> Settings:
     data_dir = tmp_path / "data"
     data_dir.mkdir(exist_ok=True)
     return Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=multi,
         **extra,
     )
 
@@ -215,11 +213,11 @@ def test_update_with_empty_fqdn_keeps_legacy_column(tmp_path: Path) -> None:
     assert _db_row(settings, theme.id)["fqdn"] == "old.example.com"
 
 
-# --- CLAIRE_MULTI_THEME=0 일관성 (§4.2) ---
+# --- DB 기반 기본 지식베이스 일관성 ---
 
 
-def test_single_mode_reads_theme_zero_from_db(tmp_path: Path) -> None:
-    settings = _settings(tmp_path, multi=False)
+def test_theme_zero_is_read_from_db(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
     KnowledgeBaseManager(base_settings=settings)  # DB 초기화
     conn = dbm.connect(settings.db_file)
     try:
@@ -236,28 +234,27 @@ def test_single_mode_reads_theme_zero_from_db(tmp_path: Path) -> None:
     assert t0.visibility_epoch == 3
     assert t0.account_id == 1
     assert t0.is_personal is True
-    # 싱글 모드는 themes.json을 만들지 않는다.
     assert not (settings.data_dir / "themes.json").exists()
-    # 활성 테마 목록도 같은 DB 행을 쓴다.
     [(active, _)] = manager.active_kb_settings(settings)
     assert active.number == row["number"]
 
 
-def test_single_mode_keeps_settings_driven_fields(tmp_path: Path) -> None:
-    settings = _settings(tmp_path, multi=False, CLAIRE_PRESENTATION_ENABLED=True)
+def test_kb_zero_uses_db_presentation_flag_and_ignores_retired_env(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, CLAIRE_PRESENTATION_ENABLED=True, CLAIRE_SORCERER="ignored_env")
     manager = KnowledgeBaseManager(base_settings=settings)
     t0 = manager.get_kb(0)
-    assert t0.presentation_enabled is True
+    assert t0.presentation_enabled is False
     assert _db_row(settings, 0)["presentation_enabled"] == 0
+    assert t0.sorcerer == ""
     assert t0.db_path == str(settings.db_path)
-    with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화"):
-        manager.define_kb("새 테마", knowledge_type="real")
+    created = manager.define_kb("새 테마", knowledge_type="real")
+    assert created.id == 1
 
 
-def test_single_mode_recreates_missing_theme_zero_in_db(
+def test_recreates_missing_theme_zero_in_db(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _settings(tmp_path, multi=False)
+    settings = _settings(tmp_path)
     KnowledgeBaseManager(base_settings=settings)
     conn = dbm.connect(settings.db_file)
     try:
@@ -274,15 +271,8 @@ def test_single_mode_recreates_missing_theme_zero_in_db(
     assert manager.get_kb(0).number == row["number"]
 
 
-def test_single_and_multi_mode_see_same_theme_zero_number(tmp_path: Path) -> None:
-    single = KnowledgeBaseManager(base_settings=_settings(tmp_path, multi=False))
-    multi = KnowledgeBaseManager(base_settings=_settings(tmp_path, multi=True))
-    assert single.get_kb(0).number == multi.get_kb(0).number is not None
-    assert single.personal_kb_for(1).number == multi.personal_kb_for(1).number
-
-
-def test_single_mode_readonly_without_db_uses_default(tmp_path: Path) -> None:
-    settings = _settings(tmp_path, multi=False)
+def test_readonly_without_db_uses_default(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
     manager = KnowledgeBaseManager(base_settings=settings, writable=False)
     t0 = manager.get_kb(0)
     assert t0.id == 0 and t0.number is None

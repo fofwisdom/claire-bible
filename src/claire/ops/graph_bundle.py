@@ -560,16 +560,15 @@ def create_graph_bundle(
 
     # Resolve theme database path
     db_file: Path | None = None
-    if getattr(s, "multi_theme", False) or resolved_kb_id != 0:
-        try:
-            from ..store.knowledge_base import get_kb_manager
-            tm = get_kb_manager(s)
-            theme_info = tm.get_kb(resolved_kb_id)
-            db_file = Path(theme_info.db_path)
-            if account_id is None:
-                account_id = getattr(theme_info, "account_id", None)
-        except Exception as exc:
-            logger.warning("Theme lookup failed for %s (%s). Fall back to settings.db_file.", kb_id, exc)
+    try:
+        from ..store.knowledge_base import get_kb_manager
+        tm = get_kb_manager(s)
+        theme_info = tm.get_kb(resolved_kb_id)
+        db_file = Path(theme_info.db_path)
+        if account_id is None:
+            account_id = getattr(theme_info, "account_id", None)
+    except Exception as exc:
+        logger.warning("Theme lookup failed for %s (%s). Fall back to settings.db_file.", kb_id, exc)
 
     if db_file is None:
         db_file = getattr(s, "db_file", None) or Path(getattr(s, "db_path", "data/claire.db"))

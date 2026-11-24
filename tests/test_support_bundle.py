@@ -860,7 +860,6 @@ def test_support_bundle_no_false_positive_for_multitheme_database(tmp_path: Path
     conn.execute("INSERT OR REPLACE INTO knowledge_bases (id, seq, label, db_path, is_personal, is_public, knowledge_type, created_by_account_id, created_at, updated_at, account_id) VALUES (1, 1, 'Theme 1', ?, 0, 1, 'real', 1, 1, 1, NULL)", (str(theme1_db),))
     conn.commit()
     conn.close()
-    s.multi_theme = True
 
     info = create_support_bundle(s)
     decompressed = zstd.decompress(info.filepath.read_bytes())

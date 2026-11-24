@@ -413,7 +413,7 @@ test.describe.serial('Invite code issuance, management, and signup (R1-R5)', () 
     const pluginsDir = path.join(tmpDir, 'e2e-plugins');
     isolatedBaseUrl = `http://127.0.0.1:${port}/`;
     isolatedOrigin = `http://127.0.0.1:${port}`;
-    const env = { ...process.env, PYTHONPATH: process.env.PYTHONPATH ? `src:${process.env.PYTHONPATH}` : 'src', CLAIRE_MULTI_THEME: '1', CLAIRE_DB_PATH: dbPath, CLAIRE_INJECT_PORT: String(port), CLAIRE_PUBLIC_URL: isolatedBaseUrl, CLAIRE_ENVIRONMENT: 'development', CLAIRE_ALLOW_INSECURE_HTTP: 'true', CLAIRE_INJECT_TOKEN: BOOTSTRAP_TOKEN, CLAIRE_SECRET_KEY: crypto.randomBytes(32).toString('hex'), CLAIRE_PLUGINS_DIR: pluginsDir };
+    const env = { ...process.env, PYTHONPATH: process.env.PYTHONPATH ? `src:${process.env.PYTHONPATH}` : 'src', CLAIRE_DB_PATH: dbPath, CLAIRE_INJECT_PORT: String(port), CLAIRE_FQDN: `127.0.0.1:${port}`, CLAIRE_ENVIRONMENT: 'development', CLAIRE_ALLOW_INSECURE_HTTP: 'true', CLAIRE_INJECT_TOKEN: BOOTSTRAP_TOKEN, CLAIRE_SECRET_KEY: crypto.randomBytes(32).toString('hex'), CLAIRE_PLUGINS_DIR: pluginsDir };
     execFileSync(py, [path.join(REPO_ROOT, 'e2e', 'seed_db.py')], { cwd: REPO_ROOT, env, stdio: 'pipe' });
     serverProc = spawn(py, ['-m', 'claire_bible.cli', 'serve-api'], { cwd: REPO_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
     serverProc.stdout.on('data', (chunk) => {

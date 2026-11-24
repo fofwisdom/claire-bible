@@ -47,14 +47,11 @@ def _isolate(monkeypatch):
 def _prepare(tmp_path: Path, *, is_public: bool = True, public_url: str = PUBLIC_URL, fqdn: str = HANDLE_HOST) -> tuple[Settings, int]:
     settings = Settings(
         CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=public_url,
-        CLAIRE_FQDN=fqdn,
+        CLAIRE_FQDN=fqdn or public_url,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN="readonly-" + "r" * 32,
-        CLAIRE_MULTI_THEME=True,
     )
     conn = dbm.connect(settings.db_file)
     try:

@@ -138,8 +138,7 @@ def _build_env(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN=PUBLIC_URL,
     )
     if gemini_key:
         kwargs["GEMINI_API_KEY"] = gemini_key

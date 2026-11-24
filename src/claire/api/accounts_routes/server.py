@@ -508,12 +508,6 @@ def routes(ctx: AccountsContext) -> list[Route]:
                             "detail": "Server readiness checks did not pass",
                             "failures": [item.to_dict() for item in report.items if not item.passed],
                         }
-                    multi_theme = getattr(settings, "multi_theme", True)
-                    if not multi_theme:
-                        return 400, {
-                            "error": "multi_theme_required",
-                            "detail": "CLAIRE_MULTI_THEME=1 is required for network mode",
-                        }
 
                     store.set_setting("mode", "network", updated_by=principal.account_id)
                     legacy_hosts.activate_sunset_clock(conn)

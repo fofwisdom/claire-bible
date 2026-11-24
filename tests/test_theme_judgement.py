@@ -31,9 +31,8 @@ def env(tmp_path: Path):
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN="owner-" + "s" * 32,
-        CLAIRE_MULTI_THEME=True,
     )
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)

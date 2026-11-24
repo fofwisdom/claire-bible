@@ -20,62 +20,36 @@ def temp_theme_env(tmp_path):
     settings = Settings(
         CLAIRE_DB_PATH=db_path,
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
     manager = KnowledgeBaseManager(base_settings=settings)
     yield manager, data_dir, vault_dir
 
 
-def test_theme_manager_single_mode(tmp_path):
-    """CLAIRE_MULTI_THEME=False 모드에서 themes.json 미생성 및 변경 연산 차단 검증."""
-    data_dir = tmp_path / "single_data"
-    vault_dir = tmp_path / "single_vault"
+def test_theme_manager_always_multi_kb_supports_lifecycle(tmp_path):
+    """다중 지식베이스가 항상 활성화되어 생성·수정·삭제가 동작하는지 검증."""
+    data_dir = tmp_path / "always_multi_data"
     data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=False,
     )
     manager = KnowledgeBaseManager(base_settings=settings)
     themes = manager.list_kbs()
     assert len(themes) == 1
     assert themes[0].id == 0
     assert themes[0].label == "기본 지식베이스"
+    assert themes[0].sorcerer == ""
+    assert themes[0].presentation_enabled is False
 
-    # 싱글 모드에서는 디스크에 themes.json을 생성하지 않음 (0-Disk I/O)
-    registry_file = data_dir / "themes.json"
-    assert not registry_file.exists()
+    assert not (data_dir / "themes.json").exists()
 
-    with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
-        manager.define_kb("새 테마", knowledge_type="real")
-
-    with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
-        manager.update_kb(0, label="수정")
-
-    with pytest.raises(RuntimeError, match="멀티 테마 모드가 비활성화되어 있습니다"):
-        manager.delete_kb(0)
-
-
-def test_active_theme_settings_single_mode_never_reads_registry(tmp_path):
-    data_dir = tmp_path / "single_data"
-    data_dir.mkdir()
-    registry = data_dir / "themes.json"
-    registry.write_text("{broken", encoding="utf-8")
-    settings = Settings(
-        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=False,
-    )
-
-    manager = KnowledgeBaseManager(base_settings=settings)
-    active = manager.active_kb_settings(settings)
-
-    assert [(theme.id, themed.db_file) for theme, themed in active] == [
-        (0, settings.db_file)
-    ]
-    assert registry.read_text(encoding="utf-8") == "{broken"
+    created = manager.define_kb("새 테마", knowledge_type="real")
+    assert created.id == 1
+    updated = manager.update_kb(created.id, label="수정")
+    assert updated.label == "수정"
+    manager.delete_kb(created.id)
+    assert [t.id for t in manager.list_kbs()] == [0]
 
 
 def test_active_theme_settings_are_sorted_and_only_override_storage(temp_theme_env):
@@ -89,7 +63,6 @@ def test_active_theme_settings_are_sorted_and_only_override_storage(temp_theme_e
     for theme, themed in active:
         assert themed.db_path == theme.db_path
         assert themed.provider == manager.settings.provider
-        assert themed.multi_theme == manager.settings.multi_theme
 
 
 def test_corrupt_legacy_registry_stays_and_start_continues(temp_theme_env):
@@ -288,7 +261,6 @@ def test_resolve_share_token_single_mode_fallback(tmp_path):
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=False,
     )
     manager = KnowledgeBaseManager(base_settings=settings)
 
@@ -371,11 +343,11 @@ def test_theme_knowledge_manager_metadata_and_settings_override(temp_theme_env):
     assert t1.to_dict()["sorcerer"] == "alice_architect"
     assert t1.to_dict()["knowledge_manager"] == "alice_architect"
 
-    # 2. active_theme_settings에서 테마별 sorcerer 설정 오버라이드 확인
+    # 2. active_kb_settings에서는 DB 행과 독립적으로 저장소 설정을 반환하며 테마별 sorcerer는 KB 메타데이터에 보관됨
     active = manager.active_kb_settings(manager.settings)
-    themed_settings = {t.id: s for t, s in active}
-    assert themed_settings[0].sorcerer == manager.settings.sorcerer
-    assert themed_settings[t1.id].sorcerer == "alice_architect"
+    by_id = {t.id: t for t, _ in active}
+    assert by_id[0].sorcerer == ""
+    assert by_id[t1.id].sorcerer == "alice_architect"
 
     # 3. 테마 수정으로 지식 관리자 변경
     t1_updated = manager.update_kb(t1.id, sorcerer="bob_curator")
@@ -421,7 +393,6 @@ def test_theme_manager_auto_migration_on_startup(tmp_path):
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
 
     # Initialize KnowledgeBaseManager, which should trigger reload() and auto-migration

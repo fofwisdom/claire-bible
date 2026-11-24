@@ -134,7 +134,7 @@ class _Claire:
 
     def start(self) -> None:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAIRE_", "CB_"))}
-        env.update(CLAIRE_APP_ROOT=str(self.root), CLAIRE_ENVIRONMENT="development", CLAIRE_PROVIDER="mock", CLAIRE_DB_PATH=str(self.data / "claire.db"), CB_DATA_DIR=str(self.data), CLAIRE_INJECT_HOST="127.0.0.1", CLAIRE_INJECT_PORT=str(self.port), CLAIRE_PUBLIC_URL=self.origin, CLAIRE_ALLOW_PRIVATE_NETWORKS="1", CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32), CLAIRE_MULTI_THEME="1", PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(REPO_ROOT / "src"))
+        env.update(CLAIRE_APP_ROOT=str(self.root), CLAIRE_ENVIRONMENT="development", CLAIRE_PROVIDER="mock", CLAIRE_DB_PATH=str(self.data / "claire.db"), CB_DATA_DIR=str(self.data), CLAIRE_INJECT_HOST="127.0.0.1", CLAIRE_INJECT_PORT=str(self.port), CLAIRE_FQDN=self.origin.split("//", 1)[1], CLAIRE_ALLOW_PRIVATE_NETWORKS="1", CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32), PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(REPO_ROOT / "src"))
         migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=self.root, env=env, capture_output=True, text=True)
         assert migrate.returncode == 0, migrate.stdout + migrate.stderr
         target = self.stack.actors[0]

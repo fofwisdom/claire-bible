@@ -28,66 +28,45 @@ def theme_app_client(tmp_path):
         CLAIRE_DB_PATH=db_path,
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_MULTI_THEME=True,
     )
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)
     yield client, settings
 
 
-def test_theme_api_single_mode_behavior(tmp_path):
-    """CLAIRE_MULTI_THEME=0(기본값, 싱글 모드) 시의 API 보안 가드 및 고정 동작 검증."""
-    data_dir = tmp_path / "single_data"
-    vault_dir = tmp_path / "single_vault"
+def test_theme_api_always_multi_theme_enabled(tmp_path):
+    """CLAIRE_MULTI_THEME=0/false 환경변수가 있어도 멀티 KB API는 항상 활성화되어 있음."""
+    data_dir = tmp_path / "always_multi_data"
     data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
 
     s = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_MULTI_THEME=False,
     )
     app = create_app(settings=s)
     with TestClient(app, base_url=s.public_url) as client:
-        # 1. GET /kb -> multi_theme: False 및 개인 지식 베이스 1개만 반환 (design Section 7)
         resp = client.get("/kb", headers=OWNER_HEADERS)
         assert resp.status_code == 200
         data = resp.json()
-        assert data.get("multi_theme") is False
-        assert data["knowledge_bases"] == []
+        assert data.get("multi_theme") is True
         assert data["personal_kb"]["id"] == 0
-        assert data["personal_kb"]["label"] == "기본 지식베이스"
 
-        # 2. POST /themes -> 403 차단
         resp_post = client.post("/kb", json={"knowledge_type": "real", "label": "새 테마"}, headers=OWNER_HEADERS)
-        assert resp_post.status_code == 403
-        assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_post.json().get("error", "")
+        assert resp_post.status_code == 201
+        created = resp_post.json()["knowledge_base"]
+        assert created["id"] == 1
+        assert created["label"] == "새 테마"
 
-        # 3. PATCH /themes -> 403 차단
-        resp_patch = client.patch("/", json={"label": "수정"}, headers=OWNER_HEADERS)
-        assert resp_patch.status_code == 403
-        assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_patch.json().get("error", "")
-
-        # 4. DELETE /themes -> 403 차단
-        resp_del = step_up_request(client, s, "DELETE", "/")
-        assert resp_del.status_code == 403
-        assert "멀티 테마 모드가 비활성화되어 있습니다" in resp_del.json().get("error", "")
-
-        # 5. POST /ingest: a ``theme`` field is ignored (CT23); the ingest goes to the personal knowledge base 0
-        ingest_valid = client.post(
-            "/ingest",
-            json={"payload": "싱글 테마 모드 적재 내용", "theme": 999, "extraction_mode": "provider"},
-            headers=OWNER_HEADERS,
-        )
-        assert ingest_valid.status_code == 200
-        assert ingest_valid.json().get("kb_id") == 0
+        resp_patch = client.patch(f"/kb/{created['number']}", json={"label": "수정"}, headers=OWNER_HEADERS)
+        assert resp_patch.status_code == 200
+        assert resp_patch.json()["knowledge_base"]["label"] == "수정"
 
 
 def test_get_themes_anonymous_allowed(theme_app_client):
@@ -344,7 +323,7 @@ def test_theme_knowledge_manager_api(theme_app_client):
     themes = kb_list(client, headers=OWNER_HEADERS)
     theme0 = next(t for t in themes if t["id"] == 0)
     theme_sec = next(t for t in themes if t["id"] == tid)
-    assert theme0["knowledge_manager"] == (settings.sorcerer.strip() or "owner")
+    assert theme0["knowledge_manager"] == ""
     assert theme_sec["sorcerer"] == "sec_officer"
     assert theme_sec["knowledge_manager"] == "sec_officer"
 

@@ -522,7 +522,7 @@ def get_mcp_tools_metadata() -> list[dict[str, Any]]:
 def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, svc: Any = None, service_pool: Any = None):
     """Build the Starlette ASGI app mounted at ``/mcp``."""
     tm = theme_mgr if theme_mgr is not None else theme_manager
-    if tm is None and getattr(s, "multi_theme", False):
+    if tm is None:
         try:
             from ..store.knowledge_base import KnowledgeBaseManager
 

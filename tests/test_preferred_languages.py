@@ -56,7 +56,7 @@ def _world(tmp_path: Path) -> SimpleNamespace:
     finally:
         conn.close()
     auth_db.connect_auth_db(auth_db.auth_db_path(data_dir)).close()
-    settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_DATA_DIR=str(data_dir), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_PUBLIC_URL=PUBLIC_URL)
+    settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_DATA_DIR=str(data_dir), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=PUBLIC_URL)
     return SimpleNamespace(settings=settings, db_file=db_file, data_dir=data_dir)
 
 

@@ -45,7 +45,6 @@ def test_parse_raw_transcript_lines_with_offset():
 
 def test_gemini_provider_routing(monkeypatch):
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
-    monkeypatch.setenv("CLAIRE_STT_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-fake")
 
     s = Settings(stt_model="gemini-3.5-transcribe")
@@ -65,7 +64,6 @@ def test_gemini_provider_transcribe_mocked(tmp_path, monkeypatch):
 
     s = Settings(
         enable_video_transcription=True,
-        stt_provider="gemini",
         stt_model="gemini-3.5-transcribe",
         gemini_api_key="fake-key",
         video_chunk_duration_sec=900,
@@ -106,7 +104,7 @@ def test_gemini_transcription_request_sends_the_preferred_languages_as_hints(tmp
     """ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P2: the STT language "auto" sends the preferred languages of the job as ``language_codes`` (hints); one tag sends that tag only; the laboratory gives the hints itself (an empty list: no hints, Google detects the language)."""
     fake_audio = tmp_path / "test.mp3"
     fake_audio.write_bytes(b"\xFF\xFB\x90\x00" * 1000)
-    s = Settings(enable_video_transcription=True, stt_provider="gemini", stt_model="gemini-3.5-transcribe", gemini_api_key="fake-key", video_chunk_duration_sec=900, preferred_languages="ko,ja")
+    s = Settings(enable_video_transcription=True, stt_model="gemini-3.5-transcribe", gemini_api_key="fake-key", video_chunk_duration_sec=900, preferred_languages="ko,ja")
     provider = GeminiTranscriptProvider(s)
     mock_client = MagicMock()
     mock_file = MagicMock()
@@ -170,7 +168,6 @@ def test_gemini_provider_429_retry_success(tmp_path):
 
     s = Settings(
         enable_video_transcription=True,
-        stt_provider="gemini",
         stt_model="gemini-3.5-transcribe",
         gemini_api_key="fake-key",
     )
@@ -210,7 +207,6 @@ def test_gemini_provider_429_max_retries_exhausted_raises(tmp_path):
 
     s = Settings(
         enable_video_transcription=True,
-        stt_provider="gemini",
         stt_model="gemini-3.5-transcribe",
         gemini_api_key="fake-key",
     )

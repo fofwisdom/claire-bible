@@ -365,8 +365,6 @@ def create_app(
         from ..ingest.active import get_active_jobs
 
         jobs = get_active_jobs(data_dir)
-        if not getattr(s, "multi_theme", False):
-            return jobs
         visible = []
         for job in jobs:
             try:
@@ -406,8 +404,6 @@ def create_app(
                 if ns is None or ns.account_id is None:
                     raise HTTPException(status_code=404, detail="theme not found")
                 theme = theme_mgr.personal_kb_for(ns.account_id)
-            if not getattr(s, "multi_theme", False) and theme.id != 0:
-                raise KnowledgeBaseNotFound(theme.id)
         except KnowledgeBaseNotFound as exc:
             # 없는 지식 베이스를 다른 것으로 바꾸지 않는다. 접근 불가와 같은 응답이라 비공개 지식 베이스의 존재가 드러나지 않는다.
             raise HTTPException(status_code=404, detail="theme not found") from exc
@@ -784,15 +780,28 @@ def create_app(
         is_settings_view = _kb_decide(request, kb, "settings") == "allow"
         include_hidden = (request_principal(request).account_id == kb.account_id) if kb.is_personal else _kb_decide(request, kb, "review") == "allow"
         t_stats = {"documents": 0, "entities": 0, "relations": 0}
+        owner_display_name = ""
         abs_db = theme_mgr.get_settings_for_kb(kb.id, s).db_file
         if abs_db.is_file():
             conn = dbm.connect_existing(abs_db, readonly=True)
             try:
                 t_stats = theme_summary(conn, include_hidden=include_hidden, kb_id=kb.id)
+                if not (kb.sorcerer or "").strip() and kb.account_id is not None and abs_db == s.db_file:
+                    row_owner = conn.execute("SELECT display_name FROM accounts WHERE id = ?", (kb.account_id,)).fetchone()
+                    if row_owner is not None:
+                        owner_display_name = str(row_owner[0] or "").strip()
             finally:
                 conn.close()
+        if not (kb.sorcerer or "").strip() and not owner_display_name and kb.account_id is not None and abs_db != s.db_file and s.db_file.is_file():
+            conn_acc = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row_owner = conn_acc.execute("SELECT display_name FROM accounts WHERE id = ?", (kb.account_id,)).fetchone()
+                if row_owner is not None:
+                    owner_display_name = str(row_owner[0] or "").strip()
+            finally:
+                conn_acc.close()
         item = _kb_public_dict(kb, settings_view=is_settings_view)
-        eff_sorcerer = (kb.sorcerer or "").strip() or (getattr(s, "sorcerer", "") or "").strip() or "owner"
+        eff_sorcerer = (kb.sorcerer or "").strip() or owner_display_name
         item["sorcerer"] = (kb.sorcerer or "").strip()
         item["effective_sorcerer"] = eff_sorcerer
         item["knowledge_manager"] = eff_sorcerer
@@ -895,8 +904,7 @@ def create_app(
                 return HTMLResponse(html_text, headers=headers)
 
         def _build() -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-            # ``CLAIRE_MULTI_THEME=0``: only the knowledge base 0 is served, so the collection has no shared knowledge base.
-            shared = theme_mgr.list_shared_kbs(knowledge_type=knowledge_type) if getattr(s, "multi_theme", False) else []
+            shared = theme_mgr.list_shared_kbs(knowledge_type=knowledge_type)
             roles: dict[int, str] = {}
             if role_account is not None:
                 conn = dbm.connect_existing(s.db_file, readonly=True)
@@ -924,7 +932,7 @@ def create_app(
             request,
             collection_url=collection_url,
             items=items,
-            extra={"knowledge_bases": items, "personal_kb": personal, "multi_theme": bool(getattr(s, "multi_theme", False))},
+            extra={"knowledge_bases": items, "personal_kb": personal, "multi_theme": True},
         )
 
     async def themes_collection_route(request: Request) -> Response:
@@ -1007,7 +1015,7 @@ def create_app(
         origin = _public_origin(request).rstrip("/")
 
         def _build() -> dict[str, Any]:
-            shared = theme_mgr.list_shared_kbs(knowledge_type=knowledge_type) if getattr(s, "multi_theme", False) else []
+            shared = theme_mgr.list_shared_kbs(knowledge_type=knowledge_type)
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 local_keys = {int(row["kb_id"]): theme_judgement.signature_keys(row) for row in themes_store.load_signatures(conn)}
@@ -1261,13 +1269,8 @@ def create_app(
             values["seed_entities"] = body["seed_entities"]
         return values
 
-    def _require_multi_kb() -> None:
-        if not getattr(s, "multi_theme", False):
-            raise HTTPException(status_code=403, detail="멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
-
     async def kb_create_route(request: Request) -> JSONResponse:
         """``POST /kb``: each active account makes shared knowledge bases, without a limit (CT3). The founder selects the knowledge type (required, CT12), can give seed entities, and becomes the first moderator (CT8)."""
-        _require_multi_kb()
         principal = request_principal(request)
         if principal.account_id is None:
             raise HTTPException(status_code=401, detail="authentication required")
@@ -1317,7 +1320,6 @@ def create_app(
 
     async def kb_settings_route(request: Request) -> JSONResponse:
         """``PATCH /kb/{number}/`` and ``PATCH /@{u}/`` (``PATCH /`` under the prefix): change the settings of the knowledge base that the path selects. A shared one needs the capability ``settings``; a personal one takes its account."""
-        _require_multi_kb()
         values = _kb_settings_from_body(await _json_object(request))
         kb = _select_kb(request)
         principal = request_principal(request)
@@ -1351,7 +1353,6 @@ def create_app(
 
     async def kb_delete_route(request: Request) -> JSONResponse:
         """``DELETE /kb/{number}/``: delete a shared knowledge base with its documents and graph (design Section 10.1: admin only, step-up). Without ``?apply=true`` the answer is the plan only (PRINCIPLES D3)."""
-        _require_multi_kb()
         kb = _select_kb(request)
         raw_apply = request.query_params.get("apply")
         if raw_apply not in (None, "true", "false"):
@@ -2090,7 +2091,6 @@ def create_app(
 
     async def kb_forks_route(request: Request) -> JSONResponse:
         """``POST /kb/{number}/forks``: an active account forks a shared knowledge base into a new shared knowledge base (design Section 9.8). The copy runs in this request, without an LLM call and without a new embedding. A personal knowledge base that the requester reads gets 403 ``kb_fork_shared_only`` (CT15)."""
-        _require_multi_kb()
         kb = _select_kb(request)
         principal = request_principal(request)
         if principal.account_id is None:
@@ -4205,15 +4205,14 @@ def create_app(
         include_private = visible_scope in {"owner", "write", "readonly"}
         theme = None
 
-        if getattr(s, "multi_theme", False) or (ns is not None and ns.pinned_kb_id is not None):
-            try:
-                theme, _, _ = _get_theme_ctx(request)
-            except HTTPException as exc:
-                if exc.status_code == 404 and ns is not None and ns.account_id is not None and ns.pinned_kb_id is None and principal.account_id != ns.account_id:
-                    return await asyncio.to_thread(_render_private_profile_page, request, ns.account_id, ns.mode)
-                raise
-            except Exception:
-                pass
+        try:
+            theme, _, _ = _get_theme_ctx(request)
+        except HTTPException as exc:
+            if exc.status_code == 404 and ns is not None and ns.account_id is not None and ns.pinned_kb_id is None and principal.account_id != ns.account_id:
+                return await asyncio.to_thread(_render_private_profile_page, request, ns.account_id, ns.mode)
+            raise
+        except Exception:
+            pass
         if not request.scope.get("claire.permalink_dispatch") and any(k in request.query_params for k in ("doc", "node")):
             # An old link into the content (``?doc=``, ``?node=``): 308 to the permalink of the item, or 404 (PERMALINK_UNIFICATION_DESIGN.md U5). No fallback to the workspace.
             old_kind = "document" if "doc" in request.query_params else "entity"
@@ -4526,18 +4525,17 @@ def create_app(
         scope = request_auth_scope(request)
         include_private = scope in {"owner", "write", "readonly"}
         theme = None
-        if getattr(s, "multi_theme", False):
-            try:
-                theme, _, _ = _get_theme_ctx(request)
-                if scope in {"public", "anonymous"} and theme is not None and not theme.is_public:
-                    theme = None
-            except HTTPException:
-                # A given ``kb`` that is not there or not readable is 404 (no other knowledge base is shown in its place).
-                if request.query_params.get("kb") is not None:
-                    raise
+        try:
+            theme, _, _ = _get_theme_ctx(request)
+            if scope in {"public", "anonymous"} and theme is not None and not theme.is_public:
                 theme = None
-            except Exception:
-                theme = None
+        except HTTPException:
+            # A given ``kb`` that is not there or not readable is 404 (no other knowledge base is shown in its place).
+            if request.query_params.get("kb") is not None:
+                raise
+            theme = None
+        except Exception:
+            theme = None
         return scope, include_private, theme
 
     async def syndication_ui_route(request: Request) -> HTMLResponse:
@@ -4603,28 +4601,10 @@ def create_app(
         if target_theme_ref is None:
             raise HTTPException(status_code=400, detail="target_kb_id is required")
 
-        if not getattr(s, "multi_theme", False) and theme_mgr is None:
-            try:
-                target_tid = int(target_theme_ref)
-            except (ValueError, TypeError):
-                raise HTTPException(status_code=400, detail="invalid target_kb_id")
-            if target_tid != 0:
-                raise HTTPException(status_code=400, detail="multi_theme is not enabled")
-            target_theme = KnowledgeBaseInfo(
-                id=0,
-                seq=0,
-                label="기본 지식베이스",
-                description="일반 수집 자료 및 기본 지식",
-                icon="📚",
-                db_path=str(getattr(s, "db_path", "data/claire.db")),
-                is_personal=True,
-                is_public=True,
-            )
-        else:
-            try:
-                target_theme = theme_mgr.get_kb(target_theme_ref)
-            except Exception:
-                raise HTTPException(status_code=404, detail="target theme not found")
+        try:
+            target_theme = theme_mgr.get_kb(target_theme_ref)
+        except Exception:
+            raise HTTPException(status_code=404, detail="target theme not found")
 
         # The copy is an ingest: its target is the personal knowledge base of the caller (capability ``write`` of the route, CT4). A shared knowledge base gets 403 ``kb_ingest_by_contribution``; documents go there by contribution.
         _require_kb(request, target_theme, _request_capability(request))
@@ -4646,13 +4626,10 @@ def create_app(
             else body.get("source_theme")
         )
         if source_theme_ref is not None:
-            if not getattr(s, "multi_theme", False) and theme_mgr is None:
-                src_theme = target_theme
-            else:
-                try:
-                    src_theme = theme_mgr.get_kb(source_theme_ref)
-                except Exception:
-                    raise HTTPException(status_code=404, detail="source theme not found")
+            try:
+                src_theme = theme_mgr.get_kb(source_theme_ref)
+            except Exception:
+                raise HTTPException(status_code=404, detail="source theme not found")
         else:
             # No default: the source is required (design Section 5.2, CT23).
             raise HTTPException(status_code=400, detail="source_kb_id is required")
@@ -4838,7 +4815,7 @@ def create_app(
         return HTMLResponse(vocabulary.vocabulary_page(), headers={"Cache-Control": "public, max-age=86400"})
 
     def _public_sitemap_targets() -> list[tuple[Path, int]]:
-        if getattr(s, "multi_theme", False) and theme_mgr is not None:
+        if theme_mgr is not None:
             private_personal_accounts: set[int] = set()
             if s.db_file.is_file():
                 conn_mode = dbm.connect_existing(s.db_file, readonly=True)

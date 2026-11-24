@@ -152,12 +152,10 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
             CLAIRE_PLUGINS_DIR=str(resolved_plugins_dir),
             CLAIRE_PROVIDER=provider,
             CLAIRE_ENVIRONMENT=environment,
-            CLAIRE_PUBLIC_URL=public_url,
-            CLAIRE_FQDN=fqdn,
+            CLAIRE_FQDN=fqdn or public_url,
             CLAIRE_SITE_DOMAIN=site_domain,
             CLAIRE_USERCONTENT_FQDN=usercontent_fqdn,
             CLAIRE_MEDIA_FQDN=media_fqdn,
-            CLAIRE_MULTI_THEME=multi_theme,
             CLAIRE_INJECT_TOKEN=inject_token,
             CLAIRE_READONLY_TOKEN=readonly_token,
         )
@@ -189,45 +187,26 @@ def claire_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[
             auth_conn.close()
 
         seeded_accounts: dict[str, SeededAccount] = {}
-        if multi_theme:
-            kb_mgr = KnowledgeBaseManager(settings)
-            admin_kb = kb_mgr.personal_kb_for(1)
-            seeded_accounts["adminuser"] = SeededAccount(
-                account_id=1,
-                username="adminuser",
-                display_name="Admin",
-                password=admin_pw,
-                personal_kb_id=admin_kb.id,
-                personal_kb_number=str(admin_kb.to_dict()["number"]),
+        kb_mgr = KnowledgeBaseManager(settings)
+        admin_kb = kb_mgr.personal_kb_for(1)
+        seeded_accounts["adminuser"] = SeededAccount(
+            account_id=1,
+            username="adminuser",
+            display_name="Admin",
+            password=admin_pw,
+            personal_kb_id=admin_kb.id,
+            personal_kb_number=str(admin_kb.to_dict()["number"]),
+        )
+        for acct_id, uname, pw in member_records:
+            member_kb = kb_mgr.define_kb(f"{uname.capitalize()} KB", account_id=acct_id, is_personal=True)
+            seeded_accounts[uname] = SeededAccount(
+                account_id=acct_id,
+                username=uname,
+                display_name=uname.capitalize(),
+                password=pw,
+                personal_kb_id=member_kb.id,
+                personal_kb_number=str(member_kb.to_dict()["number"]),
             )
-            for acct_id, uname, pw in member_records:
-                member_kb = kb_mgr.define_kb(f"{uname.capitalize()} KB", account_id=acct_id, is_personal=True)
-                seeded_accounts[uname] = SeededAccount(
-                    account_id=acct_id,
-                    username=uname,
-                    display_name=uname.capitalize(),
-                    password=pw,
-                    personal_kb_id=member_kb.id,
-                    personal_kb_number=str(member_kb.to_dict()["number"]),
-                )
-        else:
-            seeded_accounts["adminuser"] = SeededAccount(
-                account_id=1,
-                username="adminuser",
-                display_name="Admin",
-                password=admin_pw,
-                personal_kb_id=0,
-                personal_kb_number=None,
-            )
-            for acct_id, uname, pw in member_records:
-                seeded_accounts[uname] = SeededAccount(
-                    account_id=acct_id,
-                    username=uname,
-                    display_name=uname.capitalize(),
-                    password=pw,
-                    personal_kb_id=None,
-                    personal_kb_number=None,
-                )
 
         client = stack.enter_context(TestClient(app, base_url=public_url))
         secure = _is_secure_url(public_url, environment)
@@ -425,7 +404,7 @@ def seed_personal_document(env: ClaireTestEnv, account: SeededAccount, *, doc_id
     """Seed an extracted document inside an account's personal KB for MCP/HTTP read or contribution tests."""
     kb_id = account.personal_kb_id if account.personal_kb_id is not None else 0
     db_file = env.db_path
-    if env.settings.multi_theme and kb_id != 0:
+    if kb_id != 0:
         db_file = KnowledgeBaseManager(env.settings).get_settings_for_kb(kb_id, env.settings).db_file
     conn = dbm.connect_existing(db_file)
     try:
@@ -462,9 +441,8 @@ def run_claire_cli(env: ClaireTestEnv, args: list[str], extra_env: dict[str, str
             "CLAIRE_DATA_DIR": str(env.data_dir),
             "CLAIRE_PLUGINS_DIR": str(env.plugins_dir),
             "CLAIRE_ENVIRONMENT": env.settings.environment or "development",
-            "CLAIRE_PUBLIC_URL": env.public_url,
+            "CLAIRE_FQDN": env.settings.effective_fqdn,
             "CLAIRE_PROVIDER": env.settings.provider,
-            "CLAIRE_MULTI_THEME": "1" if env.settings.multi_theme else "0",
             "CLAIRE_SECRET_KEY": DEFAULT_SECRET_KEY,
         }
     )

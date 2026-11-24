@@ -460,7 +460,6 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         CLAIRE_INJECT_PORT=str(claire_port),
         CLAIRE_FQDN=f"127.0.0.1:{claire_port}",
         CLAIRE_INJECT_TOKEN=secrets.token_urlsafe(32),
-        CLAIRE_MULTI_THEME="1",
         PYTHONDONTWRITEBYTECODE="1",
     )
     migrate = subprocess.run([sys.executable, "-m", "claire_bible.cli", "migrate"], cwd=tmp_path, env=env, capture_output=True, text=True)

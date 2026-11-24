@@ -41,7 +41,7 @@ def test_e2e_api_mcp_persistent_access_lifecycle(tmp_path: Path, monkeypatch: py
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=public_url,
+        CLAIRE_FQDN=public_url,
         CLAIRE_INJECT_TOKEN="",
         CLAIRE_READONLY_TOKEN="",
         CLAIRE_COLLABORATOR_TOKEN="",

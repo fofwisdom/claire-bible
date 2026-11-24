@@ -50,7 +50,8 @@ async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
         telegram_bot_token="12345:fake_token_for_test",
         inject_token="o" * 32,
         support_bundle_api_url="http://api:8765",
-        public_url="https://cb.example/",
+        environment="production",
+        fqdn="cb.example",
         data_dir=tmp_path,
     )
     info = await _create_support_bundle_for_delivery(
@@ -539,7 +540,8 @@ async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):
     conn.close()
 
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
-    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "https://cb.example.com")
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "production")
+    monkeypatch.setenv("CLAIRE_FQDN", "cb.example.com")
     get_settings.cache_clear()
 
     try:
@@ -1085,24 +1087,18 @@ async def test_telegram_app_error_handler(tmp_path: Path):
     assert "Simulated unhandled telegram error 99999" in content
 
 
-def test_parse_message_theme_multi_vs_single(tmp_path: Path):
-    """parse_message_theme이 CLAIRE_MULTI_THEME에 따라 올바르게 동작하는지 검증."""
-    from unittest.mock import MagicMock
+def test_parse_message_theme_always_parses_hashtags(tmp_path: Path):
+    """parse_message_theme가 해시태그(#번호, #레이블)를 항상 파싱하는지 검증."""
     from claire.core.config import Settings
     from claire.store.knowledge_base import KnowledgeBaseManager
     from claire.telegram.bot import parse_message_theme
 
     data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
     data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
 
-    # 1. Multi theme mode enabled
     s_multi = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
     tm_multi = KnowledgeBaseManager(s_multi)
     tm_multi.define_kb("AI연구", icon="🤖", knowledge_type="real")
@@ -1115,53 +1111,9 @@ def test_parse_message_theme_multi_vs_single(tmp_path: Path):
     assert tid2 == 1
     assert clean2 == "자료 요약 부탁"
 
-    # 2. Single theme mode (CLAIRE_MULTI_THEME=False) -> 해시태그 파싱을 바이패스하고 원문 보존
-    s_single = Settings(
-        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=False,
-    )
-    tm_single = KnowledgeBaseManager(s_single)
-    clean_single, tid_single = parse_message_theme("안녕하세요 #1 논문입니다", tm_single)
-    assert tid_single is None
-    assert clean_single == "안녕하세요 #1 논문입니다"
-
-
-async def test_on_theme_single_mode_reply(tmp_path: Path):
-    """CLAIRE_MULTI_THEME=False 상태에서 /theme 명령 수신 시 안내 메시지 응답 검증."""
-    from unittest.mock import AsyncMock, MagicMock
-    from types import SimpleNamespace
-    from claire.core.config import Settings
-    from claire.ingest.service import IngestService
-    from claire.telegram.bot import build_app
-
-    s = Settings(
-        CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_PROVIDER="mock",
-        telegram_bot_token="12345:fake_token",
-        telegram_allowed_users="100",
-        CLAIRE_MULTI_THEME=False,
-    )
-    app = build_app(s)
-    on_theme = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_theme")
-
-    msg = AsyncMock()
-    msg.reply_text = AsyncMock()
-    update = MagicMock()
-    update.effective_user = SimpleNamespace(id=100)
-    update.message = msg
-    update.effective_message = msg
-
-    ctx = MagicMock()
-    ctx.args = []
-    await on_theme(update, ctx)
-
-    msg.reply_text.assert_awaited_once()
-    reply = msg.reply_text.call_args[0][0]
-    assert "현재 싱글 테마 모드로 동작 중입니다" in reply
-    assert "CLAIRE_MULTI_THEME=1" in reply
+    clean3, tid3 = parse_message_theme("일반 메시지입니다", tm_multi)
+    assert tid3 is None
+    assert clean3 == "일반 메시지입니다"
 
 
 async def test_ingest_cancellation(tmp_path: Path):
@@ -1181,7 +1133,6 @@ async def test_ingest_cancellation(tmp_path: Path):
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
@@ -1243,7 +1194,6 @@ async def test_ingest_explicit_theme_tag_bypasses_prompt(tmp_path: Path, monkeyp
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
@@ -1299,10 +1249,9 @@ async def test_settle_status_theme_resolution(tmp_path: Path):
 
     settings = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
-        CLAIRE_PUBLIC_URL="https://cb.example.com",
+        CLAIRE_ENVIRONMENT="production",
+        CLAIRE_FQDN="cb.example.com",
     )
     tm = KnowledgeBaseManager(settings)
     t1 = tm.define_kb("AI엔지니어링", knowledge_type="real")
@@ -1393,7 +1342,6 @@ async def test_on_message_doc_cross_theme_switch(tmp_path: Path):
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
@@ -1458,7 +1406,6 @@ async def test_on_callback_rg_cross_theme(tmp_path: Path):
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
@@ -1525,7 +1472,6 @@ async def test_on_callback_regenerate_summary(tmp_path: Path):
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
@@ -1589,7 +1535,6 @@ async def test_on_failed_and_on_retry_theme_aware(tmp_path: Path):
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
         telegram_bot_token="12345:fake_token",
         allowed_user_ids=[],
     )
@@ -1742,7 +1687,6 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
         telegram_bot_token="",
     )
     conn = dbm.connect(settings.db_file)

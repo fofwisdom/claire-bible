@@ -134,7 +134,7 @@ def _create_app(tmp_path: Path):
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=f"http://{APP_HOST}",
+        CLAIRE_FQDN=f"http://{APP_HOST}",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     return create_app(settings=settings)

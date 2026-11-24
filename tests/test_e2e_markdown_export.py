@@ -48,7 +48,7 @@ def _make_app(tmp_path: Path):
     conn.commit()
     conn.close()
     token = "owner-" + ("e" * 32)
-    settings = Settings(db_path=str(db_file), data_dir=tmp_path, inject_token=token, environment="development", public_url="http://127.0.0.1:8765")
+    settings = Settings(db_path=str(db_file), data_dir=tmp_path, inject_token=token, environment="development", fqdn="127.0.0.1:8765")
     return create_app(settings), {"Authorization": f"Bearer {token}"}, settings
 
 

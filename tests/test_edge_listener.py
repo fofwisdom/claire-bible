@@ -142,7 +142,8 @@ def test_cb_manuscript_edge_is_always_enabled_in_production_and_disabled_in_deve
     monkeypatch.delenv("CB_EDGE", raising=False)
     validate = cb_manuscript._validate_edge
     assert validate({"CLAIRE_FQDN": "Claire.Example.com"}, environment="production") == "claire.example.com"
-    assert validate({"CLAIRE_FQDN": "", "CLAIRE_PUBLIC_URL": "https://Claire.Example.com/"}, environment="production") == "claire.example.com"
+    with pytest.raises(cb_manuscript.ManuscriptError):
+        validate({"CLAIRE_FQDN": "", "CLAIRE_PUBLIC_URL": "https://Claire.Example.com/"}, environment="production")
     # Legacy CB_EDGE values in an existing .env are ignored.
     assert validate({"CB_EDGE": "0", "CLAIRE_FQDN": "Claire.Example.com"}, environment="production") == "claire.example.com"
     assert validate({"CB_EDGE": "true", "CLAIRE_FQDN": "Claire.Example.com"}, environment="production") == "claire.example.com"

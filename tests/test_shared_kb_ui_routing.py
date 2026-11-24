@@ -61,9 +61,8 @@ def ui_env(tmp_path: Path):
         db_path=str(db_file),
         data_dir=str(data_dir),
         vault_path=str(tmp_path / "vault"),
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
         environment="development",
-        CLAIRE_MULTI_THEME=True,
     )
     manager = KnowledgeBaseManager(settings)
     manager.define_kb("Alice Personal", is_personal=True, is_public=False, account_id=2)

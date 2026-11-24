@@ -106,7 +106,7 @@ def test_migrate_creates_and_validates_current_schema(monkeypatch, tmp_path, cap
 
 
 def test_migrate_updates_all_registered_theme_databases(monkeypatch, tmp_path, capsys):
-    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
@@ -138,7 +138,7 @@ def test_migrate_updates_all_registered_theme_databases(monkeypatch, tmp_path, c
 
 
 def test_migrate_collects_theme_failures_and_continues(monkeypatch, tmp_path, capsys):
-    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.execute(
@@ -373,7 +373,7 @@ def test_retired_v12_unknown_signature_is_not_modified(tmp_path):
 def test_migrate_restores_v12_for_every_active_theme(
     monkeypatch, tmp_path, capsys
 ):
-    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()

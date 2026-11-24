@@ -121,8 +121,7 @@ def console_e2e(tmp_path: Path):
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     tm = KnowledgeBaseManager(settings)
     admin_theme = _insert_theme(tm, settings, kb_id=11, seq=1, number=(1 << 56) | 11, label="Admin Console Vault", account_id=1, is_personal=False)

@@ -361,7 +361,7 @@ def test_e2e_server_serves_the_context_and_the_vocabulary_page(tmp_path) -> None
     from claire.federation.knowledge import vocabulary
 
     (tmp_path / "data").mkdir()
-    settings = Settings(CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"), CLAIRE_VAULT_PATH=str(tmp_path / "vault"), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_PUBLIC_URL="http://127.0.0.1:8765", CLAIRE_INJECT_TOKEN="owner-" + "s" * 32)
+    settings = Settings(CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"), CLAIRE_VAULT_PATH=str(tmp_path / "vault"), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN="127.0.0.1:8765", CLAIRE_INJECT_TOKEN="owner-" + "s" * 32)
     with TestClient(create_app(settings=settings), base_url="http://127.0.0.1:8765", follow_redirects=False) as client:
         context = client.get("/ns/v1")
         assert context.status_code == 200 and context.headers["content-type"].startswith("application/ld+json") and context.headers["access-control-allow-origin"] == "*"

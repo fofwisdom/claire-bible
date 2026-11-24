@@ -154,7 +154,7 @@ def test_api_limits_endpoints(tmp_path: Path):
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
 
     app = create_app(settings)

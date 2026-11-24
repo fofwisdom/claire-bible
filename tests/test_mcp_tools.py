@@ -190,7 +190,7 @@ def test_build_mcp_app_metadata_and_kb_isolation(tmp_path: Path) -> None:
     db_file = tmp_path / "claire.db"
     vault = tmp_path / "vault"
     vault.mkdir()
-    s = Settings(CLAIRE_DB_PATH=str(db_file), CLAIRE_VAULT_PATH=str(vault), CLAIRE_MULTI_THEME=True)
+    s = Settings(CLAIRE_DB_PATH=str(db_file))
     conn0 = dbm.connect(s.db_file)
     dbm.init_db(conn0)
     conn0.close()
@@ -225,11 +225,9 @@ def test_build_mcp_app_metadata_and_kb_isolation(tmp_path: Path) -> None:
         assert [doc["id"] for doc in d1["documents"]] == ["iso_d1"]
 
 
-def test_build_mcp_app_single_mode_not_found(tmp_path: Path) -> None:
+def test_build_mcp_app_default_kb_not_found(tmp_path: Path) -> None:
     db_file = tmp_path / "claire.db"
-    vault = tmp_path / "vault"
-    vault.mkdir()
-    s = Settings(CLAIRE_DB_PATH=str(db_file), CLAIRE_VAULT_PATH=str(vault), CLAIRE_MULTI_THEME=False)
+    s = Settings(CLAIRE_DB_PATH=str(db_file))
 
     conn0 = dbm.connect(s.db_file)
     dbm.init_db(conn0)

@@ -85,10 +85,9 @@ def test_support_bundle_resolves_theme_document_by_share_url(tmp_path):
     db_path = data_dir / "claire.db"
     settings = Settings(
         CLAIRE_DB_PATH=str(db_path),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
-        CLAIRE_PUBLIC_URL="https://cb.netspheres.org",
+        CLAIRE_ENVIRONMENT="production",
+        CLAIRE_FQDN="cb.netspheres.org",
     )
 
     # 1. 기본 테마(0) DB 초기화
@@ -177,7 +176,6 @@ def test_support_bundle_resolves_theme_document_by_doc_id(tmp_path):
         CLAIRE_DB_PATH=str(db_path),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
 
     conn0 = dbm.connect(db_path)
@@ -215,7 +213,6 @@ def test_support_bundle_target_not_observed_is_explicit(tmp_path):
         CLAIRE_DB_PATH=str(db_path),
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
 
     conn0 = dbm.connect(db_path)
@@ -228,19 +225,15 @@ def test_support_bundle_target_not_observed_is_explicit(tmp_path):
     assert info.target_resolution_status == "not_observed"
 
 
-def test_support_bundle_single_theme_mode(tmp_path):
-    """CLAIRE_MULTI_THEME=False 인 단일 테마 모드에서의 하위 호환성 검증."""
+def test_support_bundle_default_kb_resolution(tmp_path):
+    """기본 지식베이스(kb_id=0)에서의 서포트 번들 대상 해소 검증."""
     data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
     data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
 
     db_path = data_dir / "claire.db"
     settings = Settings(
         CLAIRE_DB_PATH=str(db_path),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=False,
     )
 
     doc_id = "doc_single_001"

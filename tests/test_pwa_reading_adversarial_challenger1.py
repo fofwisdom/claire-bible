@@ -201,9 +201,8 @@ def _setup_adversarial_network_env(tmp_path: Path, *, anonymous_readonly: bool =
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     return s, {
         "db_file": db_file,
@@ -353,10 +352,8 @@ def test_whoami_single_mode(tmp_path: Path):
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=False,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     app = create_app(s)
 

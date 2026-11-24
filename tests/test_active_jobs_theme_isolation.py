@@ -31,7 +31,7 @@ def _client(tmp_path: Path):
     s = Settings(
         db_path=str(db_file),
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
         inject_token=owner_tok,
         multi_theme=True,
     )

@@ -163,7 +163,7 @@ def test_api_document_purge_and_reingest_routes(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_READONLY_TOKEN", READONLY_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
-    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "http://127.0.0.1:8765/")
+    monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
 
     from claire.core.config import get_settings
     get_settings.cache_clear()

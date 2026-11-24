@@ -116,26 +116,13 @@ def test_storage_settings_validation():
         media_storage.validate_update({"endpoint": "http://garage.example:3900"}, allow_private_http=True)
 
 
-def test_legacy_environment_is_imported_one_time(tmp_path, monkeypatch):
-    """The variables of the old releases go into the admin settings when these were never saved. After that the variables have no effect."""
+def test_media_storage_ignores_retired_s3_env_vars_and_uses_db_only(tmp_path, monkeypatch):
+    """ER5: retired CLAIRE_MEDIA_S3_* env vars are ignored; DB server_settings is the sole media storage source."""
     settings = _settings(tmp_path)
     for name, value in (("ENDPOINT", "https://env.example"), ("BUCKET", "env-bucket"), ("ACCESS_KEY", "envkey"), ("SECRET_KEY", "envsecret")):
         monkeypatch.setenv(f"CLAIRE_MEDIA_S3_{name}", value)
-    config = media_storage.active_config(settings)
-    assert config is not None and (config.endpoint, config.bucket, config.secret_key, config.region) == ("https://env.example", "env-bucket", "envsecret", "us-east-1")
-    assert b"envsecret" not in settings.db_file.read_bytes()
-    # The admin changes the settings. The variables do not come back.
-    conn = dbm.connect_existing(settings.db_file)
-    try:
-        media_storage.set_admin_settings(conn, {"mode": "local"}, secret_service=media_storage.secret_service_for(settings), updated_by=1)
-        conn.commit()
-        assert media_storage.settings_view(conn)["mode"] == "local"
-    finally:
-        conn.close()
-    assert media_storage.active_config(settings) is None and isinstance(get_media_store(settings), LocalMediaStore)
-    # Variables that are not complete change nothing.
-    monkeypatch.delenv("CLAIRE_MEDIA_S3_BUCKET")
-    assert media_storage.active_config(_settings(tmp_path / "other")) is None
+    assert media_storage.active_config(settings) is None
+    assert isinstance(get_media_store(settings), LocalMediaStore)
 
 
 async def test_media_host_reads_the_bucket_then_local_storage_and_answers_503(tmp_path, s3):

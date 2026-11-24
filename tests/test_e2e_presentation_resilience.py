@@ -53,6 +53,8 @@ The website of the future may assemble itself for every visitor.
 
     # Create share token for document
     share_token = dbm.create_doc_share(conn, doc_id)
+    conn.execute("UPDATE knowledge_bases SET presentation_enabled=1 WHERE id=0")
+    conn.commit()
     conn.close()
 
     owner_token = "owner-" + ("z" * 32)
@@ -61,10 +63,8 @@ The website of the future may assemble itself for every visitor.
         db_path=str(db_file),
         data_dir=tmp_path,
         inject_token=owner_token,
-        render_format="adoc",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
         environment="development",
-        presentation_enabled=True,
     )
     app = create_app(s)
 

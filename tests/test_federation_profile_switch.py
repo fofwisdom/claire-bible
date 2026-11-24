@@ -43,18 +43,14 @@ def _isolate(monkeypatch):
 
 def _prepare(tmp_path: Path, **overrides: Any) -> tuple[Settings, int]:
     """A network-mode server with the admin and one member. The member has a password and a private profile."""
-    public_url = str(overrides.pop("public_url", PUBLIC_URL))
-    fqdn = str(overrides.pop("fqdn", "127.0.0.1:8765"))
+    fqdn = str(overrides.pop("fqdn", overrides.pop("public_url", "127.0.0.1:8765")))
     settings = Settings(
         CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=public_url,
         CLAIRE_FQDN=fqdn,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN="readonly-" + "r" * 32,
-        CLAIRE_MULTI_THEME=True,
         **overrides,
     )
     conn = dbm.connect(settings.db_file)

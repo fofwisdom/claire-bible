@@ -64,7 +64,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
+        CLAIRE_FQDN=PUBLIC_URL,
     )
     tokens = get_token_store(data_dir=data_dir)
     admin = tokens.create_token(name="admin-owner", scope="owner", account_id=1)["token"]

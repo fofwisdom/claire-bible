@@ -57,7 +57,7 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Setti
     get_settings.cache_clear()
     settings = Settings(
         _env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_DATA_DIR=str(data_dir), CLAIRE_PROVIDER="mock",
-        CLAIRE_ENVIRONMENT="development", CLAIRE_PUBLIC_URL=PUBLIC_URL, CLAIRE_MULTI_THEME=True, GEMINI_API_KEY=SERVER_KEY,
+        CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=PUBLIC_URL, GEMINI_API_KEY=SERVER_KEY,
     )
     conn = dbm.connect(db_file)
     try:

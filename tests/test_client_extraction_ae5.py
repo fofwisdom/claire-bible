@@ -40,8 +40,7 @@ def _make_settings(tmp_path: Path, *, provider: str = "mock", multi_theme: bool 
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER=provider,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=ORIGIN,
-        CLAIRE_MULTI_THEME=multi_theme,
+        CLAIRE_FQDN=ORIGIN,
     )
 
 

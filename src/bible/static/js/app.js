@@ -287,9 +287,16 @@ function renderThemeSelector(){
 function updateDrawerManager(currentTheme){
   const el = document.getElementById('drawermanager');
   if(!el) return;
-  const defaultMgr = (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
+  const defaultMgr = (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || '';
   const rawMgr = currentTheme ? (currentTheme.sorcerer || currentTheme.knowledge_manager || '').trim() : '';
   const mgr = rawMgr || (currentTheme && currentTheme.effective_sorcerer) || defaultMgr;
+  if (!mgr) {
+    el.style.display = 'none';
+    el.textContent = '';
+    el.title = '';
+    return;
+  }
+  el.style.display = '';
   el.textContent = tr("ws.ctx.manager") + ' ' + mgr;
   el.title = tr("ws.ctx.manager") + ' ' + mgr;
 }

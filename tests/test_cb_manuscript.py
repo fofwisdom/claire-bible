@@ -39,7 +39,7 @@ def _write_layout(
                 "CB_WAIT_TIMEOUT=45",
                 "CB_API_BIND=127.0.0.1",
                 "CB_API_PORT=8765",
-                "CLAIRE_PUBLIC_URL=https://claire.example.com/",
+                "CLAIRE_FQDN=claire.example.com",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
                 f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
@@ -58,7 +58,7 @@ def _write_layout(
                 "CB_WAIT_TIMEOUT=15",
                 "CB_API_BIND=127.0.0.1",
                 "CB_API_PORT=8766",
-                "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
+                "CLAIRE_FQDN=127.0.0.1:8766",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
                 f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
@@ -415,14 +415,14 @@ def test_process_web_values_do_not_override_container_env_files(
     tmp_path, monkeypatch
 ):
     _write_layout(tmp_path, dev=False)
-    monkeypatch.setenv("CLAIRE_PUBLIC_URL", " https://wrong.example.com/")
+    monkeypatch.setenv("CLAIRE_FQDN", "wrong.example.com")
     monkeypatch.setenv("CLAIRE_CORS_ALLOWED_ORIGINS", "https://bad_host")
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
         assert cb.main(["status"], root=tmp_path) == 0
 
     env = run.call_args.kwargs["env"]
-    assert "CLAIRE_PUBLIC_URL" not in env
+    assert "CLAIRE_FQDN" not in env
     assert "CLAIRE_CORS_ALLOWED_ORIGINS" not in env
 
 
@@ -509,25 +509,25 @@ def test_api_bind_requires_concrete_ipv4(tmp_path, monkeypatch, bind):
 
 
 @pytest.mark.parametrize(
-    "public_url",
+    "fqdn",
     (
-        "http://claire.example.com/",
-        "https://127.0.0.1/",
-        "https://claire.example.com/subpath",
-        "https://*.example.com/",
-        "https://claire.example.com/?next=/graph",
+        "user@claire.example.com",
+        "127.0.0.1",
+        "claire.example.com/subpath",
+        "*.example.com",
+        "claire.example.com?next=/graph",
     ),
 )
-def test_production_public_url_requires_https_dns_root(
-    tmp_path, monkeypatch, public_url
+def test_production_fqdn_requires_bare_dns_hostname(
+    tmp_path, monkeypatch, fqdn
 ):
     _write_layout(tmp_path, dev=False)
     monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
     env_path = tmp_path / ".env"
     env_path.write_text(
         env_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_PUBLIC_URL=https://claire.example.com/",
-            f"CLAIRE_PUBLIC_URL={public_url}",
+            "CLAIRE_FQDN=claire.example.com",
+            f"CLAIRE_FQDN={fqdn}",
         ),
         encoding="utf-8",
     )
@@ -538,14 +538,14 @@ def test_production_public_url_requires_https_dns_root(
     run.assert_not_called()
 
 
-def test_public_url_rejects_quoted_outer_whitespace(tmp_path, monkeypatch):
+def test_fqdn_rejects_quoted_outer_whitespace(tmp_path, monkeypatch):
     _write_layout(tmp_path, dev=False)
     monkeypatch.delenv("CLAIRE_ENVIRONMENT", raising=False)
     env_path = tmp_path / ".env"
     env_path.write_text(
         env_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_PUBLIC_URL=https://claire.example.com/",
-            'CLAIRE_PUBLIC_URL=" https://claire.example.com/"',
+            "CLAIRE_FQDN=claire.example.com",
+            'CLAIRE_FQDN=" claire.example.com"',
         ),
         encoding="utf-8",
     )
@@ -556,7 +556,7 @@ def test_public_url_rejects_quoted_outer_whitespace(tmp_path, monkeypatch):
     run.assert_not_called()
 
 
-def test_development_public_url_must_match_published_authority(
+def test_development_fqdn_must_match_published_authority(
     tmp_path, monkeypatch
 ):
     _write_layout(tmp_path)
@@ -564,8 +564,8 @@ def test_development_public_url_must_match_published_authority(
     dev_path = tmp_path / ".env.dev"
     dev_path.write_text(
         dev_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
-            "CLAIRE_PUBLIC_URL=http://127.0.0.1:9999/",
+            "CLAIRE_FQDN=127.0.0.1:8766",
+            "CLAIRE_FQDN=127.0.0.1:9999",
         ),
         encoding="utf-8",
     )

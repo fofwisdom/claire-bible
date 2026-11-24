@@ -39,7 +39,7 @@ def test_e2e_reingest_and_purge_lifecycle(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
     monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
-    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "http://127.0.0.1:8765/")
+    monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
 
     get_settings.cache_clear()
     settings = get_settings()

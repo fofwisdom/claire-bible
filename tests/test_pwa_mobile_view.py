@@ -353,7 +353,7 @@ def test_syndication_accessible_strictly_via_desktop_routes(tmp_path: Path):
         CLAIRE_SESSION_SECRET="test-secret-key-42",
         CLAIRE_SINGLE_MODE=False,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url, follow_redirects=False)

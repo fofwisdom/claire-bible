@@ -4,7 +4,7 @@ const { authenticateOwner, watchErrors, expectNoRawKeys, kbItem, contribution, i
 test.use({ serviceWorkers: 'block' });
 
 // The public pages of public_kb.js: /kb, /kb/{number}/, /themes, and /themes/{number}/. The JSON answers have the shapes of api/server.py: "_collection_response" with "_kb_collection_item" (GET /kb), "themes_collection_route" (GET /themes), "_theme_view" (GET /themes/{number}/), "_contribution_view" (GET /kb/{number}/contributions), and "_member_view" (GET /kb/{number}/members).
-// The E2E server runs in single mode without CLAIRE_MULTI_THEME, and its database has no theme. Thus "/kb/101/" (a shared knowledge base) and "/themes/202/" (a theme) get 404 from it. The spec gives the HTML page of "/kb" or "/themes" (from the server) with the bootstrap of the detail view ("render_public_kb_page": "view" and "ref"); the page script then does the same requests as on a server in network mode.
+// The E2E server runs in single mode and its database has no shared/extra theme seeded. Thus "/kb/101/" (a shared knowledge base) and "/themes/202/" (a theme) get 404 from it. The spec gives the HTML page of "/kb" or "/themes" (from the server) with the bootstrap of the detail view ("render_public_kb_page": "view" and "ref"); the page script then does the same requests as on a server in network mode.
 
 const ORIGIN = 'http://127.0.0.1:8766';
 

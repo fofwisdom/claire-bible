@@ -313,7 +313,7 @@ def test_api_document_matrix_purge_auth_and_persistence(tmp_path: Path):
     s = Settings(
         db_path=str(db_file),
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
         inject_token=owner_tok,
         readonly_token=read_tok,
     )
