@@ -16,6 +16,7 @@ import re
 import sqlite3
 import string
 import time
+from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -116,6 +117,7 @@ from .security import (
     read_session_cookie,
     request_auth_scope,
     request_id,
+    resolve_optional_session_principal,
     step_up_response,
     wrap_web_app,
 )
@@ -5938,32 +5940,186 @@ def create_app(
         )
         return HTMLResponse(page, headers={"Referrer-Policy": "strict-origin-when-cross-origin"})
 
+    def _load_document_permalink(token: str, *, entity_language: str | None = None, with_detail: bool = False) -> tuple[permalinks.Permalink | None, dict[str, Any] | None, bool, bool]:
+        from ..store.queries import document_detail
+
+        conn = dbm.connect_existing(s.db_file)
+        try:
+            found = permalinks.resolve(conn, token)
+            if found is None or found.kind != "document":
+                return found, None, False, False
+            row = dbm.get_document_row(conn, found.target, kb_id=found.kb_id)
+            if row is None:
+                if found.gone_at is None:
+                    permalinks.mark_gone(conn, "document", found.target)
+                    conn.commit()
+                return found, None, True, False
+            is_pending = str((row["extraction_status"] if "extraction_status" in row.keys() else None) or "extracted") == "pending"
+            if with_detail:
+                detail = document_detail(conn, found.target, include_hidden=True, kb_id=found.kb_id, entity_language=entity_language)
+            else:
+                detail = {"id": str(row["id"]), "title": str(row["title"] or ""), "hidden": bool(row["hidden"])}
+            return found, detail, False, is_pending
+        finally:
+            conn.close()
+
+    def _build_silvercord_graph_payload(conn: sqlite3.Connection, *, found: permalinks.Permalink, kb: KnowledgeBaseInfo, doc_title: str, is_member: bool, readable_kb: bool, entity_language: str | None) -> dict[str, Any]:
+        from ..ontology.label_language import display_names
+        from ..store.queries import _excluded_document_ids
+
+        include_hidden = is_member
+        scope = "full" if (is_member or readable_kb) else "link_only"
+        hidden_doc_ids = _excluded_document_ids(conn, include_hidden=include_hidden, kb_id=kb.id)
+        all_ents = dbm.all_entities(conn, kb_id=kb.id)
+        all_rels = dbm.all_relations(conn, kb_id=kb.id)
+
+        visible_ents_by_id: dict[str, Any] = {}
+        visible_sources_by_id: dict[str, list[str]] = {}
+        for ent in all_ents:
+            sources = list(ent.sources or [])
+            if not include_hidden and hidden_doc_ids and sources:
+                valid_sources = [src for src in sources if src not in hidden_doc_ids]
+                if not valid_sources:
+                    continue
+                visible_sources_by_id[ent.id] = valid_sources
+            else:
+                visible_sources_by_id[ent.id] = sources
+            visible_ents_by_id[ent.id] = ent
+
+        visible_rels = [rel for rel in all_rels if rel.source_id in visible_ents_by_id and rel.target_id in visible_ents_by_id]
+        degrees: Counter[str] = Counter()
+        for rel in visible_rels:
+            degrees[rel.source_id] += 1
+            degrees[rel.target_id] += 1
+
+        names_by_id = {eid: display_names(ent.name, ent.aliases or [], entity_language) for eid, ent in visible_ents_by_id.items()}
+        doc_ent_ids = [eid for eid, srcs in visible_sources_by_id.items() if found.target in srcs]
+        doc_ent_set = set(doc_ent_ids)
+        doc_ent_ids.sort(key=lambda eid: (-degrees.get(eid, 0), names_by_id[eid][0].lower(), names_by_id[eid][0], eid))
+        ring1_ids = doc_ent_ids[:24]
+        ring1_set = set(ring1_ids)
+        unshown_r1 = max(0, len(doc_ent_ids) - 24)
+
+        r2_connected: dict[str, set[str]] = {}
+        for rel in visible_rels:
+            if rel.source_id in ring1_set and rel.target_id not in doc_ent_set:
+                r2_connected.setdefault(rel.target_id, set()).add(rel.source_id)
+            if rel.target_id in ring1_set and rel.source_id not in doc_ent_set:
+                r2_connected.setdefault(rel.source_id, set()).add(rel.target_id)
+        r2_candidate_ids = sorted(r2_connected.keys(), key=lambda eid: (-degrees.get(eid, 0), names_by_id[eid][0].lower(), names_by_id[eid][0], eid))
+        ring2_ids = r2_candidate_ids[:12]
+        unshown_r2 = max(0, len(r2_candidate_ids) - 12)
+
+        rendered_ids = ring1_ids + ring2_ids
+        rendered_set = set(rendered_ids)
+        id_map = {eid: f"e{idx}" for idx, eid in enumerate(rendered_ids)} if scope == "link_only" else {eid: eid for eid in rendered_ids}
+
+        pair_edges: dict[tuple[str, str], dict[str, Any]] = {}
+        for rel in visible_rels:
+            if rel.source_id in rendered_set and rel.target_id in rendered_set and rel.source_id != rel.target_id:
+                pair_key = (rel.source_id, rel.target_id) if rel.source_id < rel.target_id else (rel.target_id, rel.source_id)
+                existing = pair_edges.get(pair_key)
+                if existing is None or (existing["provisional"] and not bool(rel.provisional)):
+                    pair_edges[pair_key] = {"from": id_map[rel.source_id], "to": id_map[rel.target_id], "rel": str(rel.type), "provisional": bool(rel.provisional)}
+
+        candidate_doc_ids: set[str] = set()
+        for eid in doc_ent_ids:
+            candidate_doc_ids.update(visible_sources_by_id.get(eid, []))
+        for eid in rendered_ids:
+            candidate_doc_ids.update(visible_sources_by_id.get(eid, []))
+        candidate_doc_ids.discard(found.target)
+        if not include_hidden and hidden_doc_ids:
+            candidate_doc_ids -= hidden_doc_ids
+
+        doc_rows_by_id: dict[str, tuple[str, str]] = {}
+        if candidate_doc_ids:
+            chunk_list = sorted(candidate_doc_ids)
+            for start in range(0, len(chunk_list), 500):
+                chunk = chunk_list[start:start + 500]
+                marks = ",".join("?" for _ in chunk)
+                sql = f"SELECT id, title, source_type FROM documents WHERE kb_id=? AND id IN ({marks})"
+                if not include_hidden:
+                    sql += " AND COALESCE(hidden, 0)=0 AND COALESCE(extraction_status, 'extracted') != 'pending'"
+                for drow in conn.execute(sql, (kb.id, *chunk)):
+                    doc_rows_by_id[str(drow["id"])] = (str(drow["title"] or "(제목 없음)"), str(drow["source_type"] or ""))
+
+        def _entity_item(eid: str, *, connected_r1_real_ids: set[str] | None = None) -> dict[str, Any]:
+            ent = visible_ents_by_id[eid]
+            shown_name, other_names = names_by_id[eid]
+            seen_other: set[str] = set()
+            unique_other_ids: list[str] = []
+            for did in visible_sources_by_id.get(eid, []):
+                if did != found.target and did in doc_rows_by_id and did not in seen_other:
+                    seen_other.add(did)
+                    unique_other_ids.append(did)
+            if scope == "full":
+                ent_token = permalinks.ensure_entity(conn, eid)
+                entity_path = permalinks.entity_path(ent_token) if ent_token else None
+                other_docs = [{"title": doc_rows_by_id[did][0], "path": permalinks.permalink_path(permalinks.ensure_document(conn, did, kb.id))} for did in unique_other_ids[:5]]
+                hidden_other_docs_count = 0
+            else:
+                ent_token = permalinks.token_of(conn, "entity", eid)
+                entity_path = permalinks.entity_path(ent_token) if (ent_token and permalinks.link_access(conn, "entity", eid)) else None
+                other_docs = []
+                hidden_other_docs_count = len(unique_other_ids)
+            item: dict[str, Any] = {
+                "id": id_map[eid],
+                "label": shown_name,
+                "group": ent.type,
+                "degree": degrees.get(eid, 0),
+                "aliases": other_names,
+                "observations": list(ent.observations or []),
+                "entity_path": entity_path,
+                "other_docs": other_docs,
+                "hidden_other_docs_count": hidden_other_docs_count,
+            }
+            if connected_r1_real_ids is not None:
+                item["connected_r1"] = [id_map[r1_id] for r1_id in ring1_ids if r1_id in connected_r1_real_ids]
+            return item
+
+        shared_counts: Counter[str] = Counter()
+        for eid in doc_ent_ids:
+            for did in set(visible_sources_by_id.get(eid, [])):
+                if did != found.target and did in doc_rows_by_id:
+                    shared_counts[did] += 1
+        if scope == "full":
+            top_shared = sorted(shared_counts.items(), key=lambda pair: (-pair[1], pair[0]))[:5]
+            shared_docs = [
+                {
+                    "title": doc_rows_by_id[did][0],
+                    "path": permalinks.permalink_path(permalinks.ensure_document(conn, did, kb.id)),
+                    "shared_count": count,
+                    "source_type": doc_rows_by_id[did][1],
+                }
+                for did, count in top_shared
+            ]
+            hidden_shared_docs_count = 0
+            conn.commit()
+        else:
+            shared_docs = []
+            hidden_shared_docs_count = len(shared_counts)
+
+        return {
+            "scope": scope,
+            "document": {"token": found.token, "title": doc_title},
+            "ring1": [_entity_item(eid) for eid in ring1_ids],
+            "ring2": [_entity_item(eid, connected_r1_real_ids=r2_connected[eid]) for eid in ring2_ids],
+            "edges": list(pair_edges.values()),
+            "unshown_r1": unshown_r1,
+            "unshown_r2": unshown_r2,
+            "shared_docs": shared_docs,
+            "hidden_shared_docs_count": hidden_shared_docs_count,
+        }
+
     async def permalink_route(request: Request) -> Response:
         """``GET /silvercord/{token}``: the one address of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md Section 6)."""
         token = str(request.path_params.get("token", ""))
         if not permalinks.plausible_token(token):
             return PlainTextResponse("Not Found", status_code=404)
 
-        def _load() -> tuple[permalinks.Permalink | None, dict[str, Any] | None, bool, bool]:
-            from ..store.queries import document_detail
-
-            conn = dbm.connect_existing(s.db_file)
-            try:
-                found = permalinks.resolve(conn, token)
-                if found is None or found.kind != "document":
-                    return found, None, False, False
-                row = dbm.get_document_row(conn, found.target, kb_id=found.kb_id)
-                if row is None:
-                    if found.gone_at is None:
-                        permalinks.mark_gone(conn, "document", found.target)
-                        conn.commit()
-                    return found, None, True, False
-                is_pending = str((row["extraction_status"] if "extraction_status" in row.keys() else None) or "extracted") == "pending"
-                return found, document_detail(conn, found.target, include_hidden=True, kb_id=found.kb_id), False, is_pending
-            finally:
-                conn.close()
-
-        found, document, gone, pending = await asyncio.to_thread(_load)
+        viewer_principal = await resolve_optional_session_principal(runtime_cfg, request.scope)
+        entity_language = viewer_principal.entity_language if viewer_principal is not None else None
+        found, document, gone, pending = await asyncio.to_thread(_load_document_permalink, token, entity_language=entity_language, with_detail=True)
         if found is None:
             return PlainTextResponse("Not Found", status_code=404)
         if found.alias is not None:
@@ -5982,12 +6138,13 @@ def create_app(
             kb = theme_mgr.get_kb(int(found.kb_id or 0))
         except KnowledgeBaseNotFound:
             return PlainTextResponse("Not Found", status_code=404)
-        if await _caller_is_member(request, kb):
-            return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=True)
-        if pending or document.get("hidden"):
+        is_member = await _caller_is_member(request, kb)
+        if not is_member and (pending or document.get("hidden")):
             # A document that only its members see (not extracted, or hidden) does not exist for another caller.
             return PlainTextResponse("Not Found", status_code=404)
         readable_kb = _kb_decide(request, kb, "read") == "allow"
+        if not is_member and not readable_kb and not found.link_access:
+            return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
 
         def _object_id() -> int | None:
             # The public ID of the published object of the document, while its knowledge base is public.
@@ -6000,22 +6157,94 @@ def create_app(
             finally:
                 conn.close()
 
-        object_id = await asyncio.to_thread(_object_id) if readable_kb else None
+        object_id = await asyncio.to_thread(_object_id) if (is_member or readable_kb) else None
         if object_id is not None and _wants_activitypub_only(request):
             # An ActivityPub client at the permalink goes to the object ID (design U11).
             return RedirectResponse(f"/ap/objects/{object_id}", status_code=303, headers={"Vary": "Accept"})
-        if readable_kb or found.link_access:
-            base_url = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
-            page = get_web_ui_renderer().shared_html(document, s, base_url=base_url, share_token=found.token, can_access_raw=False)
-            headers = {"Referrer-Policy": "strict-origin-when-cross-origin"}
-            if object_id is not None:
-                page = page.replace("</head>", f'<link rel="alternate" type="application/activity+json" href="{html.escape(base_url, quote=True)}/ap/objects/{object_id}"/></head>', 1)
-            if not readable_kb:
-                # Only link access makes the document readable: search engines must not get the address (U9).
-                page = page.replace('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"/>', '<meta name="robots" content="noindex, nofollow"/>')
-                headers["X-Robots-Tag"] = "noindex, nofollow"
-            return HTMLResponse(page, headers=headers)
+
+        base_url = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+        doc_for_page = dict(document)
+        if not readable_kb:
+            doc_for_page.pop("nodes", None)
+        doc_for_page["silvercord"] = {
+            "token": found.token,
+            "kb_label": (kb.label if (is_member or readable_kb) else ""),
+            "kb_public": bool(kb.is_public),
+            "can_open_workspace": bool(is_member or readable_kb),
+            "workspace_url": (f"/silvercord/{found.token}/workspace" if (is_member or readable_kb) else None),
+            "graph_url": f"/silvercord/{found.token}/graph",
+            "object_id": object_id,
+            "entity_count": len(document.get("nodes") or []),
+            "link_only": bool(not is_member and not readable_kb and found.link_access),
+        }
+        page = get_web_ui_renderer().shared_html(doc_for_page, s, base_url=base_url, share_token=found.token, can_access_raw=False)
+        headers = {"Referrer-Policy": "strict-origin-when-cross-origin", "Vary": "Accept, Cookie"}
+        if viewer_principal is not None or is_member or not readable_kb:
+            headers["Cache-Control"] = "private, no-store"
+        if object_id is not None:
+            page = page.replace("</head>", f'<link rel="alternate" type="application/activity+json" href="{html.escape(base_url, quote=True)}/ap/objects/{object_id}"/></head>', 1)
+        if not readable_kb:
+            # Only link access or private membership makes the document readable: search engines must not get the address (U9).
+            page = page.replace('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"/>', '<meta name="robots" content="noindex, nofollow"/>')
+            headers["X-Robots-Tag"] = "noindex, nofollow"
+        return HTMLResponse(page, headers=headers)
+
+    async def permalink_workspace_route(request: Request) -> Response:
+        """``GET /silvercord/{token}/workspace``: open the document inside the knowledge base workspace (SILVERCORD_RENDERING_DESIGN.md U8)."""
+        token = str(request.path_params.get("token", ""))
+        if not permalinks.plausible_token(token):
+            return PlainTextResponse("Not Found", status_code=404)
+        found, doc_meta, gone, pending = await asyncio.to_thread(_load_document_permalink, token, with_detail=False)
+        if found is None or found.kind != "document":
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.alias is not None:
+            return RedirectResponse(f"{permalinks.permalink_path(found.token)}/workspace", status_code=308)
+        if found.gone_at is not None or gone or doc_meta is None:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        is_member = await _caller_is_member(request, kb)
+        readable_kb = _kb_decide(request, kb, "read") == "allow"
+        if is_member or (readable_kb and not pending and not bool(doc_meta.get("hidden"))):
+            return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=True)
         return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
+
+    async def permalink_graph_route(request: Request) -> Response:
+        """``GET /silvercord/{token}/graph``: document-scoped Ring 1 + Ring 2 local graph JSON (SILVERCORD_RENDERING_DESIGN.md SD2)."""
+        token = str(request.path_params.get("token", ""))
+        if not permalinks.plausible_token(token):
+            return PlainTextResponse("Not Found", status_code=404)
+        viewer_principal = await resolve_optional_session_principal(runtime_cfg, request.scope)
+        entity_language = viewer_principal.entity_language if viewer_principal is not None else None
+        found, doc_meta, gone, pending = await asyncio.to_thread(_load_document_permalink, token, with_detail=False)
+        if found is None or found.kind != "document":
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.alias is not None:
+            return RedirectResponse(f"{permalinks.permalink_path(found.token)}/graph", status_code=308)
+        if found.gone_at is not None or gone or doc_meta is None:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        is_member = await _caller_is_member(request, kb)
+        if not is_member and (pending or bool(doc_meta.get("hidden"))):
+            return PlainTextResponse("Not Found", status_code=404)
+        readable_kb = _kb_decide(request, kb, "read") == "allow"
+        if not is_member and not readable_kb and not found.link_access:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        def _build() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                return _build_silvercord_graph_payload(conn, found=found, kb=kb, doc_title=str(doc_meta.get("title") or ""), is_member=is_member, readable_kb=readable_kb, entity_language=entity_language)
+            finally:
+                conn.close()
+
+        payload = await asyncio.to_thread(_build)
+        return JSONResponse(payload, headers={"Cache-Control": "private, no-store", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Robots-Tag": "noindex, nofollow", "Vary": "Cookie"})
 
     def _entity_link_page(found: permalinks.Permalink, kb: KnowledgeBaseInfo) -> str | None:
         """The page of an entity for a caller who has only link access (PERMALINK_UNIFICATION_DESIGN.md Section 6.2 rule 3): the graph of this entity and the entities that have a direct relation with it. The page has no internal ID. A source document is a link only when it has link access itself; the other source documents are only in the count."""
@@ -6960,6 +7189,8 @@ def create_app(
         Route("/share", create_share_route, methods=["POST"]),
         Route("/share", stop_share_route, methods=["DELETE"]),
         Route("/silvercord/{token}", permalink_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/workspace", permalink_workspace_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/graph", permalink_graph_route, methods=["GET", "HEAD"]),
         Route("/entity/{token}", entity_address_route, methods=["GET", "HEAD"]),
         Route("/entities/{entity_id}/share", entity_share_route, methods=["POST", "DELETE"]),
         Route("/p", shared_doc_page, methods=["GET"]),

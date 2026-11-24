@@ -24,8 +24,12 @@ This document tells how the web workspace works now. The design principles are i
 | `src/bible/static/css/appbar.css` | Shared rules of the application bar, popover menus (`#pop-ingest-menu`, `#pop-hamburger-menu`), command palette dialog, and `.claire-dialog` modals. |
 | `src/bible/static/css/workspace.css` | Grid, list pane, context panel, home view, ingest cockpit, narrow screens. |
 | `src/bible/static/css/reader.css` | Reader text and the entity mark highlight. |
+| `src/bible/static/css/local_graph.css` | Shared styles for the inline radial local graph SVG (`.ctx-local-graph`) and hover dimming/highlighting across Workspace and Silvercord. |
+| `src/bible/static/css/silvercord.css` | Styles for the unified Silvercord document shell: sticky top bar, mobile bottom bar, `hidden="until-found"` tab panels, anchor-positioned tab underline, desktop `360px` graph column, mobile modal `<dialog>` bottom sheet, and Opinions prototype. |
 | `src/bible/static/js/appbar.js` | Shared `ClaireAppBar`: theme toggle, `closedBy` backdrop close fallback, native popover & fallback toggle controller, `#palettetrigger` binder. |
 | `src/bible/static/js/ingest_dialogs.js` | Shared `ClaireIngestDialogs`: dropdown dispatcher for `[data-ingest-cmd]` (`ingest`, `reingest`, `regen`) and unified modal controllers. |
+| `src/bible/static/js/local_graph.js` | Shared `ClaireLocalGraph`: `renderSvg()`, `bindInteractions()`, `setEntityHoverHighlight()`, and `clearEntityHoverHighlight()` used by both Workspace (`app.js`) and Silvercord (`silvercord.js`). |
+| `src/bible/static/js/silvercord.js` | Unified Silvercord shell controller: `본문`/`의견` switching with scroll preservation and `#srail` sync, lazy `GET /silvercord/{token}/graph` fetch, desktop/mobile pull-out graph panel, CSS Custom Highlight API body entity marks, Entity Detail drill-down, and ActivityPub `의견` visual prototype. |
 | `src/bible/static/js/app.js` | Workspace state, home entry, lists, context panel, home cards, local graph, workspace dialog adapters (`openIngest`, `openReingest`, `openRegen`, `openDedup`, `openPurge`), palette configuration. |
 | `src/bible/static/js/reader.js` | `setCenterView()`, the reader, `docMetaHtml()`, entity marks. |
 | `src/bible/static/js/command_palette.js` | `ClaireCommandPalette`, shared by the workspace, `/syndication`, and the console. |
@@ -34,7 +38,8 @@ This document tells how the web workspace works now. The design principles are i
 | `src/bible/static/js/console_ui.js` | `ClaireConsoleUI`: client HTML builder helpers for console sections (Section 11). |
 | `src/claire/api/accounts_routes/console_ui.py` | Typed Python HTML builders for server-rendered console sections (Section 11). |
 | `src/claire/api/templates/console_shell.html` | Shared shell template for `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*` (Section 11). |
-| `src/bible/web/pages.py` | Builds the workspace and `/syndication` standalone bundles with `src/bible/web/chrome.py` and gives pure slot-filling helpers (`localize_page`, `render_graph_page`, `render_syndication_page`, `render_shared_page`). |
+| `src/bible/web/pages.py` | Builds the workspace, `/syndication`, and Silvercord standalone bundles with `src/bible/web/chrome.py` and gives pure slot-filling helpers (`localize_page`, `render_graph_page`, `render_syndication_page`, `render_shared_page`). |
+| `src/bible/templates/share.html` | Markup of the unified Silvercord document page (`/silvercord/{token}`): header bar, `본문` and `의견` panels, mobile bottom bar, `#sc-desktop-aside`, `#sc-mobile-dialog`, `#sc-graph-panel-template`, `#srail`, and `#sttmodal`. |
 | `src/claire_bible/web/pages.py` | Loads settings, themes, and locale data ([`I18N.md`](I18N.md) §4) into `render_graph_html`, `render_syndication_html`, and `shared_html`. |
 
 ---
@@ -240,8 +245,8 @@ Each row calls a function that exists. `/syndication` loads the same module with
 
 | Kind | Test |
 | :--- | :--- |
-| End-to-end | `e2e/workspace.spec.js` (home view, document context, local graph, entity marks, palette, narrow screens), `e2e/app_bar.spec.js`, `e2e/line_icons.spec.js`, `e2e/workspace_i18n.spec.js`, `e2e/console_ui_consistency.spec.js` (unified console card/button/heading styles, switch controls, sticky TOC, and responsive layout across `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*`), `e2e/account_area.spec.js` (account area paths, old path redirects, administrator WebMCP page) |
-| Markers and runtime | `tests/test_graphview.py`, `tests/test_graphview_runtime.py` |
+| End-to-end | `e2e/workspace.spec.js` (home view, document context, local graph, entity marks, palette, narrow screens), `e2e/silvercord_rendering.spec.js` (public KB parity, `/workspace` entry, desktop pull-out graph, mobile bottom bar & modal `<dialog>`, Opinions prototype, private `link_access=1` isolation), `e2e/app_bar.spec.js`, `e2e/line_icons.spec.js`, `e2e/workspace_i18n.spec.js`, `e2e/console_ui_consistency.spec.js` (unified console card/button/heading styles, switch controls, sticky TOC, and responsive layout across `/account/*`, `/settings/*`, `/admin/*`, and `/moderation/*`), `e2e/account_area.spec.js` (account area paths, old path redirects, administrator WebMCP page) |
+| Markers and runtime | `tests/test_graphview.py`, `tests/test_graphview_runtime.py`, `tests/test_silvercord_rendering.py` |
 | Console UI contract | `tests/test_console_ui_contract.py` (Python builder unit tests, route-level shell and non-nested card contract checks, non-admin CL11 isolation, static JS and partial guardrails) |
 | Active jobs | `tests/test_active_job_slots.py`, `tests/test_active_jobs_theme_isolation.py` |
 
@@ -287,3 +292,21 @@ Tests that fail before a change: [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STA
 - `card(opts)`, `field(opts)`, `toggleRow(opts)`, `notice(html, tone, extraClass, attrs)`, `pill(text, tone, extraClass, attrs)`, `table(opts)`, `statRow(items, attrs)`, `kv(rows, attrs)`, `result(id, attrs)`, `btn(label, opts)`, and `actions(html, extraClass)`
 
 `window.ClaireConsoleShell` (`console_shell.js`) runs `enhance(targetRoot)` on load, on tab changes (`[role="tab"]` clicks and `claire:tabchange`), and on DOM mutations inside `#console-section-body` to enhance split cards, inject `td[data-label]`, update `#console-toc`, and hydrate line icons.
+
+---
+
+## 12. Silvercord Document View (`/silvercord/{token}`)
+
+**[code]** Every readable document request to `GET /silvercord/{token}` renders `src/bible/templates/share.html` with `src/bible/static/css/local_graph.css`, `src/bible/static/css/silvercord.css`, `src/bible/static/js/local_graph.js`, and `src/bible/static/js/silvercord.js` (bundled into `_SHARED_HTML` by `src/bible/web/pages.py`). Design principles are in [`SILVERCORD_RENDERING_DESIGN.md`](../design/SILVERCORD_RENDERING_DESIGN.md).
+
+- **Responsive Chrome and Switcher**:
+  - Desktop (`>= 820px`): `#sc-bar` (`48px` sticky header) shows the brand link, KB badge (`#sc-kb-badge`, or generic link-only badge when `link_only` is true), `본문` | `의견` tablist (`#sc-tablist-top`, `role="tablist"`, `focusgroup="tablist nomemory"`), graph toggle (`#sc-graph-toggle-top`), conditional workspace link (`#sc-ws-link` pointing to `/silvercord/{token}/workspace`), and theme switch (`#sc-theme-btn`, `localStorage` key `claireTheme`).
+  - Mobile (`< 820px`, `SQ3:B`): `#sc-bar` shrinks to a `44px` slim bar; `#sc-bottom-bar` renders a fixed/sticky bottom bar with `본문` | `의견` inside `#sc-tablist-bottom` (`role="tablist"`) and a separate `#sc-graph-toggle-bot` button outside `role="tablist"`.
+  - Tab switching (`switchTab()`): inactive panels use `hidden="until-found"` with padding on `.sc-panel-inner` and a `beforematch` listener for browser Find-in-Page. Active tabs render a `border-block-end` indicator animated via CSS Anchor Positioning (`@supports (position-anchor: auto)`) with a `::after` fallback and keyboard arrow navigation (`ArrowLeft`/`ArrowRight`/`Home`/`End`). Switching from `본문` to `의견` saves `window.scrollY` and hides `#srail`; returning to `본문` restores `savedDocScrollY` and updates `#srail`.
+- **Pull-Out Local Graph Panel and Shared `ClaireLocalGraph`**:
+  - Closed by default on initial load (`aria-expanded="false"`, no `.sc-graph-open`). First open lazily fetches `GET /silvercord/{token}/graph` (`credentials: "same-origin"`) and caches it for the page session, showing loading and retryable error states.
+  - Desktop (`>= 1100px`): opens a right-hand `360px` grid column (`#sc-desktop-aside`) beside the reading area. Hovering a Ring 1 node or row calls `ClaireLocalGraph.setEntityHoverHighlight()` and activates CSS Custom Highlight API marks (`claire-entity-hover`) in the document body (`applySilvercordEntityMarks()`).
+  - Compact/Mobile (`< 1100px`): opens a native modal `<dialog id="sc-mobile-dialog" closedby="any">` bottom sheet via `showModal()` (`overscroll-behavior: contain` on `:modal` and `::backdrop`, plus outside-bounds pointer fallback) and hides `#srail` while open.
+  - Sub-tabs `로컬 그래프` (`ClaireLocalGraph.renderSvg()`, Ring 1 + Ring 2 + shared documents or blocked-documents notice on `link_only`) and `엔티티 (N)` drill down in-panel (`SQ5:A`) to Entity Detail with `#gp-back-btn`, relations jump links, source documents (or blocked count on `link_only`), and conditional `/entity/{token}` link.
+- **ActivityPub `의견` Visual Prototype**:
+  - Public KB documents render `#op-public-content` with `--proto`/`--proto-bg` prototype badges, `--remote`/`--remote-bg` ActivityPub target metadata (`/ap/objects/{object_id}`), disabled composer/reaction buttons (`disabled`, `aria-disabled="true"`), sample thread preview, inline SVG line icons only (`ClaireIcons.svg()`), and zero emojis. Private `link_only` documents render `#op-private-content` (non-federated notice).

@@ -3,8 +3,8 @@ const { authenticateOwner, json, watchErrors, expectNoRawKeys, kbInfo, kbItem, i
 
 test.use({ serviceWorkers: 'block' });
 
-// The workspace of a shared knowledge base ("/kb/101/?doc=…": the shared knowledge base bar of app.js with the buttons of kb_dialogs.js), and the campaign notices of the ingest dialog (ingest_dialogs.js, design Section 8.7). The membership, the contribution, the fork, the ingest stream, and the submission get fixed answers in the shapes of api/server.py ("_shared_kb_root", "kb_membership_route", "kb_contribute_route", "kb_forks_route", "campaign.notices_for_ingest", "_submission_view").
-// The E2E server database has no shared KB 101 seeded: "_select_kb" gives 404 for "/kb/101/". Thus the spec gives the workspace page of the admin ("/@e2eadmin/?doc=doc-1", from the server) with the API base "/kb/101/", and sends each content request of "/kb/101/…" (graph, documents, statistics) to "/@e2eadmin/…" of the server.
+// The workspace of a shared knowledge base ("/kb/101/": the shared knowledge base bar of app.js with the buttons of kb_dialogs.js), and the campaign notices of the ingest dialog (ingest_dialogs.js, design Section 8.7). The membership, the contribution, the fork, the ingest stream, and the submission get fixed answers in the shapes of api/server.py ("_shared_kb_root", "kb_membership_route", "kb_contribute_route", "kb_forks_route", "campaign.notices_for_ingest", "_submission_view").
+// The E2E server database has no shared KB 101 seeded: "_select_kb" gives 404 for "/kb/101/". Thus the spec gives the workspace page of the admin ("/@e2eadmin/", from the server) with the API base "/kb/101/", and sends each content request of "/kb/101/…" (graph, documents, statistics) to "/@e2eadmin/…" of the server.
 
 const ADMIN_BASE = '/@e2eadmin/';
 
@@ -59,7 +59,7 @@ test('the shared knowledge base bar of the workspace: join request, withdraw, jo
   await authenticateOwner(page, 'kbwspace1');
   const kb = kbItem(101, { label: 'Modern History', role: null, membership_state: null, join_policy: 'approval' });
   const { calls } = await installBarApi(page, kb);
-  await page.goto('/kb/101/?doc=doc-1', { waitUntil: 'domcontentloaded' });
+  await page.goto('/kb/101/', { waitUntil: 'domcontentloaded' });
   const bar = page.locator('#shared-kb-bar');
   await expect(bar).toBeVisible();
   await page.locator('#hamburger-btn').click();
@@ -137,7 +137,7 @@ test('the shared knowledge base bar: a refused join shows a text, an archived kn
   const { calls } = await installBarApi(page, kb, { banned: true, forkAnswers: [[{ error: 'fork_failed' }, 500]] });
   // The page of the fork: a small fixed page, so that the test sees the navigation.
   await page.route((u) => u.pathname === '/kb/105/', (route) => (route.request().resourceType() === 'document' ? route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>fork</title><p id="fork-page">fork</p>' }) : route.fallback()));
-  await page.goto('/kb/101/?doc=doc-1', { waitUntil: 'domcontentloaded' });
+  await page.goto('/kb/101/', { waitUntil: 'domcontentloaded' });
   const bar = page.locator('#shared-kb-bar');
   await expect(bar.locator('[data-kb-act="join"]')).toHaveText('가입');
   // The server refuses the join: the text of the code shows, and the control is ready again.
@@ -163,11 +163,11 @@ test('the shared knowledge base bar: a refused join shows a text, an archived kn
 
   // An archived knowledge base where the account is a member: no direct contribution; leave and fork stay. A banned account has no join control.
   Object.assign(kb, { state: 'archived', role: 'member', membership_state: 'active' });
-  await page.goto('/kb/101/?doc=doc-1', { waitUntil: 'domcontentloaded' });
+  await page.goto('/kb/101/', { waitUntil: 'domcontentloaded' });
   await expect(bar.locator('[data-kb-act="leave"]')).toBeVisible();
   await expect(bar.locator('[data-kb-act="direct"], [data-kb-act="join"]')).toHaveCount(0);
   Object.assign(kb, { state: 'active', role: null, membership_state: 'banned' });
-  await page.goto('/kb/101/?doc=doc-1', { waitUntil: 'domcontentloaded' });
+  await page.goto('/kb/101/', { waitUntil: 'domcontentloaded' });
   await expect(bar.locator('.claire-note.danger')).toContainText('차단했습니다');
   await expect(bar.locator('.shared-kb-bar-head .claire-tag.danger')).toHaveText('차단됨');
   await expect(bar.locator('[data-kb-act="join"], [data-kb-act="direct"], [data-kb-act="leave"]')).toHaveCount(0);

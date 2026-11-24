@@ -9,10 +9,10 @@ This document tells what the code does now. Evidence tags follow [`PRINCIPLES.md
 | Phase | State |
 | :--- | :--- |
 | B1 bundle paths | Done |
-| A1 registry, route, redirects, share actions | Done for documents and notes. The item view of a note has the author, the time, and the text; it does not have the reactions and the thread |
+| A1 registry, route, redirects, share actions | Done for documents and notes. `GET /silvercord/{token}` serves the unified Silvercord document view (`SQ1:B`, `SQ2:B+A1`) with `본문`/`의견` tabs, pull-out local graph, and `/silvercord/{token}/workspace` (`U8`) / `/silvercord/{token}/graph` (`SD2`). The item view of a note has the author, the time, and the text; it does not have the reactions and the thread |
 | Entity address (design §6.2) | Done: the graph for a caller that can read the knowledge base, the page for link access alone, the share actions, and the panel actions (§3.1, §5) |
 | Terms (design §4: entity, node, graph, relation) | Done in the UI text (`ko.json`, `en.json`), two bot messages, and `GLOSSARY.md` §1.5, §1.6, §1.11. API names (`GET /node`) and code identifiers are not changed |
-| A2 client (address bar, timeline actions, link builders of the console and the notifications, representation paths, terms) | Not done, except the items of §5 |
+| A2 client (address bar, timeline actions, link builders of the console and the notifications, representation paths, terms) | Not done, except the items of §5 and `/silvercord/{token}/workspace` (`U8`) |
 | A3 federation | Done: `Article.url`, the link in `Article.content`, and `Note.url` (contract 1.17) are the permalink; an object ID gives 303 to the permalink for a request that does not accept ActivityPub; a permalink gives 303 to the object ID for a request that accepts only ActivityPub; the item views have the alternate link. Not done: the measurement with Mastodon (does a stored copy get the new `url`), and an `Update` for objects that are delivered |
 | A4 public site | `robots.txt`, sitemap, and canonical link use the permalink. `GLOSSARY.md` is not changed |
 
@@ -28,22 +28,48 @@ This document tells what the code does now. Evidence tags follow [`PRINCIPLES.md
 
 ## 3. Route `GET /silvercord/{token}`
 
-**[code]** `permalink_route` in `src/claire/api/server.py`. Route rule: `_system("public", "none")`. The first rule that applies gives the answer:
+**[code]** `permalink_route` in `src/claire/api/server.py`. Route rule: `_system("public", "none")`. It resolves an optional session principal via `resolve_optional_session_principal` in `src/claire/api/security.py` (with S11 cookie-tossing protection). The first rule that applies gives the answer:
 
 1. The token does not have the format, or the registry does not have it: 404.
 2. The token is an alias: 308 to the permalink of its target.
 3. The item is gone: 410.
 4. The item is a note: a request that accepts only ActivityPub gets 303 to `/ap/objects/{public ID}`; each other request gets the item view of the note (`_note_item_page`, template `api/templates/note_item.html`): the author with a link to the account home, the time, the text (`nh3.clean`), the content warning, the reply target, the canonical link, and `<link rel="alternate" type="application/activity+json">` with the object ID. A deleted note gives 410. The item is an entity: 404 (an entity is not at a Silvercord path).
-5. The caller is a member of the knowledge base of the document: the workspace page of the knowledge base, with `<meta name="claire-open-item" content="document:{document ID}">` and a canonical link. The client (`app.js`, `OPEN_ITEM`) opens the document.
-6. The document is hidden or not extracted: 404.
-7. A document with a published object, in a public knowledge base, for a request that accepts only ActivityPub: 303 to `/ap/objects/{public ID}`. Else, the caller can read the knowledge base (`_kb_decide`, capability `read`), or the document has link access 1: the item view (`shared_html`, the page of the old share link). When only link access makes the document readable, the response has `X-Robots-Tag: noindex, nofollow` and the `robots` meta element `noindex, nofollow`. The item view never has the raw file link.
-8. Else: the answer of the workspace path for this caller (sign-in redirect, private profile page, or 404). This answer has no mark and no ID of the document.
+5. The document is hidden or not extracted (`pending`), and the caller is not a member of the knowledge base: 404.
+6. The caller is not a member, cannot read the knowledge base (`_kb_decide`, capability `read`), and the document does not have link access 1: the answer of the workspace path for this caller (`_workspace_view(..., readable=False)`: sign-in redirect, private profile page, or 404). This answer has no mark and no ID of the document.
+7. A document with a published object, in a public knowledge base (`is_member or readable_kb`), for a request that accepts only ActivityPub: 303 to `/ap/objects/{public ID}`.
+8. Every readable caller (anonymous visitor, signed-in non-member, and KB member per `SQ1:B` and `SQ2:B+A1`) gets the unified Silvercord document view (`shared_html`, `src/bible/templates/share.html`).
+   - Initial `#docdata` strips `nodes` for all callers and adds `silvercord` metadata (`token`, `kb_label`, `kb_public`, `can_open_workspace`, `workspace_url` set to `/silvercord/{token}/workspace` when `is_member or readable_kb`, `graph_url` set to `/silvercord/{token}/graph`, `object_id`, `entity_count`, `link_only`).
+   - Headers: `Referrer-Policy: strict-origin-when-cross-origin`, `Vary: Accept, Cookie`, and `Cache-Control: private, no-store` when the caller is signed in (`viewer_principal` or `is_member`) or when `not readable_kb`. When `not readable_kb` (only link access or private membership makes the document readable), the response has `X-Robots-Tag: noindex, nofollow` and the `robots` meta element `noindex, nofollow`. The item view never has the raw file link (`can_access_raw=False`).
 
-**[code] Membership.** The route is public, thus the authentication layer validates no credential for it. `_caller_is_member` gives the request to the full application again (`_dispatch_workspace`) as `GET {workspace path}whoami` with the headers of the caller. In this internal request only, `whoami` has the key `member`: true for the account of a personal knowledge base and for an active member of a shared one. The workspace page of rule 5 comes from a second internal request. The scope mark `claire.permalink_dispatch` tells the workspace route that the query of the internal request is not an old link.
+**[code] Membership.** The route is public, thus the authentication layer validates no credential for it. `_caller_is_member` gives the request to the full application again (`_dispatch_workspace`) as `GET {workspace path}whoami` with the headers of the caller. In this internal request only, `whoami` has the key `member`: true for the account of a personal knowledge base and for an active member of a shared one. The scope mark `claire.permalink_dispatch` tells the workspace route that the query of the internal request is not an old link.
 
 **[code] Workspace path.** `/kb/{number}/` for a shared knowledge base, `/@{username}/` for a personal one. Each active account has a USERNAME: the code makes an account without one only as the administrator row in the status `setup_required`, before the setup, and a trigger stops the removal of a USERNAME. For a knowledge base whose account is not active or has no USERNAME, the route has no workspace path and no member.
 
-### 3.1 Route `GET /entity/{token}`
+### 3.1 Route `GET /silvercord/{token}/workspace`
+
+**[code]** `permalink_workspace_route` in `src/claire/api/server.py` (design `U8`). Route rule: `_system("public", "none")` for `GET` and `HEAD`.
+
+1. Invalid token, missing row, or non-document kind: 404.
+2. Alias token: 308 to `/silvercord/{target}/workspace`.
+3. Gone document: 410.
+4. If `is_member`, or `readable_kb` and the document is neither `pending` nor `hidden`: returns `_workspace_view(..., kind="document", target=found.target, readable=True)` with `<meta name="claire-open-item" content="document:{document ID}">` and `<link rel="canonical" href="/silvercord/{token}">`. The client (`app.js`, `OPEN_ITEM`) opens the document inside the Workspace.
+5. Else: returns `_workspace_view(..., readable=False)` without the document mark or ID.
+
+### 3.2 Route `GET /silvercord/{token}/graph`
+
+**[code]** `permalink_graph_route` in `src/claire/api/server.py` (design `SD2`, `SQ4`, `A1`, `A2`). Route rule: `_system("public", "none")` for `GET` and `HEAD`.
+
+1. Invalid token, missing row, or non-document kind: 404.
+2. Alias token: 308 to `/silvercord/{target}/graph`.
+3. Gone document: 410.
+4. Hidden or `pending` document when `not is_member`: 404.
+5. Unreadable document (`not is_member and not readable_kb and not found.link_access`): 404.
+6. Returns JSON with `scope` (`"full"` or `"link_only"`), `document` (`token`, `title`), `ring1` (up to 24 document entities sorted by degree descending then name), `ring2` (up to 12 direct KB neighbor entities connected to `ring1`, sorted by degree descending then name), deduplicated `edges` (`from`, `to`, `rel`, `provisional`) between rendered `ring1` and `ring2` nodes, `unshown_r1`, `unshown_r2`, `shared_docs`, and `hidden_shared_docs_count`.
+   - **Full scope (`is_member or readable_kb`)**: uses real entity IDs, provides `entity_path` (`/entity/{token}`), up to 5 readable `other_docs` per entity (`title`, `path`), `hidden_other_docs_count: 0`, and up to 5 `shared_docs` (`title`, `path`, `shared_count`, `source_type`) with `hidden_shared_docs_count: 0`.
+   - **Link-Access-Only scope (`not is_member and not readable_kb and found.link_access`)**: includes `ring1`, `ring2`, and `edges` with opaque IDs (`e0`, `e1`, ...) instead of internal `ent_*` IDs; includes `entity_path` only when that entity itself has `link_access == 1`; blocks other documents by returning `other_docs: []` with `hidden_other_docs_count` and `shared_docs: []` with `hidden_shared_docs_count`.
+   - **Headers**: `Cache-Control: private, no-store`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Robots-Tag: noindex, nofollow`, `Vary: Cookie`.
+
+### 3.3 Route `GET /entity/{token}`
 
 **[code]** `entity_address_route`. Route rule: `_system("public", "none")`.
 

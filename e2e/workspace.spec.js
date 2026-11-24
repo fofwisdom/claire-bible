@@ -1757,12 +1757,14 @@ test.describe('document list with server pages', () => {
     page.on('pageerror', error => pageErrors.push(error.message));
     const requests = docRequests(page);
     await page.setViewportSize({ width: 1400, height: 500 });
-    // A member opens the old link of a document: 308 to its permalink, and the permalink gives the workspace with the document open (PERMALINK_UNIFICATION_DESIGN.md U5, Section 6 rule 4). A caller that is not a member gets the item view.
+    // A member opens the old link of a document: 308 to its permalink (PERMALINK_UNIFICATION_DESIGN.md U5), which shows the unified Silvercord view (SILVERCORD_RENDERING_DESIGN.md SQ1: B); clicking #sc-ws-link opens Workspace with the document open.
     await page.goto('/?t=e2e-deeplink-token-0123456789abcdef', { waitUntil: 'domcontentloaded' });
     await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
     requests.length = 0;
     await page.goto('/?doc=doc-page-35', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveURL(/\/silvercord\/[2-9a-z]{16}$/);
+    await page.locator('#sc-ws-link').click();
+    await expect(page).toHaveURL(/\/silvercord\/[2-9a-z]{16}\/workspace$/);
     await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
     await expect(page.locator('#reader')).toContainText('페이징 자료 35');
     await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');

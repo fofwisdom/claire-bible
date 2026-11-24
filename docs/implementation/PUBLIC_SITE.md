@@ -76,11 +76,12 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 ### 5.1 Item view of a document (`/silvercord/{token}`, `shared_html`)
 
 - **[code]** A hidden document gives 404.
-- **[code]** `render_open_graph_tags` writes:
-  - `description`, Open Graph (`og:site_name` is the fixed text `Claire Bible`, `og:type` `article`, title, description, URL, image), `article:*` tags, `keywords` from the knowledge nodes, and Twitter Card tags.
+- **[code]** `render_open_graph_tags` in `src/bible/web/metadata.py` writes:
+  - `description`, Open Graph (`og:site_name` is the fixed text `Claire Bible`, `og:type` `article`, title, description, URL, image), `article:*` tags (including `article:tag`), `keywords` from the knowledge nodes, and Twitter Card tags.
   - `<link rel="canonical">` with `{base}/silvercord/{token}`.
   - `<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">`. When only link access makes the document readable (the knowledge base is not readable for the caller), the route changes it to `noindex, nofollow` and sends `X-Robots-Tag: noindex, nofollow` ([`PERMALINKS.md`](PERMALINKS.md) §3).
   - Schema.org JSON-LD of type `TechArticle`: headline, description, `mainEntityOfPage`, `publisher` (an `Organization` with the name from `site_name`), and, when known, `author`, `datePublished`, `dateModified`, `keywords`. The JSON escapes `<` and `>`.
+- **[code]** Initial `#docdata` strips `nodes` for all callers (`render_shared_page` in `src/bible/web/pages.py` calls `render_open_graph_tags` before `doc_copy.pop("nodes", None)`). On public KBs (`readable_kb` is true), `render_open_graph_tags` still emits `article:tag` and `keywords` in `<head>`. On `link_only` and private KB pages (`not readable_kb`), `permalink_route` in `src/claire/api/server.py` pops `nodes` before calling `shared_html`, so entity tags are omitted from both `<head>` metadata and `#docdata`.
 - **[code]** `base` is `settings.public_url`. When it is empty, the route builds it from the request headers.
 - **[code]** The page has a `<noscript>` block with the title and the escaped summary. When there is no summary, it has the plain text of `detail_html` without tags. The raw `detail_html` does not go into `<noscript>`.
 
@@ -91,6 +92,7 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 | Main application page | `<meta name="robots" content="index, follow">` | `src/bible/templates/index.html` |
 | Syndication page | `noindex, nofollow, noarchive` | `src/bible/templates/syndication.html` |
 | Login, setup | `noindex, nofollow` | `src/claire/api/templates/login.html`, `src/claire/api/templates/setup.html` |
+| `/silvercord/{token}/graph` | Header `X-Robots-Tag: noindex, nofollow` (`Cache-Control: private, no-store`) | `src/claire/api/server.py` (`permalink_graph_route`) |
 | `/invite/{code}` | Header `X-Robots-Tag: noindex, nofollow` | `src/claire/api/accounts_routes/invites.py` |
 | Prototype host | Header `X-Robots-Tag: noindex, nofollow` | `src/claire/api/prototype_host.py` |
 

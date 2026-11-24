@@ -28,15 +28,62 @@
 <script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous"></script>
 <link rel=stylesheet href=/static/css/theme.css/>
 <link rel=stylesheet href=/static/css/reader.css/>
+<link rel=stylesheet href=/static/css/local_graph.css/>
+<link rel=stylesheet href=/static/css/silvercord.css/>
 <style>
 html.shared-page, body.shared-page{height:auto;min-height:100vh;min-height:100dvh;overflow-x:hidden;overflow-y:auto;display:block;scrollbar-width:none;-ms-overflow-style:none}
 html.shared-page::-webkit-scrollbar, body.shared-page::-webkit-scrollbar{display:none}
 body.shared-page.stt-modal-open{overflow:hidden}
 #srail{position:fixed}
 </style>
+<script>(function(){try{var t=localStorage.getItem('claireTheme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(_){}})();</script>
 <script src=/static/js/renderers/doc_content.js></script>
 </head>
-<body class="shared-page"><!-- __SEMANTIC_FALLBACK__ --><div class="wrap" id="wrap"></div>
+<body class="shared-page"><!-- __SEMANTIC_FALLBACK__ -->
+<header class="sc-bar" id="sc-bar" hidden>
+  <div class="sc-bar-start">
+    <a class="sc-brand" href="/"><span data-icon="book"></span><span>${t:share.sc.brand_name}</span></a>
+    <span class="sc-kb-badge" id="sc-kb-badge"></span>
+  </div>
+  <div class="sc-bar-center">
+    <div class="sc-tablist" id="sc-tablist-top" role="tablist" focusgroup="tablist nomemory" aria-label="${t:share.sc.tabs_aria}">
+      <button type="button" class="sc-tab" role="tab" id="tab-doc-top" data-tab="doc" aria-selected="true" focusgroupstart><span data-icon="doc"></span><span>${t:share.sc.tab_doc}</span></button>
+      <button type="button" class="sc-tab" role="tab" id="tab-op-top" data-tab="opinions" aria-selected="false"><span data-icon="comment"></span><span>${t:share.sc.tab_opinions}</span><span class="proto-pill" id="sc-op-sample-badge-top" hidden>${t:share.sc.op_sample_badge}</span></button>
+    </div>
+  </div>
+  <div class="sc-bar-end">
+    <button type="button" class="sc-btn sc-graph-btn-top" id="sc-graph-toggle-top" aria-expanded="false" aria-controls="sc-desktop-aside"><span data-icon="graph"></span><span>${t:share.sc.graph_btn}</span><span class="sc-count-badge" id="sc-graph-count-top">0</span></button>
+    <a class="sc-btn sc-ws-link" id="sc-ws-link" href="#" title="${t:share.sc.workspace_title}" hidden><span data-icon="external"></span><span class="sc-ws-label">${t:share.sc.workspace_btn}</span></a>
+    <button type="button" class="sc-icon-btn" id="sc-theme-btn" aria-label="${t:share.sc.theme_toggle}" title="${t:share.sc.theme_toggle}"><span data-icon="moon"></span></button>
+  </div>
+</header>
+<div class="sc-layout">
+  <main class="sc-main-col" id="sc-main-col">
+    <div id="sc-panel-doc" role="tabpanel" aria-labelledby="tab-doc-top" tabindex="0"><div class="sc-panel-inner"><div class="wrap" id="wrap"></div></div></div>
+    <div id="sc-panel-opinions" role="tabpanel" aria-labelledby="tab-op-top" tabindex="0" hidden="until-found"><div class="sc-panel-inner" id="sc-opinions-inner"></div></div>
+  </main>
+  <aside class="sc-desktop-aside" id="sc-desktop-aside" aria-label="${t:share.sc.graph_aside_aria}" hidden></aside>
+</div>
+<nav class="sc-bottom-bar" id="sc-bottom-bar" aria-label="${t:share.sc.bottom_nav_aria}" hidden>
+  <div class="sc-tablist" id="sc-tablist-bottom" role="tablist" focusgroup="tablist nomemory" aria-label="${t:share.sc.tabs_aria}">
+    <button type="button" class="sc-tab" role="tab" id="tab-doc-bot" data-tab="doc" aria-selected="true" focusgroupstart><span data-icon="doc"></span><span>${t:share.sc.tab_doc}</span></button>
+    <button type="button" class="sc-tab" role="tab" id="tab-op-bot" data-tab="opinions" aria-selected="false"><span data-icon="comment"></span><span>${t:share.sc.tab_opinions}</span><span class="proto-pill" id="sc-op-sample-badge-bot" hidden>${t:share.sc.op_sample_badge}</span></button>
+  </div>
+  <button type="button" class="sc-btn sc-bottom-graph-btn" id="sc-graph-toggle-bot" aria-expanded="false" aria-controls="sc-mobile-dialog"><span data-icon="graph"></span><span>${t:share.sc.graph_btn_short}</span><span class="sc-count-badge" id="sc-graph-count-bot">0</span></button>
+</nav>
+<dialog class="sc-sheet-dialog" id="sc-mobile-dialog" closedby="any" aria-label="${t:share.sc.graph_dialog_aria}"></dialog>
+<template id="sc-graph-panel-template">
+  <div class="gp-head">
+    <h2 class="gp-head-title"><span data-icon="graph"></span><span>${t:share.sc.graph_btn}</span></h2>
+    <button type="button" class="sc-icon-btn gp-close-btn" aria-label="${t:share.sc.graph_close}" title="${t:share.sc.graph_close}"><span data-icon="close"></span></button>
+  </div>
+  <div class="gp-scope-note" id="gp-scope-note"></div>
+  <div class="gp-subtabs" role="tablist" aria-label="${t:share.sc.graph_subtabs_aria}">
+    <button type="button" class="gp-subtab" role="tab" data-gsub="graph" aria-selected="true">${t:share.sc.subtab_graph}</button>
+    <button type="button" class="gp-subtab" role="tab" data-gsub="entities" aria-selected="false">${t:share.sc.subtab_entities}</button>
+  </div>
+  <div class="gp-body" id="gp-body"></div>
+</template>
 <aside class="cb-heading-rail" id="srail" aria-label="${t:ws.reader.rail}">
   <div class="cb-rail-track" id="srail-track" title="${t:ws.reader.rail_title}">
     <div class="cb-rail-fill" id="srail-fill"></div>
@@ -270,15 +317,25 @@ function docBiblioHtml(dc){
   return '';
 }
 const dc=JSON.parse(document.getElementById('docdata').textContent||'{}');
+if(typeof window !== 'undefined'){ window.dc = dc; window.rtr = rtr; }
 const presToken = (typeof window !== 'undefined' && window.location) ? (new URLSearchParams(window.location.search).get('s') || '') : '';
 const presUrl = presToken ? ('/p/presentation?s=' + encodeURIComponent(presToken)) : ((dc && dc.id) ? ('/p/presentation?id=' + encodeURIComponent(dc.id)) : '');
-let h='<div class="share-header-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-h+='<div class=brand>' + rtr("share.brand") + '</div>';
-if(dc && dc.has_presentation && presUrl){
-  h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="' + rtr("share.pres_title") + '"><span data-icon="screen"></span> ' + rtr("share.pres") + '</a>';
+let h='';
+if(dc && dc.silvercord){
+  h+='<div class="sc-title-row"><h1>'+esc(dc.title||rtr("share.recent_untitled"))+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';
+  if(dc.has_presentation && presUrl){
+    h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="' + rtr("share.pres_title") + '"><span data-icon="screen"></span> ' + rtr("share.pres") + '</a>';
+  }
+  h+='</div>';
+} else {
+  h+='<div class="share-header-bar" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+  h+='<div class=brand>' + rtr("share.brand") + '</div>';
+  if(dc && dc.has_presentation && presUrl){
+    h+='<a class="focus-tag pres-tag" href="' + esc(presUrl) + '" target="_blank" rel="noopener" style="font-size:12px;padding:3px 10px;text-decoration:none" title="' + rtr("share.pres_title") + '"><span data-icon="screen"></span> ' + rtr("share.pres") + '</a>';
+  }
+  h+='</div>';
+  h+='<h1>'+esc(dc.title||rtr("share.recent_untitled"))+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';
 }
-h+='</div>';
-h+='<h1>'+esc(dc.title||rtr("share.recent_untitled"))+(dc.source_type?' <span class=rmeta>'+esc(dc.source_type)+'</span>':'')+'</h1>';
 h+=docMetaHtml(dc);
 const isStt = !!(dc.is_stt || (dc.meta && (dc.meta.is_stt || dc.meta.stt_applied || dc.meta.stt)));
 const isSttTrunc = isStt && !!(dc.stt_truncated || (dc.meta && dc.meta.stt_truncated) || dc.raw_truncated || (dc.meta && dc.meta.raw_truncated));
@@ -374,6 +431,9 @@ function updateSharedRail(){
     };
   });
 
+  let isPressing = false;
+  let scrubIdx = -1;
+
   function computePositions(){
     const tScroll = _getDocTotalScroll();
     const count = railHeadings.length;
@@ -446,12 +506,13 @@ function updateSharedRail(){
   }
 
   if(typeof window !== 'undefined' && window.addEventListener){
+    if(rail._onWindowScroll && window.removeEventListener){
+      window.removeEventListener('scroll', rail._onWindowScroll);
+    }
+    rail._onWindowScroll = onWindowScroll;
     window.addEventListener('scroll', onWindowScroll, { passive: true });
     onWindowScroll();
   }
-
-  let isPressing = false;
-  let scrubIdx = -1;
 
   function startExpand(clientY){
     isPressing = true;
@@ -745,6 +806,9 @@ if(typeof window.gtag === 'function' && dc && dc.id){
     });
   }catch(_){}
 }
+if(typeof window !== 'undefined'){ window.updateSharedRail = updateSharedRail; }
 </script>
+<script src="/static/js/local_graph.js"></script>
+<script src="/static/js/silvercord.js"></script>
 </body>
 </html>

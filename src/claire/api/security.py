@@ -87,6 +87,7 @@ __all__ = [
     "request_auth_scope",
     "request_id",
     "request_origin_kind",
+    "resolve_optional_session_principal",
     "set_session_cookie",
     "wrap_web_app",
 ]
@@ -589,6 +590,10 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     # The permalink of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md). The route decides the access from the item.
     ("GET", "/silvercord/{token}"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}"): _system("public", "none"),
+    ("GET", "/silvercord/{token}/graph"): _system("public", "none"),
+    ("HEAD", "/silvercord/{token}/graph"): _system("public", "none"),
+    ("GET", "/silvercord/{token}/workspace"): _system("public", "none"),
+    ("HEAD", "/silvercord/{token}/workspace"): _system("public", "none"),
     # The address of an entity. It opens the graph of its knowledge base with the entity selected.
     ("GET", "/entity/{token}"): _system("public", "none"),
     ("HEAD", "/entity/{token}"): _system("public", "none"),
@@ -1604,6 +1609,19 @@ async def _validate_session(config: WebRuntimeConfig, token: str) -> _Credential
             conn.close()
 
     return await asyncio.to_thread(_validate)
+
+
+async def resolve_optional_session_principal(config: WebRuntimeConfig, scope: Scope) -> Principal | None:
+    """Resolve an optional browser session Principal from ``scope`` using S11 cookie-tossing protection. Returns None when no valid session cookie is present."""
+    cookie_present, cookie_token = read_session_cookie(scope)
+    if not cookie_present or not cookie_token:
+        return None
+    if not Path(config.db_file).is_file():
+        return None
+    credential = await _validate_session(config, cookie_token)
+    if credential is None:
+        return None
+    return credential.principal("cookie")
 
 
 async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> _Credential | None:

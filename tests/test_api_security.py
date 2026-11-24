@@ -271,6 +271,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/fonts/D2CodingBold.woff2",
         "/p",
         "/silvercord/{token}",
+        "/silvercord/{token}/graph",
+        "/silvercord/{token}/workspace",
         "/entity/{token}",
         "/p/presentation",
         "/image",

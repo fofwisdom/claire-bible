@@ -150,10 +150,13 @@ def test_e2e_one_permalink_for_an_anonymous_caller_and_a_member(tmp_path: Path) 
     closed = client.get(address)
     assert 'class="shared-page"' not in closed.text and "Doc 1" not in closed.text
 
-    # The member gets the workspace with the document open, at the same address.
+    # SQ1:B — The member gets the unified Silvercord view with the workspace link, and /workspace opens the workspace with the document open.
     member = alice.get(address)
-    assert member.status_code == 200 and "Knowledge graph" in member.text
-    assert '<meta name="claire-open-item" content="document:doc1"/>' in member.text
+    assert member.status_code == 200 and 'class="shared-page"' in member.text
+    assert f'"workspace_url": "{address}/workspace"' in member.text
+    ws = alice.get(f"{address}/workspace")
+    assert ws.status_code == 200 and "Knowledge graph" in ws.text
+    assert '<meta name="claire-open-item" content="document:doc1"/>' in ws.text
 
     # The share action sets link access: the anonymous caller gets the item view, and a search engine must not index it.
     shared = alice.request("POST", "/@alice/share", json={"doc_id": "doc1"})

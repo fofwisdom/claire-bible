@@ -1,0 +1,1045 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Claire Bible — /silvercord/ 렌더링 변경 시각 프로토타입 (확정)</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --bar-bg: #f6f8fa;
+  --border: #d0d7de;
+  --panel-bg: #f6f8fa;
+  --accent: #0969da;
+  --accent2: #1a7f37;
+  --chip-bg: #eaeef2;
+  --hover: #eef1f4;
+  --active: #ddf4ff;
+  --card-bg: #ffffff;
+  --mark-bg: #fff8c5;
+  --mark-fg: #633c01;
+  --btn-bg: #1f883d;
+  --btn-fg: #ffffff;
+  --sec-bg: #eaeef2;
+  --sec-fg: #24292f;
+  --warn: #9a6700;
+  --warn-bg: #fff8c5;
+  --danger: #cf222e;
+  --danger-bg: #ffebe9;
+  --remote: #8250df;
+  --remote-bg: #fbefff;
+  --proto: #7c3aed;
+  --proto-bg: #f5f3ff;
+  --ok: #1a7f37;
+  --ok-bg: #dafbe1;
+  --detail-width: 360px;
+}
+
+[data-theme="dark"] {
+  --bg: #0e1116;
+  --fg: #d7dbe0;
+  --muted: #8b949e;
+  --bar-bg: #161b22;
+  --border: #2a2f37;
+  --panel-bg: #10151c;
+  --accent: #58a6ff;
+  --accent2: #7ee787;
+  --chip-bg: #1f2937;
+  --hover: #161b22;
+  --active: #1f2937;
+  --card-bg: #161b22;
+  --mark-bg: #4d3800;
+  --mark-fg: #ffdf5d;
+  --btn-bg: #238636;
+  --btn-fg: #ffffff;
+  --sec-bg: #30363d;
+  --sec-fg: #d7dbe0;
+  --warn: #d29922;
+  --warn-bg: #332300;
+  --danger: #f85149;
+  --danger-bg: #38161a;
+  --remote: #c297ff;
+  --remote-bg: #2a193f;
+  --proto: #a78bfa;
+  --proto-bg: #241c3d;
+  --ok: #7ee787;
+  --ok-bg: #0d351d;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--panel-bg); color: var(--fg); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif; word-break: keep-all; overflow-wrap: break-word; }
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+[hidden="until-found"] { content-visibility: hidden; }
+
+.lineicon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.proto-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; background: var(--proto-bg); color: var(--proto); border: 1px solid color-mix(in srgb, var(--proto) 35%, transparent); white-space: nowrap; }
+.remote-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--remote-bg); color: var(--remote); border: 1px solid color-mix(in srgb, var(--remote) 35%, transparent); white-space: nowrap; }
+.chip-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--chip-bg); color: var(--muted); border: 1px solid var(--border); white-space: nowrap; }
+
+/* Prototype control bar */
+.proto-bar { position: sticky; top: 0; z-index: 40; background: #1f2328; color: #f0f6fc; border-bottom: 1px solid #30363d; padding: 8px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 12.5px; }
+.proto-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.proto-group-label { font-weight: 700; color: #8b949e; margin-right: 2px; }
+.proto-bar button { background: #2d333b; border: 1px solid #444c56; color: #cdd9e5; border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; min-height: 28px; display: inline-flex; align-items: center; gap: 4px; }
+.proto-bar button:hover { background: #373e47; }
+.proto-bar button[aria-pressed="true"] { background: #0969da; border-color: #388bfd; color: #ffffff; font-weight: 600; }
+.proto-status-bar { background: var(--bar-bg); border-bottom: 1px solid var(--border); padding: 6px 16px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.proto-status-bar code { background: var(--chip-bg); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; color: var(--fg); }
+
+/* Preview Stage (Desktop vs Mobile 390px) */
+.stage { padding: 14px; display: flex; justify-content: center; }
+.device-frame { width: 100%; max-width: 1240px; min-height: 760px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08); display: flex; flex-direction: column; position: relative; overflow-x: clip; }
+.device-frame.is-mobile { max-width: 390px; min-height: 740px; border-radius: 22px; border-width: 2px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16); }
+
+/* Silvercord Sticky Top Header (Desktop 48px, Mobile slim 44px) */
+.sc-bar { position: sticky; top: 0; z-index: 20; min-height: 48px; background: var(--bar-bg); border-bottom: 1px solid var(--border); padding: 0 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.device-frame.is-mobile .sc-bar { min-height: 44px; grid-template-columns: minmax(0, 1fr) auto; padding: 0 10px; }
+.sc-bar-start { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sc-brand { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13.5px; color: var(--fg); text-decoration: none; white-space: nowrap; }
+.sc-kb-badge { font-size: 11.5px; color: var(--muted); background: var(--chip-bg); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+.sc-bar-center { display: flex; justify-content: center; }
+.sc-bar-end { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.device-frame.is-mobile .sc-bar-center,
+.device-frame.is-mobile .sc-bar-end .sc-graph-btn-top,
+.device-frame.is-mobile .sc-bar-end .sc-ws-label { display: none; }
+.sc-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); color: var(--fg); font-size: 12.5px; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.sc-btn:hover { background: var(--hover); }
+.sc-btn[aria-expanded="true"] { background: var(--active); border-color: var(--accent); color: var(--accent); }
+.sc-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; min-height: 34px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); color: var(--fg); cursor: pointer; }
+.sc-icon-btn:hover { background: var(--hover); }
+.sc-count-badge { background: var(--chip-bg); color: var(--fg); border-radius: 999px; padding: 0 6px; font-size: 11px; line-height: 18px; }
+.sc-btn[aria-expanded="true"] .sc-count-badge { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+
+/* Tablists with separate Anchor Positioning names + border-block-end fallback */
+.sc-tablist { position: relative; display: inline-flex; align-items: stretch; gap: 2px; height: 48px; }
+.sc-tab { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 12px; border: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; min-height: 44px; }
+.sc-tab:hover { color: var(--fg); }
+.sc-tab[aria-selected="true"] { color: var(--accent); }
+#sc-tablist-top .sc-tab[aria-selected="true"] { anchor-name: --active-sc-tab-top; }
+#sc-tablist-bottom .sc-tab[aria-selected="true"] { anchor-name: --active-sc-tab-bot; }
+@supports (position-anchor: auto) {
+  #sc-tablist-top::before { content: ""; position: absolute; position-anchor: --active-sc-tab-top; inset-block-start: calc(anchor(bottom) - 3px); inset-inline-start: anchor(left); inset-inline-end: anchor(right); border-block-end: 3px solid var(--accent); pointer-events: none; }
+  #sc-tablist-bottom::before { content: ""; position: absolute; position-anchor: --active-sc-tab-bot; inset-block-start: anchor(top); inset-inline-start: anchor(left); inset-inline-end: anchor(right); border-block-end: 3px solid var(--accent); pointer-events: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .sc-tablist::before { transition: inset 0.18s ease-out; }
+  }
+}
+@supports not (position-anchor: auto) {
+  .sc-tab[aria-selected="true"]::after { content: ""; position: absolute; inset: auto 0 0; border-block-end: 3px solid var(--accent); }
+}
+
+/* Decided Mobile Bottom Bar (SQ3: B) — tablist + separate graph button outside tablist */
+.sc-bottom-bar { display: none; position: sticky; bottom: 0; z-index: 20; background: var(--bar-bg); border-top: 1px solid var(--border); padding: 4px 10px max(6px, env(safe-area-inset-bottom)); align-items: center; justify-content: space-between; gap: 8px; }
+.device-frame.is-mobile .sc-bottom-bar { display: flex; }
+.sc-bottom-bar .sc-tablist { flex: 1; height: 46px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sc-bottom-bar .sc-tab { padding: 0 6px; font-size: 13px; }
+.sc-bottom-graph-btn { min-height: 44px; padding: 0 11px; flex: none; }
+
+/* Main Workspace Grid inside Silvercord */
+.sc-layout { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; position: relative; }
+.device-frame:not(.is-mobile).graph-open .sc-layout { grid-template-columns: minmax(0, 1fr) var(--detail-width); }
+.sc-main-col { min-width: 0; position: relative; }
+.sc-panel-inner { max-width: 780px; margin: 0 auto; padding: 26px 40px 64px 22px; }
+.device-frame.is-mobile .sc-panel-inner { padding: 18px 26px 64px 16px; }
+
+/* Reader Typography */
+.sc-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sc-doc-title { font-size: 24px; line-height: 1.3; margin: 4px 0 8px; font-weight: 700; }
+.sc-doc-title .rmeta { color: var(--muted); font-size: 13px; font-weight: 500; margin-left: 6px; }
+.docmeta { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.docmeta a { color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.docmeta a:hover { text-decoration: underline; }
+.docmeta-tags { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+.prov-tag { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border-radius: 4px; font: 11px/1 "D2Coding", ui-monospace, Menlo, Consolas, monospace; border: 1px solid var(--border); color: var(--muted); background: var(--sec-bg); }
+.sec-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 22px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.doc-content { line-height: 1.75; font-size: 15.5px; }
+.doc-content h2 { font-size: 1.25em; margin: 1.3em 0 0.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.doc-content p { margin: 0.65em 0; }
+.doc-content ul { margin: 0.5em 0; padding-left: 1.4em; }
+.doc-content li { margin: 0.3em 0; }
+.doc-content .admonition { margin: 1em 0; border-left: 4px solid var(--accent); background: var(--panel-bg); border-radius: 6px; padding: 10px 14px; font-size: 14px; }
+.doc-content .admonition-title { font-weight: 700; font-size: 12px; color: var(--accent); margin-bottom: 4px; text-transform: uppercase; }
+.sc-entity-mark { text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: pointer; border-radius: 2px; transition: background-color 0.15s ease; }
+.sc-entity-mark.hover-active { text-decoration: underline solid var(--accent); background: var(--mark-bg); color: var(--mark-fg); }
+.sc-foot { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+
+/* Simulated Heading Rail (#srail) */
+.sc-rail { position: absolute; top: 88px; right: 10px; width: 12px; height: 180px; pointer-events: none; opacity: 0.75; }
+.sc-rail-track { width: 3px; height: 100%; margin: 0 auto; background: var(--border); border-radius: 2px; position: relative; }
+.sc-rail-fill { width: 100%; height: 34%; background: var(--accent); border-radius: 2px; }
+.sc-rail-dot { position: absolute; left: 50%; width: 7px; height: 7px; transform: translate(-50%, -50%) rotate(45deg); background: var(--bg); border: 1.5px solid var(--accent); }
+
+/* Desktop Docked Right Graph Column */
+.sc-desktop-aside { display: none; border-left: 1px solid var(--border); background: var(--panel-bg); position: sticky; top: 48px; height: calc(100vh - 96px); max-height: 760px; flex-direction: column; overflow: hidden; }
+.device-frame:not(.is-mobile).graph-open .sc-desktop-aside { display: flex; }
+
+/* Mobile Modal Sheet (<dialog>) */
+dialog.sc-sheet-dialog { inset: auto 0 0 0; width: 100%; max-width: 390px; height: 78dvh; max-height: 620px; margin: 0 auto; padding: 0; border: 1px solid var(--border); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--panel-bg); color: var(--fg); box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.25); }
+dialog.sc-sheet-dialog[open] { display: flex; flex-direction: column; }
+dialog.sc-sheet-dialog:modal { overscroll-behavior: contain; }
+dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hidden; overscroll-behavior: contain; }
+
+/* Graph Panel Internals */
+.gp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bar-bg); flex: none; }
+.gp-head-title { margin: 0; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.gp-scope-note { font-size: 11px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--border); background: var(--card-bg); display: flex; align-items: center; gap: 6px; }
+.gp-subtabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--border); background: var(--panel-bg); flex: none; }
+.gp-subtab { border: 0; background: transparent; padding: 6px 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+.gp-subtab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.gp-body { flex: 1; overflow-y: auto; padding: 12px; overscroll-behavior: contain; }
+
+/* Radial Local Graph SVG (matches app.js renderLocalGraphHtml) */
+.ctx-local-graph { display: block; width: 100%; max-width: 312px; height: auto; margin: 2px auto 6px; overflow: visible; }
+.ctx-lg-doc-edge { stroke: var(--border); stroke-width: 0.9px; opacity: 0.65; transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease; }
+.ctx-lg-edge { stroke: var(--border); stroke-width: 1.2px; opacity: 0.65; transition: stroke 0.15s ease, stroke-width 0.15s ease, opacity 0.15s ease; }
+.ctx-lg-edge.provisional { stroke-dasharray: 3 3; }
+.ctx-lg-center circle { fill: var(--card-bg); stroke: var(--border); stroke-width: 1.5px; }
+.ctx-lg-node { cursor: pointer; outline: none; transition: opacity 0.15s ease; }
+.ctx-lg-node text { font-size: 9.2px; fill: var(--fg); user-select: none; }
+.ctx-local-graph.has-hover .ctx-lg-node:not(.hover-active) { opacity: 0.35; }
+.ctx-local-graph.has-hover .ctx-lg-edge:not(.hover-active), .ctx-local-graph.has-hover .ctx-lg-doc-edge:not(.hover-active) { opacity: 0.15; }
+.ctx-lg-node.hover-active circle.node-dot { stroke: var(--accent); stroke-width: 2.5px; }
+.ctx-lg-node.hover-active text { fill: var(--accent); font-weight: 700; }
+.ctx-lg-edge.hover-active, .ctx-local-graph .ctx-lg-doc-edge.hover-active { stroke: var(--accent); stroke-width: 2px; opacity: 1; }
+.gp-legend { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 11px; color: var(--muted); justify-content: center; margin: 4px 0 12px; }
+.gp-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.gp-sec-title { font-size: 11.5px; font-weight: 700; color: var(--muted); margin: 12px 0 6px; display: flex; justify-content: space-between; align-items: center; }
+.gp-row-list { display: flex; flex-direction: column; gap: 6px; }
+.gp-row { width: 100%; text-align: left; border: 1px solid var(--border); background: var(--card-bg); border-radius: 6px; padding: 7px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.gp-row:hover, .gp-row.hover-active { border-color: var(--accent); background: var(--hover); }
+.gp-row-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12.5px; font-weight: 600; }
+.gp-row-sub { font-size: 11.5px; color: var(--muted); }
+.gp-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex: none; }
+.gp-blocked-box { border: 1px solid var(--border); border-left: 3px solid var(--warn); background: var(--card-bg); border-radius: 6px; padding: 9px 11px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.gp-blocked-box strong { color: var(--fg); display: inline-flex; align-items: center; gap: 5px; }
+.gp-back-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); background: var(--card-bg); border-radius: 6px; padding: 4px 9px; font-size: 12px; font-weight: 600; cursor: pointer; margin-bottom: 10px; }
+.gp-detail-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.gp-detail-card h3 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gp-detail-sec { font-size: 12px; font-weight: 700; color: var(--accent); margin: 4px 0; }
+.gp-detail-list { margin: 0; padding-left: 16px; font-size: 12.5px; }
+
+/* ActivityPub Opinions Prototype */
+.op-proto-banner { border: 1px solid color-mix(in srgb, var(--proto) 35%, var(--border)); border-left: 4px solid var(--proto); background: var(--proto-bg); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+.op-proto-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13.5px; font-weight: 700; color: var(--fg); }
+.op-proto-desc { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+.op-ap-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-bg); font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+.op-ap-meta code { background: var(--chip-bg); padding: 1px 6px; border-radius: 4px; color: var(--fg); font-size: 11.5px; }
+.op-composer { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card-bg); margin-bottom: 16px; opacity: 0.78; }
+.op-composer textarea { width: 100%; min-height: 68px; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--panel-bg); resize: none; font-size: 13px; cursor: not-allowed; }
+.op-composer-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.op-action-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.op-disabled-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--sec-bg); color: var(--muted); font-size: 12px; font-weight: 600; cursor: not-allowed; }
+.op-thread-box { border: 1px dashed color-mix(in srgb, var(--proto) 45%, var(--border)); border-radius: 8px; padding: 12px; background: var(--panel-bg); display: flex; flex-direction: column; gap: 10px; }
+.op-thread-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 700; color: var(--proto); }
+.op-post { border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); padding: 11px 13px; display: flex; flex-direction: column; gap: 6px; }
+.op-post.is-reply { margin-left: 20px; border-left: 3px solid var(--remote); }
+.op-post-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.op-post-author { font-weight: 700; color: var(--fg); }
+.op-post-body { font-size: 13.5px; line-height: 1.55; }
+.op-post-foot { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--muted); }
+.op-private-box { border: 1px solid var(--border); border-left: 4px solid var(--warn); background: var(--warn-bg); border-radius: 8px; padding: 12px 14px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+</style>
+</head>
+<body>
+
+<div class="proto-bar" role="toolbar" aria-label="프로토타입 시안 제어">
+  <div class="proto-group" aria-label="접속자 및 문서 상태">
+    <span class="proto-group-label">접속자</span>
+    <button type="button" data-role="anon_public" aria-pressed="true">비로그인 (공개 KB)</button>
+    <button type="button" data-role="signed_public" aria-pressed="false">로그인 비멤버 (공개 KB)</button>
+    <button type="button" data-role="link_only" aria-pressed="false">비공개 링크공유 (Ring 1+2 · 타 문서 차단)</button>
+    <button type="button" data-role="member" aria-pressed="false">KB 멤버 (공개/비공개)</button>
+  </div>
+  <div class="proto-group" aria-label="화면 크기">
+    <span class="proto-group-label">화면</span>
+    <button type="button" data-viewport="desktop" aria-pressed="true">데스크톱</button>
+    <button type="button" data-viewport="mobile" aria-pressed="false">모바일 (390px · 하단 바)</button>
+  </div>
+  <div class="proto-group" aria-label="색상 테마">
+    <span class="proto-group-label">테마</span>
+    <button type="button" data-theme-toggle="light" aria-pressed="true">라이트</button>
+    <button type="button" data-theme-toggle="dark" aria-pressed="false">다크</button>
+  </div>
+</div>
+
+<div class="proto-status-bar">
+  <span id="proto-state-summary">상태: 비로그인 (공개 KB · 차별 없음) · 그래프 닫힘(기본) · 본문 탭</span>
+  <span>고유 주소: <code>/silvercord/k9x2m7q1p4v8nd3a</code> · 그래프 API: <code id="proto-api-hint">GET /silvercord/k9x2m7q1p4v8nd3a/graph → 200 (Full Local Graph: Ring 1 + Ring 2)</code></span>
+</div>
+
+<div class="stage">
+  <div class="device-frame" id="device-frame">
+
+    <!-- Unified Silvercord Sticky Header (Desktop full controls; Mobile slim bar) -->
+    <header class="sc-bar" id="sc-bar">
+      <div class="sc-bar-start">
+        <a class="sc-brand" href="#top" onclick="event.preventDefault()">
+          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.5C6.5 3.5 4.5 3.3 2.5 3.5V12c2-.2 4 0 5.5 1 1.5-1 3.5-1.2 5.5-1V3.5c-2-.2-4 0-5.5 1zM8 4.5V13"/></svg>
+          <span>Claire Bible</span>
+        </a>
+        <span class="sc-kb-badge" id="sc-kb-badge">분산 스토리지 연구</span>
+      </div>
+
+      <div class="sc-bar-center">
+        <div class="sc-tablist" id="sc-tablist-top" role="tablist" focusgroup="tablist nomemory" aria-label="문서 보기 전환">
+          <button type="button" class="sc-tab" role="tab" id="tab-doc-top" data-tab="doc" aria-selected="true" focusgroupstart>
+            <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/></svg>
+            <span>본문</span>
+          </button>
+          <button type="button" class="sc-tab" role="tab" id="tab-op-top" data-tab="opinions" aria-selected="false">
+            <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11V11H7l-3 2.5V11H2.5z"/></svg>
+            <span>의견</span>
+            <span class="proto-pill">예시 3</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sc-bar-end">
+        <button type="button" class="sc-btn sc-graph-btn-top" id="sc-graph-toggle-top" aria-expanded="false" aria-controls="sc-desktop-aside">
+          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg>
+          <span>문서 그래프</span>
+          <span class="sc-count-badge">5</span>
+        </button>
+        <a class="sc-btn sc-ws-link" id="sc-ws-link" href="/silvercord/k9x2m7q1p4v8nd3a/workspace" onclick="event.preventDefault()" title="워크스페이스에서 열기">
+          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 7 9M6.5 4H3.5A1 1 0 0 0 2.5 5v7.5a1 1 0 0 0 1 1H11a1 1 0 0 0 1-1v-3"/></svg>
+          <span class="sc-ws-label">워크스페이스</span>
+        </a>
+        <button type="button" class="sc-icon-btn" id="sc-frame-theme-btn" aria-label="라이트/다크 전환" title="라이트/다크 전환">
+          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.5 9.5a5.5 5.5 0 0 1-6-6 5.5 5.5 0 1 0 6 6z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="sc-layout">
+      <main class="sc-main-col" id="sc-main-col">
+
+        <!-- Simulated Heading Rail -->
+        <aside class="sc-rail" id="sc-rail" aria-hidden="true">
+          <div class="sc-rail-track">
+            <div class="sc-rail-fill"></div>
+            <div class="sc-rail-dot" style="top: 12%"></div>
+            <div class="sc-rail-dot" style="top: 44%"></div>
+            <div class="sc-rail-dot" style="top: 76%"></div>
+          </div>
+        </aside>
+
+        <!-- Document Panel (hidden="until-found") -->
+        <div id="sc-panel-doc" role="tabpanel" aria-labelledby="tab-doc-top" tabindex="0">
+          <div class="sc-panel-inner">
+            <div class="sc-title-row">
+              <h1 class="sc-doc-title">vSAN ESA 아키텍처와 스토리지 풀 수렴 설계 <span class="rmeta">web</span></h1>
+            </div>
+            <p class="docmeta">
+              <a href="https://example.org/vsan-esa" onclick="event.preventDefault()">
+                <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 7 9M6.5 4H3.5A1 1 0 0 0 2.5 5v7.5a1 1 0 0 0 1 1H11a1 1 0 0 0 1-1v-3"/></svg>
+                원문 열기
+              </a>
+              <span class="docmeta-tags">
+                <span class="prov-tag">원문 보존</span>
+                <span class="prov-tag">gemini-3.8-flash</span>
+              </span>
+            </p>
+
+            <div class="sec-head">요약</div>
+            <div class="doc-content">
+              <p><span class="sc-entity-mark" data-entity-id="ent-vsan">vSAN ESA</span>(Express Storage Architecture)는 기존의 캐시·용량 계층을 단일 <span class="sc-entity-mark" data-entity-id="ent-nvme">NVMe</span> 스토리지 풀로 통합해 I/O 경로를 단순화합니다. <span class="sc-entity-mark" data-entity-id="ent-esx">ESXi</span> 8.0 이상의 커널 스택 위에서 로그 구조화 파일 시스템(<span class="sc-entity-mark" data-entity-id="ent-lfs">vSAN LFS</span>)과 객체 단위 압축·암호화를 결합하여 RAID-5/6 환경에서도 일관된 지연 시간을 유지합니다.</p>
+            </div>
+
+            <div class="sec-head">적재 본문</div>
+            <div class="doc-content">
+              <h2>1. 단일 계층 NVMe 스토리지 풀과 LFS 쓰기 경로</h2>
+              <p>OSA(Original Storage Architecture)에서는 디스크 그룹마다 읽기/쓰기 캐시 티어를 별도로 구성해야 했으나, <span class="sc-entity-mark" data-entity-id="ent-vsan">vSAN ESA</span>에서는 모든 <span class="sc-entity-mark" data-entity-id="ent-nvme">NVMe</span> 장치가 동일한 스토리지 풀에 참여합니다. 새 쓰기 요청은 먼저 성능 계층의 <span class="sc-entity-mark" data-entity-id="ent-lfs">vSAN LFS</span> 로그 세그먼트에 순차 기록된 뒤 백그라운드에서 용량 계층으로 대칭 병합됩니다.</p>
+              <div class="admonition">
+                <div class="admonition-title">Note</div>
+                비로그인 접속자와 로그인 이용자 모두 동일하게 그래프 패널을 꺼내보고(기본 상태 닫힘), 노드를 가리켜 본문 내 엔티티 강조(CSS Custom Highlight)를 확인할 수 있습니다. 비공개 링크공유 문서에서는 Ring 1 + Ring 2 그래프를 보여주되 다른 문서는 열람할 수 없도록 차단합니다.
+              </div>
+              <h2>2. 분산 합의와 RAID-5 소거 코딩 효율</h2>
+              <p>모든 노드는 <span class="sc-entity-mark" data-entity-id="ent-esx">ESXi</span> 호스트 간 전용 고속 네트워크를 통해 상태 합의를 수행하며, <span class="sc-entity-mark" data-entity-id="ent-raft">분산 합의</span> 메타데이터의 직렬화 지연을 줄여 4+1 소거 코딩에서도 미러링과 유사한 쓰기 처리량을 확보합니다.</p>
+              <ul>
+                <li>인라인 압축: 블록이 로그에 기록되기 전에 4KB 단위로 압축되어 네트워크 복제 대역폭을 절감합니다.</li>
+                <li>스냅샷 체인 제거: B-Tree 메타데이터 참조를 활용해 다수의 스냅샷에서도 성능 저하를 억제합니다.</li>
+              </ul>
+              <h2>3. 운영 전환 시 점검 항목</h2>
+              <p>기존 클러스터에서 이전할 때는 호환 <span class="sc-entity-mark" data-entity-id="ent-nvme">NVMe</span> HCL 목록, 최소 25GbE 이상 네트워크 대역폭, 그리고 <span class="sc-entity-mark" data-entity-id="ent-vsan">vSAN ESA</span> 전용 스토리지 정책 적용 여부를 사전 검증해야 합니다.</p>
+              <p>스크롤 테스트용 추가 문단: 모바일 화면(390px)에서 본문을 중간까지 읽다가 하단 바의 <strong>의견</strong> 탭을 눌러 프로토타입을 확인한 뒤 다시 <strong>본문</strong>으로 돌아오면, 이 읽기 스크롤 위치가 그대로 유지됩니다.</p>
+              <p>스크롤 테스트용 추가 문단: KB 멤버도 처음에는 이 통일된 <code>/silvercord/</code> 뷰로 진입하며, 필요할 때 상단의 <strong>워크스페이스</strong> 단추(<code>/silvercord/k9x2m7q1p4v8nd3a/workspace</code>)로 즉시 전환합니다.</p>
+            </div>
+            <div class="sc-foot">Claire Bible · 고유 주소 <code>/silvercord/k9x2m7q1p4v8nd3a</code></div>
+          </div>
+        </div>
+
+        <!-- Opinions Panel (hidden="until-found" by default) -->
+        <div id="sc-panel-opinions" role="tabpanel" aria-labelledby="tab-op-top" hidden="until-found">
+          <div class="sc-panel-inner">
+            <div class="op-proto-banner">
+              <div class="op-proto-head">
+                <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="1.2"/><path d="M5.2 5.2a4 4 0 0 0 0 5.6M10.8 5.2a4 4 0 0 1 0 5.6M3.2 3.2a6.8 6.8 0 0 0 0 9.6M12.8 3.2a6.8 6.8 0 0 1 0 9.6"/></svg>
+                <span>의견 (ActivityPub)</span>
+                <span class="proto-pill">시각 프로토타입 · 미구현</span>
+              </div>
+              <p class="op-proto-desc">이 영역은 향후 ActivityPub(<code>Create(Note)</code> + <code>inReplyTo</code>)으로 문서에 대한 의견과 연합 답글을 주고받기 위한 시각 프로토타입입니다. 현재는 저장·전송·반응 기능이 동작하지 않습니다.</p>
+            </div>
+
+            <div id="op-public-content">
+              <div class="op-ap-meta">
+                <span class="remote-pill">
+                  <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c-2 1.8-2 9.2 0 11M8 2.5c2 1.8 2 9.2 0 11"/></svg>
+                  ActivityPub Article 연결 예정
+                </span>
+                <span>대상 객체: <code>/ap/objects/42</code></span>
+              </div>
+
+              <div class="op-composer" aria-label="의견 작성 미리보기 (비활성)">
+                <textarea disabled aria-disabled="true" placeholder="ActivityPub 의견 설계 도입 후 이 문서(/ap/objects/42)에 답글을 남길 수 있습니다. (현재 프로토타입 — 입력 비활성)"></textarea>
+                <div class="op-composer-foot">
+                  <div class="op-action-row">
+                    <button type="button" class="op-disabled-btn" disabled aria-disabled="true">
+                      <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.2 3.2 8.6a2.9 2.9 0 0 1 4.1-4.1l.7.7.7-.7a2.9 2.9 0 0 1 4.1 4.1z"/></svg>
+                      공감 (예정)
+                    </button>
+                    <button type="button" class="op-disabled-btn" disabled aria-disabled="true">
+                      <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 7V6a1.5 1.5 0 0 1 1.5-1.5H12M10 2.5l2 2-2 2M13 9v1a1.5 1.5 0 0 1-1.5 1.5H4M6 13.5l-2-2 2-2"/></svg>
+                      알리기 (예정)
+                    </button>
+                  </div>
+                  <button type="button" class="op-disabled-btn" disabled aria-disabled="true">
+                    <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m2 8 11.5-5.5L10 14 7.5 9.5zM7.5 9.5 13.5 2.5"/></svg>
+                    의견 남기기 (미구현)
+                  </button>
+                </div>
+              </div>
+
+              <div class="op-thread-box">
+                <div class="op-thread-title">
+                  <span>예시 스레드 · 실제 의견이 아님</span>
+                  <span class="proto-pill">샘플 데이터</span>
+                </div>
+
+                <article class="op-post">
+                  <div class="op-post-meta">
+                    <span class="op-post-author">Alice</span>
+                    <span>@alice@claire.example</span>
+                    <span class="chip-pill">로컬</span>
+                    <span>· 2시간 전</span>
+                  </div>
+                  <div class="op-post-body">LFS 로그 세그먼트 구조 덕분에 RAID-5 쓰기 증폭이 크게 줄어든 점이 인상적이네요. 다만 25GbE 미만 환경에서의 장애 복구 시간 측정치도 같이 보면 좋겠습니다.</div>
+                  <div class="op-post-foot"><span>공감 2 (예시)</span><span>답글 1 (예시)</span></div>
+                </article>
+
+                <article class="op-post is-reply">
+                  <div class="op-post-meta">
+                    <span class="op-post-author">Infra Lab</span>
+                    <span>@researcher@mastodon.example</span>
+                    <span class="remote-pill">연합 (원격)</span>
+                    <span>· 1시간 전</span>
+                  </div>
+                  <div class="op-post-body">@alice 실측 환경에서는 재동기화 트래픽에 QoS 상한을 두지 않으면 VM 지연이 튀는 경우가 있어서 별도 VLAN 분리가 권장됩니다.</div>
+                  <div class="op-post-foot"><span>원격 인스턴스 보기 (예정)</span></div>
+                </article>
+
+                <article class="op-post">
+                  <div class="op-post-meta">
+                    <span class="op-post-author">Minho</span>
+                    <span>@minho@fediverse.example</span>
+                    <span class="remote-pill">연합 (원격)</span>
+                    <span>· 25분 전</span>
+                  </div>
+                  <div class="op-post-body">OSA 대비 디스크 장애 시 재구축 영향 범위가 좁아진 부분이 실제 운영에서 체감이 큽니다.</div>
+                  <div class="op-post-foot"><span>공감 1 (예시)</span></div>
+                </article>
+              </div>
+            </div>
+
+            <div id="op-private-content" class="op-private-box" hidden>
+              <strong>
+                <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7.5h8v6H4zM5.5 7.5v-2a2.5 2.5 0 0 1 5 0v2"/></svg>
+                비공개 지식베이스 문서 — ActivityPub 비연합
+              </strong>
+              <span>이 문서는 비공개 지식베이스의 링크 공개로만 열람 중이므로 ActivityPub 객체로 연합되지 않습니다.</span>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Desktop Right-Side Docked Local Graph Column -->
+      <aside class="sc-desktop-aside" id="sc-desktop-aside" aria-label="문서 전용 그래프 패널">
+        <!-- Panel content mounted dynamically here on desktop -->
+      </aside>
+    </div>
+
+    <!-- Decided Mobile Bottom Bar (SQ3: B) -->
+    <nav class="sc-bottom-bar" id="sc-bottom-bar" aria-label="모바일 보기 및 그래프 전환">
+      <div class="sc-tablist" id="sc-tablist-bottom" role="tablist" focusgroup="tablist nomemory" aria-label="문서 보기 전환">
+        <button type="button" class="sc-tab" role="tab" id="tab-doc-bot" data-tab="doc" aria-selected="true" focusgroupstart>
+          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/></svg>
+          <span>본문</span>
+        </button>
+        <button type="button" class="sc-tab" role="tab" id="tab-op-bot" data-tab="opinions" aria-selected="false">
+          <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11V11H7l-3 2.5V11H2.5z"/></svg>
+          <span>의견</span>
+          <span class="proto-pill">예시 3</span>
+        </button>
+      </div>
+      <!-- Separate action button outside role="tablist" -->
+      <button type="button" class="sc-btn sc-bottom-graph-btn" id="sc-graph-toggle-bot" aria-expanded="false" aria-controls="sc-mobile-dialog">
+        <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg>
+        <span>그래프</span>
+        <span class="sc-count-badge">5</span>
+      </button>
+    </nav>
+
+    <!-- Mobile Modal Dialog Sheet (<dialog>) -->
+    <dialog class="sc-sheet-dialog" id="sc-mobile-dialog" closedby="any" aria-label="문서 전용 그래프 시트">
+      <!-- Panel content mounted dynamically here on mobile -->
+    </dialog>
+
+  </div>
+</div>
+
+<!-- Reusable Graph Panel Template -->
+<template id="sc-graph-panel-template">
+  <div class="gp-head">
+    <h2 class="gp-head-title">
+      <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg>
+      <span>문서 그래프</span>
+    </h2>
+    <button type="button" class="sc-icon-btn gp-close-btn" aria-label="문서 그래프 닫기" title="닫기">
+      <svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>
+    </button>
+  </div>
+  <div class="gp-scope-note" id="gp-scope-note"></div>
+  <div class="gp-subtabs" role="tablist" aria-label="그래프 패널 보기">
+    <button type="button" class="gp-subtab" data-gsub="graph" aria-selected="true">로컬 그래프</button>
+    <button type="button" class="gp-subtab" data-gsub="entities" aria-selected="false">엔티티 (5)</button>
+  </div>
+  <div class="gp-body" id="gp-body"></div>
+</template>
+
+<script>
+(function () {
+  "use strict";
+
+  var TYPE_COLORS = {
+    Tool: "#1f6feb",
+    Framework: "#8957e5",
+    Model: "#bf3989",
+    Paper: "#bf8700",
+    Article: "#1a7f37",
+    Repo: "#1b7c83",
+    Concept: "#cf222e",
+    Person: "#bc4c00",
+    Org: "#9a6700",
+    Event: "#0969da",
+    Note: "#6e7781"
+  };
+
+  var RING1_ENTITIES = [
+    { id: "ent-vsan", opaqueId: "e0", label: "vSAN ESA", group: "Tool", degree: 14, obs: ["단일 NVMe 스토리지 풀 기반 분산 스토리지 아키텍처"], aliases: ["Express Storage Architecture"], token: "t9k2m7q1p4v8nd3a", linkAccess: true, otherDocsCount: 2 },
+    { id: "ent-nvme", opaqueId: "e1", label: "NVMe", group: "Concept", degree: 11, obs: ["성능·용량 계층 통합에 쓰이는 고속 블록 인터페이스"], aliases: ["Non-Volatile Memory Express"], token: "p4v8nd3ak9x2m7q1", linkAccess: false, otherDocsCount: 2 },
+    { id: "ent-esx", opaqueId: "e2", label: "ESXi", group: "Framework", degree: 9, obs: ["vSAN 8.0 커널 I/O 스택을 구동하는 하이퍼바이저"], aliases: ["VMware ESXi"], token: "m7q1p4v8k9x2nd3a", linkAccess: true, otherDocsCount: 1 },
+    { id: "ent-lfs", opaqueId: "e3", label: "vSAN LFS", group: "Concept", degree: 6, obs: ["순차 로그 세그먼트 기록을 담당하는 로그 구조화 파일 시스템"], aliases: ["Log-Structured File System"], token: "q1p4v8nd3ak9x2m7", linkAccess: false, otherDocsCount: 1 },
+    { id: "ent-raft", opaqueId: "e4", label: "분산 합의", group: "Concept", degree: 5, obs: ["노드 간 메타데이터 일관성을 유지하는 합의 메커니즘"], aliases: ["Distributed Consensus"], token: "nd3ak9x2m7q1p4v8", linkAccess: false, otherDocsCount: 0 }
+  ];
+
+  var RING2_ENTITIES = [
+    { id: "ent-osa", opaqueId: "e5", label: "vSAN OSA", group: "Tool", degree: 8, connectedR1: ["ent-vsan", "ent-esx"], obs: ["기존 캐시+용량 디스크 그룹 기반 vSAN 구조"], aliases: ["Original Storage Architecture"], token: "x2m7q1p4v8nd3ak9", linkAccess: false, otherDocsCount: 1 },
+    { id: "ent-hcl", opaqueId: "e6", label: "VMware HCL", group: "Concept", degree: 4, connectedR1: ["ent-nvme", "ent-esx"], obs: ["호환 NVMe 장치 검증 목록"], aliases: [], token: "v8nd3ak9x2m7q1p4", linkAccess: false, otherDocsCount: 1 },
+    { id: "ent-erasure", opaqueId: "e7", label: "RAID-5 소거 코딩", group: "Concept", degree: 6, connectedR1: ["ent-lfs", "ent-raft"], obs: ["4+1 패리티 기반 공간 효율 저장 방식"], aliases: ["Erasure Coding"], token: "3ak9x2m7q1p4v8nd", linkAccess: false, otherDocsCount: 1 }
+  ];
+
+  var INTRA_EDGES = [
+    { from: "ent-vsan", to: "ent-nvme", rel: "uses", dashes: false },
+    { from: "ent-vsan", to: "ent-esx", rel: "runs_on", dashes: false },
+    { from: "ent-vsan", to: "ent-lfs", rel: "includes", dashes: false },
+    { from: "ent-lfs", to: "ent-nvme", rel: "writes_to", dashes: false },
+    { from: "ent-esx", to: "ent-raft", rel: "coordinates", dashes: true }
+  ];
+
+  var RING2_EDGES = [
+    { from: "ent-vsan", to: "ent-osa", rel: "succeeds", dashes: false },
+    { from: "ent-esx", to: "ent-osa", rel: "hosts", dashes: false },
+    { from: "ent-nvme", to: "ent-hcl", rel: "listed_in", dashes: false },
+    { from: "ent-esx", to: "ent-hcl", rel: "verifies", dashes: true },
+    { from: "ent-lfs", to: "ent-erasure", rel: "applies", dashes: false },
+    { from: "ent-raft", to: "ent-erasure", rel: "guarantees", dashes: true }
+  ];
+
+  var SHARED_DOCS = [
+    { title: "vSAN OSA에서 ESA로 무중단 마이그레이션 가이드", count: 3, path: "/silvercord/r4t8y2u9p3m1w6q2" },
+    { title: "25GbE RoCEv2 스토리지 네트워크 설계 노트", count: 2, path: "/silvercord/c8n5b2x9z4k7j1m3" }
+  ];
+
+  var state = {
+    role: "anon_public",
+    viewport: "desktop",
+    theme: "light",
+    activeTab: "doc",
+    graphOpen: false,
+    graphSubtab: "graph",
+    selectedEntityId: null,
+    savedDocScrollY: 0
+  };
+
+  var frame = document.getElementById("device-frame");
+  var scKbBadge = document.getElementById("sc-kb-badge");
+  var scWsLink = document.getElementById("sc-ws-link");
+  var scGraphToggleTop = document.getElementById("sc-graph-toggle-top");
+  var scGraphToggleBot = document.getElementById("sc-graph-toggle-bot");
+  var scRail = document.getElementById("sc-rail");
+  var scMainCol = document.getElementById("sc-main-col");
+  var panelDoc = document.getElementById("sc-panel-doc");
+  var panelOpinions = document.getElementById("sc-panel-opinions");
+  var opPublicContent = document.getElementById("op-public-content");
+  var opPrivateContent = document.getElementById("op-private-content");
+  var desktopAside = document.getElementById("sc-desktop-aside");
+  var mobileDialog = document.getElementById("sc-mobile-dialog");
+  var protoSummary = document.getElementById("proto-state-summary");
+  var protoApiHint = document.getElementById("proto-api-hint");
+
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function isLinkOnlyScope() {
+    return state.role === "link_only";
+  }
+
+  function currentHost() {
+    return state.viewport === "mobile" ? mobileDialog : desktopAside;
+  }
+
+  function syncClosedByFallback(dlg) {
+    if (!dlg || dlg.dataset.cbBound === "1") return;
+    dlg.dataset.cbBound = "1";
+    var pressedOutside = false;
+    function outside(ev) {
+      var r = dlg.getBoundingClientRect();
+      return ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom;
+    }
+    dlg.addEventListener("pointerdown", function (ev) {
+      pressedOutside = outside(ev);
+    });
+    dlg.addEventListener("pointerup", function (ev) {
+      if (pressedOutside && outside(ev) && dlg.open) closeGraphPanel();
+      pressedOutside = false;
+    });
+    dlg.addEventListener("cancel", function (ev) {
+      ev.preventDefault();
+      closeGraphPanel();
+    });
+  }
+  syncClosedByFallback(mobileDialog);
+
+  function setEntityHover(entId) {
+    document.querySelectorAll(".ctx-local-graph").forEach(function (svg) { svg.classList.add("has-hover"); });
+    document.querySelectorAll('.ctx-lg-node[data-entity-id="' + entId + '"]').forEach(function (el) { el.classList.add("hover-active"); });
+    document.querySelectorAll('.ctx-lg-edge[data-from="' + entId + '"], .ctx-lg-edge[data-to="' + entId + '"]').forEach(function (el) { el.classList.add("hover-active"); });
+    document.querySelectorAll('.ctx-lg-doc-edge[data-entity-id="' + entId + '"]').forEach(function (el) { el.classList.add("hover-active"); });
+    document.querySelectorAll('.gp-row[data-entity-id="' + entId + '"]').forEach(function (el) { el.classList.add("hover-active"); });
+    document.querySelectorAll('.sc-entity-mark[data-entity-id="' + entId + '"]').forEach(function (el) { el.classList.add("hover-active"); });
+  }
+
+  function clearEntityHover() {
+    document.querySelectorAll(".ctx-local-graph").forEach(function (svg) { svg.classList.remove("has-hover"); });
+    document.querySelectorAll(".hover-active").forEach(function (el) { el.classList.remove("hover-active"); });
+  }
+
+  function buildLocalGraphSvg() {
+    var r1 = RING1_ENTITIES;
+    var r2 = RING2_ENTITIES;
+    var pos = {};
+
+    r1.forEach(function (n, idx) {
+      var angle = -Math.PI / 2 + (idx * 2 * Math.PI / Math.max(r1.length, 1));
+      pos[n.id] = { x: Math.round(Math.cos(angle) * 78 * 10) / 10, y: Math.round(Math.sin(angle) * 78 * 10) / 10, angle: angle };
+    });
+
+    r2.forEach(function (cand, idx) {
+      var sinSum = 0, cosSum = 0, count = 0;
+      cand.connectedR1.forEach(function (rid) {
+        if (pos[rid]) {
+          sinSum += Math.sin(pos[rid].angle);
+          cosSum += Math.cos(pos[rid].angle);
+          count += 1;
+        }
+      });
+      var angle = count > 0 ? Math.atan2(sinSum, cosSum) : (-Math.PI / 2 + idx * 2 * Math.PI / r2.length);
+      pos[cand.id] = { x: Math.round(Math.cos(angle) * 142 * 10) / 10, y: Math.round(Math.sin(angle) * 142 * 10) / 10, angle: angle };
+    });
+
+    var linesHtml = "";
+    r1.forEach(function (n) {
+      var p = pos[n.id];
+      linesHtml += '<line class="ctx-lg-doc-edge" data-entity-id="' + esc(n.id) + '" x1="0" y1="0" x2="' + p.x + '" y2="' + p.y + '" />';
+    });
+
+    var edges = INTRA_EDGES.concat(RING2_EDGES);
+    edges.forEach(function (e) {
+      var p1 = pos[e.from], p2 = pos[e.to];
+      if (!p1 || !p2) return;
+      linesHtml += '<line class="ctx-lg-edge' + (e.dashes ? ' provisional' : '') + '" data-from="' + esc(e.from) + '" data-to="' + esc(e.to) + '" x1="' + p1.x + '" y1="' + p1.y + '" x2="' + p2.x + '" y2="' + p2.y + '" />';
+    });
+
+    var nodesHtml = '<g class="ctx-lg-center" role="img" aria-label="현재 문서"><circle cx="0" cy="0" r="14" /><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4" transform="translate(-8,-8)" fill="none" stroke="var(--fg)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></g>';
+
+    function renderNode(n, isR1) {
+      var p = pos[n.id];
+      var c = TYPE_COLORS[n.group] || "#8b949e";
+      var anchor = p.x >= 0 ? "start" : "end";
+      var tx = p.x >= 0 ? (p.x + 8) : (p.x - 8);
+      var ty = p.y + 3;
+      var rad = isR1 ? 6 : 4.5;
+      return '<g class="ctx-lg-node" role="button" tabindex="0" aria-label="' + esc(n.label) + '" data-entity-id="' + esc(n.id) + '">' +
+        '<circle cx="' + p.x + '" cy="' + p.y + '" r="14" fill="none" pointer-events="all" />' +
+        '<circle class="node-dot" cx="' + p.x + '" cy="' + p.y + '" r="' + rad + '" fill="' + esc(c) + '" stroke="var(--bg)" stroke-width="1.2" />' +
+        '<text x="' + tx + '" y="' + ty + '" text-anchor="' + anchor + '">' + esc(n.label) + "</text></g>";
+    }
+
+    r1.forEach(function (n) { nodesHtml += renderNode(n, true); });
+    r2.forEach(function (n) { nodesHtml += renderNode(n, false); });
+
+    return '<svg class="ctx-local-graph" viewBox="-175 -165 350 330" role="region" aria-label="이 문서의 로컬 그래프">' + linesHtml + nodesHtml + "</svg>";
+  }
+
+  function findEntity(id) {
+    return RING1_ENTITIES.concat(RING2_ENTITIES).find(function (e) { return e.id === id; }) || null;
+  }
+
+  function renderPanelBody() {
+    var host = currentHost();
+    var body = host.querySelector("#gp-body");
+    var scopeNote = host.querySelector("#gp-scope-note");
+    if (!body) return;
+    var linkOnly = isLinkOnlyScope();
+
+    if (scopeNote) {
+      scopeNote.innerHTML = linkOnly
+        ? '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7.5h8v6H4zM5.5 7.5v-2a2.5 2.5 0 0 1 5 0v2"/></svg><span>비공개 링크 공개 범위: Ring 1 + Ring 2 표시 · 불투명 ID · 타 문서 열람 차단</span>'
+        : '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c-2 1.8-2 9.2 0 11M8 2.5c2 1.8 2 9.2 0 11"/></svg><span>공개 지식베이스 범위: Ring 1 (문서 5) + Ring 2 (이웃 3) + 공유 문서</span>';
+    }
+
+    host.querySelectorAll(".gp-subtab").forEach(function (btn) {
+      btn.setAttribute("aria-selected", btn.dataset.gsub === state.graphSubtab ? "true" : "false");
+    });
+
+    if (state.selectedEntityId) {
+      var ent = findEntity(state.selectedEntityId);
+      if (!ent) { state.selectedEntityId = null; renderPanelBody(); return; }
+      var allEdges = INTRA_EDGES.concat(RING2_EDGES);
+      var rels = allEdges.filter(function (e) { return e.from === ent.id || e.to === ent.id; });
+      var c = TYPE_COLORS[ent.group] || "#8b949e";
+      var idLabel = linkOnly ? ent.opaqueId : ent.id;
+      var html = '<button type="button" class="gp-back-btn" id="gp-back-btn">← 로컬 그래프로 돌아가기</button>';
+      html += '<div class="gp-detail-card">';
+      html += '<h3><span class="gp-dot" style="background:' + esc(c) + '"></span>' + esc(ent.label) + ' <span class="chip-pill">' + esc(ent.group) + "</span></h3>";
+      html += '<div style="font-size:11.5px;color:var(--muted)">식별자: <code>' + esc(idLabel) + "</code></div>";
+      if (ent.aliases && ent.aliases.length) {
+        html += '<div><div class="gp-detail-sec">별칭</div><div>' + ent.aliases.map(function (a) { return '<span class="chip-pill">' + esc(a) + "</span>"; }).join(" ") + "</div></div>";
+      }
+      if (ent.obs && ent.obs.length) {
+        html += '<div><div class="gp-detail-sec">관찰 내용</div><ul class="gp-detail-list">' + ent.obs.map(function (o) { return "<li>" + esc(o) + "</li>"; }).join("") + "</ul></div>";
+      }
+      html += '<div><div class="gp-detail-sec">관계 (' + rels.length + ')</div><ul class="gp-detail-list">';
+      rels.forEach(function (r) {
+        var otherId = r.from === ent.id ? r.to : r.from;
+        var other = findEntity(otherId);
+        var arrow = r.from === ent.id ? "→" : "←";
+        html += "<li><code>" + arrow + " " + esc(r.rel) + (r.dashes ? " (추정)" : "") + "</code> " + esc(other ? other.label : otherId) + "</li>";
+      });
+      html += "</ul></div>";
+
+      if (linkOnly) {
+        if (ent.otherDocsCount > 0) {
+          html += '<div style="font-size:11.5px;color:var(--muted)">이 엔티티가 등장한 다른 비공개 문서 ' + ent.otherDocsCount + "건 (제목·링크 차단)</div>";
+        }
+        if (ent.linkAccess) {
+          html += '<div><a class="sc-btn" href="/entity/' + esc(ent.token) + '" onclick="event.preventDefault()">엔티티 주소(/entity/' + esc(ent.token.slice(0, 6)) + '…)에서 보기 →</a></div>';
+        } else {
+          html += '<div style="font-size:11.5px;color:var(--muted)">비공개 엔티티입니다. (엔티티 링크 공개 꺼짐)</div>';
+        }
+      } else {
+        html += '<div><a class="sc-btn" href="/entity/' + esc(ent.token) + '" onclick="event.preventDefault()">엔티티 주소(/entity/' + esc(ent.token.slice(0, 6)) + '…)에서 전체 보기 →</a></div>';
+      }
+      html += "</div>";
+      body.innerHTML = html;
+      body.querySelector("#gp-back-btn").addEventListener("click", function () {
+        state.selectedEntityId = null;
+        renderPanelBody();
+      });
+      return;
+    }
+
+    if (state.graphSubtab === "entities") {
+      var listHtml = '<div class="gp-sec-title"><span>이 문서의 엔티티 (' + RING1_ENTITIES.length + ')</span></div><div class="gp-row-list">';
+      RING1_ENTITIES.forEach(function (n) {
+        var c = TYPE_COLORS[n.group] || "#8b949e";
+        listHtml += '<button type="button" class="gp-row" data-entity-id="' + esc(n.id) + '">' +
+          '<span class="gp-row-top"><span><span class="gp-dot" style="background:' + esc(c) + '"></span>' + esc(n.label) + ' <small style="color:var(--muted);font-weight:400">' + esc(n.group) + '</small></span>' +
+          (!linkOnly ? '<span class="chip-pill">연결 ' + n.degree + "</span>" : "") + "</span>" +
+          '<span class="gp-row-sub">' + esc(n.obs[0] || "") + "</span></button>";
+      });
+      listHtml += "</div>";
+      body.innerHTML = listHtml;
+    } else {
+      var h = buildLocalGraphSvg();
+      h += '<div class="gp-legend">' +
+        '<span class="gp-legend-item">실선: 확정 관계</span>' +
+        '<span class="gp-legend-item">점선: 모델 추정 관계</span>' +
+        '<span class="gp-legend-item">바깥 고리: Ring 2 이웃 (3)</span>' +
+        "</div>";
+      h += '<div class="gp-sec-title"><span>엔티티를 공유하는 다른 문서</span></div>';
+      if (linkOnly) {
+        h += '<div class="gp-blocked-box">' +
+          '<strong><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 7.5h8v6H4zM5.5 7.5v-2a2.5 2.5 0 0 1 5 0v2"/></svg>타 문서 열람 차단됨</strong>' +
+          '<span>Ring 1·Ring 2 그래프는 탐색할 수 있지만, 비공개 지식베이스의 다른 문서 제목과 링크(' + SHARED_DOCS.length + '건)는 제공하지 않습니다.</span>' +
+          "</div>";
+      } else {
+        h += '<div class="gp-row-list">';
+        SHARED_DOCS.forEach(function (d) {
+          h += '<a class="gp-row" style="text-decoration:none;color:inherit" href="' + esc(d.path) + '" onclick="event.preventDefault()">' +
+            '<span class="gp-row-top"><span>' + esc(d.title) + '</span><span class="chip-pill">' + d.count + "개 공유</span></span>" +
+            '<span class="gp-row-sub">' + esc(d.path) + "</span></a>";
+        });
+        h += "</div>";
+      }
+      body.innerHTML = h;
+    }
+
+    body.querySelectorAll("[data-entity-id]").forEach(function (el) {
+      var eid = el.dataset.entityId;
+      el.addEventListener("mouseenter", function () { setEntityHover(eid); });
+      el.addEventListener("mouseleave", clearEntityHover);
+      el.addEventListener("focus", function () { setEntityHover(eid); });
+      el.addEventListener("blur", clearEntityHover);
+      el.addEventListener("click", function () {
+        clearEntityHover();
+        state.selectedEntityId = eid;
+        renderPanelBody();
+      });
+      el.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          clearEntityHover();
+          state.selectedEntityId = eid;
+          renderPanelBody();
+        }
+      });
+    });
+  }
+
+  function syncGraphToggleState(expanded) {
+    var val = expanded ? "true" : "false";
+    scGraphToggleTop.setAttribute("aria-expanded", val);
+    scGraphToggleBot.setAttribute("aria-expanded", val);
+  }
+
+  function mountGraphPanel() {
+    var tmpl = document.getElementById("sc-graph-panel-template");
+    desktopAside.innerHTML = "";
+    mobileDialog.innerHTML = "";
+    if (!state.graphOpen) return;
+
+    var host = currentHost();
+    host.appendChild(tmpl.content.cloneNode(true));
+    host.querySelector(".gp-close-btn").addEventListener("click", closeGraphPanel);
+    host.querySelectorAll(".gp-subtab").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        state.graphSubtab = btn.dataset.gsub;
+        state.selectedEntityId = null;
+        renderPanelBody();
+      });
+    });
+    renderPanelBody();
+  }
+
+  function openGraphPanel() {
+    state.graphOpen = true;
+    frame.classList.toggle("graph-open", state.viewport === "desktop");
+    syncGraphToggleState(true);
+    mountGraphPanel();
+    if (state.viewport === "mobile" && !mobileDialog.open) {
+      mobileDialog.showModal();
+    }
+    syncStatusBar();
+  }
+
+  function closeGraphPanel() {
+    state.graphOpen = false;
+    frame.classList.remove("graph-open");
+    syncGraphToggleState(false);
+    if (mobileDialog.open) mobileDialog.close();
+    desktopAside.innerHTML = "";
+    mobileDialog.innerHTML = "";
+    clearEntityHover();
+    syncStatusBar();
+  }
+
+  function syncPanelLabels() {
+    var isMob = state.viewport === "mobile";
+    panelDoc.setAttribute("aria-labelledby", isMob ? "tab-doc-bot" : "tab-doc-top");
+    panelOpinions.setAttribute("aria-labelledby", isMob ? "tab-op-bot" : "tab-op-top");
+  }
+
+  function switchTab(nextTab, focusTab) {
+    if (state.activeTab === "doc" && nextTab === "opinions") {
+      state.savedDocScrollY = window.scrollY;
+    }
+    state.activeTab = nextTab;
+
+    var showDoc = nextTab === "doc";
+    if (showDoc) {
+      panelDoc.removeAttribute("hidden");
+      panelOpinions.setAttribute("hidden", "until-found");
+      scRail.hidden = false;
+    } else {
+      panelDoc.setAttribute("hidden", "until-found");
+      panelOpinions.removeAttribute("hidden");
+      scRail.hidden = true;
+    }
+
+    document.querySelectorAll(".sc-tab[data-tab]").forEach(function (btn) {
+      var sel = btn.dataset.tab === nextTab;
+      btn.setAttribute("aria-selected", sel ? "true" : "false");
+      btn.toggleAttribute("focusgroupstart", sel);
+      if (focusTab && sel && btn.offsetParent !== null) {
+        btn.focus();
+      }
+    });
+
+    if (showDoc) {
+      window.scrollTo({ top: state.savedDocScrollY, behavior: "instant" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+    syncStatusBar();
+  }
+
+  function syncStatusBar() {
+    var roleText = {
+      anon_public: "비로그인 (공개 KB · 차별 없음)",
+      signed_public: "로그인 비멤버 (공개 KB)",
+      link_only: "비공개 링크공유 (Ring 1+2 · 타 문서 차단)",
+      member: "KB 멤버 (통일 Silvercord 뷰 + 워크스페이스 전환)"
+    }[state.role];
+    var tabText = state.activeTab === "doc" ? "본문 탭" : "의견 프로토타입 탭";
+    var graphText = state.graphOpen ? "그래프 열림" : "그래프 닫힘(기본)";
+    var viewText = state.viewport === "mobile" ? "모바일 하단 바" : "데스크톱";
+    protoSummary.textContent = "상태: " + roleText + " · " + viewText + " · " + graphText + " · " + tabText;
+
+    if (isLinkOnlyScope()) {
+      protoApiHint.textContent = "GET /silvercord/k9x2m7q1p4v8nd3a/graph → 200 (Link-Access Scope: Ring 1 + Ring 2, opaque e0..eN, 타 문서 차단)";
+    } else {
+      protoApiHint.textContent = "GET /silvercord/k9x2m7q1p4v8nd3a/graph → 200 (Full Local Graph: Ring 1 + Ring 2)";
+    }
+  }
+
+  function applyState() {
+    var linkOnly = isLinkOnlyScope();
+    frame.classList.toggle("is-mobile", state.viewport === "mobile");
+
+    scKbBadge.textContent = linkOnly ? "링크 공개 문서" : "분산 스토리지 연구";
+    scWsLink.hidden = linkOnly;
+    opPublicContent.hidden = linkOnly;
+    opPrivateContent.hidden = !linkOnly;
+
+    syncPanelLabels();
+
+    if (state.graphOpen) {
+      if (state.viewport === "desktop") {
+        if (mobileDialog.open) mobileDialog.close();
+        frame.classList.add("graph-open");
+      } else {
+        frame.classList.remove("graph-open");
+        if (!mobileDialog.open) mobileDialog.showModal();
+      }
+      mountGraphPanel();
+    } else {
+      frame.classList.remove("graph-open");
+    }
+
+    document.documentElement.setAttribute("data-theme", state.theme);
+    document.querySelectorAll("[data-role]").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.role === state.role ? "true" : "false"); });
+    document.querySelectorAll("[data-viewport]").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.viewport === state.viewport ? "true" : "false"); });
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.themeToggle === state.theme ? "true" : "false"); });
+    syncStatusBar();
+  }
+
+  /* Bind prototype toolbar */
+  document.querySelectorAll("[data-role]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.role = btn.dataset.role;
+      state.selectedEntityId = null;
+      applyState();
+    });
+  });
+  document.querySelectorAll("[data-viewport]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.viewport = btn.dataset.viewport;
+      applyState();
+    });
+  });
+  document.querySelectorAll("[data-theme-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.theme = btn.dataset.themeToggle;
+      applyState();
+    });
+  });
+  document.getElementById("sc-frame-theme-btn").addEventListener("click", function () {
+    state.theme = state.theme === "light" ? "dark" : "light";
+    applyState();
+  });
+
+  /* Bind Silvercord UI controls */
+  [scGraphToggleTop, scGraphToggleBot].forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      if (state.graphOpen) closeGraphPanel();
+      else openGraphPanel();
+    });
+  });
+
+  document.querySelectorAll(".sc-tab[data-tab]").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      switchTab(tab.dataset.tab, false);
+    });
+    tab.addEventListener("keydown", function (ev) {
+      var list = tab.closest(".sc-tablist");
+      var tabs = Array.from(list.querySelectorAll(".sc-tab[data-tab]"));
+      var idx = tabs.indexOf(tab);
+      var next = -1;
+      if (ev.key === "ArrowRight") next = (idx + 1) % tabs.length;
+      else if (ev.key === "ArrowLeft") next = (idx - 1 + tabs.length) % tabs.length;
+      else if (ev.key === "Home") next = 0;
+      else if (ev.key === "End") next = tabs.length - 1;
+      if (next !== -1) {
+        ev.preventDefault();
+        switchTab(tabs[next].dataset.tab, true);
+      }
+    });
+  });
+
+  /* Sync hidden="until-found" beforematch for browser Find-in-Page */
+  scMainCol.addEventListener("beforematch", function (ev) {
+    if (ev.target === panelOpinions) switchTab("opinions", false);
+    else if (ev.target === panelDoc) switchTab("doc", false);
+  });
+
+  /* Clicking entity marks in body opens graph and focuses entity */
+  document.querySelectorAll(".sc-entity-mark").forEach(function (mark) {
+    mark.addEventListener("mouseenter", function () { setEntityHover(mark.dataset.entityId); });
+    mark.addEventListener("mouseleave", clearEntityHover);
+    mark.addEventListener("click", function () {
+      state.selectedEntityId = mark.dataset.entityId;
+      openGraphPanel();
+    });
+  });
+
+  applyState();
+})();
+</script>
+</body>
+</html>

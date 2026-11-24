@@ -66,9 +66,7 @@ function removeAccountStorage(key) {
 }
 
 // --- Workspace State & Core Theme Configuration ---
-const TYPE_COLORS = {Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#bf8700',
-  Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700',
-  Event:'#0969da',Note:'#6e7781'};
+const TYPE_COLORS = (window.ClaireLocalGraph && window.ClaireLocalGraph.TYPE_COLORS) || {Tool:'#1f6feb',Framework:'#8957e5',Model:'#bf3989',Paper:'#bf8700',Article:'#1a7f37',Repo:'#1b7c83',Concept:'#cf222e',Person:'#bc4c00',Org:'#9a6700',Event:'#0969da',Note:'#6e7781'};
 const DIM = 0.16;
 // 그래프 캔버스는 CSS 변수가 안 닿아 테마별 색을 JS 로 직접 갱신한다(노드 글자/엣지/테두리).
 const THEMES = {
@@ -5145,29 +5143,14 @@ function computeSharedDocs(dc){
 }
 
 function setEntityHoverHighlight(id){
-  if(!id) return;
-  document.querySelectorAll('.ctx-local-graph').forEach(el => el.classList.add('has-hover'));
-  document.querySelectorAll('.ctx-lg-node[data-entity-id="' + id + '"]').forEach(el => el.classList.add('hover-active'));
-  document.querySelectorAll('.ctx-lg-edge[data-from="' + id + '"], .ctx-lg-edge[data-to="' + id + '"]').forEach(el => el.classList.add('hover-active'));
-  document.querySelectorAll('.ctx-lg-doc-edge[data-entity-id="' + id + '"]').forEach(el => el.classList.add('hover-active'));
-  document.querySelectorAll('.ctx-entity-row[data-entity-id="' + id + '"]').forEach(el => el.classList.add('entity-hover-active'));
-  document.querySelectorAll('.home-map-row[data-home-ent="' + id + '"]').forEach(el => el.classList.add('entity-hover-active'));
-  document.querySelectorAll('.entitem[data-ent-id="' + id + '"]').forEach(el => el.classList.add('entity-hover-active'));
-  if(typeof window.setReaderEntityMarkHover === 'function'){
-    window.setReaderEntityMarkHover(id);
+  if(window.ClaireLocalGraph && typeof window.ClaireLocalGraph.setEntityHoverHighlight === 'function'){
+    window.ClaireLocalGraph.setEntityHoverHighlight(id);
   }
 }
 
 function clearEntityHoverHighlight(){
-  document.querySelectorAll('.ctx-local-graph').forEach(el => el.classList.remove('has-hover'));
-  document.querySelectorAll('.ctx-lg-node.hover-active').forEach(el => el.classList.remove('hover-active'));
-  document.querySelectorAll('.ctx-lg-edge.hover-active').forEach(el => el.classList.remove('hover-active'));
-  document.querySelectorAll('.ctx-lg-doc-edge.hover-active').forEach(el => el.classList.remove('hover-active'));
-  document.querySelectorAll('.ctx-entity-row.entity-hover-active').forEach(el => el.classList.remove('entity-hover-active'));
-  document.querySelectorAll('.home-map-row.entity-hover-active').forEach(el => el.classList.remove('entity-hover-active'));
-  document.querySelectorAll('.entitem.entity-hover-active').forEach(el => el.classList.remove('entity-hover-active'));
-  if(typeof window.clearReaderEntityMarkHover === 'function'){
-    window.clearReaderEntityMarkHover();
+  if(window.ClaireLocalGraph && typeof window.ClaireLocalGraph.clearEntityHoverHighlight === 'function'){
+    window.ClaireLocalGraph.clearEntityHoverHighlight();
   }
 }
 window.setEntityHoverHighlight = setEntityHoverHighlight;
@@ -5175,23 +5158,15 @@ window.clearEntityHoverHighlight = clearEntityHoverHighlight;
 
 function renderLocalGraphHtml(dc){
   if(!dc) return '';
+  if(!window.ClaireLocalGraph || typeof window.ClaireLocalGraph.renderSvg !== 'function') return '';
   const allDocEntities = docNodes(dc.id, dc);
   const r1 = allDocEntities.slice(0, 24);
   const r1Set = new Set(r1.map(n => n.id));
   const docEntSet = new Set(allDocEntities.map(n => n.id));
-  const pos = {};
-
-  r1.forEach((n, i) => {
-    const angle = -Math.PI / 2 + (i * 2 * Math.PI / Math.max(r1.length, 1));
-    pos[n.id] = {
-      x: Math.round(Math.cos(angle) * 78 * 10) / 10,
-      y: Math.round(Math.sin(angle) * 78 * 10) / 10,
-      angle: angle
-    };
-  });
 
   let r2 = [];
   let r2CandidatesCount = 0;
+  let graphEdges = [];
   if(graphInitialized && allEdges){
     const candMap = new Map();
     allEdges.forEach(e => {
@@ -5219,91 +5194,32 @@ function renderLocalGraphHtml(dc){
     r2CandidatesCount = candidates.length;
     r2 = candidates.slice(0, 12);
 
-    r2.forEach(cand => {
-      let sinSum = 0, cosSum = 0, count = 0;
-      cand.connectedR1.forEach(r1Id => {
-        if(pos[r1Id]){
-          sinSum += Math.sin(pos[r1Id].angle);
-          cosSum += Math.cos(pos[r1Id].angle);
-          count++;
-        }
-      });
-      cand.targetAngle = count > 0 ? Math.atan2(sinSum, cosSum) : 0;
-    });
-    r2.sort((a, b) => a.targetAngle - b.targetAngle);
-    r2.forEach((cand, idx) => {
-      const angle = r2.length <= 4 ? cand.targetAngle : (-Math.PI / 2 + (idx * 2 * Math.PI / r2.length));
-      pos[cand.id] = {
-        x: Math.round(Math.cos(angle) * 148 * 10) / 10,
-        y: Math.round(Math.sin(angle) * 148 * 10) / 10,
-        angle: angle
-      };
+    const renderedSet = new Set([...r1.map(n => n.id), ...r2.map(n => n.id)]);
+    allEdges.forEach(e => {
+      if(!e || (typeof e.id === 'string' && e.id.indexOf('cl_') === 0)) return;
+      if(renderedSet.has(e.from) && renderedSet.has(e.to) && e.from !== e.to){
+        graphEdges.push(e);
+      }
     });
   } else if(typeof initGraph === 'function' && !graphInitialized){
     initGraph();
   }
 
-  let linesHtml = '';
-  r1.forEach(n => {
-    const p = pos[n.id];
-    linesHtml += '<line class="ctx-lg-doc-edge" data-entity-id="' + esc(n.id) + '" x1="0" y1="0" x2="' + p.x + '" y2="' + p.y + '" />';
-  });
-
-  if(graphInitialized && allEdges){
-    const renderedSet = new Set([...r1.map(n => n.id), ...r2.map(n => n.id)]);
-    const pairEdges = new Map();
-    allEdges.forEach(e => {
-      if(!e || (typeof e.id === 'string' && e.id.indexOf('cl_') === 0)) return;
-      if(renderedSet.has(e.from) && renderedSet.has(e.to) && e.from !== e.to){
-        const pairKey = e.from < e.to ? (e.from + ':' + e.to) : (e.to + ':' + e.from);
-        const existing = pairEdges.get(pairKey);
-        if(!existing || (existing.dashes && !e.dashes)){
-          pairEdges.set(pairKey, e);
-        }
-      }
-    });
-    pairEdges.forEach(e => {
-      const p1 = pos[e.from], p2 = pos[e.to];
-      if(p1 && p2){
-        const isProv = e.dashes === true;
-        linesHtml += '<line class="ctx-lg-edge' + (isProv ? ' provisional" stroke-dasharray="3 3' : '') + '" data-from="' + esc(e.from) + '" data-to="' + esc(e.to) + '" x1="' + p1.x + '" y1="' + p1.y + '" x2="' + p2.x + '" y2="' + p2.y + '" />';
-      }
-    });
-  }
-
-  const docTitle = dc.title || 'Document';
-  let nodesHtml = '<g class="ctx-lg-center" role="img" aria-label="' + esc(docTitle) + '"><circle cx="0" cy="0" r="14" /><path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4" transform="translate(-8,-8)" fill="none" stroke="var(--fg)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></g>';
-
-  const renderNode = (n, isR1) => {
-    const p = pos[n.id];
-    const color = TYPE_COLORS[n.group] || '#8b949e';
-    const label = n.label || n.name || n.id;
-    const trunc = label.length > 10 ? (label.slice(0, 9) + '…') : label;
-    const anchor = p.x >= 0 ? 'start' : 'end';
-    const tx = p.x >= 0 ? (p.x + 8) : (p.x - 8);
-    const ty = p.y + 3;
-    const r = isR1 ? 6 : 4.5;
-    return '<g class="ctx-lg-node ' + (isR1 ? 'ring-1' : 'ring-2') + '" role="button" tabindex="0" aria-label="' + esc(label) + '" data-entity-id="' + esc(n.id) + '" onclick="selectDocEntity(' + jsArg(n.id) + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();selectDocEntity(' + jsArg(n.id) + ');}" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()">' +
-      '<circle cx="' + p.x + '" cy="' + p.y + '" r="14" fill="none" pointer-events="all" />' +
-      '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + r + '" fill="' + esc(color) + '" stroke="var(--bg)" stroke-width="1.2" />' +
-      '<text x="' + tx + '" y="' + ty + '" text-anchor="' + anchor + '">' + esc(trunc) + '</text>' +
-      '</g>';
-  };
-
-  r1.forEach(n => { nodesHtml += renderNode(n, true); });
-  r2.forEach(n => { nodesHtml += renderNode(n, false); });
-
-  const svgAria = tr('context.doc.local_graph_aria');
-  let h = '<svg class="ctx-local-graph" viewBox="-160 -160 320 320" role="region" aria-label="' + esc(svgAria) + '">' +
-    linesHtml + nodesHtml + '</svg>';
-
   const unshownR1 = Math.max(0, allDocEntities.length - 24);
   const unshownR2 = Math.max(0, r2CandidatesCount - 12);
   const totalUnshown = unshownR1 + unshownR2;
-  if(totalUnshown > 0){
-    h += '<p class="ctx-local-graph-unshown">' + esc(tr('context.doc.local_graph_unshown', {count: totalUnshown})) + '</p>';
-  }
-  return h;
+  return window.ClaireLocalGraph.renderSvg({
+    docTitle: dc.title || 'Document',
+    r1: r1,
+    r2: r2,
+    edges: graphEdges,
+    unshownCount: totalUnshown,
+    ariaLabel: tr('context.doc.local_graph_aria'),
+    unshownText: totalUnshown > 0 ? tr('context.doc.local_graph_unshown', {count: totalUnshown}) : '',
+    interactiveAttrs: function(n){
+      return 'onclick="selectDocEntity(' + jsArg(n.id) + ')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();selectDocEntity(' + jsArg(n.id) + ');}" onmouseenter="setEntityHoverHighlight(' + jsArg(n.id) + ')" onmouseleave="clearEntityHoverHighlight()"';
+    },
+  });
 }
 
 function renderDocLinksTab(dc){
