@@ -236,3 +236,25 @@ def test_gemini_provider_429_max_retries_exhausted_raises(tmp_path):
         for call_args in mock_client.interactions.create.call_args_list:
             assert call_args[1]["model"] == "gemini-3.5-transcribe"
 
+
+def test_gemini_stt_client_uses_v1beta_api_version(monkeypatch):
+    """GeminiTranscriptProvider._get_genai_client() must pass http_options={'api_version': 'v1beta'} for gemini-3.5-transcribe."""
+    import google.genai as genai_pkg
+
+    captured: dict[str, object] = {}
+
+    def fake_client(*, api_key=None, http_options=None, **kwargs):
+        captured["api_key"] = api_key
+        captured["http_options"] = http_options
+        captured["kwargs"] = kwargs
+        return MagicMock()
+
+    monkeypatch.setattr(genai_pkg, "Client", fake_client)
+    s = Settings(enable_video_transcription=True, stt_model="gemini-3.5-transcribe", gemini_api_key="fake-key")
+    provider = GeminiTranscriptProvider(s)
+    provider._get_genai_client()
+
+    assert captured["api_key"] == "fake-key"
+    assert captured["http_options"] == {"api_version": "v1beta"}
+
+

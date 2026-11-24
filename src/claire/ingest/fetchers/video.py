@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from ...accounts.provider_policy import ProviderPolicyError
 from ...core.config import ProviderUnavailableError, Settings, find_ffmpeg_executable, get_settings
 from ...extract.provider import emit_progress
 from ...extract.table_budget import slice_document_text
@@ -212,7 +213,7 @@ def fetch_video(
                         # 전사 성공 시 사용 완료된 캐시 정리
                         if effective_data_dir:
                             delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
-                except ProviderUnavailableError:
+                except (ProviderUnavailableError, ProviderPolicyError):
                     raise
                 except Exception as e:
                     stt_error_msg = f"{type(e).__name__}: {e}"
@@ -276,7 +277,7 @@ def fetch_video(
                                 # 적재 성공 시 기존 캐시가 있다면 정리
                                 if effective_data_dir:
                                     delete_cached_video_file(effective_data_dir, url, canonical_url=resolved_url)
-                    except ProviderUnavailableError:
+                    except (ProviderUnavailableError, ProviderPolicyError):
                         raise
                     except Exception as e:
                         stt_error_msg = f"{type(e).__name__}: {e}"

@@ -184,3 +184,39 @@ def test_video_fetcher_can_handle_direct_links():
     assert VideoFetcher.can_handle(non_video_url) is False
 
 
+def test_validate_extractable_content_blocks_stt_error_even_with_long_description():
+    """STT 오류가 기록된 video/youtube 문서는 설명글이 500자 이상이어도 일반 모델 추출로 넘어가지 않아야 한다."""
+    from claire.ingest.pipeline import validate_extractable_content
+
+    long_desc = "발표 영상의 상세 소개글과 목차 설명입니다. " * 25
+    assert len(long_desc) >= 500
+
+    for source_type in ("video", "youtube"):
+        doc = Document(
+            url="https://example.com/video",
+            canonical_url="https://example.com/video",
+            title="Video with STT error",
+            raw_text=f"재생 시간: 25분 0초\n\n[영상 자막]\n(음성 전사 처리 중 오류가 발생했습니다: RuntimeError: 404)\n\n[영상 설명]\n{long_desc}",
+            source_type=source_type,
+            content_hash="hash_err",
+            meta={"has_transcript": False, "stt_error": "RuntimeError: 404 Not Found"},
+        )
+        ok, err = validate_extractable_content(doc)
+        assert ok is False
+        assert err is not None and "video_stt_failed" in err
+
+    # STT 오류가 없는(예: STT 비활성화) YouTube 문서는 기존과 같이 설명글 기반 추출을 허용한다.
+    yt_disabled = Document(
+        url="https://youtube.com/watch?v=abc12345678",
+        canonical_url="https://youtube.com/watch?v=abc12345678",
+        title="YouTube STT disabled",
+        raw_text=f"[영상 설명]\n{long_desc}",
+        source_type="youtube",
+        content_hash="hash_ok",
+        meta={"has_transcript": False, "stt_error": None},
+    )
+    ok_yt, err_yt = validate_extractable_content(yt_disabled)
+    assert ok_yt is True
+    assert err_yt is None
+
+

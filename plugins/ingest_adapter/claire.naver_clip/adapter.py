@@ -208,8 +208,9 @@ def fetch_naver_clip(
     if not content:
         raise FetchError(f"네이버 클립 본문 데이터가 비어 있습니다: {url}")
 
-    title = (content.get("title") or content.get("description") or "네이버 클립").strip()
+    raw_title = (content.get("title") or "").strip()
     description = (content.get("description") or "").strip()
+    title = raw_title or next((line.strip() for line in description.splitlines() if line.strip()), "네이버 클립")
     uploader = (content.get("profile") or {}).get("nickname") or "NAVER CLIP"
 
     vq = content.get("videoQuality") or {}
@@ -222,9 +223,12 @@ def fetch_naver_clip(
     transcript_text: str | None = None
     segments_data: list[dict] = []
     is_stt = False
+    stt_error_msg: str | None = None
+    stt_language: str | None = None
 
     effective_data_dir = getattr(settings, "data_dir", None)
     cached_used = False
+    cached_saved = False
     cached_file: Path | None = None
 
     if settings.enable_video_transcription and stream_url:
@@ -253,47 +257,64 @@ def fetch_naver_clip(
                 segments_data = [s.model_dump() for s in stt_result.segments]
                 if transcript_text:
                     is_stt = True
-                    delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_media_url)
+                    stt_language = lang_code
+                    stt_error_msg = None
+                    if effective_data_dir:
+                        delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_media_url)
+                else:
+                    stt_error_msg = "Cached STT returned empty transcript"
+                    if effective_data_dir:
+                        delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_media_url)
+                    cached_file = None
             except ProviderUnavailableError:
                 raise
             except Exception as e:
+                stt_error_msg = f"{type(e).__name__}: {e}"
                 logger.warning("Cached Naver Clip STT failed: %s", e)
-                delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_media_url)
+                if effective_data_dir:
+                    delete_cached_video_file(effective_data_dir, url, canonical_url=canonical_media_url)
                 cached_file = None
 
         if not transcript_text:
             ext = ".m4a" if audio_url else ".mp4"
             with tempfile.TemporaryDirectory(prefix="claire_naver_clip_") as tmp_dir:
                 tmp_out = Path(tmp_dir) / f"audio{ext}"
+                downloaded_file: Path | None = None
                 try:
-                    with guarded_client(
-                        follow_redirects=True,
-                        timeout=60.0,
-                        headers={"User-Agent": BROWSER_USER_AGENT},
-                    ) as client, client.stream("GET", stream_url) as resp, open(tmp_out, "wb") as f:
+                    with guarded_client(follow_redirects=True, timeout=60.0, headers={"User-Agent": BROWSER_USER_AGENT}) as http_client, http_client.stream("GET", stream_url) as resp, open(tmp_out, "wb") as f:
                         resp.raise_for_status()
                         for chunk in resp.iter_bytes(1024 * 1024):
                             f.write(chunk)
 
                     if tmp_out.is_file() and tmp_out.stat().st_size > 0:
+                        downloaded_file = tmp_out
                         stt_provider = get_transcript_provider(settings)
                         attach_usage_hooks(stt_provider, settings)
-                        stt_result = stt_provider.transcribe(tmp_out, language=lang_code, timestamps=True)
+                        stt_result = stt_provider.transcribe(downloaded_file, language=lang_code, timestamps=True)
                         transcript_text = stt_result.full_text
                         segments_data = [s.model_dump() for s in stt_result.segments]
                         if transcript_text:
                             is_stt = True
-                        elif effective_data_dir:
-                            save_video_file_to_cache(
-                                effective_data_dir,
-                                url,
-                                tmp_out,
-                                canonical_url=canonical_media_url,
-                            )
+                            stt_language = lang_code
+                            stt_error_msg = None
+                        else:
+                            stt_error_msg = "STT provider returned empty transcript"
+                    else:
+                        stt_error_msg = "Downloaded audio stream is empty"
                 except ProviderUnavailableError:
                     raise
                 except Exception as e:
+                    stt_error_msg = f"{type(e).__name__}: {e}"
                     logger.warning("Naver Clip audio download/STT failed for %s: %s", url, e)
+                finally:
+                    if not transcript_text and downloaded_file is not None and downloaded_file.is_file() and effective_data_dir:
+                        saved_path = save_video_file_to_cache(effective_data_dir, url, downloaded_file, canonical_url=canonical_media_url)
+                        if saved_path:
+                            cached_saved = True
+                            logger.info("Saved downloaded Naver Clip audio to 3-day cache: %s", saved_path)
+
+    if not transcript_text and stt_error_msg:
+        raise FetchError(f"video_stt_failed: 네이버 클립 음성 전사(STT)에 실패했습니다 ({stt_error_msg}): {url}")
 
     # Strict Zero-Tolerance Hallucination Gate:
     # If transcript is empty and description is not substantive (>= 500 chars), fail immediately.
@@ -323,6 +344,10 @@ def fetch_naver_clip(
     )
 
     canonical = canonicalize_url(f"https://m.naver.com/shorts/?seedMediaId={media_id}")
+    public_stream_url: str | None = None
+    if stream_url:
+        parsed_stream = urllib.parse.urlsplit(stream_url)
+        public_stream_url = urllib.parse.urlunsplit((parsed_stream.scheme, parsed_stream.netloc, parsed_stream.path, "", ""))
 
     return Document(
         url=url,
@@ -337,13 +362,18 @@ def fetch_naver_clip(
             "video_channel": uploader,
             "duration_sec": duration_sec,
             "is_stt": is_stt,
-            "stt_language": lang_code if is_stt else None,
-            "stt_segments": segments_data,
+            "stt": is_stt,
+            "stt_language": stt_language if is_stt else None,
+            "stt_error": stt_error_msg,
+            "transcript_segments": segments_data,
+            "transcript_source": "stt" if is_stt else None,
             "has_transcript": bool(transcript_text),
+            "video_cached": cached_saved or cached_used,
+            "video_cache_used": cached_used,
             "orig_chars": orig_chars,
             "raw_chars": raw_chars,
             "media_id": media_id,
-            "stream_url": stream_url,
+            "stream_url": public_stream_url,
             "fetch_via": "naver_clip",
         },
     )

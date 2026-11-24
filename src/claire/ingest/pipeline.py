@@ -1153,7 +1153,7 @@ def validate_extractable_content(doc: Document) -> tuple[bool, str | None]:
     raw = doc.raw_text.strip()
 
     # 1. 비디오 문서: 자막/STT나 프레젠테이션 첨부 없이 플레이스홀더만 있는 경우 차단
-    if doc.source_type == "video":
+    if doc.source_type in ("video", "youtube"):
         meta = doc.meta or {}
         has_transcript = meta.get("has_transcript")
         has_pres = bool(
@@ -1162,16 +1162,23 @@ def validate_extractable_content(doc: Document) -> tuple[bool, str | None]:
             or meta.get("presentation_document_id")
         )
         if has_transcript is False and not has_pres:
-            # 플레이스홀더 문구 및 메타데이터 블록 제거 후 실질 본문 길이 확인
-            cleaned = re.sub(r"\[영상 자막\]\s*\([^\)]+\)", "", raw)
-            cleaned = re.sub(r"재생 시간:[^\n]+", "", cleaned)
-            cleaned = re.sub(r"\[태그\][^\n]+", "", cleaned)
-            cleaned = cleaned.strip()
-            if len(cleaned) < 250:
+            stt_err = str(meta.get("stt_error") or "").strip()
+            if stt_err:
                 return (
                     False,
-                    "영상 자막/STT 또는 프레젠테이션 내용이 없어 본문 추출이 불가능합니다 (video_transcript_missing)",
+                    f"영상 음성 전사(STT)에 실패하여 본문 추출을 중단합니다 (video_stt_failed: {stt_err})",
                 )
+            if doc.source_type == "video":
+                # 플레이스홀더 문구 및 메타데이터 블록 제거 후 실질 본문 길이 확인
+                cleaned = re.sub(r"\[영상 자막\]\s*\([^\)]+\)", "", raw)
+                cleaned = re.sub(r"재생 시간:[^\n]+", "", cleaned)
+                cleaned = re.sub(r"\[태그\][^\n]+", "", cleaned)
+                cleaned = cleaned.strip()
+                if len(cleaned) < 250:
+                    return (
+                        False,
+                        "영상 자막/STT 또는 프레젠테이션 내용이 없어 본문 추출이 불가능합니다 (video_transcript_missing)",
+                    )
 
     # 2. 웹 문서: 저품질/UI 쉘/차단 가드 검증
     if doc.source_type in ("web", "custom"):

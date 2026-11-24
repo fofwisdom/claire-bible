@@ -18,8 +18,8 @@ digest = "sha256:087db1cf2fc48521f48a6c5c67b135b0c6261bf2df0c5b0a99e59b0b9afc9c1
 
 [[plugin]]
 id = "claire.naver_clip"
-revision = 2
-digest = "sha256:714bd68cbf94d2c420cecb3c2a5150220975658ed04547e6930133effd764714"
+revision = 3
+digest = "sha256:569375191b09a9df2b67a35f6da6acaaec394cb4c8b813c16b174235552e982d"
 
 [[plugin]]
 id = "claire.share_link"

@@ -283,6 +283,7 @@ YouTube has its own fetcher in the project plugin `claire.youtube` (`fetch_youtu
 `GeminiTranscriptProvider` in `src/claire/extract/transcript/gemini_stt.py`: [code]
 
 - Model: `stt_model`, else `gemini-3.5-transcribe`.
+- Client: `genai.Client` explicitly sets `http_options={"api_version": "v1beta"}` because `gemini-3.5-transcribe` / `transcription_config` is `v1beta`-only (`google-genai` >= 3 defaults to `v1`).
 - Audio chunks of `min(video_chunk_duration_sec, 240)` seconds; at least 62 seconds between chunk calls; on HTTP 429 it reads `retryDelay` and tries again a limited number of times.
 - `stt_custom_vocabulary`, else `DEFAULT_CUSTOM_VOCABULARY`, goes into the prompt.
 - Timestamps are rebased to the full audio.
@@ -349,6 +350,7 @@ The project plugin `claire.vmware_explore` (`plugins/ingest_adapter/claire.vmwar
 `validate_extractable_content(doc)` in `pipeline.py`: [code]
 
 - empty `raw_text` fails;
+- a `video` or `youtube` document with `has_transcript=False`, no presentation, and non-empty `stt_error` fails regardless of description length (`video_stt_failed`);
 - a `video` document with `has_transcript=False` and no presentation fails when the text without the notice, play time, and tag blocks is shorter than 250 characters (`video_transcript_missing`);
 - `web` and `custom` documents must pass `validate_web_content`.
 

@@ -305,7 +305,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
             from ...core.secret_scrub import register_secret
 
             register_secret(api_key)
-        return genai.Client(api_key=api_key)
+        return genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
 
     def _invoke(self, fn: Any) -> Any:
         """모델 호출 하나를 ``usage_hooks``로 감싼다(호출 전 ``before_call``, 성공 뒤 ``after_call``)."""
@@ -406,6 +406,8 @@ class GeminiTranscriptProvider(TranscriptProvider):
                         except Exception as inter_err:
                             if "400" in str(inter_err) and not self._is_member_key_error(inter_err):
                                 # 타임스탬프 비호환 언어 또는 옵션 충돌 시 smart 모드 단독 폴백
+                                self._clean_error(inter_err)
+                                logger.warning("Gemini STT %s returned 400; falling back to smart mode: %s", model_name, inter_err)
                                 interaction = self._invoke(lambda: client.interactions.create(
                                     model=model_name,
                                     input=[{

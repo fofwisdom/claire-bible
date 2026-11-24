@@ -150,7 +150,7 @@ def test_fetch_naver_clip_with_successful_stt(monkeypatch, mock_guarded_client):
                     "videoQuality": {"duration": 3900.0},
                     "vod": {
                         "media": [
-                            {"type": "AUDIO", "url": "https://cdn.pstatic.net/audio/clip_sample.m4a"},
+                            {"type": "AUDIO", "url": "https://cdn.pstatic.net/audio/clip_sample.m4a?hdnts=exp=1795~hmac=deadbeef"},
                         ]
                     },
                 }
@@ -189,9 +189,55 @@ def test_fetch_naver_clip_with_successful_stt(monkeypatch, mock_guarded_client):
     assert doc.title == "[기술밋업] 네이버 개발자가 들려주는 기술 이야기"
     assert "대규모 분산 아키텍처" in doc.raw_text
     assert doc.meta["is_stt"] is True
+    assert doc.meta["stt"] is True
     assert doc.meta["has_transcript"] is True
+    assert doc.meta["transcript_source"] == "stt"
+    assert doc.meta["transcript_segments"] == [{"start_sec": 0.0, "end_sec": 10.0, "text": "네이버 기술 밋업에 오신 것을 환영합니다."}]
+    assert "stt_segments" not in doc.meta
+    assert doc.meta["stream_url"] == "https://cdn.pstatic.net/audio/clip_sample.m4a"
     assert doc.meta["media_id"] == "A08CD689352F2A92D6BF04CC676647DAE467"
     assert doc.meta["fetch_via"] == "naver_clip"
+
+
+def test_fetch_naver_clip_title_uses_first_line_when_title_missing(plugin, monkeypatch, tmp_path, mock_guarded_client):
+    from claire.core.config import Settings
+
+    mod = plugin.module("adapter")
+    client = mod.NaverClipClient()
+    monkeypatch.setattr(client, "resolve_media_id", lambda url: "A08CD689352F2A92D6BF04CC676647DAE467")
+
+    card = {
+        "header": {"code": 0, "message": "success"},
+        "body": {
+            "card": {
+                "content": {
+                    "title": "",
+                    "description": "\n첫 번째 줄 제목\n\n두 번째 줄 상세 설명 본문입니다.",
+                    "profile": {"nickname": "NAVER D2"},
+                    "videoQuality": {"duration": 120.0},
+                    "vod": {"media": [{"type": "AUDIO", "url": "https://cdn.pstatic.net/audio/clip_sample.m4a"}]},
+                }
+            }
+        },
+    }
+    monkeypatch.setattr(client, "get_card", lambda mid: card)
+    monkeypatch.setattr(MOD + ".NaverClipClient", lambda: client)
+    mock_guarded_client(MOD, lambda request: httpx.Response(200, content=b"M4A_DATA"))
+
+    class FakeSTTResult:
+        full_text = "[00:01] 음성 전사 내용입니다."
+        segments = []
+        duration_sec = 120.0
+
+    class FakeSTTProvider:
+        def transcribe(self, path, language="ko", timestamps=True):
+            return FakeSTTResult()
+
+    monkeypatch.setattr(MOD + ".get_transcript_provider", lambda settings: FakeSTTProvider())
+
+    settings = Settings(db_path=str(tmp_path / "claire.db"), enable_video_transcription=True, environment="development")
+    doc = mod.fetch_naver_clip("https://naver.me/5eDc8abm", settings=settings)
+    assert doc.title == "첫 번째 줄 제목"
 
 
 def test_naver_tv_url_recognition():

@@ -223,3 +223,74 @@ def test_e2e_naver_clip_stt_failure_prevents_hallucination(monkeypatch, tmp_path
     # Ensure no hallucinated entities were created
     ents = conn.execute("SELECT COUNT(*) as cnt FROM entities").fetchone()
     assert ents["cnt"] == 0
+
+
+def test_e2e_naver_clip_stt_error_fails_closed_even_with_long_description_and_caches_audio(monkeypatch, tmp_path: Path, mock_guarded_client):
+    """Negative E2E: STT failure on a clip with a >=500-char description must fail closed (video_stt_failed) and keep audio in 3-day cache."""
+    from claire.core.config import Settings
+    from claire.store.video_cache import get_cached_video_file
+
+    conn = _init_memory_db()
+    vstore = VectorStore(conn, "brute")
+
+    long_description = "온톨로지 구축과 활용에 관한 NAVER Engineering Day 발표 소개입니다. " * 15
+    assert len(long_description.strip()) >= 500
+
+    card_api_data = {
+        "header": {"code": 0, "message": "success"},
+        "body": {
+            "card": {
+                "content": {
+                    "title": "",
+                    "description": f"온톨로지, 구축에서 활용까지.\n\n{long_description}",
+                    "profile": {"nickname": "NAVER D2"},
+                    "videoQuality": {"duration": 1508.5},
+                    "vod": {
+                        "media": [
+                            {"type": "AUDIO", "url": "https://cdn.pstatic.net/audio/stream.m4a?hdnts=exp=1795~hmac=abc"},
+                        ]
+                    },
+                }
+            }
+        },
+    }
+
+    audio_bytes = b"M4A_SYNTHETIC_AUDIO_CONTENT_FOR_CACHE" * 40
+
+    def handler(request):
+        url_str = str(request.url)
+        if "creatorhub-api" in url_str:
+            return httpx.Response(200, json=card_api_data)
+        if "stream.m4a" in url_str:
+            return httpx.Response(200, content=audio_bytes)
+        return httpx.Response(200, text='<html><meta property="og:url" content="https://m.naver.com/shorts/?seedMediaId=A08CD689352F2A92D6BF04CC676647DAE467" /></html>')
+
+    mock_guarded_client(MOD, handler)
+
+    class FailingSTTProvider:
+        def transcribe(self, path, language="ko", timestamps=True):
+            raise RuntimeError("Error code: 404 - Model 'gemini-3.5-transcribe' not found")
+
+    monkeypatch.setattr(MOD + ".get_transcript_provider", lambda settings: FailingSTTProvider())
+
+    settings = Settings(db_path=str(tmp_path / "claire.db"), enable_video_transcription=True, provider="mock", environment="development")
+    report = ingest(
+        "https://naver.me/5eDc8abm",
+        conn=conn,
+        provider=MockProvider(),
+        vstore=vstore,
+        data_dir=tmp_path,
+        settings=settings,
+    )
+
+    assert report.error is not None
+    assert "video_stt_failed" in report.error
+
+    docs = conn.execute("SELECT COUNT(*) as cnt FROM documents").fetchone()
+    assert docs["cnt"] == 0
+    ents = conn.execute("SELECT COUNT(*) as cnt FROM entities").fetchone()
+    assert ents["cnt"] == 0
+
+    cached = get_cached_video_file(tmp_path, "https://naver.me/5eDc8abm", canonical_url="https://m.naver.com/shorts/?seedMediaId=A08CD689352F2A92D6BF04CC676647DAE467")
+    assert cached is not None
+    assert cached.read_bytes() == audio_bytes
