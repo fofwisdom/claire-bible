@@ -2770,8 +2770,15 @@ def create_app(
 
         def _list() -> list[dict[str, Any]]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
+            # The rows of one account are mostly in few knowledge bases: read each knowledge base once for the list.
+            kb_refs: dict[int, dict[str, Any]] = {}
             try:
-                items = [{**_kb_ref(int(row["kb_id"])), **_contribution_view(conn, row, full=True)} for row in kb_collab.contributions_of_account(conn, account_id, origin=origin)]
+                items = []
+                for row in kb_collab.contributions_of_account(conn, account_id, origin=origin):
+                    kb_id = int(row["kb_id"])
+                    if kb_id not in kb_refs:
+                        kb_refs[kb_id] = _kb_ref(kb_id)
+                    items.append({**kb_refs[kb_id], **_contribution_view(conn, row, full=True)})
                 if origin in (None, "auto"):
                     items += [_automatic_offer_view(conn, row) for row in kf_offers.automatic_of_account(conn, account_id)]
                     items.sort(key=lambda item: -float(item["contributed_at"] or 0.0))

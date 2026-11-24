@@ -275,27 +275,26 @@ def test_cross_theme_document_detail_route(theme_app_client):
     assert resp_explicit_wrong.status_code == 404  # the path is the personal knowledge base 0; ``theme`` is ignored
 
 
-def test_cross_theme_shared_doc_page_fallback(theme_app_client):
-    """GET /p?s=token 호출 시 기본 DB doc_shares에 토큰은 있으나 본문이 기본 DB에 없을 때 타 테마 DB에서 문서를 찾아 렌더링."""
+def test_old_share_link_redirects_to_the_document_permalink(theme_app_client):
+    """GET /p?s=token (an old share link) of a document in a shared knowledge base redirects to the permalink of the document, and the permalink page shows the document."""
     client, settings = theme_app_client
     owner_headers = bearer_headers(settings, scope="owner")
     from claire.store import db as dbm
 
-    # 1. 새 테마(id: 1) 생성 및 문서 적재
+    # 1. Make a shared knowledge base (id 1) and ingest a document into it.
     client.post("/kb", json={"knowledge_type": "real", "label": "클라우드 아키텍처"}, headers=owner_headers)
     seed(settings, 1, "클라우드 설계 원칙 공유 본문")
     doc_id = client.get(kb_url(settings, 1, "/documents")).json()["documents"][0]["id"]
 
-    # 2. 기본 DB(테마 0)의 doc_shares에만 강제로 토큰 생성 (Theme 0 documents 테이블에는 이 문서가 없음)
+    # 2. Share the document with the knowledge base of the document, as each caller of create_doc_share does.
     conn0 = dbm.connect_existing(settings.db_file)
     try:
-        orphan_token = dbm.create_doc_share(conn0, doc_id)
+        share_token = dbm.create_doc_share(conn0, doc_id, kb_id=1)
     finally:
         conn0.close()
 
-    # 3. GET /p?s={orphan_token} 호출 -> 테마 0 doc_shares에서 doc_id 발견 -> 테마 0 _document_detail은 None
-    #    -> theme_mgr.resolve_document_targets(doc_id=doc_id)로 테마 1에서 본문 획득 후 200 HTML 정상 렌더링
-    page_resp = client.get(f"/p?s={orphan_token}")
+    # 3. GET /p?s={share_token} -> 308 to /silvercord/{token} -> 200 HTML of the document.
+    page_resp = client.get(f"/p?s={share_token}")
     assert page_resp.status_code == 200
     assert "text/html" in page_resp.headers.get("content-type", "")
     assert "클라우드 설계 원칙 공유 본문" in page_resp.text or "클라우드" in page_resp.text

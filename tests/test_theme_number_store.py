@@ -251,9 +251,7 @@ def test_kb_zero_uses_db_presentation_flag_and_ignores_retired_env(tmp_path: Pat
     assert created.id == 1
 
 
-def test_recreates_missing_theme_zero_in_db(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_recreates_missing_theme_zero_in_db(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     KnowledgeBaseManager(base_settings=settings)
     conn = dbm.connect(settings.db_file)
@@ -262,8 +260,7 @@ def test_recreates_missing_theme_zero_in_db(
         conn.commit()
     finally:
         conn.close()
-    # 생성자의 init_db가 행을 먼저 되살리지 않게 막고, reload 경로가 행을 만드는지 본다.
-    monkeypatch.setattr(KnowledgeBaseManager, "_init_db_file", lambda self: None)
+    # A DB file without row 0 does not take the read-only path of a prepared file: the reload prepares the file again and makes the row.
     manager = KnowledgeBaseManager(base_settings=settings)
     row = _db_row(settings, 0)
     assert row is not None and row["is_personal"] == 1 and row["account_id"] == 1

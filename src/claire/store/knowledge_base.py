@@ -11,6 +11,7 @@ import os
 import re
 import sqlite3
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -27,6 +28,11 @@ log = logging.getLogger("claire.theme")
 
 # Retired by claire.db version 27. Only ``_retire_legacy_registry`` reads it, once.
 LEGACY_REGISTRY_FILENAME = "themes.json"
+
+# The DB files (resolved paths) that this process prepared with a writable reload: ``init_db``, the legacy imports, the default row, and the number backfill. Each step is idempotent, and ``dbm.connect_existing`` expects them once at process start. A later reload of a prepared file only reads the rows; a route that calls ``get_kb`` for each row of a list thus does not run the migrations for each row.
+_prepared_db_files: set[str] = set()
+_prepare_lock = threading.Lock()
+
 # O5: 테마 FQDN 쓰기는 폐지됐다. 옛 호스트는 ``legacy_hosts``(v16)로 308 리다이렉트한다.
 THEME_FQDN_RETIRED_MESSAGE = "theme FQDN is retired; legacy hosts redirect via legacy_hosts"
 
@@ -318,19 +324,8 @@ class KnowledgeBaseManager:
         self._next_seq: int = 1
         # Rows that are neither a personal nor a shared knowledge base (design Section 12.2 step 3): no route serves them; the admin page lists them.
         self._unavailable: dict[int, tuple[KnowledgeBaseInfo, str]] = {}
-        if self.writable:
-            self._init_db_file()
+        # A writable manager prepares the DB file in its first reload (``init_db`` included), once for each process.
         self.reload()
-
-    def _init_db_file(self) -> None:
-        db_file = getattr(self.settings, "db_file", None)
-        if db_file is not None:
-            Path(db_file).parent.mkdir(parents=True, exist_ok=True)
-            conn = dbm.connect(db_file)
-            try:
-                dbm.init_db(conn)
-            finally:
-                conn.close()
 
     def _rebuild_fqdn_index(self) -> None:
         idx: dict[str, int] = {}
@@ -376,6 +371,8 @@ class KnowledgeBaseManager:
         """Load the knowledge bases from the table ``knowledge_bases`` of ``claire.db``. The database is the only source.
 
         ``data/themes.json`` is retired (claire.db version 27, design Section 12.1 step 3): the first writable load inserts the entries that are only in the file, as the old code did, and then renames the file to ``themes.json.retired``. No code reads or writes it after that.
+
+        A writable load prepares the DB file only once in each process (``_prepared_db_files``); each later load only reads the rows.
         """
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
         if not self.writable:
@@ -401,13 +398,60 @@ class KnowledgeBaseManager:
             finally:
                 conn.close()
 
-        Path(db_file).parent.mkdir(parents=True, exist_ok=True)
+        if self._load_prepared(Path(db_file)):
+            return
+        with _prepare_lock:
+            # Another thread can prepare the file while this thread waits for the lock.
+            if self._load_prepared(Path(db_file)):
+                return
+            self._prepare_and_load(Path(db_file))
+            _prepared_db_files.add(str(Path(db_file).resolve()))
+
+    def _legacy_inputs_present(self, db_file: Path) -> bool:
+        """True when the data directory has a legacy registry file or a theme DB that is not migrated: only the full preparation imports them."""
+        data_dir = Path(getattr(self.settings, "data_dir", None) or db_file.parent)
+        if (data_dir / LEGACY_REGISTRY_FILENAME).is_file():
+            return True
+        themes_dir = data_dir / "themes"
+        return themes_dir.is_dir() and any((d / "claire.db").is_file() for d in themes_dir.iterdir() if d.is_dir())
+
+    def _load_prepared(self, db_file: Path) -> bool:
+        """Read the rows of a DB file that this process prepared, without a migration and without a write. False when the file needs the full preparation: it is not prepared in this process, it is gone or replaced by a file of another schema, it has no row 0, it has a row of the old shape or a row without a number, or a legacy input is present."""
+        if str(db_file.resolve()) not in _prepared_db_files or not db_file.is_file() or self._legacy_inputs_present(db_file):
+            return False
+        # The same connection as the full preparation. This path only reads.
+        conn = dbm.connect(db_file)
+        try:
+            if dbm.stored_schema_version(conn) != dbm.SCHEMA_VERSION or dbm.stored_schema_lineage(conn) != dbm.SCHEMA_LINEAGE:
+                return False
+            rows = conn.execute("SELECT * FROM knowledge_bases ORDER BY id").fetchall()
+        finally:
+            conn.close()
+        if not any(int(r["id"]) == 0 for r in rows):
+            return False
+        # A row of the old shape (an owner and not personal) or a row without a number needs the conversion and the backfill of the full preparation.
+        if any((not r["is_personal"] and r["account_id"] is not None) or r["number"] is None for r in rows):
+            return False
+        self._apply_rows(rows, str(db_file), legacy_next_seq=1)
+        return True
+
+    def _apply_rows(self, rows: Any, db_file: str, *, legacy_next_seq: int) -> None:
+        loaded, unavailable = self._split_by_kind(rows, db_file)
+        self._themes = loaded
+        self._unavailable = unavailable
+        max_seq = max((t.seq for t in [*loaded.values(), *(u[0] for u in unavailable.values())]), default=0)
+        self._next_seq = max(max_seq + 1, legacy_next_seq)
+        self._rebuild_fqdn_index()
+
+    def _prepare_and_load(self, db_file: Path) -> None:
+        """Prepare the DB file (``init_db``, the legacy imports, the default row, the number backfill), then read the rows."""
+        db_file.parent.mkdir(parents=True, exist_ok=True)
         conn = dbm.connect(db_file)
         legacy_next_seq = 1
         try:
             dbm.init_db(conn)
 
-            data_dir = getattr(self.settings, "data_dir", None) or Path(db_file).parent
+            data_dir = getattr(self.settings, "data_dir", None) or db_file.parent
             themes_dir = Path(data_dir) / "themes"
             if themes_dir.is_dir() and any((d / "claire.db").is_file() for d in themes_dir.iterdir() if d.is_dir()):
                 try:
@@ -430,13 +474,7 @@ class KnowledgeBaseManager:
             dbm.backfill_theme_numbers(conn)
             conn.commit()
             rows = conn.execute("SELECT * FROM knowledge_bases ORDER BY id").fetchall()
-
-            loaded, unavailable = self._split_by_kind(rows, str(db_file))
-            self._themes = loaded
-            self._unavailable = unavailable
-            max_seq = max((t.seq for t in [*loaded.values(), *(u[0] for u in unavailable.values())]), default=0)
-            self._next_seq = max(max_seq + 1, legacy_next_seq)
-            self._rebuild_fqdn_index()
+            self._apply_rows(rows, str(db_file), legacy_next_seq=legacy_next_seq)
         finally:
             conn.close()
 

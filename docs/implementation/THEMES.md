@@ -46,6 +46,7 @@
 - 정본은 DB의 `knowledge_bases` 테이블이다.
 - `data/themes.json`은 `_save_registry()`가 원자적으로 다시 쓰는 사본이다.
 - `reload()`는 DB 행을 읽고, JSON에만 있는 항목은 DB에 `INSERT OR IGNORE`로 넣는다. 그래서 두 곳이 다르면 DB 값이 이긴다.
+- **[code]** A writable `reload()` prepares the DB file only once in each process (`_prepare_and_load`): `init_db`, the legacy imports, row 0, the v28 conversion, and the number backfill. A later `reload()` of the same file only reads the rows (`_load_prepared`), also in a new `KnowledgeBaseManager`. It prepares the file again when the file is gone or has another schema, when row 0 is missing, when a row has the old shape or no number, or when `data/themes.json` or a legacy theme DB is present. Before this rule, each `get_kb` call ran `init_db`: `/api/contributions` with 144 rows took 13–16 s in production (2026-11-24), and the CSP header of each HTML response ran `init_db` on the event loop.
 - `define_kb`은 DB에 넣고 커밋한 뒤 JSON을 다시 쓴다. ID는 `seq`와 같은 일련번호(`_next_seq`)다.
 
 **[코드] 기본 테마(`theme.is_personal=True`)는 항상 계정마다 1개 존재하며 삭제할 수 없다.** 관리자 계정의 기본 테마는 ID 0이며, 멤버 계정의 기본 테마는 `id > 0, is_personal = 1`이다. 모든 기본 테마는 협업자 접근이 꺼져 있다.

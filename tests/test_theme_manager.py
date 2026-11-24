@@ -420,3 +420,35 @@ def test_theme_manager_auto_migration_on_startup(tmp_path):
 
 
 
+
+
+def test_writable_reload_prepares_the_db_once_and_then_reads_new_rows(temp_theme_env, monkeypatch):
+    """A later writable reload of a prepared DB file runs no migration (init_db), and it still reads the rows that another manager wrote."""
+    from claire.store import db as dbm
+
+    manager, _, _ = temp_theme_env
+    calls = []
+    real_init_db = dbm.init_db
+    monkeypatch.setattr(dbm, "init_db", lambda conn: (calls.append(1), real_init_db(conn))[1])
+
+    other = KnowledgeBaseManager(base_settings=manager.settings)
+    created = other.define_kb("written by another manager", knowledge_type="real")
+    for _ in range(5):
+        assert manager.get_kb(created.id).label == "written by another manager"
+
+    assert calls == []
+
+
+def test_writable_reload_prepares_a_replaced_db_file_again(temp_theme_env):
+    """A prepared DB file that is replaced by an empty file gets the schema and the default row again on the next reload."""
+    import sqlite3
+
+    manager, _, _ = temp_theme_env
+    db_file = Path(manager.settings.db_file)
+    for suffix in ("", "-wal", "-shm"):
+        db_file.with_name(db_file.name + suffix).unlink(missing_ok=True)
+    sqlite3.connect(db_file).close()
+
+    manager.reload()
+
+    assert [t.id for t in manager.list_kbs()] == [0]
