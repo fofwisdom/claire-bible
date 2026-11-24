@@ -16,6 +16,7 @@ __all__ = [
     "console_form_card",
     "console_host",
     "console_kv",
+    "console_language_list",
     "console_notice",
     "console_pill",
     "console_result",
@@ -335,3 +336,51 @@ def console_flow(
     aria_attr = f' aria-label="{escape(aria_label)}"' if aria_label else ""
     # role="list": a list with list-style none keeps its list role in each screen reader.
     return f'<ol class="console-flow" role="list"{aria_attr}{_attrs_html(attrs)}>{"".join(items)}</ol>'
+
+
+# Suggestions of the language field of a language list. Any language tag is valid; the browser shows the name of each code (Intl.DisplayNames, console_languages.js).
+LANGUAGE_SUGGESTIONS: tuple[str, ...] = ("ko", "en", "ja", "zh", "zh-hant", "es", "fr", "de", "it", "pt", "ru", "vi", "th", "id", "ar", "hi")
+
+
+def console_language_list(
+    languages: Sequence[str],
+    *,
+    list_id: str,
+    endpoint: str,
+    method: str,
+    field: str,
+    labels: Mapping[str, str],
+    fixed_language: str = "en",
+    follow: bool = False,
+    reload_on_save: bool = False,
+    attrs: Mapping[str, Any] | None = None,
+) -> str:
+    """Build the form of an ordered language list (``console_languages.js`` binds it): the items with buttons up, down, and remove, a field to add a language tag, and the save button with its result. ``labels`` has plain text for ``position``, ``up``, ``down``, ``remove``, ``add``, ``input``, ``save``, and (with ``follow``) ``follow``: a button that sends ``null`` (follow the server default). ``fixed_language`` cannot be removed."""
+    items: list[str] = []
+    for tag in languages:
+        tag_e = escape(tag)
+        remove_disabled = " disabled" if tag == fixed_language else ""
+        items.append(
+            f'<li data-lang="{tag_e}"><span class="console-lang-pos" aria-hidden="true"></span>'
+            f'<span class="console-lang-name" data-lang-name="{tag_e}">{tag_e}</span> <code class="pref-mono">{tag_e}</code>'
+            f'<span class="console-lang-btns">'
+            f'<button type="button" class="pref-btn pref-btn-sm" data-lang-up aria-label="{escape(labels["up"])}">↑</button>'
+            f'<button type="button" class="pref-btn pref-btn-sm" data-lang-down aria-label="{escape(labels["down"])}">↓</button>'
+            f'<button type="button" class="pref-btn pref-btn-sm" data-lang-remove aria-label="{escape(labels["remove"])}"{remove_disabled}>✕</button>'
+            f"</span></li>"
+        )
+    suggestions = "".join(f'<option value="{escape(code)}"></option>' for code in LANGUAGE_SUGGESTIONS)
+    follow_html = f'<button type="button" class="pref-btn" data-lang-follow>{escape(labels["follow"])}</button>' if follow else ""
+    input_id = f"{list_id}-input"
+    return (
+        f'<form class="console-lang-form" data-language-form data-endpoint="{escape(endpoint)}" data-method="{escape(method)}" data-field="{escape(field)}" data-fixed-language="{escape(fixed_language)}"'
+        f'{" data-reload-on-save" if reload_on_save else ""}{_attrs_html(attrs)}>'
+        f'<ol class="console-lang-list" role="list" id="{escape(list_id)}" data-language-list aria-label="{escape(labels["position"])}">{"".join(items)}</ol>'
+        f'<div class="console-form-row"><label class="console-field" for="{escape(input_id)}">{escape(labels["input"])}'
+        f'<input id="{escape(input_id)}" class="pref-input" data-lang-input list="{escape(list_id)}-suggest" autocomplete="off" maxlength="35" spellcheck="false"></label>'
+        f'<button type="button" class="pref-btn" data-lang-add>{escape(labels["add"])}</button></div>'
+        f'<datalist id="{escape(list_id)}-suggest">{suggestions}</datalist>'
+        f'<div class="console-actions"><button type="submit" class="pref-btn pref-btn-accent">{escape(labels["save"])}</button>{follow_html}'
+        f'<p class="result" role="status" aria-live="polite" data-language-result></p></div>'
+        "</form>"
+    )

@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from collections.abc import Iterable
 from typing import Any
 
 from ...accounts.provider_policy import ProviderPolicyError
@@ -26,14 +27,16 @@ from .base import TranscriptProvider, TranscriptResult, TranscriptSegment
 
 logger = logging.getLogger(__name__)
 
-# STT language values that send no language code: Google detects the spoken language. "ko" is the default value of the STT language; it does not force Korean, thus a video in another language without captions still gets a correct transcript.
-AUTO_DETECT_LANGUAGES = frozenset({"", "auto", "ko"})
+# The STT language value that sends the preferred languages of the job as hints (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P2).
+AUTO_LANGUAGE = "auto"
 
 
-def stt_language_codes(language: str | None) -> list[str]:
-    """The ``language_codes`` of the transcription request (Interactions API). An empty list lets Google detect the spoken language."""
+def stt_language_codes(language: str | None, preferred: Iterable[str]) -> list[str]:
+    """The ``language_codes`` of the transcription request (Interactions API: "hints about the languages present in the audio"). ``auto`` or empty: the preferred languages of the job in their order; one language tag: that tag only."""
     code = str(language or "").strip()
-    return [] if code.lower() in AUTO_DETECT_LANGUAGES else [code]
+    if not code or code.lower() == AUTO_LANGUAGE:
+        return [str(tag) for tag in preferred]
+    return [code]
 
 
 _TS_LINE_RE = re.compile(
@@ -263,7 +266,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
         self.provider_context = context_of(settings) if settings is not None else None
         raw_model = getattr(settings, "stt_model", "") or ""
         self.model = raw_model.strip() or "gemini-3.5-transcribe"
-        self.language = getattr(settings, "stt_language", "ko")
+        self.language = getattr(settings, "stt_language", AUTO_LANGUAGE) or AUTO_LANGUAGE
         self.timeout = float(getattr(settings, "stt_timeout", 600.0))
         self.chunk_duration = float(getattr(settings, "video_chunk_duration_sec", 240.0))
         user_vocab = getattr(settings, "stt_custom_vocabulary", [])
@@ -331,6 +334,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
         audio_file: Path,
         target_lang: str,
         offset_sec: float,
+        language_codes: list[str] | None = None,
     ) -> list[TranscriptSegment]:
         from google.genai import types
 
@@ -359,7 +363,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
             vocab_str = ", ".join(self.custom_vocabulary)
             prompt = (
                 f"You are a professional speech-to-text transcriber for technical conferences. "
-                f"Transcribe the spoken audio into accurate text in {target_lang}. "
+                f"Transcribe the spoken audio into accurate text in {target_lang if target_lang.lower() != AUTO_LANGUAGE else 'the spoken language'}. "
                 f"Requirements:\n"
                 f"1. Prepend accurate timestamps in [MM:SS] format at the start of each line or sentence.\n"
                 f"2. Accurately preserve all technical terminology, infrastructure jargon, and product names.\n"
@@ -384,9 +388,8 @@ class GeminiTranscriptProvider(TranscriptProvider):
                                 "timestamp_granularities": ["word"],
                             }
                         }
-                        codes = stt_language_codes(target_lang)
-                        if codes:
-                            trans_cfg["language_codes"] = codes
+                        if language_codes:
+                            trans_cfg["language_codes"] = list(language_codes)
 
                         try:
                             interaction = self._invoke(lambda: client.interactions.create(
@@ -522,9 +525,11 @@ class GeminiTranscriptProvider(TranscriptProvider):
         *,
         language: str | None = None,
         timestamps: bool = True,
+        language_codes: list[str] | None = None,
     ) -> TranscriptResult:
+        """``language_codes`` (the laboratory measurement): the hints of the request as given, also an empty list (no hints); else ``stt_language_codes`` of ``language`` and the preferred languages of the job."""
         try:
-            return self._transcribe(audio_path, language=language, timestamps=timestamps)
+            return self._transcribe(audio_path, language=language, timestamps=timestamps, language_codes=language_codes)
         except ProviderPolicyError:
             raise
         except Exception as err:
@@ -539,12 +544,14 @@ class GeminiTranscriptProvider(TranscriptProvider):
         *,
         language: str | None = None,
         timestamps: bool = True,
+        language_codes: list[str] | None = None,
     ) -> TranscriptResult:
         p = Path(audio_path).resolve()
         if not p.is_file():
             raise FileNotFoundError(f"Audio file not found: {p}")
 
-        target_lang = language or self.language or "ko"
+        target_lang = language or self.language or AUTO_LANGUAGE
+        codes = list(language_codes) if language_codes is not None else stt_language_codes(target_lang, getattr(self.settings, "effective_preferred_languages", None) or ())
         client = self._get_genai_client()
 
         # 오디오 길이 측정
@@ -590,6 +597,7 @@ class GeminiTranscriptProvider(TranscriptProvider):
                     audio_file=chunk_file,
                     target_lang=target_lang,
                     offset_sec=offset,
+                    language_codes=codes,
                 )
                 all_segments.extend(segs)
 

@@ -312,15 +312,28 @@ def test_old_host_cli_variables_are_ignored(monkeypatch, tmp_path: Path):
     assert not hasattr(settings, "agy_bin") and not hasattr(settings, "codex_bin")
 
 
-def test_preferred_languages_config(monkeypatch):
-    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "ko, ja, zh")
-    settings = Settings(_env_file=None)
+def test_preferred_languages_come_from_the_database_and_not_from_the_environment(monkeypatch, tmp_path):
+    """ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P3: the server default language of claire.db; the old variable has no effect."""
+    from claire.accounts import languages
+    from claire.store import db as dbm
+
+    monkeypatch.delenv("CLAIRE_PREFERRED_LANGUAGES", raising=False)
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    try:
+        dbm.init_db(conn)
+        languages.set_server_languages(conn, ["ko", "ja", "zh"], updated_by=1)
+    finally:
+        conn.close()
+    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "fr")
+    monkeypatch.setenv("PREFERRED_LANGUAGES", "fr")
+    settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file))
     assert settings.effective_preferred_languages == ["ko", "ja", "zh", "en"]
     assert settings.effective_youtube_languages == ["ko", "ja", "zh", "en"]
-
-    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "en, fr")
-    settings_fr = Settings(_env_file=None)
-    assert settings_fr.effective_preferred_languages == ["fr", "en"]
+    # The list of a job (settings_for_context) keeps the place of en.
+    assert Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), preferred_languages="en,fr").effective_preferred_languages == ["en", "fr"]
+    # No database: English only.
+    assert Settings(_env_file=None, CLAIRE_DB_PATH=str(tmp_path / "none.db")).effective_preferred_languages == ["en"]
 
 
 def test_model_fields_have_no_environment_variable(monkeypatch, tmp_path):

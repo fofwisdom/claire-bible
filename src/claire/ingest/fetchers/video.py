@@ -13,6 +13,7 @@ from ...core.config import ProviderUnavailableError, Settings, find_ffmpeg_execu
 from ...extract.provider import emit_progress
 from ...extract.table_budget import slice_document_text
 from ...extract.transcript.factory import get_transcript_provider
+from ...extract.transcript.gemini_stt import AUTO_LANGUAGE
 from ...ontology.base import Document
 from ..normalize import canonicalize_url, content_hash
 from .base import FetchError, attach_usage_hooks, fetch_settings
@@ -21,7 +22,6 @@ from .captions import (
     acquire_caption,
     format_chapters,
     is_valid_speech_vtt,
-    stt_language_for,
 )
 
 logger = logging.getLogger(__name__)
@@ -195,7 +195,7 @@ def fetch_video(
                 try:
                     stt_provider = get_transcript_provider(settings)
                     attach_usage_hooks(stt_provider, settings)
-                    lang_code = stt_language_for(settings.stt_language, target_langs)
+                    lang_code = str(settings.stt_language or "").strip() or AUTO_LANGUAGE
                     stt_result = stt_provider.transcribe(
                         cached_file, language=lang_code, timestamps=True
                     )
@@ -260,7 +260,7 @@ def fetch_video(
                             downloaded_file = audio_candidates[0]
                             stt_provider = get_transcript_provider(settings)
                             attach_usage_hooks(stt_provider, settings)
-                            lang_code = stt_language_for(settings.stt_language, target_langs)
+                            lang_code = str(settings.stt_language or "").strip() or AUTO_LANGUAGE
                             stt_result = stt_provider.transcribe(
                                 downloaded_file, language=lang_code, timestamps=True
                             )

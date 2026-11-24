@@ -204,7 +204,7 @@ def test_e2e_automatic_notice_for_a_non_public_message(env):
     assert rows() == [(env.alpha, ZED, 2)]
     assert _client_rows(env.settings, told) == [(env.alpha, "ap_private_message", 1)]
     # Another sender gets its own notice. The account has the Korean locale now.
-    _db(env.settings, lambda conn: accounts_store.AccountStore(conn).update_locale(env.alpha, "ko"))
+    _db(env.settings, lambda conn: accounts_store.AccountStore(conn).update_preferred_languages(env.alpha, ["ko"]))
     assert private(YURI, 1)["notices"] == [{"actor_public_id": str(ALPHA_PUBLIC_ID), "content": korean, "language": "ko"}]
     # A message to two accounts gets one notice from each account that is an actor. Beta has no locale: the notice is English.
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET status='suspended' WHERE id=?", (env.beta,)))

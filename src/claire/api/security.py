@@ -657,6 +657,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/admin/server"): _system("admin", "none"),
     ("HEAD", "/api/admin/server"): _system("admin", "none"),
     ("POST", "/api/admin/server/mode"): _system("admin", "none"),
+    # ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P1, P3: the server default language.
+    ("PUT", "/api/admin/server/languages"): _system("admin", "none"),
     ("POST", "/api/admin/server/invites"): _system("admin", "none"),
     ("POST", "/api/admin/server/legacy-hosts/sunset"): _system("admin", "none"),
     ("GET", "/api/admin/federation"): _system("admin", "none"),

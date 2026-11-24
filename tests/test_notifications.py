@@ -461,7 +461,7 @@ def _state(world) -> tuple[int, int]:
 def test_sender_sends_an_encrypted_message_with_the_text_of_the_account_locale(world):
     _one_subscription(world, "ben")
     conn = dbm.connect_existing(world.db_file)
-    conn.execute("UPDATE accounts SET locale='ko' WHERE id=?", (ACCOUNTS["ben"],))
+    conn.execute("UPDATE accounts SET preferred_languages='ko,en' WHERE id=?", (ACCOUNTS["ben"],))
     conn.commit()
     conn.close()
     events.ap_quote_request(world.db_file, account_id=ACCOUNTS["ben"], actor_iri="https://social.example/users/alice")

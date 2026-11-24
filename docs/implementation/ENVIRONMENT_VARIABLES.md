@@ -159,7 +159,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([INGESTION.md](INGESTION.md) §9 참조) |
 | `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY`가 없거나 STT를 지원하지 않는 프로바이더이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
-| `CLAIRE_STT_LANGUAGE` | `ko` | ISO 언어 코드 (예: `ko`, `en`, `ja`) | STT 기본 인식 대상 언어 (비어있을 경우 자동 감지). |
+| `CLAIRE_STT_LANGUAGE` | `auto` | `auto` 또는 언어 태그 하나 (예: `ja`) | `providers.json`이 없을 때의 STT 언어(한 번 이전된 뒤에는 `/admin/providers`가 정한다). `auto`는 작업 계정의 선호 언어를 힌트(`language_codes`)로 보내고, 언어 태그 하나는 그 언어만 보낸다. 예전 값 `ko`는 자동 판별을 뜻했으므로 이전할 때 `auto`가 된다([ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md](../design/ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md) P2). |
 | `CLAIRE_STT_TIMEOUT` | `600.0` | 부동소수점 (초) | STT 호출 제한 시간. |
 | `CLAIRE_STT_CUSTOM_VOCABULARY` | *(빈 목록)* | 쉼표 또는 줄바꿈 구분 문자열 | STT 프롬프트에 추가할 사용자 지정 용어 목록 (예: `vSAN,vCenter,Tanzu`). |
 | `CLAIRE_VIDEO_CHUNK_DURATION_SEC` | `240` | 정수 (초) | 단일 오디오 분할 청크 길이. `gemini-3.5-transcribe`의 10K TPM 한도 보호를 위해 기본 240초(4분, 약 6,000 토큰)로 제한. |
@@ -270,12 +270,12 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 ---
 
-### 2.11 선호 언어 및 로컬라이제이션
+### 2.11 언어 (선호 언어는 데이터베이스에 있다)
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PREFERRED_LANGUAGES` | `ko` | 쉼표 구분 언어 코드 (예: `ko,ja`) | **프로젝트 광역 선호 언어 목록**. 수집기 자막·트랙 선택과 VLM 전사 언어에 쓴다. 추출 요약·상세 출력 언어는 이 값과 무관하게 한국어다([EXTRACTION.md](EXTRACTION.md) §2.3). 영어(`en`)는 명시하지 않아도 항상 공통 기본 폴백으로 포함된다. (기존 개별 환경변수 `CLAIRE_VLM_LANGUAGE`는 공식 파기되었으며 광역 선호 언어 제1순위 언어로 일원화됨. [PREFERRED_LANGUAGES_DESIGN.md](../design/PREFERRED_LANGUAGES_DESIGN.md) 및 [CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md](../design/CROSS_TYPE_ENTITY_RESOLUTION_AND_VLM_LOCALIZATION_DESIGN.md) 참조) |
-| `CLAIRE_LANG` | `""` | `en`, `ko`, 또는 빈 값 | **서버 기본 인터페이스 언어**(WebUI, 텔레그램 봇). CLI는 번역하지 않는다(ID6). 계정 설정, 쿠키, `Accept-Language`로 언어가 정해지지 않을 때 쓴다. 비어 있으면 `en`이다. 그 밖의 값은 시작할 때 `ValidationError`로 거부한다. 문서 수집 언어(`CLAIRE_PREFERRED_LANGUAGES`)와 무관하다. ([I18N.md](I18N.md) 참조) |
+| `CLAIRE_PREFERRED_LANGUAGES` | (읽지 않음) | 쉼표 구분 언어 코드 | **폐기**. 스키마 v46 이관이 한 번만 읽어 서버 기본 언어(`server_settings.default_languages`, `/admin/server`)로 옮긴다. 이관 뒤에는 어떤 코드도 읽지 않고, `claire preflight`가 효과 없음을 알린다. 선호 언어는 계정마다의 목록(`/account/profile`)과 서버 기본 언어다([ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md](../design/ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md) P3). |
+| `CLAIRE_LANG` | `""` | `en`, `ko`, 또는 빈 값 | **방문자 화면 언어**(WebUI, 텔레그램 봇). 로그인하지 않은 방문자, 그리고 자기 선호 언어 목록이 없고 서버 기본 언어도 선택되지 않은 계정에서 쿠키와 `Accept-Language` 다음에 쓴다. 비어 있으면 `en`이다. 그 밖의 값은 시작할 때 `ValidationError`로 거부한다. 서버 기본 언어(`/admin/server`)와는 다른 설정이다. CLI는 번역하지 않는다(ID6). ([I18N.md](I18N.md)) |
 
 ---
 
@@ -415,7 +415,6 @@ CLAIRE_PUBLIC_URL=https://claire.example.com
 CLAIRE_RENDER_FORMAT=adoc
 CLAIRE_DATA_LIFECYCLE=purgeable
 CLAIRE_ALLOW_PURGE=1
-CLAIRE_PREFERRED_LANGUAGES=ko
 ```
 
 ### 4.2 개발 환경 (`.env.dev`) 권장 설정

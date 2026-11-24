@@ -100,7 +100,7 @@ def _bot_settings(tmp_path: Path, **overrides: object) -> Settings:
 def _set_admin_locale(db_file: Path, locale: str | None) -> None:
     conn = dbm.connect(db_file)
     try:
-        AccountStore(conn).update_locale(dbm.ADMIN_ACCOUNT_ID, locale)
+        AccountStore(conn).update_preferred_languages(dbm.ADMIN_ACCOUNT_ID, None if locale is None else [locale])
         conn.commit()
     finally:
         conn.close()
@@ -211,7 +211,7 @@ async def test_member_bot_resolves_the_locale_of_its_owner_account(tmp_path: Pat
     await handlers["on_web"](update, ctx)
     assert msg.reply_text.call_args[0][0] == t("bot.error.member_refusal", locale="ko")
     conn = dbm.connect(settings.db_file)
-    AccountStore(conn).update_locale(member, "ko")
+    AccountStore(conn).update_preferred_languages(member, ["ko"])
     conn.commit()
     conn.close()
     update, msg = _fake_update("en")

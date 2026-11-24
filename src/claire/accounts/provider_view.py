@@ -56,16 +56,15 @@ def _media_row(settings: Any, kind: str) -> dict[str, Any]:
 
 
 def media_language_order(settings: Any) -> dict[str, Any]:
-    """The language order of a video without a choice per ingest (``ingest/fetchers/video.py``): publisher captions, then automatic captions, each in the order of ``caption_languages``; STT only when no caption is usable, in ``stt_language`` (``stt_detects_language``: Google detects the spoken language). VLM writes in ``vlm_language``."""
-    from ..extract.transcript.gemini_stt import stt_language_codes
-    from ..ingest.fetchers.captions import stt_language_for
+    """The language order of a video (``ingest/fetchers/video.py``) for the preferred languages of ``settings``: publisher captions, then automatic captions, each in the order of ``caption_languages``; STT only when no caption is usable, with the hints ``stt_hints`` (``stt_language`` ``auto``: the preferred languages; one tag: that tag). VLM writes in ``vlm_language``."""
+    from ..extract.transcript.gemini_stt import AUTO_LANGUAGE, stt_language_codes
 
     languages = list(settings.effective_preferred_languages)
-    stt_language = stt_language_for(getattr(settings, "stt_language", ""), languages)
+    stt_language = str(getattr(settings, "stt_language", "") or "").strip() or AUTO_LANGUAGE
     return {
         "caption_languages": languages,
         "stt_language": stt_language,
-        "stt_detects_language": not stt_language_codes(stt_language),
+        "stt_hints": stt_language_codes(stt_language, languages),
         "vlm_language": str(settings.effective_vlm_language),
     }
 
@@ -101,8 +100,9 @@ def describe_server_providers(settings: Any) -> dict[str, Any]:
     }
 
 
-def _account_row(db_path: Path, account_id: int) -> tuple[str, str, ServerTier]:
+def _account_row(db_path: Path, account_id: int) -> tuple[str, str, ServerTier, tuple[str, ...]]:
     from ..store.db import connect_existing
+    from . import languages as _languages
     from . import server_tier as _server_tier
 
     conn = connect_existing(db_path, readonly=True)
@@ -112,7 +112,7 @@ def _account_row(db_path: Path, account_id: int) -> tuple[str, str, ServerTier]:
             raise LookupError(f"account {account_id} not found")
         role, status = str(row[0]), str(row[1])
         tier = ServerTier() if role == "admin" else _server_tier.load_server_tier(conn)
-        return role, status, tier
+        return role, status, tier, _languages.account_languages(conn, int(account_id))
     finally:
         conn.close()
 
@@ -151,7 +151,7 @@ def describe_account_providers(
 
     db_file = Path(db_path) if db_path is not None else Path(settings.db_file)
     auth_file = Path(auth_db_path) if auth_db_path is not None else _auth_db.auth_db_path(settings.data_dir)
-    role, status, tier = _account_row(db_file, account_id)
+    role, status, tier, account_langs = _account_row(db_file, account_id)
     server_admin = role == "admin"
     meta, prefs = _key_state(auth_file, account_id)
     key: dict[str, Any] | None = None
@@ -175,7 +175,7 @@ def describe_account_providers(
         ctx = tier_context(int(account_id), settings=settings, tier=tier)
         source = "tier" if ctx.source == "tier" else "none"
 
-    msettings = settings_for_context(settings, ctx)
+    msettings = settings_for_context(settings, replace(ctx, languages=account_langs))
     has_api = source in ("byok", "key_problem", "server", "tier")
     slots: list[dict[str, Any]] = []
     for row in _slot_rows(msettings):
@@ -203,7 +203,7 @@ def describe_account_providers(
         if kind == "stt" and server_on:
             row["model"] = str(getattr(settings, "stt_model", "") or "").strip() or STT_MODEL
         if kind == "stt":
-            row["order"] = media_language_order(settings)
+            row["order"] = media_language_order(msettings)
         return {**row, "available": reason is None, "reason": reason}
 
     features = {name: (has_api and ctx.feature_allowed(name)) for name in ("expand", "presentation", "synthesize")}

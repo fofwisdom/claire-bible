@@ -229,7 +229,14 @@ def send_due(settings: Any, *, post: Post | None = None, now: float | None = Non
         try:
             accounts = {job.subscription.account_id for job in jobs}
             live = {account_id: _live_session_refs(claire_conn, account_id, ts) for account_id in accounts}
-            locales = {int(r[0]): r[1] for r in claire_conn.execute(f"SELECT id, locale FROM accounts WHERE id IN ({','.join('?' for _ in accounts)})", sorted(accounts))}
+            # The interface language of each account: the first supported item of its preferred languages (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md).
+            account_store = accounts_store.AccountStore(claire_conn)
+            locales: dict[int, str | None] = {}
+            for account_id in accounts:
+                try:
+                    locales[int(account_id)] = account_store.get(int(account_id)).locale
+                except accounts_store.AccountNotFound:
+                    continue
         finally:
             claire_conn.close()
         removed: set[int] = set()

@@ -32,13 +32,13 @@ The stored text budget (fetch time), the prompt budget of `doc_to_prompt` (extra
 
 ### 2.2 Output language and style
 
-The extraction prompt (`_SYS` in `src/claire/extract/prompts.py`, `PROMPT_VERSION = "extract-v8"`) tells the model to write `summary`, `observations`, and `key_claims` in Korean written style, for all source languages. Entity names and aliases stay in their original form. The prompt asks for English or original-language aliases of localized proper nouns. The setting `CLAIRE_PREFERRED_LANGUAGES` does not change this output language. [code]
+The extraction prompt (`_SYS` in `src/claire/extract/prompts.py`, `PROMPT_VERSION = "extract-v8"`) tells the model to write `summary`, `observations`, and `key_claims` in Korean written style, for all source languages. Entity names and aliases stay in their original form. The prompt asks for English or original-language aliases of localized proper nouns. The preferred languages do not change this output language. [code]
 
 The AsciiDoc detail prompt (`render_detail_prompt_adoc`) has rule 13: it does not write detail for a section that the cut made incomplete. [code]
 
 ### 2.3 Content languages
 
-`Settings.preferred_languages` (`CLAIRE_PREFERRED_LANGUAGES`, default `ko`) is a comma-separated list. `Settings.effective_preferred_languages` makes the codes lowercase, removes empty and duplicate codes, removes `en`, and then adds `en` at the end. An empty value gives `["en"]`. `Settings.effective_vlm_language` is the first item. There is no separate VLM language setting. [code] Test: `tests/test_config.py`.
+`Settings.preferred_languages` is the comma-separated list of the job ([`ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md`](../design/ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md)): `settings_for_context` puts the list of the account of the job (its own list, else the server default language) into the job settings; settings without an account read the server default language from `server_settings.default_languages` (`_ServerLanguagesSettingsSource`, `admin_context`). No environment variable sets it; `CLAIRE_PREFERRED_LANGUAGES` was copied one time at schema v46. `Settings.effective_preferred_languages` keeps the order and has `en` (at the end when the list has no `en`); an empty list gives `["en"]`. `Settings.effective_vlm_language` is the first item. [code] Tests: `tests/test_config.py`, `tests/test_preferred_languages.py`.
 
 Consumers: [code]
 
@@ -159,7 +159,7 @@ These checks exist now. There is no common guard component. [code]
 
 - [code] Entity resolution scans all entities of the theme for the acronym gate (`dbm.all_entities`) and all vectors of the theme for each vector search. The cost grows with the size of the theme.
 - [code] The multi-hop candidates are collected but make no edges (§4.5).
-- [code] `CLAIRE_PREFERRED_LANGUAGES` does not control the extraction output language (§2.2).
+- [code] The preferred languages do not control the extraction output language (§2.2).
 - [code] For server-side provider ingestion, a failure inside the entity and relation loop of `extract_resolve_store` can leave part of the entities committed because individual store helpers commit at once (client-driven extraction in §9 fixes this via `_AtomicConnection`).
 
 ## 9. Client-driven extraction (`agent_client`, AE4 / AE5 / AED9) [code]

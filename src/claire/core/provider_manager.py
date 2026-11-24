@@ -143,8 +143,11 @@ DEFAULT_FEATURE_ROUTING: dict[str, dict[str, str]] = {
     slot: {"provider": "inherit", "model": "", "effort": ""} for slot in FEATURE_SLOTS
 }
 
+# Version 2 (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P2): the STT language "auto" sends the preferred languages of the job as hints. In version 1 the value "ko" (the default) meant automatic detection; ``get_config`` reads it as "auto".
+PROVIDERS_CONFIG_VERSION = 2
+
 DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
-    "version": 1,
+    "version": PROVIDERS_CONFIG_VERSION,
     "active_provider": "mock",
     "feature_routing": copy.deepcopy(DEFAULT_FEATURE_ROUTING),
     "providers": {
@@ -168,7 +171,7 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, Any] = {
             "enabled": True,
             "provider": "gemini",
             "model": "",
-            "language": "ko",
+            "language": "auto",
             "timeout": 600.0,
         },
     },
@@ -409,6 +412,11 @@ class ProviderManager:
                 if key not in cfg:
                     cfg[key] = copy.deepcopy(value)
 
+            if not isinstance(cfg["version"], int) or cfg["version"] < PROVIDERS_CONFIG_VERSION:
+                stt = cfg["providers"].get("stt")
+                if isinstance(stt, dict) and str(stt.get("language") or "").strip().lower() in ("", "ko", "auto"):
+                    stt["language"] = "auto"
+                cfg["version"] = PROVIDERS_CONFIG_VERSION
             return cfg
         except Exception as exc:
             log.warning("Failed to load %s: %s. Using default config.", self.registry_path, exc)
@@ -921,7 +929,9 @@ class ProviderManager:
         if "CLAIRE_STT_MODEL" in collected:
             provs["stt"]["model"] = collected["CLAIRE_STT_MODEL"].strip()
         if "CLAIRE_STT_LANGUAGE" in collected and collected["CLAIRE_STT_LANGUAGE"].strip():
-            provs["stt"]["language"] = collected["CLAIRE_STT_LANGUAGE"].strip()
+            # Before providers.json version 2, "ko" meant automatic detection: it becomes "auto".
+            env_lang = collected["CLAIRE_STT_LANGUAGE"].strip()
+            provs["stt"]["language"] = "auto" if env_lang.lower() == "ko" else env_lang
         if "CLAIRE_STT_TIMEOUT" in collected:
             try:
                 provs["stt"]["timeout"] = float(collected["CLAIRE_STT_TIMEOUT"])

@@ -20,7 +20,8 @@ from typing import Any, Literal
 from ..core import ids
 from ..accounts import username_policy
 from ..accounts.username_policy import UsernameRejected
-from ..i18n.locales import SUPPORTED_LOCALE_SET, LocaleCode
+from ..accounts.languages import interface_locale, normalize_languages, parse_stored, to_stored
+from ..i18n.locales import LocaleCode
 from ..ontology.label_language import parse_entity_language
 from . import db as dbm
 from . import permalinks
@@ -70,9 +71,12 @@ ADMIN_ACCOUNT_ID = dbm.ADMIN_ACCOUNT_ID
 # 세션 자격증명 범위. create_account_session은 이 밖의 값을 거부한다(C1).
 SESSION_SCOPES: frozenset[str] = frozenset({"owner", "write", "readonly"})
 
+# v46: ``preferred_languages`` is the own list of the account (NULL: it follows the server default language); the next column is the list that applies.
 _ACCOUNT_COLUMNS = (
     "id, public_id, username, role, status, display_name, profile_public, "
-    "created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, summary"
+    "created_at, activated_at, delete_after, updated_at, preferred_languages, "
+    "COALESCE(preferred_languages, (SELECT value FROM server_settings WHERE key='default_languages')), "
+    "entity_language, personal_source_public, summary"
 )
 
 # 자격증명이 통하는 계정 상태. 그 밖의 상태(suspended 등)는 자격증명을 거부한다(§8.2).
@@ -100,8 +104,12 @@ class Account:
     activated_at: float | None
     delete_after: float | None
     updated_at: float
-    # Interface locale ('en' or 'ko'). None means automatic negotiation (I18N design Section 5).
+    # Interface locale ('en' or 'ko'): the first supported item of ``languages`` (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md). None only when no list applies (a database before v46).
     locale: LocaleCode | None = None
+    # v46: the own list of the account; None means that the account follows the server default language.
+    preferred_languages: tuple[str, ...] | None = None
+    # The list that applies: the own list, else the server default language.
+    languages: tuple[str, ...] = ()
     # Entity language of the viewer (ontology.label_language). None means the stored main labels.
     entity_language: str | None = None
     # v37: a reader other than the account sees the sources of the documents of its personal knowledge base.
@@ -148,8 +156,10 @@ def _normalize_lookup(username: str) -> str | None:
 def _row_to_account(row: sqlite3.Row | tuple) -> Account:
     (
         account_id, public_id, username, role, status, display_name, profile_public,
-        created_at, activated_at, delete_after, updated_at, locale, entity_language, personal_source_public, summary,
+        created_at, activated_at, delete_after, updated_at, own_languages, applied_languages, entity_language, personal_source_public, summary,
     ) = tuple(row)
+    own = parse_stored(None if own_languages is None else str(own_languages))
+    applied = parse_stored(None if applied_languages is None else str(applied_languages)) or ()
     return Account(
         id=int(account_id),
         public_id=int(public_id),
@@ -162,7 +172,9 @@ def _row_to_account(row: sqlite3.Row | tuple) -> Account:
         activated_at=None if activated_at is None else float(activated_at),
         delete_after=None if delete_after is None else float(delete_after),
         updated_at=float(updated_at),
-        locale=None if locale is None else str(locale),  # type: ignore[arg-type]  # the column CHECK admits 'en' and 'ko' only
+        locale=interface_locale(applied),
+        preferred_languages=own,
+        languages=applied,
         entity_language=None if entity_language is None else str(entity_language),
         personal_source_public=bool(personal_source_public),
         summary="" if summary is None else str(summary),
@@ -578,16 +590,11 @@ class AccountStore:
         self.conn.commit()
         return self.get(account_id)
 
-    def update_locale(self, account_id: int, locale: str | None, *, now: float | None = None) -> Account:
-        """Set the interface locale. ``None`` and ``""`` store NULL (automatic negotiation). A value that is not an exact supported code raises ``ValueError("invalid_locale")`` and writes nothing (C1)."""
-        if locale is None or locale == "":
-            value: str | None = None
-        elif isinstance(locale, str) and locale in SUPPORTED_LOCALE_SET:
-            value = locale
-        else:
-            raise ValueError("invalid_locale")
+    def update_preferred_languages(self, account_id: int, languages: list[Any] | tuple[Any, ...] | None, *, now: float | None = None) -> Account:
+        """Set the own list of the account (``normalize_languages``), or None: the account follows the server default language. A list that is not valid raises ``InvalidLanguages`` and writes nothing (C1)."""
+        value = None if languages is None else to_stored(normalize_languages(languages))
         when = time.time() if now is None else now
-        cur = self.conn.execute("UPDATE accounts SET locale=?, updated_at=? WHERE id=?", (value, when, account_id))
+        cur = self.conn.execute("UPDATE accounts SET preferred_languages=?, updated_at=? WHERE id=?", (value, when, account_id))
         if cur.rowcount != 1:
             self.conn.rollback()
             raise AccountNotFound(account_id)

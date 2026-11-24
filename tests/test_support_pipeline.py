@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 from starlette.testclient import TestClient
 
+from claire.accounts import languages
 from claire.accounts.provider_view import describe_server_providers, media_language_order
 from claire.api import server
 from claire.core.config import Settings
@@ -52,6 +53,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         )
         store.set_setting("mode", "network", updated_by=1)
         conn.commit()
+        languages.set_server_languages(conn, ["ko", "ja"], updated_by=1)
     finally:
         conn.close()
     # The lineage summary reads the documents of claire.db (CLAIRE_DB_PATH first).
@@ -63,7 +65,6 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_PREFERRED_LANGUAGES="ko,ja",
     )
     tokens = get_token_store(data_dir=data_dir)
     admin = tokens.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
@@ -85,14 +86,14 @@ def _add_document_with_lineage(db_file: Path) -> None:
         conn.close()
 
 
-def test_media_language_order_follows_the_preferred_languages_and_the_stt_language() -> None:
-    base = Settings(_env_file=None, CLAIRE_PREFERRED_LANGUAGES="ko,ja", CLAIRE_ENVIRONMENT="development")
+def test_media_language_order_follows_the_preferred_languages_and_the_stt_language(tmp_path: Path) -> None:
+    base = Settings(_env_file=None, CLAIRE_DB_PATH=str(tmp_path / "none.db"), preferred_languages="ko,ja", CLAIRE_ENVIRONMENT="development")
     order = media_language_order(base)
     assert order["caption_languages"] == ["ko", "ja", "en"]
-    # The default STT language "ko" sends no language code: Google detects the spoken language.
-    assert (order["stt_language"], order["stt_detects_language"], order["vlm_language"]) == ("ko", True, "ko")
+    # The default STT language "auto" sends the preferred languages as hints.
+    assert (order["stt_language"], order["stt_hints"], order["vlm_language"]) == ("auto", ["ko", "ja", "en"], "ko")
     forced = media_language_order(base.model_copy(update={"stt_language": "ja"}))
-    assert (forced["stt_language"], forced["stt_detects_language"]) == ("ja", False)
+    assert (forced["stt_language"], forced["stt_hints"]) == ("ja", ["ja"])
     # The /admin/providers view carries the same order.
     assert describe_server_providers(base)["stt"]["order"] == order
 
@@ -116,7 +117,7 @@ def test_pipeline_page_shows_the_steps_in_order_and_the_server_records_only_to_t
     order = re.findall(r'data-stt-order="([a-z]+)"', html)
     assert order == ["manual", "automatic", "stt", "none"]
     assert re.search(r"ko</code> → <code[^>]*>ja</code> → <code[^>]*>en</code>", html)
-    assert "CLAIRE_PREFERRED_LANGUAGES" in html
+    assert 'href="/admin/server#server-languages"' in html
     # The administrator sees the lineage of the documents of all accounts and the removed fallbacks with their old behavior.
     assert 'id="pipeline-recent"' in html and ADMIN_DOC_TITLE in html
     assert 'data-fallback="F2"' in html and "Interactions schema failure fell back" in html
@@ -128,7 +129,7 @@ def test_pipeline_page_shows_the_steps_in_order_and_the_server_records_only_to_t
     assert 'id="pipeline-stt-order"' in page
     assert ADMIN_DOC_TITLE not in page
     assert 'id="pipeline-recent"' not in page and 'id="pipeline-fallbacks"' not in page and "data-jev-state" not in page
-    assert "/admin/" not in page and "CLAIRE_PREFERRED_LANGUAGES" not in page
+    assert "/admin/" not in page and 'href="/account/profile#settings-languages"' in page
     # The member has no API: the AI rows show the reason, not a model.
     assert 'data-flow-models' in page
 

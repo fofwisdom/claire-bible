@@ -54,7 +54,7 @@
 | `GET` | `/login` | `public` | 200 HTML | — |
 | `POST` | `/login` | `public` (+ 핸들러의 동일 origin 검사) | 303 `/` + 새 세션 쿠키 | 400 양식 오류, 401 실패(사유 구분 없음), 403 동일 origin 아님, 429 + `Retry-After` |
 | `POST` | `/logout` | `public` (+ 동일 origin) | 303 `/login`, 쿠키 삭제 | 403 동일 origin 아님 |
-| `POST` | `/api/locale` | `public` (+ 동일 origin) | 200 `{"locale", "effective_locale"}`, 쿠키 `claire_locale`을 쓰거나 지움. owner 세션이면 `accounts.locale`도 저장. 양식 본문(`locale`, `next`=`/login`·`/setup`)이면 303 `<next>` | 400 `invalid_request`, 400 `invalid_locale`, 403 동일 origin 아님 |
+| `POST` | `/api/locale` | `public` (+ 동일 origin) | 200 `{"locale", "effective_locale"}`, 쿠키 `claire_locale`을 쓰거나 지움. owner 세션이면 그 언어를 계정 선호 언어의 맨 앞으로 옮김. 양식 본문(`locale`, `next`=`/login`·`/setup`)이면 303 `<next>` | 400 `invalid_request`, 400 `invalid_locale`, 403 동일 origin 아님 |
 | `POST` | `/api/auth/reauth` | `owner` | 200 `{"ok": true, "authenticated_at": <초>}` | 400 `invalid_request`, 403 `step_up_requires_session`, 403 `invalid_password`, 409 `password_not_set`, 429 `too_many_attempts` |
 | `GET` | `/admin/accounts` | `admin` | 200 HTML (통합 콘솔, §2.2) | 404 |
 | `GET` | `/api/admin/accounts` | `admin` | 200 `{"accounts": [...]}` | 404 |

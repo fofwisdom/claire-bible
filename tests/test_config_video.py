@@ -12,7 +12,7 @@ def test_config_video_defaults(monkeypatch):
     assert s.enable_video_transcription is True
     assert s.stt_provider == "gemini"
     assert s.effective_stt_provider == "mock"  # No GEMINI_API_KEY -> mock
-    assert s.stt_language == "ko"
+    assert s.stt_language == "auto"
     assert s.ffmpeg_bin == "ffmpeg"
     assert s.ytdlp_extractor_args == "generic:impersonate"
 

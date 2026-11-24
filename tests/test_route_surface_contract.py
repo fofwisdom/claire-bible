@@ -69,7 +69,7 @@ SYSTEM = {
     "/invite/{code}",
     # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2)
     "/directory", "/accounts",
-    "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/invites", "/api/admin/server/legacy-hosts/sunset",
+    "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/invites", "/api/admin/server/languages", "/api/admin/server/legacy-hosts/sunset",
     "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation", "/admin/kb",
     # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)
     "/api/admin/federation/known-servers", "/api/admin/federation/journal", "/api/admin/federation/journal/{entry_id}", "/api/admin/federation/journal/{entry_id}/replay",
@@ -116,6 +116,7 @@ ADMIN_KEYS = {
     ("POST", "/api/admin/usernames/release"),
     ("POST", "/api/admin/server/mode"),
     ("POST", "/api/admin/server/invites"),
+    ("PUT", "/api/admin/server/languages"),
     ("POST", "/api/admin/server/legacy-hosts/sunset"),
     *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
     *((m, "/api/admin/federation") for m in ("GET", "HEAD")),

@@ -83,6 +83,14 @@ def _stored_locale(settings: _Settings) -> str | None:
         conn.close()
 
 
+def _own_languages(settings: _Settings) -> tuple[str, ...] | None:
+    conn = dbm.connect_existing(settings.db_file)
+    try:
+        return accounts_store.AccountStore(conn).get(accounts_store.ADMIN_ACCOUNT_ID).preferred_languages
+    finally:
+        conn.close()
+
+
 def test_language_switch_on_login_and_in_account_settings(live_server, browser) -> None:
     base, settings = live_server
     conn = dbm.connect_existing(settings.db_file)
@@ -112,25 +120,31 @@ def test_language_switch_on_login_and_in_account_settings(live_server, browser) 
     assert page.url == f"{base}/login" and lang() == "ko" and page.inner_text("h1") == "로그인"
     assert locale_cookie() == "ko"
 
-    # 2. Log in. The account has no preference, thus the cookie gives Korean in the console.
+    # 2. Log in. The account has no own list and the server has no default language, thus the cookie gives Korean in the console.
     page.fill("#username", USERNAME)
     page.fill("#password", PASSWORD)
     with page.expect_navigation():
         page.click("form[action='/login'] button[type=submit]")
     response = page.goto(f"{base}/account/profile")
     assert response.status == 200 and response.headers["content-language"] == "ko" and lang() == "ko"
-    assert page.input_value("#pref-account-locale") == "" and _stored_locale(settings) is None
+    assert page.get_attribute("#settings-languages [data-languages-state]", "data-languages-state") == "none" and _own_languages(settings) is None
     assert page.evaluate("[ClaireI18n.getLocale(), ClaireI18n.t('common.action.save'), ClaireI18n.tn('doc.count', 2), ClaireI18n.t('missing.key')]") == ["ko", "저장", "2개 문서", "missing.key"]
 
-    # 3. The selector stores English on the account and the page loads again in English.
+    # 3. The person adds Korean, moves English to the first place, and saves: the page loads again in English (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P1).
+    card = "#settings-languages"
+    page.fill(f"{card} [data-lang-input]", "ko")
+    page.click(f"{card} [data-lang-add]")
+    assert page.eval_on_selector_all(f"{card} li[data-lang]", "els => els.map(el => el.dataset.lang)") == ["ko", "en"]
+    assert page.is_disabled(f'{card} li[data-lang="en"] [data-lang-remove]')
+    page.click(f'{card} li[data-lang="en"] [data-lang-up]')
     with page.expect_navigation():
-        page.select_option("#pref-account-locale", "en")
-    assert lang() == "en" and page.input_value("#pref-account-locale") == "en"
-    assert _stored_locale(settings) == "en" and locale_cookie() == "en"
-    assert page.inner_text("#settings-locale h2") == "Interface language"
+        page.click(f"{card} button[type=submit]")
+    assert lang() == "en" and _own_languages(settings) == ("en", "ko") and _stored_locale(settings) == "en" and locale_cookie() == "en"
+    assert page.inner_text(f"{card} h2").strip().startswith("Preferred languages")
+    assert page.eval_on_selector_all(f"{card} li[data-lang]", "els => els.map(el => el.dataset.lang)") == ["en", "ko"]
     assert page.evaluate("ClaireI18n.tn('doc.count', 1)") == "1 document"
 
-    # 4. A second browser with a Korean language setting and no cookie gets the account preference.
+    # 4. A second browser with a Korean language setting and no cookie gets the list of the account.
     other = browser.new_context(locale="ko-KR")
     other.add_cookies([c for c in ctx.cookies(base) if c["name"] == "claire_session"])
     other_page = other.new_page()
@@ -138,8 +152,8 @@ def test_language_switch_on_login_and_in_account_settings(live_server, browser) 
     assert other_page.get_attribute("html", "lang") == "en"
     other.close()
 
-    # 5. Automatic: the account column is NULL, the cookie is removed, and the browser language applies.
+    # 5. Back to the server default language: the server has none, the cookie is removed, and the browser language applies.
     with page.expect_navigation():
-        page.select_option("#pref-account-locale", "")
-    assert _stored_locale(settings) is None and locale_cookie() is None and lang() == "en"
+        page.click(f"{card} [data-lang-follow]")
+    assert _own_languages(settings) is None and locale_cookie() is None and lang() == "en"
     ctx.close()

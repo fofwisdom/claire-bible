@@ -42,9 +42,9 @@ def test_each_web_surface_follows_the_interface_language_of_the_owner(client, se
     # 2. The browser header asks for Korean.
     _check_all(client, token, "ko", headers={"Accept-Language": "ko-KR,ko;q=0.9,en;q=0.5"})
 
-    # 3. The owner stores Korean in /account/profile. A browser that asks for English still gets Korean, on each surface.
-    saved = client.request("PATCH", "/api/me", session=token, json={"locale": "ko"})
-    assert saved.status_code == 200 and saved.json()["locale"] == "ko"
+    # 3. The owner saves the preferred languages ko (then en) in /account/profile. A browser that asks for English still gets Korean, on each surface.
+    saved = client.request("PATCH", "/api/me", session=token, json={"preferred_languages": ["ko"]})
+    assert saved.status_code == 200 and saved.json()["preferred_languages"] == ["ko", "en"] and saved.json()["effective_locale"] == "ko"
     _check_all(client, token, "ko", headers={"Accept-Language": "en-US"})
 
     # 4. After logout the session has no account: the cookie of step 3 keeps Korean on the public login page, and without the cookie the header decides.
@@ -54,9 +54,9 @@ def test_each_web_surface_follows_the_interface_language_of_the_owner(client, se
     assert _lang(login.text) == "ko"
     assert _lang(client.request("GET", "/login", headers={"Accept-Language": "en-US"}).text) == "en"
 
-    # 5. Back to automatic: the header decides again.
+    # 5. Back to the server default language; the server has none, thus the header decides again.
     token = _session(settings)
-    reset = client.request("PATCH", "/api/me", session=token, json={"locale": None})
-    assert reset.json()["locale"] is None
+    reset = client.request("PATCH", "/api/me", session=token, json={"preferred_languages": None})
+    assert reset.json()["preferred_languages"] is None
     _check_all(client, token, "en", headers={"Accept-Language": "en-US"})
     _check_all(client, token, "ko", headers={"Accept-Language": "ko"})

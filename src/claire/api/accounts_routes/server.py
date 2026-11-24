@@ -5,6 +5,7 @@
 - ``POST /api/admin/server/mode``: 모드 전환 API (단계 인증 필수)
 - ``POST /api/admin/server/invites``: 비관리자 초대 코드 발급 허용 설정 API (단계 인증 필수)
 - ``POST /api/admin/server/legacy-hosts/sunset``: 일몰 시계 관리 API (단계 인증 필수)
+- ``PUT /api/admin/server/languages``: 서버 기본 언어 저장 (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P1, P3). ``admin_audit`` 기록
 - ``GET/HEAD/PUT /api/admin/server-tier``: 서버 등급 조회·저장 (설계 §10.3, P4 L4-c). PUT은 단계 인증, 검증 실패는 422, ``admin_audit`` 기록
 """
 
@@ -17,6 +18,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
+from ...accounts import languages as languages_mod
 from ...accounts import readiness
 from ...accounts import server_tier
 from ...accounts.provider_policy import EFFORT_ORDER, TIER_FEATURES, TIER_PROVIDERS, ServerTier
@@ -42,12 +44,13 @@ from .common import (
     same_origin,
     t_code,
 )
-from .console import ADMIN_SPEC_BY_SLUG, _render_console_section
+from .console import ADMIN_SPEC_BY_SLUG, _language_list_labels, _render_console_section
 from .console_ui import (
     console_actions,
     console_card,
     console_field,
     console_kv,
+    console_language_list,
     console_notice,
     console_pill,
     console_result,
@@ -61,6 +64,7 @@ ADMIN_SERVER_MODE_PATH = "/api/admin/server/mode"
 ADMIN_SERVER_INVITES_PATH = "/api/admin/server/invites"
 ADMIN_SERVER_SUNSET_PATH = "/api/admin/server/legacy-hosts/sunset"
 ADMIN_SERVER_TIER_PATH = "/api/admin/server-tier"
+ADMIN_SERVER_LANGUAGES_PATH = "/api/admin/server/languages"
 
 _LABELLED_FEATURES = ("expand", "stt", "vlm", "presentation", "synthesize")
 
@@ -358,6 +362,31 @@ def _render_server_html(
     return f"{mode_section}{readiness_section}{legacy_section}{tier_section}{invites_policy_section}"
 
 
+def _server_languages_state(conn: Any) -> dict[str, Any]:
+    """The server default language and the number of accounts that follow it or have an own list."""
+    follow, own = conn.execute("SELECT SUM(preferred_languages IS NULL), SUM(preferred_languages IS NOT NULL) FROM accounts").fetchone()
+    return {"languages": languages_mod.server_languages(conn), "follow": int(follow or 0), "own": int(own or 0)}
+
+
+def _server_languages_card(state: dict[str, Any]) -> str:
+    """The card "Server default language" ``#server-languages`` (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P1, P3): selected or not, the accounts that follow it, and its editor. ``console_languages.js`` saves it with ``PUT /api/admin/server/languages`` (null: not selected)."""
+    selected = bool(state["languages"])
+    pill = console_pill(t("console.admin.server.languages.state_selected" if selected else "console.admin.server.languages.state_none"), tone="ok" if selected else "neutral", attrs={"data-server-languages-state": "selected" if selected else "none"})
+    counts = f'<p class="hint" data-server-languages-counts>{escape(t("console.admin.server.languages.counts", follow=state["follow"], own=state["own"]))}</p>'
+    none_hint = "" if selected else f'<p class="hint">{escape(t("console.admin.server.languages.none_hint"))}</p>'
+    form = console_language_list(
+        state["languages"] or (languages_mod.ALWAYS_LANGUAGE,),
+        list_id="server-languages-list",
+        endpoint=ADMIN_SERVER_LANGUAGES_PATH,
+        method="PUT",
+        field="languages",
+        labels=_language_list_labels("console.admin.server.languages"),
+        follow=selected,
+        reload_on_save=True,
+    )
+    return console_card(escape(t("console.admin.server.languages.title")), counts + none_hint + form, id="server-languages", icon="globe", badge_html=pill, hint_html=escape(t("console.admin.server.languages.hint")), split=False, aria_label=t("console.admin.server.languages.title"))
+
+
 def routes(ctx: AccountsContext) -> list[Route]:
     async def admin_server_page(request: Request) -> Response:
         principal = request_principal(request)
@@ -377,6 +406,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 policy = legacy_hosts.read_legacy_host_policy(conn)
                 hosts = legacy_hosts.list_legacy_hosts(conn)
                 tier_state = _server_tier_state(conn)
+                languages_state = _server_languages_state(conn)
             finally:
                 conn.close()
 
@@ -389,9 +419,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 tier_state=tier_state,
                 member_invites_enabled=member_invites_enabled,
             )
+            # The server default language comes after the server mode: it applies to each account that has no own list.
+            mode_end = body_html.index("</section>") + len("</section>")
+            body_html = body_html[:mode_end] + _server_languages_card(languages_state) + body_html[mode_end:]
             extra_scripts = (
                 '<script src="/static/js/server_mode.js" defer></script>\n'
-                '<script src="/static/js/server_tier.js" defer></script>'
+                '<script src="/static/js/server_tier.js" defer></script>\n'
+                '<script src="/static/js/console_languages.js" defer></script>'
             )
             return _render_console_section(
                 ctx,
@@ -704,7 +738,40 @@ def routes(ctx: AccountsContext) -> list[Route]:
         resp_data = await asyncio.to_thread(_save_invites_policy)
         return JSONResponse(resp_data, status_code=200, headers={"Cache-Control": "no-store"})
 
+    async def admin_server_languages_put(request: Request) -> Response:
+        principal = request_principal(request)
+        if not is_admin(principal):
+            return not_found()
+        if not same_origin(request):
+            return json_error(403, "forbidden")
+        body = await read_json_body(request)
+        raw = body.get("languages") if isinstance(body, dict) else None
+        # null: the server default language is not selected (P1).
+        if set(body or {}) != {"languages"} or not (raw is None or (isinstance(raw, list) and all(isinstance(item, str) for item in raw))):
+            return json_error(400, "invalid_request", fields=["languages"])
+        if raw is not None:
+            try:
+                languages_mod.normalize_languages(raw)
+            except languages_mod.InvalidLanguages:
+                return json_error(400, "invalid_languages")
+
+        def _save() -> dict[str, Any]:
+            conn = open_db(ctx)
+            try:
+                saved = languages_mod.set_server_languages(conn, raw, updated_by=principal.account_id)
+                auth_conn = open_auth_db(ctx)
+                try:
+                    auth_db.record_admin_audit(auth_conn, actor_account_id=principal.account_id, action="server.languages.update", detail={"languages": list(saved)})
+                finally:
+                    auth_conn.close()
+                return {"languages": list(saved)}
+            finally:
+                conn.close()
+
+        return JSONResponse(await asyncio.to_thread(_save), headers={"Cache-Control": "no-store"})
+
     return [
+        Route(ADMIN_SERVER_LANGUAGES_PATH, admin_server_languages_put, methods=["PUT"]),
         Route(ADMIN_SERVER_TIER_PATH, admin_server_tier_get, methods=["GET"]),
         Route(ADMIN_SERVER_TIER_PATH, admin_server_tier_put, methods=["PUT"]),
         Route(ADMIN_SERVER_PATH, admin_server_page, methods=["GET"]),

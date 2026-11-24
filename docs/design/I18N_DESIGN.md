@@ -23,7 +23,7 @@ Each request, Telegram update, and notification gets one interface language by a
 
 - **Explicit values are strict, passive values are tolerant.** A value that a person or a configuration sets must be an exact supported code, else it fails ([`PRINCIPLES.md`](../PRINCIPLES.md) C1). A value from negotiation (header, cookie, Telegram, POSIX) that is not supported is ignored, and the chain continues.
 - **Machine contracts do not follow the language.** Error codes, protocol payloads (ActivityPub, OAuth, MCP), agent JSON, and schema field names stay English and stable. Only text for a person changes.
-- **The interface language is not the content language.** It does not change what the server fetches, extracts, indexes, or how entity labels are chosen.
+- **The interface language is not the content language.** It does not change what the server fetches, extracts, indexes, or how entity labels are chosen. Changed 2026-11-24 ([`ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md`](ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md)): one preferred-language list of the account gives its interface language (the first supported item) and the content languages of its jobs; it still does not change the extraction output language or the entity labels.
 - **The server renders the text.** A page gets its text and an inline catalog in the response, thus the first paint has the right language and no request can fail before the text shows. A page gets only the keys that its scripts can use; text of the administrator area does not go to a member page.
 - **Isolated per task.** The active language belongs to one request or one update. It never leaks to a concurrent task.
 - **Pages without scripts stay without scripts.** Their language switch is a plain form.

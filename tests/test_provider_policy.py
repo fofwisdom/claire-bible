@@ -106,7 +106,9 @@ def _member_settings(tmp_path, ctx=None, **kwargs) -> Settings:
 def account_db(tmp_path):
     db = tmp_path / "claire.db"
     conn = sqlite3.connect(db)
-    conn.execute("CREATE TABLE accounts (id INTEGER PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL)")
+    conn.execute("CREATE TABLE accounts (id INTEGER PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL, preferred_languages TEXT)")
+    conn.execute("CREATE TABLE server_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at REAL NOT NULL, updated_by INTEGER)")
+    conn.execute("INSERT INTO server_settings VALUES ('default_languages', 'ko,en', 0, NULL)")
     conn.executemany(
         "INSERT INTO accounts (id, role, status) VALUES (?, ?, ?)",
         [(ADMIN_ID, "admin", "active"), (MEMBER_ID, "member", "active"), (SUSPENDED_ID, "member", "suspended"),

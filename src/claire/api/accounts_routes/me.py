@@ -1,4 +1,4 @@
-"""``/api/me`` (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경. ``PATCH /api/me``의 ``locale``과 공개 라우트 ``POST /api/locale``은 인터페이스 언어를 정한다(I18N design Section 5.4). ``GET/HEAD /me``는 ``/account/profile``로 가는 호환용 302다(D4).
+"""``/api/me`` (설계 §8.7): 본인 계정 조회, 표시 이름 변경, 비밀번호 변경. ``PATCH /api/me``의 ``preferred_languages``(ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md)와 공개 라우트 ``POST /api/locale``(I18N design Section 5.4)은 인터페이스 언어를 정한다. ``GET/HEAD /me``는 ``/account/profile``로 가는 호환용 302다(D4).
 
 비밀번호 변경은 단계 인증(`common.require_recent_auth`)과 현재 비밀번호를 함께 요구한다. 비밀번호가 아직 없으면(설정 중 저장 실패, §8.4 복구) 단계 인증만 요구한다.
 
@@ -15,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from ...accounts.languages import InvalidLanguages, normalize_languages, server_languages
 from ...accounts.username_policy import UsernameRejected
 from ...i18n import InvalidLocale, LocaleCode, get_locale, parse_explicit_locale, resolve_web_locale, set_locale
 from ...ontology.label_language import parse_entity_language
@@ -71,8 +72,9 @@ def me_payload(ctx: AccountsContext, principal: Principal) -> dict[str, Any]:
         "status": account.status,
         "has_password": has_pw,
         "profile_public": 1 if account.profile_public else 0,
-        # locale: the stored preference (None = automatic). effective_locale: the result of the resolution chain for this request.
-        "locale": account.locale,
+        # preferred_languages: the own list (None = the account follows the server default language). languages: the list that applies; its first supported item is the interface language. effective_locale: the result of the resolution chain for this request.
+        "preferred_languages": None if account.preferred_languages is None else list(account.preferred_languages),
+        "languages": list(account.languages),
         "effective_locale": get_locale(),
         # entity_language: the language of the entity labels that this account sees (None = the stored main labels).
         "entity_language": account.entity_language,
@@ -124,16 +126,20 @@ def update_entity_language(ctx: AccountsContext, account_id: int, entity_languag
         conn.close()
 
 
-def update_locale(ctx: AccountsContext, account_id: int, locale: LocaleCode | None) -> None:
+def update_preferred_languages(ctx: AccountsContext, account_id: int, languages: list[Any] | None) -> accounts_store.Account:
+    """Save the own list of the account, or None (follow the server default language). A list equal to the server default language is stored as None, thus the account keeps following it."""
     conn = open_db(ctx)
     try:
-        accounts_store.AccountStore(conn).update_locale(account_id, locale)
+        store = accounts_store.AccountStore(conn)
+        if languages is not None and normalize_languages(languages) == server_languages(conn):
+            languages = None
+        return store.update_preferred_languages(account_id, languages)
     finally:
         conn.close()
 
 
 def update_locale_for_session(ctx: AccountsContext, token: str | None, locale: LocaleCode | None) -> bool:
-    """``POST /api/locale`` is a public route: the middleware does not validate the credential there. This function validates the session cookie itself. It writes ``accounts.locale`` only for an owner session of an account that accepts credentials. Returns True when it wrote."""
+    """``POST /api/locale`` is a public route: the middleware does not validate the credential there. This function validates the session cookie itself. For an owner session of an account that accepts credentials, it moves the locale to the first place of the preferred languages of the account (the interface uses the first supported item). Returns True when it wrote."""
     if token is None:
         return False
     conn = open_db(ctx)
@@ -148,7 +154,10 @@ def update_locale_for_session(ctx: AccountsContext, token: str | None, locale: L
             return False
         if account.status not in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
             return False
-        store.update_locale(account.id, locale)
+        if locale is None:
+            return False
+        own: list[Any] = [locale, *account.languages]
+        store.update_preferred_languages(account.id, None if normalize_languages(own) == server_languages(conn) else own)
         return True
     finally:
         conn.close()
@@ -285,8 +294,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
     async def me_patch(request: Request) -> Response:
         principal = request_principal(request)
         body = await read_json_body(request)
-        if not body or not (set(body) <= {"display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public"}):
-            return json_error(400, "invalid_request", fields=["display_name", "summary", "profile_public", "locale", "entity_language", "personal_source_public"])
+        if not body or not (set(body) <= {"display_name", "summary", "profile_public", "preferred_languages", "entity_language", "personal_source_public"}):
+            return json_error(400, "invalid_request", fields=["display_name", "summary", "profile_public", "preferred_languages", "entity_language", "personal_source_public"])
         display_name: str | None = None
         if "display_name" in body:
             display_name = validate_display_name(body["display_name"])
@@ -311,12 +320,17 @@ def routes(ctx: AccountsContext) -> list[Route]:
         source_public = body.get("personal_source_public")
         if "personal_source_public" in body and not isinstance(source_public, bool):
             return json_error(400, "invalid_personal_source_public")
-        locale: LocaleCode | None = None
-        if "locale" in body:
-            try:
-                locale = parse_explicit_locale(body["locale"])
-            except InvalidLocale:
-                return json_error(400, "invalid_locale")
+        languages: list[Any] | None = None
+        if "preferred_languages" in body:
+            raw_languages = body["preferred_languages"]
+            if raw_languages is not None and not (isinstance(raw_languages, list) and all(isinstance(item, str) for item in raw_languages)):
+                return json_error(400, "invalid_languages")
+            if raw_languages is not None:
+                try:
+                    normalize_languages(raw_languages)
+                except InvalidLanguages:
+                    return json_error(400, "invalid_languages")
+                languages = list(raw_languages)
         entity_language: str | None = None
         if "entity_language" in body:
             try:
@@ -336,12 +350,12 @@ def routes(ctx: AccountsContext) -> list[Route]:
             await asyncio.to_thread(update_entity_language, ctx, principal.account_id, entity_language)
         if isinstance(source_public, bool):
             await asyncio.to_thread(update_personal_source_public, ctx, principal.account_id, source_public)
-        if "locale" not in body:
+        if "preferred_languages" not in body:
             return JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
-        # The locale needs no recent authentication (I18N design Section 5.4). The response reports the locale after the change.
-        await asyncio.to_thread(update_locale, ctx, principal.account_id, locale)
+        # The preferred languages need no recent authentication (as the interface locale before, I18N design Section 5.4). The interface language of the response and the cookie (for the pages after a logout) follow the new list.
+        account = await asyncio.to_thread(update_preferred_languages, ctx, principal.account_id, languages)
         cookie_carrier = Response()
-        set_locale(apply_locale_choice(ctx, request, cookie_carrier, locale))
+        set_locale(apply_locale_choice(ctx, request, cookie_carrier, account.locale))
         response = JSONResponse(await asyncio.to_thread(me_payload, ctx, principal))
         response.raw_headers.extend(h for h in cookie_carrier.raw_headers if h[0] == b"set-cookie")
         return response

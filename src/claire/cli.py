@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,7 +57,9 @@ def cmd_preflight(_args) -> int:
         else "disabled"
     )
     print(f"anonymous readonly: {anonymous_status}")
-    print(f"preferred langs   : {', '.join(s.effective_preferred_languages)}")
+    print(f"server languages  : {', '.join(s.effective_preferred_languages)} (server default language; set it on /admin/server)")
+    if os.environ.get("CLAIRE_PREFERRED_LANGUAGES") is not None:
+        print("  CLAIRE_PREFERRED_LANGUAGES is set, but it has no effect. Schema v46 copied it one time into the server default language.")
 
     ok, detail = probe_sqlite_vec()
     print(f"sqlite-vec probe  : {'OK' if ok else 'fallback->brute'} ({detail})")

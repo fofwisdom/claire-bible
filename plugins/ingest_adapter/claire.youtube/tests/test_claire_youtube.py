@@ -122,23 +122,23 @@ def test_fetch_youtube_empty_everything_raises(monkeypatch: pytest.MonkeyPatch):
         fetch_youtube("https://www.youtube.com/watch?v=ti9FHqP1i-w")
 
 
-def test_youtube_preferred_languages_config(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "ja, es")
-    get_settings.cache_clear()
-    s = get_settings()
+def test_youtube_preferred_languages_config(tmp_path: _Path):
+    """The preferred languages of the job (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md): en is always in the list."""
+    from claire.core.config import Settings
+
+    s = Settings(_env_file=None, CLAIRE_DB_PATH=str(tmp_path / "none.db"), preferred_languages="ja, es")
     assert s.effective_preferred_languages == ["ja", "es", "en"]
     assert s.effective_youtube_languages == ["ja", "es", "en"]
-
-    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "")
-    get_settings.cache_clear()
-    s2 = get_settings()
+    s2 = Settings(_env_file=None, CLAIRE_DB_PATH=str(tmp_path / "none.db"), preferred_languages="")
     assert s2.effective_preferred_languages == ["en"]
     assert s2.effective_youtube_languages == ["en"]
 
 
-def test_fetch_transcript_passes_configured_languages(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "ja")
-    get_settings.cache_clear()
+def test_fetch_transcript_passes_configured_languages(monkeypatch: pytest.MonkeyPatch, tmp_path: _Path):
+    from claire.core.config import Settings
+    from claire.ingest.fetchers.base import bound_fetch_settings
+
+    job_settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(tmp_path / "none.db"), preferred_languages="ja")
 
     captured_langs = []
 
@@ -158,7 +158,8 @@ def test_fetch_transcript_passes_configured_languages(monkeypatch: pytest.Monkey
     import youtube_transcript_api
     monkeypatch.setattr(youtube_transcript_api, "YouTubeTranscriptApi", DummyApi)
 
-    text = fetch_transcript("ti9FHqP1i-w")
+    with bound_fetch_settings(job_settings):
+        text = fetch_transcript("ti9FHqP1i-w")
     assert captured_langs == [["ja", "en"]]
     assert text == "Japanese text"
 
@@ -293,7 +294,6 @@ def test_fetch_youtube_stt_disabled_fallback(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_youtube_prioritizes_creator_manual_caption_over_auto_caption(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("CLAIRE_PREFERRED_LANGUAGES", "ko")
     get_settings.cache_clear()
 
     class DummyManualTranscript:

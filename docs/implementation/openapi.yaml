@@ -3786,6 +3786,51 @@ paths:
         '404':
           description: Not the server admin.
 
+  /api/admin/server/languages:
+    put:
+      summary: Select or remove the server default language
+      description: Requires admin scope and the same origin. The ordered list is the preferred languages of each account without an own list and of the jobs without an account (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P1, P3). Null removes it (not selected). Records `admin_audit` `server.languages.update`.
+      operationId: setAdminServerLanguages
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [languages]
+              properties:
+                languages:
+                  type: ['array', 'null']
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: 'The saved list (`en` added at the end when missing; empty when removed).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [languages]
+                properties:
+                  languages:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: '`invalid_request` or `invalid_languages`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardError'
+        '403':
+          description: '`forbidden` (not the same origin).'
+        '404':
+          description: Not the server administrator.
   /api/admin/server/invites:
     post:
       summary: Enable or disable invite code issuance for non-admin members
@@ -4541,10 +4586,12 @@ paths:
                     - type: integer
                       enum: [0, 1]
                     - type: boolean
-                locale:
-                  description: Interface language of the account. Null or an empty string is automatic negotiation. The response also sets or clears the `claire_locale` cookie.
-                  type: ['string', 'null']
-                  enum: [en, ko, '', null]
+                preferred_languages:
+                  description: The own ordered list of preferred languages (BCP 47 tags, at most 10; `en` is added at the end when it is missing), or null to follow the server default language. The first item that the interface supports is the interface language; the jobs use the list for captions, STT hints, and VLM. The response sets the `claire_locale` cookie to the new interface language, or clears it.
+                  type: ['array', 'null']
+                  items:
+                    type: string
+                    pattern: '^[a-z]{2,3}(-[a-z0-9]{2,8})*$'
                 entity_language:
                   description: Language of the entity names that the account sees (decided from the script of a name). Null or an empty string shows the stored main labels. The stored data does not change.
                   type: ['string', 'null']
@@ -4560,7 +4607,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountSelf'
         '400':
-          description: '`invalid_request` (empty body, or keys other than display_name, summary, profile_public, locale, entity_language, and personal_source_public; since schema v45 also extraction_mode), `invalid_display_name`, `invalid_profile_public`, `invalid_locale`, `invalid_entity_language`, or `invalid_personal_source_public`.'
+          description: '`invalid_request` (empty body, or keys other than display_name, summary, profile_public, preferred_languages, entity_language, and personal_source_public; since schema v45 also extraction_mode, since v46 also locale), `invalid_display_name`, `invalid_profile_public`, `invalid_languages`, `invalid_entity_language`, or `invalid_personal_source_public`.'
           content:
             application/json:
               schema:
@@ -4573,7 +4620,7 @@ paths:
       summary: Select the interface language
       description: >-
         Public route; the request must come from the same origin. Sets the `claire_locale` cookie, or clears it for automatic negotiation.
-        For an owner session, the server also stores the choice on the account (`accounts.locale`).
+        For an owner session, the server also moves the language to the first place of the preferred languages of the account (null changes only the cookie).
         A form body (`locale`, `next`) is for the pages without JavaScript (`/login`, `/setup`): the response is 303 to `next`.
       operationId: setLocale
       x-claire-access: public
@@ -6323,14 +6370,20 @@ components:
           type: integer
           enum: [0, 1]
           description: 1 when the profile is public. The default is 0.
-        locale:
-          type: ['string', 'null']
-          enum: [en, ko, null]
-          description: Stored interface language of the account. Null is automatic negotiation.
+        preferred_languages:
+          type: ['array', 'null']
+          items:
+            type: string
+          description: The own list of preferred languages of the account; null when the account follows the server default language.
+        languages:
+          type: array
+          items:
+            type: string
+          description: The list that applies (the own list, else the server default language; empty when none is selected).
         effective_locale:
           type: string
           enum: [en, ko]
-          description: Interface language of this request (account, cookie, Accept-Language, CLAIRE_LANG, then en).
+          description: Interface language of this request (the first supported item of the preferred languages, cookie, Accept-Language, CLAIRE_LANG, then en).
         entity_language:
           type: ['string', 'null']
           enum: [en, ko, ja, zh, null]

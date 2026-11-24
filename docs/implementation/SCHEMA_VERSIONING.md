@@ -19,7 +19,7 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 16 | 직전 version (아래 "v16" 절) | 테마 번호(`number`), `visibility_epoch`, 임베딩 열, 레거시 호스트(`legacy_hosts`) |
 | 17 | 직전 version (아래 "v17" 절) | 연합 팔로워(`federation_followers`), 툼스톤(`federation_tombstones`), 도메인 차단(`federation_domain_blocks`) |
 | 18 | 직전 version (아래 "v18" 절) | 연합 발행 객체(`federation_objects`), 트랜잭션 아웃박스(`federation_outbox`) |
-| 19 | 직전 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`) |
+| 19 | 직전 version (아래 "v19" 절) | 계정 인터페이스 언어(`accounts.locale`, v46에서 제거) |
 | 20 | 직전 version (아래 "v20" 절) | 쓰이지 않는 `syndication_*` 테이블 제거, `syndication_dispatches` 재구성 |
 | 21 | 직전 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
 | 22 | 직전 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
@@ -45,7 +45,8 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 42 | 직전 version | `accounts.summary` (코드 `_migrate_v42_account_summary`) |
 | 43 | 직전 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 이관 후 테이블 제거 |
 | 44 | 직전 version (아래 "v44" 절) | USERNAME 없는 계정을 `setup_required` 상태로만 허용하는 트리거 |
-| 45 | 현재 version (아래 "v45" 절) | 계정 추출 모드 `accounts.extraction_mode` 제거, 요청의 추출 모드 `raw_inbox.extraction_mode` |
+| 45 | 직전 version (아래 "v45" 절) | 계정 추출 모드 `accounts.extraction_mode` 제거, 요청의 추출 모드 `raw_inbox.extraction_mode` |
+| 46 | 현재 version (아래 "v46" 절) | 선호 언어: `accounts.preferred_languages`, 서버 기본 언어 `server_settings.default_languages`, `accounts.locale` 제거 |
 | 46 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
@@ -425,3 +426,10 @@ Design: [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](../design/AGENT_DRIV
 - **[code]** `_migrate_v45_retire_account_extraction_mode` drops the column `accounts.extraction_mode` (`ALTER TABLE ... DROP COLUMN`; the stored values are not used again) and adds the column `raw_inbox.extraction_mode` (`TEXT`, `NULL` or `'provider'` or `'client'`). The step runs at each start and is idempotent.
 - **[code]** `log_inbox` writes the mode of the request. A retry (`recover-loop`, `replay-failed`, manual retry) takes the same mode; a row from before v45 has NULL and takes the default mode of the account.
 - **[test]** `tests/test_schema_v45.py`, `tests/test_client_staging_ae4.py`.
+
+## v46 (preferred languages)
+
+Design: [`ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md`](../design/ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md) (owner decisions P1–P4, 2026-11-24).
+
+- **[code]** `_migrate_v46_preferred_languages` (runs at each start, idempotent): adds `accounts.preferred_languages` (`TEXT`, NULL: the account follows the server default language); one time (marker `server_settings.languages_v46`) it writes `server_settings.default_languages` from `CLAIRE_PREFERRED_LANGUAGES` (else `ko` for a database from before v46; a new database gets no row unless the variable is set), then `en`; an account with `accounts.locale` gets an own list (that locale, then the server default language) when it differs from the server default language; then the step drops `accounts.locale`. The step v19 no longer adds `accounts.locale`.
+- **[test]** `tests/test_i18n_api.py` (`test_v45_database_migrates_the_locale_to_the_preferred_languages_and_the_migration_is_idempotent`, `test_new_database_has_no_server_default_language_unless_the_variable_is_set`).

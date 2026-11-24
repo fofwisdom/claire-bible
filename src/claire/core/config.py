@@ -189,10 +189,41 @@ class _ProvidersJsonSettingsSource(PydanticBaseSettingsSource):
 
 # The model of each provider comes from the Web UI (providers.json) only. The old variables are read one time by ``ProviderManager.migrate_from_env_if_needed``.
 MODEL_FIELDS = ("gemini_model", "gemini_embed_model", "jev_model", "stt_model")
+# The preferred languages come from the database (the server default language, ``server_settings.default_languages``) and from the account of a job (``settings_for_context``). Schema v46 reads the old variable ``CLAIRE_PREFERRED_LANGUAGES`` one time (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P3).
+DATABASE_FIELDS = ("preferred_languages",)
+
+
+class _ServerLanguagesSettingsSource(PydanticBaseSettingsSource):
+    """The server default language from ``server_settings`` of claire.db (read only). No value when the database or the row does not exist."""
+
+    def __init__(self, settings_cls: type[BaseSettings], init_kwargs: Any = None) -> None:
+        super().__init__(settings_cls)
+        self.init_kwargs = dict(init_kwargs or {})
+
+    def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:
+        return None, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        import sqlite3
+
+        raw = self.init_kwargs.get("CLAIRE_DB_PATH") or self.init_kwargs.get("db_path") or os.environ.get("CLAIRE_DB_PATH") or "data/claire.db"
+        path = Path(str(raw))
+        path = path if path.is_absolute() else ROOT / path
+        if not path.is_file():
+            return {}
+        try:
+            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2.0)
+            try:
+                row = conn.execute("SELECT value FROM server_settings WHERE key='default_languages'").fetchone()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            return {}
+        return {} if row is None else {"preferred_languages": str(row[0])}
 
 
 class _WithoutModelFields(PydanticBaseSettingsSource):
-    """An environment source without the model fields: no environment variable and no ``.env`` line sets a model."""
+    """An environment source without the model fields and the database fields: no environment variable and no ``.env`` line sets them."""
 
     def __init__(self, settings_cls: type[BaseSettings], source: Any) -> None:
         super().__init__(settings_cls)
@@ -202,7 +233,7 @@ class _WithoutModelFields(PydanticBaseSettingsSource):
         return None, field_name, False
 
     def __call__(self) -> dict[str, Any]:
-        blocked = {name for field in MODEL_FIELDS for name in (field, f"claire_{field}")}
+        blocked = {name for field in (*MODEL_FIELDS, *DATABASE_FIELDS) for name in (field, f"claire_{field}")}
         return {key: value for key, value in self.source().items() if str(key).lower() not in blocked}
 
 
@@ -331,6 +362,7 @@ class Settings(BaseSettings):
         )
         return (
             init_settings,
+            _ServerLanguagesSettingsSource(settings_cls, init_kwargs=init_kwargs),
             ingest_limits_json,
             providers_json,
             _WithoutModelFields(settings_cls, env_settings),
@@ -418,7 +450,8 @@ class Settings(BaseSettings):
     )
     stt_provider: str = Field(default="gemini", alias="CLAIRE_STT_PROVIDER")
     stt_model: str = Field(default="")
-    stt_language: str = Field(default="ko", alias="CLAIRE_STT_LANGUAGE")
+    # "auto": the preferred languages of the job go to the STT request as hints; one language tag: that language only (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P2).
+    stt_language: str = Field(default="auto", alias="CLAIRE_STT_LANGUAGE")
     stt_timeout: float = Field(default=600.0, alias="CLAIRE_STT_TIMEOUT")
     video_chunk_duration_sec: int = Field(
         default=240, alias="CLAIRE_VIDEO_CHUNK_DURATION_SEC"
@@ -515,10 +548,8 @@ class Settings(BaseSettings):
     research_context_budget: int = Field(default=8000, alias="CLAIRE_RESEARCH_CONTEXT_BUDGET")
 
     # --- languages & localization ---
-    # 프로젝트 광역 선호 언어 목록 (쉼표 구분, 기본값 'ko'). 'en'은 항상 공통 폴백으로 포함됨.
-    preferred_languages: str = Field(
-        default="ko", alias="CLAIRE_PREFERRED_LANGUAGES"
-    )
+    # The preferred languages of the job (comma-separated, ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md): the server default language from the database, or the list of the account of the job (settings_for_context). No environment variable sets it.
+    preferred_languages: str = Field(default="")
     # Server default locale of the interface (WebUI, Telegram bot, CLI human output). Empty: the resolution chain continues to 'en'. No relation to preferred_languages (I18N design Section 9). The field name is not `lang`: with populate_by_name and no prefix, a field `lang` also reads the POSIX variable LANG.
     ui_lang: str = Field(default="", alias="CLAIRE_LANG", description="Server default UI/CLI/Bot locale ('en' or 'ko'; empty uses fallback 'en')")
 
@@ -918,14 +949,10 @@ class Settings(BaseSettings):
 
     @property
     def effective_preferred_languages(self) -> list[str]:
-        """프로젝트 광역 선호 언어(기본 ko 등) + 항상 기본 포함되는 'en' 목록."""
-        langs: list[str] = []
-        for raw in self.preferred_languages.split(","):
-            code = raw.strip().lower()
-            if code and code not in langs and code != "en":
-                langs.append(code)
-        langs.append("en")
-        return langs
+        """The preferred languages of the job in their order (``accounts.languages.parse_stored``): ``en`` is always in the list, at the end when the list does not place it."""
+        from ..accounts.languages import ALWAYS_LANGUAGE, parse_stored
+
+        return list(parse_stored(self.preferred_languages) or (ALWAYS_LANGUAGE,))
 
     @property
     def effective_youtube_languages(self) -> list[str]:

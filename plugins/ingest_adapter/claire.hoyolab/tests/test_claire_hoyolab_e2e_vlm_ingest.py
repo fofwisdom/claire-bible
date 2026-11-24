@@ -37,6 +37,8 @@ def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
         vault_path=str(vault_dir),
         provider="mock",
         environment="development",
+        # The preferred languages of the job (a new database has no server default language).
+        preferred_languages="ko",
         enable_vlm_transcription=True,
     )
 

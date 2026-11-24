@@ -209,6 +209,8 @@ class ProviderContext:
     feature_models: dict[str, dict[str, str]] = field(default_factory=dict)
     # The account is the server administrator. With a personal key (source "byok", is_admin False) the account keeps all features and has no server tier limits, but the calls use only the personal key.
     server_admin: bool = False
+    # ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md: the preferred languages of the job, read when the context is made: the own list of the account, else the server default language (empty when not selected). None: not read (a context that a test makes); the settings keep their list.
+    languages: tuple[str, ...] | None = None
 
     def feature_allowed(self, feature: str) -> bool:
         """관리자는 전부, 관리자 전용 기능은 멤버에게 항상 거부, BYOK는 등급 기능 전부, 서버 등급은 ``tier.features``만."""
@@ -243,10 +245,14 @@ _EFFORT_ALIASES: Final[dict[str, str]] = {"off": "none", "0": "none"}
 
 
 def admin_context(settings: "Settings") -> ProviderContext:
-    """Admin or host operator context using providers.json."""
+    """Admin or host operator context using providers.json. A job without an account uses the server default language (read now from the database of ``settings``)."""
+    from claire.accounts import languages as _languages
+
     provider = str(getattr(settings, "provider", "") or "").strip().lower()
     model_field, effort_field = _ADMIN_MODEL_FIELDS.get(provider, ("gemini_model", "gemini_effort"))
+    db_file = getattr(settings, "db_file", None)
     return ProviderContext(
+        languages=_languages.read_server_languages(db_file) if db_file is not None else None,
         account_id=None,
         is_admin=True,
         source="admin",
@@ -280,6 +286,7 @@ def resolve_provider_context(
     if account_id is None:
         return admin_context(settings)
 
+    from claire.accounts import languages as _languages
     from claire.accounts import server_tier as _server_tier
     from claire.store.db import connect_existing
 
@@ -302,8 +309,25 @@ def resolve_provider_context(
         server_admin = role == "admin"
         # The server tier does not apply to the server administrator account.
         tier = ServerTier() if server_admin else _server_tier.load_server_tier(conn)
+        account_langs = _languages.account_languages(conn, int(account_id))
     finally:
         conn.close()
+    return replace(
+        _account_context(int(account_id), settings=settings, auth_db_path=auth_db_path, secret_service=secret_service, server_admin=server_admin, tier=tier),
+        languages=account_langs,
+    )
+
+
+def _account_context(
+    account_id: int,
+    *,
+    settings: "Settings",
+    auth_db_path: Path | str | None,
+    secret_service: "SecretService | None",
+    server_admin: bool,
+    tier: ServerTier,
+) -> ProviderContext:
+    """Steps 1a to 4 of ``resolve_provider_context`` for an account that can use providers."""
 
     # A registered key that is not usable raises ProviderKeyRejected also for the administrator: no change to the server credentials (C2).
     active = _load_member_key(int(account_id), settings=settings, auth_db_path=auth_db_path,
@@ -505,8 +529,9 @@ def settings_for_context(settings: "Settings", ctx: ProviderContext) -> "Setting
     STT·VLM 프로바이더는 해당 기능이 허용될 때만 ``gemini`` 아니면 사용 불가, ``provider_context=ctx``.
     관리자 컨텍스트는 ``provider_context=ctx``만 붙인다.
     """
+    languages = {"preferred_languages": ",".join(ctx.languages)} if ctx.languages is not None else {}
     if ctx.is_admin:
-        copy = settings.model_copy()
+        copy = settings.model_copy(update=languages)
         copy.provider_context = ctx
         return copy
 
@@ -528,6 +553,7 @@ def settings_for_context(settings: "Settings", ctx: ProviderContext) -> "Setting
         "enable_vlm_transcription": bool(getattr(settings, "enable_vlm_transcription", False)) and vlm_ok,
         "presentation_enabled": bool(getattr(settings, "presentation_enabled", False))
         and ctx.feature_allowed("presentation"),
+        **languages,
     }
     if not ctx.server_admin:
         # Jev shadow is for the server administrator account only (design decision 9): member data never goes to Jev.

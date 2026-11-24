@@ -175,8 +175,8 @@ def _stt_order_card(view: dict[str, Any], *, admin_viewer: bool) -> str:
     order = stt.get("order") or {}
     languages = [str(code) for code in order.get("caption_languages") or []]
     chain = " → ".join(_code(code) for code in languages) or "-"
-    if order.get("stt_detects_language"):
-        language_text = escape(_k("stt.detect"))
+    if str(order.get("stt_language") or "auto").lower() == "auto":
+        language_text = interpolate(escape(_k("stt.hints")), {"hints": ", ".join(_code(str(code)) for code in order.get("stt_hints") or []) or "-"})
     else:
         language_text = interpolate(escape(_k("stt.fixed_language")), {"language": _code(str(order.get("stt_language") or "-"))})
     stt_state = _media_html(stt)
@@ -190,9 +190,9 @@ def _stt_order_card(view: dict[str, Any], *, admin_viewer: bool) -> str:
     rules = [_k("stt.rule_other_language"), _k("stt.rule_region"), _k("stt.rule_no_speech"), _k("stt.rule_download_failed"), _k("stt.rule_vlm", language=str(order.get("vlm_language") or "-"))]
     rules_html = '<ul class="console-steps">' + "".join(f"<li>{escape(rule)}</li>" for rule in rules) + "</ul>"
     if admin_viewer:
-        where = interpolate(escape(_k("stt.where_admin")), {"variable": _code("CLAIRE_PREFERRED_LANGUAGES"), "page": f'<a href="/admin/providers#prov-stt-form">{escape(_k("stt.where_admin_page"))}</a>'})
+        where = interpolate(escape(_k("stt.where_admin")), {"server": f'<a href="/admin/server#server-languages">{escape(_k("stt.where_admin_server"))}</a>', "page": f'<a href="/admin/providers#prov-stt-form">{escape(_k("stt.where_admin_page"))}</a>'})
     else:
-        where = escape(_k("stt.where_member"))
+        where = interpolate(escape(_k("stt.where_member")), {"profile": f'<a href="/account/profile#settings-languages">{escape(_k("stt.where_member_profile"))}</a>'})
     body = steps_html + f'<h3>{escape(_k("stt.rules_title"))}</h3>' + rules_html + f'<p class="hint" data-stt-where>{where}</p>'
     return console_card(escape(_k("stt.title")), body, id=STT_ORDER_ID, icon="captions", hint_html=escape(_k("stt.hint")), split=False)
 

@@ -445,7 +445,9 @@
   // The language order of a video (accounts/provider_view.media_language_order): publisher captions, then automatic captions, each in the order of the preferred languages; STT only when no caption is usable.
   function sttLanguageText(order) {
     const o = order || {};
-    return o.stt_detects_language ? trKey('console.js.panels.providers.stt.order_detect') : trKey('console.js.panels.providers.stt.order_language', { language: o.stt_language || '-' });
+    return String(o.stt_language || 'auto').toLowerCase() === 'auto'
+      ? trKey('console.js.panels.providers.stt.order_hints', { hints: (o.stt_hints || []).join(', ') || '-' })
+      : trKey('console.js.panels.providers.stt.order_language', { language: o.stt_language || '-' });
   }
 
   function renderSttOrderHtml(cfg) {

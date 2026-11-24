@@ -53,6 +53,7 @@ from .console_ui import (
     console_form_card,
     console_host,
     console_kv,
+    console_language_list,
     console_notice,
     console_pill,
     console_result,
@@ -63,6 +64,7 @@ from .console_ui import (
 
 # P3-a: Group 1 (내 계정 · 워크스페이스) 섹션이 쓰는 모듈.
 from ...accounts import server_tier as server_tier_mod
+from ...accounts.languages import ALWAYS_LANGUAGE
 from ...accounts.provider_policy import MEMBER_KEY_PROVIDERS, ServerTier
 from ...store import auth_db
 from ...store import usage_ledger
@@ -986,7 +988,7 @@ def _build_settings_account_section(
     return SettingsSectionRender(
         body_html=f'<div class="settings-group1" data-settings-section="{escape(spec.slug)}">{body}</div>',
         extra_bootstrap={"settings_account": extra},
-        extra_scripts_html='<script src="/static/js/console_account.js" defer></script>',
+        extra_scripts_html='<script src="/static/js/console_account.js" defer></script>' + ('<script src="/static/js/console_languages.js" defer></script>' if spec.slug == "profile" else ""),
     )
 
 
@@ -1195,7 +1197,7 @@ def _account_profile_body(
             aria_label=t("console.settings.account.summary"),
             attrs={"data-settings-form": "summary"},
         )
-        + _settings_locale_html(account)
+        + _settings_languages_html(account)
         + _settings_entity_language_html(account)
         + console_card(
             escape(t("console.settings.account.quota_title")),
@@ -1308,18 +1310,36 @@ def _account_security_body(
     return body, extra
 
 
-def _settings_locale_html(account: accounts_store.Account) -> str:
-    """The interface language selector ``#pref-account-locale`` (I18N design Section 6.2). The empty value is automatic negotiation. ``console_account.js`` sends the change with ``PATCH /api/me`` and loads the page again."""
-    label = t("console.account.locale_label")
-    options = f'<option value=""{"" if account.locale else " selected"}>{escape(t("console.account.locale_auto"))}</option>' + "".join(
-        f'<option value="{code}"{" selected" if account.locale == code else ""}>{escape(t(f"locale.name.{code}"))}</option>' for code in SUPPORTED_LOCALES
+def _language_list_labels(prefix: str) -> dict[str, str]:
+    """The plain text of a language list form (``console_language_list``) from the catalog keys ``<prefix>.*`` and ``console.languages.*``."""
+    labels = {name: t(f"console.languages.{name}") for name in ("position", "up", "down", "remove", "add", "input")}
+    labels["save"] = t(f"{prefix}.save")
+    labels["follow"] = t(f"{prefix}.follow")
+    return labels
+
+
+def _settings_languages_html(account: accounts_store.Account) -> str:
+    """The card "Preferred languages" ``#settings-languages`` (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md): the list that applies, its state (the server default language or an own list), and its editor. ``console_languages.js`` saves it with ``PATCH /api/me`` and loads the page again (the interface language can change)."""
+    follows = account.preferred_languages is None
+    if not follows:
+        state_key, state_value = "console.account.languages.state_own", "own"
+    elif account.languages:
+        state_key, state_value = "console.account.languages.state_follow", "server"
+    else:
+        state_key, state_value = "console.account.languages.state_none", "none"
+    state = console_pill(t(state_key), tone="neutral", attrs={"data-languages-state": state_value})
+    none_hint = f'<p class="hint" data-languages-none>{escape(t("console.account.languages.none_hint"))}</p>' if state_value == "none" else ""
+    body = none_hint + console_language_list(
+        account.languages or (ALWAYS_LANGUAGE,),
+        list_id="settings-languages-list",
+        endpoint="/api/me",
+        method="PATCH",
+        field="preferred_languages",
+        labels=_language_list_labels("console.account.languages"),
+        follow=not follows,
+        reload_on_save=True,
     )
-    body = (
-        console_field(label, f'<select id="pref-account-locale" class="pref-input" data-settings-locale>{options}</select>', for_id="pref-account-locale")
-        + f'<p class="hint">{escape(t("console.account.locale_hint"))}</p>'
-        + console_result(attrs={"data-settings-result": True})
-    )
-    return console_card(escape(t("console.account.locale_title")), body, id="settings-locale", icon="globe", aria_label=label)
+    return console_card(escape(t("console.account.languages.title")), body, id="settings-languages", icon="globe", badge_html=state, hint_html=escape(t("console.account.languages.hint")), split=False, aria_label=t("console.account.languages.title"))
 
 
 def _settings_entity_language_html(account: accounts_store.Account) -> str:
@@ -1343,11 +1363,13 @@ def _current_settings(ctx: AccountsContext) -> Any:
         return None
     from ...core.provider_manager import ProviderManager
 
+    from ...accounts.languages import with_server_languages
+
     try:
         pm = ProviderManager(data_dir=ctx.data_dir or ctx.db_file.parent, auto_migrate=False)
-        return base.model_copy(update=pm.get_settings_dict())
+        return with_server_languages(base.model_copy(update=pm.get_settings_dict()))
     except Exception:  # noqa: BLE001 — an unreadable providers.json: the view shows the settings of the app start
-        return base
+        return with_server_languages(base)
 
 
 def _account_provider_view(ctx: AccountsContext, account: accounts_store.Account) -> dict[str, Any] | None:
@@ -1740,7 +1762,9 @@ def _render_console_section(
         "mode": mode,
         "is_admin": admin_viewer,
         # I18N design Section 6.2: the stored preference (None = automatic) and the locale of this response.
-        "locale": account.locale,
+        # The preferred languages (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md): the own list (None: the server default language) and the list that applies.
+        "preferred_languages": None if account.preferred_languages is None else list(account.preferred_languages),
+        "languages": list(account.languages),
         "effective_locale": get_locale(),
         "theme": (
             ids.format_public_id(selected_theme.number)

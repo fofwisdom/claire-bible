@@ -695,31 +695,6 @@
     // The option "Delete my activity records" (shared knowledge base design Section 13.2) is a field of the purge action of the admin (PATCH /api/admin/accounts, "delete_activity_records"; console_admin.js). An account has no request that deletes itself, thus this page has no control for the option.
   }
 
-  // I18N design Section 6.2: the interface language selector. The server renders the page text, thus a successful change loads the page again.
-  function bindLocaleSelect() {
-    var select = document.querySelector("select[data-settings-locale]");
-    if (!select) return;
-    var i18n = window.ClaireI18n;
-    var saved = select.value;
-    select.addEventListener("change", function () {
-      var section = select.closest("section") || select.parentElement;
-      select.disabled = true;
-      request("PATCH", "/api/me", { locale: select.value || null }).then(function (r) {
-        if (r.ok) {
-          if (i18n) i18n.reload(); else window.location.reload();
-          return;
-        }
-        select.value = saved;
-        select.disabled = false;
-        show(section, tr("console.js.account.locale_error"), true);
-      }).catch(function () {
-        select.value = saved;
-        select.disabled = false;
-        show(section, tr("console.js.account.locale_error"), true);
-      });
-    });
-  }
-
   // The entity language selector (ontology.label_language). The setting changes API responses only, thus the page does not load again.
   function bindEntityLanguageSelect() {
     var select = document.querySelector("select[data-settings-entity-language]");
@@ -765,8 +740,7 @@
     bindForms();
     if (section === "profile") {
       bindToggles();
-      bindLocaleSelect();
-      bindEntityLanguageSelect();
+        bindEntityLanguageSelect();
     } else if (section === "security") {
       bindIdentities(extra);
     } else if (section === "federation") {

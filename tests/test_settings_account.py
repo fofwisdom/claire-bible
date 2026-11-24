@@ -168,7 +168,7 @@ def test_account_page_network_member_renders_controls_without_admin_markup(env):
     assert f"@{MEMBER_USERNAME}" in html
     assert 'data-account-field="profile_public"' in html
     assert 'data-settings-form="display-name"' in html
-    assert 'id="settings-locale"' in html and 'id="settings-quota"' in html
+    assert 'id="settings-languages"' in html and 'id="settings-quota"' in html
     for security_only in ('data-settings-form="password"', "data-settings-identities", "data-lifecycle=", 'data-account-field="password"', "settings-extraction-mode"):
         assert security_only not in html, security_only
     assert '<script src="/static/js/console_account.js" defer></script>' in html

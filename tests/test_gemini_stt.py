@@ -101,12 +101,12 @@ def test_gemini_provider_transcribe_mocked(tmp_path, monkeypatch):
     mock_client.files.delete.assert_called_with(name="files/test_audio_123")
 
 
-@pytest.mark.parametrize(("language", "codes"), [("ko", None), ("auto", None), ("en", ["en"]), ("ja-JP", ["ja-JP"])])
-def test_gemini_transcription_request_sends_a_language_code_only_for_a_forced_language(tmp_path, language, codes):
-    """The STT language of the server goes to the Interactions API as ``language_codes``; "ko" (the default) and "auto" send none, thus Google detects the spoken language (``stt_language_codes``)."""
+@pytest.mark.parametrize(("language", "explicit", "codes"), [("auto", None, ["ko", "ja", "en"]), ("", None, ["ko", "ja", "en"]), ("ko", None, ["ko"]), ("ja-JP", None, ["ja-JP"]), ("auto", [], None), ("auto", ["ko", "en"], ["ko", "en"])])
+def test_gemini_transcription_request_sends_the_preferred_languages_as_hints(tmp_path, language, explicit, codes):
+    """ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P2: the STT language "auto" sends the preferred languages of the job as ``language_codes`` (hints); one tag sends that tag only; the laboratory gives the hints itself (an empty list: no hints, Google detects the language)."""
     fake_audio = tmp_path / "test.mp3"
     fake_audio.write_bytes(b"\xFF\xFB\x90\x00" * 1000)
-    s = Settings(enable_video_transcription=True, stt_provider="gemini", stt_model="gemini-3.5-transcribe", gemini_api_key="fake-key", video_chunk_duration_sec=900)
+    s = Settings(enable_video_transcription=True, stt_provider="gemini", stt_model="gemini-3.5-transcribe", gemini_api_key="fake-key", video_chunk_duration_sec=900, preferred_languages="ko,ja")
     provider = GeminiTranscriptProvider(s)
     mock_client = MagicMock()
     mock_file = MagicMock()
@@ -121,7 +121,7 @@ def test_gemini_transcription_request_sends_a_language_code_only_for_a_forced_la
     mock_client.interactions.create.return_value = mock_resp
     with patch.object(provider, "_get_genai_client", return_value=mock_client), \
          patch("claire.extract.transcript.gemini_stt.get_audio_duration_sec", return_value=60.0):
-        provider.transcribe(fake_audio, language=language)
+        provider.transcribe(fake_audio, language=language, language_codes=explicit)
     trans_cfg = mock_client.interactions.create.call_args.kwargs["generation_config"]["transcription_config"]
     assert trans_cfg.get("language_codes") == codes
 

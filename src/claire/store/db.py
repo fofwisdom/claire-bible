@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 45
+SCHEMA_VERSION = 46
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -875,7 +875,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v16_themes(conn)
     _migrate_v17_federation(conn)
     _migrate_v18_federation_publishing(conn)
-    _migrate_v19_account_locale(conn)
     _migrate_v20_syndication_cleanup(conn)
     _migrate_v21_account_feeds(conn)
     _migrate_v22_move_feed_tables(conn)
@@ -903,6 +902,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v43_permalinks(conn)
     _migrate_v44_username_required(conn)
     _migrate_v45_retire_account_extraction_mode(conn)
+    _migrate_v46_preferred_languages(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1199,9 +1199,6 @@ def _migrate_v26_account_entity_language(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "accounts", "entity_language", "TEXT")
 
 
-def _migrate_v19_account_locale(conn: sqlite3.Connection) -> None:
-    """v19 (I18N design Section 5.1, unit IP1-2): the interface locale of an account. NULL means automatic negotiation. Idempotent, adds one nullable column (A3)."""
-    _ensure_column(conn, "accounts", "locale", "TEXT CHECK (locale IS NULL OR locale IN ('en', 'ko'))")
 
 
 def _migrate_v18_federation_publishing(conn: sqlite3.Connection) -> None:
@@ -1926,6 +1923,44 @@ def _migrate_v45_retire_account_extraction_mode(conn: sqlite3.Connection) -> Non
         conn.execute("ALTER TABLE accounts DROP COLUMN extraction_mode")
     if _table_exists(conn, "raw_inbox"):
         _ensure_column(conn, "raw_inbox", "extraction_mode", "TEXT CHECK (extraction_mode IS NULL OR extraction_mode IN ('provider', 'client'))")
+
+
+def _migrate_v46_preferred_languages(conn: sqlite3.Connection) -> None:
+    """v46 schema (SCHEMA_VERSIONING.md "v46", ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md Section 8): preferred languages in place of the interface locale (v19) and of ``CLAIRE_PREFERRED_LANGUAGES``. Idempotent; it runs at each start.
+
+    1. ``server_settings.default_languages`` (the server default language) of a database from before v46: the value of ``CLAIRE_PREFERRED_LANGUAGES`` at this start (else its old default ``ko``), then ``en`` (P3). A new database gets the variable only when it is set; else the server default language is not selected (P1) and the administrator selects it on ``/admin/server``. This is the only read of the variable; the marker ``languages_v46`` makes the step run one time.
+    2. ``accounts.preferred_languages`` (NULL: the account follows the server default language).
+    3. An account with ``accounts.locale`` gets an own list (that locale, then the server default language) when that list is different from the server default language. Then the step drops ``accounts.locale``.
+    """
+    from ..accounts import languages as langs
+
+    if not (_table_exists(conn, "server_settings") and _table_exists(conn, "accounts")):
+        return
+    # The copy runs one time: after it, a removed server default language stays removed (not selected).
+    if conn.execute("SELECT 1 FROM server_settings WHERE key='languages_v46'").fetchone() is None:
+        raw = os.environ.get("CLAIRE_PREFERRED_LANGUAGES")
+        upgraded = stored_schema_version(conn) is not None
+        if raw is not None or upgraded:
+            items = [part for part in (raw if raw is not None else "ko").split(",") if part.strip()]
+            try:
+                seed = langs.normalize_languages(items)
+            except langs.InvalidLanguages:
+                logger.warning("schema v46: CLAIRE_PREFERRED_LANGUAGES has a value that is not a language list (%r); the server default language is ko, en", raw)
+                seed = ("ko", "en")
+            conn.execute(
+                "INSERT OR IGNORE INTO server_settings (key, value, updated_at, updated_by) VALUES (?, ?, ?, NULL)",
+                (langs.SERVER_LANGUAGES_KEY, langs.to_stored(seed), time.time()),
+            )
+        conn.execute("INSERT INTO server_settings (key, value, updated_at, updated_by) VALUES ('languages_v46', 'done', ?, NULL)", (time.time(),))
+    _ensure_column(conn, "accounts", "preferred_languages", "TEXT")
+    if "locale" in _table_columns(conn, "accounts"):
+        server = langs.server_languages(conn)
+        for account_id, locale in conn.execute("SELECT id, locale FROM accounts WHERE locale IS NOT NULL").fetchall():
+            own = langs.normalize_languages([str(locale), *server])
+            if own != server:
+                conn.execute("UPDATE accounts SET preferred_languages=? WHERE id=? AND preferred_languages IS NULL", (langs.to_stored(own), int(account_id)))
+        conn.execute("ALTER TABLE accounts DROP COLUMN locale")
+    conn.commit()
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:

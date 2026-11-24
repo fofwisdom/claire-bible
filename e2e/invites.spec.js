@@ -199,13 +199,15 @@ async function reloadInvitesPage(page) {
   return waitForInvitesAfter(page, () => page.reload({ waitUntil: 'domcontentloaded' }));
 }
 
+// The interface language of an account comes from its preferred languages (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md): a list with the locale first, or null (follow the server default language; the E2E server has none, thus the browser decides).
 async function setAccountLocale(page, localeValue) {
   await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
-  const patchPromise = page.waitForResponse((r) => r.url().endsWith('/api/me') && r.request().method() === 'PATCH');
-  const reloadPromise = page.waitForEvent('domcontentloaded');
-  await page.locator('#pref-account-locale').selectOption(localeValue);
-  expect((await patchPromise).status()).toBe(200);
-  await reloadPromise;
+  const response = await page.request.patch('/api/me', {
+    data: { preferred_languages: localeValue ? [localeValue] : null },
+    headers: { Origin: new URL(page.url()).origin },
+  });
+  expect(response.status()).toBe(200);
+  await page.reload({ waitUntil: 'domcontentloaded' });
   if (localeValue) await expect(page.locator('html')).toHaveAttribute('lang', localeValue);
 }
 

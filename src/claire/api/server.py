@@ -3358,7 +3358,9 @@ def create_app(
         """Add what applies now (``accounts.provider_view``) and the server tier to a /providers response. The view reads the settings with the ``providers.json`` of ``pm`` (the file that the request saved). The tier is read-only here: /admin/server edits it."""
         from ..accounts.provider_view import describe_server_providers
 
-        current = s.model_copy(update=pm.get_settings_dict())
+        from ..accounts.languages import with_server_languages
+
+        current = with_server_languages(s.model_copy(update=pm.get_settings_dict()))
         cfg["effective_provider"] = current.effective_provider
         cfg["effective_stt_provider"] = current.effective_stt_provider
         cfg["effective"] = describe_server_providers(current)

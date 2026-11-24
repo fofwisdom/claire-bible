@@ -22,6 +22,7 @@ test('the console shows English text for an English browser, in the server text 
   await page.goto('/admin/providers', { waitUntil: 'domcontentloaded' });
   const providers = page.locator('#admin-providers-host');
   await expect(providers.getByRole('heading', { level: 2, name: /What applies now/ })).toBeVisible();
+  await providers.getByRole('tab', { name: 'Key · models' }).click();
   await expect(providers.getByRole('button', { name: 'Save the models' })).toBeVisible();
 
   // The inline catalog of a console page has the script keys only; a page that is not in the administrator area has no keys of the administrator scripts.
@@ -37,16 +38,19 @@ test('the console shows English text for an English browser, in the server text 
   const modKbKeys = await page.evaluate(() => Object.keys(JSON.parse(document.getElementById('claire-i18n-catalog').textContent)));
   expect(modKbKeys.filter((key) => key.startsWith('console.js.admin.'))).toEqual([]);
 
-  // The language selector changes the console to Korean.
+  // The preferred languages change the console to Korean: add Korean, move it before English, and save.
   await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
-  await page.locator('#pref-account-locale').selectOption('ko');
+  const card = page.locator('#settings-languages');
+  await card.locator('[data-lang-input]').fill('ko');
+  await card.locator('[data-lang-add]').click();
+  await Promise.all([page.waitForNavigation(), card.locator('button[type="submit"]').click()]);
   await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
   await expect(page.locator('#settings-account-info h2')).toContainText('계정 정보');
   await page.goto('/moderation/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#admin-themes-host').getByRole('tab', { name: /판정과 임계값/ })).toBeVisible();
 
-  // The stored language is a setting of the seed account, which other tests share: set it back to automatic.
+  // The list is a setting of the seed account, which other tests share: follow the server default language again (the E2E server has none, thus the browser decides).
   await page.goto('/account/profile', { waitUntil: 'domcontentloaded' });
-  await page.locator('#pref-account-locale').selectOption('');
+  await Promise.all([page.waitForNavigation(), page.locator('#settings-languages [data-lang-follow]').click()]);
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });

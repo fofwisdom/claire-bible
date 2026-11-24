@@ -51,7 +51,7 @@ test('admin providers: the STT card shows the video order and links to the pipel
   const sttOrder = page.locator('#prov-stt-form #prov-stt-order');
   await expect(sttOrder).toBeVisible();
   expect(await sttOrder.locator('[data-stt-order]').evaluateAll(els => els.map(el => el.getAttribute('data-stt-order')))).toEqual(['manual', 'automatic', 'stt']);
-  await expect(sttOrder).toContainText('CLAIRE_PREFERRED_LANGUAGES');
+  await expect(sttOrder).toContainText('서버 기본 언어');
   await expect(page.locator('#prov-effective-card a[data-prov-pipeline-link]')).toHaveAttribute('href', '/support/pipeline');
   await expect(page.locator('#prov-effective-card')).toBeHidden();
   await expectNoRawKeys(page);

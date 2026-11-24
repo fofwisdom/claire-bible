@@ -144,7 +144,7 @@ Limits:
 3. `multihop_candidates`는 엣지를 만들지 않는다(2홉 누락 링크는 구상: [`MISSING_LINK_DISCOVERY_IDEAS.md`](../ideas/MISSING_LINK_DISCOVERY_IDEAS.md)).
 4. `make_vector_store`는 항상 brute-force 저장소를 돌려준다. sqlite-vec는 탐지만 한다.
 5. 동일 주제 출처 병합 복원은 실패한 재추출이 이미 커밋한 엔티티를 남긴다.
-6. `CLAIRE_PREFERRED_LANGUAGES`는 추출 요약·상세 출력 언어에 쓰이지 않는다. 출력은 항상 한국어다.
+6. 선호 언어는 추출 요약·상세 출력 언어에 쓰이지 않는다. 출력은 항상 한국어다.
 
 ### 4.3 판정 기록과 그래프 ([`GRAPH_BUNDLE_REVIEW.md`](GRAPH_BUNDLE_REVIEW.md), [`GRAPH_ENGINE.md`](GRAPH_ENGINE.md))
 

@@ -2,6 +2,7 @@
 
 - **Status**: Implemented for fetching, caption selection, VLM transcription, and the preflight output. Design principles only. Current behavior: [`EXTRACTION.md`](../implementation/EXTRACTION.md) §2.3. The extraction prompts, the detail render, and the search tokenizer do not use this setting. The search tokenizer selects its analyzer from the script of the text ([`I18N.md`](../implementation/I18N.md) §7). No design plans a language target for extraction or detail render now.
 - **Date**: 2026-09-02 · condensed 2026-11-16
+- **Changed** (2026-11-24): decisions 1 and 5 are replaced by [`ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md`](ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md) (a list for each account and the server default language; the list also gives the interface language). Decisions 2 to 4 stay, with `en` movable.
 
 ## Goal / problem
 
