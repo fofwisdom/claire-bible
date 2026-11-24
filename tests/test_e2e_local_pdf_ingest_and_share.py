@@ -12,10 +12,7 @@ from claire.core.config import Settings, get_settings
 from claire.extract.provider import MockProvider
 from claire.ingest.service import IngestService
 from claire.store import db as dbm
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def test_e2e_local_pdf_ingest_and_share_journey(tmp_path: Path, monkeypatch):
@@ -31,7 +28,6 @@ def test_e2e_local_pdf_ingest_and_share_journey(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
     monkeypatch.setenv("CLAIRE_DATA_DIR", str(data_dir))
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "production")
     monkeypatch.setenv("CLAIRE_FQDN", "cb.example.com")
 
@@ -41,6 +37,7 @@ def test_e2e_local_pdf_ingest_and_share_journey(tmp_path: Path, monkeypatch):
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
     conn.close()
+    owner_headers = bearer_headers(db_file, scope="owner")
 
     mock_provider = MockProvider()
     svc = IngestService(settings, provider=mock_provider)
@@ -125,11 +122,11 @@ def test_e2e_local_pdf_ingest_and_share_journey(tmp_path: Path, monkeypatch):
     assert "file://" not in json.dumps(legacy_data)
 
     # C. Create shares and test public share pages (/p?s=...)
-    resp_share = client.post("/share", json={"doc_id": doc_id}, headers=OWNER_HEADERS)
+    resp_share = client.post("/share", json={"doc_id": doc_id}, headers=owner_headers)
     assert resp_share.status_code == 200
     token = resp_share.json()["token"]
 
-    resp_share_legacy = client.post("/share", json={"doc_id": legacy_doc_id}, headers=OWNER_HEADERS)
+    resp_share_legacy = client.post("/share", json={"doc_id": legacy_doc_id}, headers=owner_headers)
     assert resp_share_legacy.status_code == 200
     token_legacy = resp_share_legacy.json()["token"]
 

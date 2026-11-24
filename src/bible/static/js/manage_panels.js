@@ -1,6 +1,6 @@
 /**
  * Claire Shared Management Panels Controller (manage_panels.js)
- * Reusable DOM and API controllers for Provider, Limit, Theme, and Token management.
+ * Reusable DOM and API controllers for Provider, Limit, and Theme management.
  * Loaded by index.html and console_shell.html.
  */
 (function() {
@@ -66,7 +66,6 @@
   const _provState = { container: null, opts: {}, config: null, activeTab: 'status' };
   const _limitState = { container: null, opts: {}, config: null };
   const _themeState = { container: null, opts: {}, themes: [] };
-  const _tokenState = { container: null, opts: {}, tokens: [], newCreatedToken: null, retired: false, deprecationNotice: '' };
 
   function findTheme(themeRef) {
     const themes = _themeState.themes || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.themes) || [];
@@ -1325,272 +1324,6 @@
   }
 
   // ==========================================
-  // 4. TOKEN MANAGER
-  // ==========================================
-
-  function closeTokenManager() {
-    if (_tokenState.opts && typeof _tokenState.opts.onClose === 'function') {
-      _tokenState.opts.onClose();
-    } else if (typeof window.closeDrawer === 'function') {
-      window.closeDrawer();
-    }
-  }
-
-  function copyMintedToken() {
-    const el = document.getElementById('newly-minted-token');
-    if (!el) return;
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      navigator.clipboard.writeText(el.value).then(() => {
-        alert(trKey("console.js.panels.tokens.copied"));
-      }).catch(() => {
-        el.select();
-        document.execCommand('copy');
-        alert(trKey("console.js.panels.tokens.copied"));
-      });
-    } else {
-      el.select();
-      document.execCommand('copy');
-      alert(trKey("console.js.panels.tokens.copied"));
-    }
-  }
-
-  async function createApiToken() {
-    const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /account/mcp.';
-    if (_tokenState.retired) {
-      renderTokenManagerDOM(trFallback("console.js.panels.tokens.retired_notice", retiredFallback), false);
-      return;
-    }
-    const nameInput = document.getElementById('new-token-name');
-    const scopeSelect = document.getElementById('new-token-scope');
-    const expirySelect = document.getElementById('new-token-expiry');
-    if (!nameInput || !nameInput.value.trim()) {
-      alert(trKey("console.js.panels.tokens.name_needed"));
-      return;
-    }
-    const name = nameInput.value.trim();
-    const scope = scopeSelect ? scopeSelect.value : 'readonly';
-    const expDays = expirySelect ? parseInt(expirySelect.value, 10) : 0;
-
-    try {
-      const url = resolveRootUrl(_tokenState.opts, 'tokens');
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, scope: scope, expires_in_days: expDays > 0 ? expDays : null }) });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        if (r.status === 410) {
-          _tokenState.retired = true;
-          renderTokenManagerDOM(err.detail || trFallback("console.js.panels.tokens.retired_notice", retiredFallback), false);
-          return;
-        }
-        renderTokenManagerDOM(trKey("console.js.panels.tokens.issue_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
-        return;
-      }
-      const data = await r.json();
-      _tokenState.newCreatedToken = data.token;
-      if (_tokenState.opts && typeof _tokenState.opts.onTokenCreated === 'function') {
-        _tokenState.opts.onTokenCreated(data.token);
-      }
-      if (_tokenState.opts && typeof _tokenState.opts.onTokenChange === 'function') {
-        _tokenState.opts.onTokenChange('create', data.token);
-      }
-      await renderTokenManager(_tokenState.container, _tokenState.opts, data.token);
-    } catch (e) {
-      renderTokenManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
-    }
-  }
-
-  async function revokeApiToken(id, name) {
-    if (!confirm(trKey("console.js.panels.tokens.revoke_confirm", { id: id, name: name }))) return;
-    try {
-      const url = resolveRootUrl(_tokenState.opts, 'tokens/revoke');
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        renderTokenManagerDOM(trKey("console.js.panels.tokens.revoke_failed") + ' ' + (err.detail || ('HTTP ' + r.status)), false);
-        return;
-      }
-      if (_tokenState.opts && typeof _tokenState.opts.onTokenRevoked === 'function') {
-        _tokenState.opts.onTokenRevoked(id);
-      }
-      if (_tokenState.opts && typeof _tokenState.opts.onTokenChange === 'function') {
-        _tokenState.opts.onTokenChange('revoke', id);
-      }
-      await renderTokenManager(_tokenState.container, _tokenState.opts);
-      renderTokenManagerDOM(trKey("console.js.panels.tokens.revoked_done", { id: id, name: name }), true);
-    } catch (e) {
-      renderTokenManagerDOM(trKey("console.js.panels.error_occurred") + ' ' + (e.message || e), false);
-    }
-  }
-
-  function renderTokenManagerDOM(msg, isSuccess, newCreatedToken) {
-    const target = _tokenState.container;
-    if (!target) return;
-    const tokens = _tokenState.tokens || [];
-    const activeNewToken = newCreatedToken || _tokenState.newCreatedToken;
-    const isRetired = Boolean(_tokenState.retired);
-
-    let h = '';
-    if (isRetired) {
-      const retiredFallback = 'Manual persistent tokens are retired. New token creation is disabled; connect clients via OAuth 2.1 in /account/mcp.';
-      const retiredText = trFallback("console.js.panels.tokens.retired_notice", retiredFallback);
-      const retiredHtml = retiredText.indexOf('/account/mcp') !== -1 ? esc(retiredText).replace('/account/mcp', '<a href="/account/mcp">/account/mcp</a>') : (esc(retiredText) + ' <a href="/account/mcp">/account/mcp</a>');
-      h += uiNotice(`<span data-icon="warning"></span> ${retiredHtml}`, 'danger', '', { id: 'tokens-retired-banner', 'data-tokens-retired': 'true', role: 'status' });
-    }
-    const scopeNotices = _tokenState.scopeNotices || [];
-    if (scopeNotices.length) {
-      const scopeListHtml = '<ul>' + scopeNotices.map(n => `<li>${esc(n.name)} (#${esc(String(n.id))})</li>`).join('') + '</ul>';
-      h += uiNotice(`<span data-icon="warning"></span> ${esc(trKey("console.js.panels.tokens.scope_notice"))}${scopeListHtml}`, 'warn', '', { role: 'status' });
-    }
-    h += renderAlertBanner(msg, isSuccess);
-
-    if (activeNewToken) {
-      const rawVal = activeNewToken.token || '';
-      const mcpOrigin = window.location.origin;
-      const mcpUrl = `${mcpOrigin}/mcp`;
-      const mcpSnippet = JSON.stringify({ mcpServers: { 'claire-bible': { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${rawVal}` } } } }, null, 2);
-      const mintedBody = `<div class="console-form-row"><input type="text" id="newly-minted-token" class="pref-input pref-mono" readonly value="${esc(rawVal)}" style="flex:1;min-width:12rem;" onclick="this.select();"/>${uiBtn(trKey("console.js.panels.tokens.copy"), { variant: 'accent', icon: 'clipboard', attrs: { onclick: 'copyMintedToken()' } })}</div>`
-        + `<details class="pref-disclosure"><summary><span data-icon="clipboard"></span> ${esc(trKey("console.js.panels.tokens.mcp_json"))}</summary><pre class="pref-code">${esc(mcpSnippet)}</pre></details>`;
-      h += uiCard({
-        id: 'tokens-minted-card',
-        icon: 'check-circle',
-        title: trKey("console.js.panels.tokens.minted_title"),
-        hint: trKey("console.js.panels.tokens.minted_hint"),
-        split: false,
-        bodyHtml: mintedBody
-      });
-    }
-
-    const disabledAttr = isRetired ? ' disabled aria-disabled="true"' : '';
-    const scopeOptsHtml = `<option value="readonly" selected>${esc(trKey("console.js.panels.tokens.scope_readonly"))}</option><option value="write">${esc(trKey("console.js.panels.tokens.scope_write"))}</option><option value="owner">${esc(trKey("console.js.panels.tokens.scope_owner"))}</option>`;
-    const expiryOptsHtml = `<option value="0" selected>${esc(trKey("console.js.panels.tokens.expiry_none"))}</option><option value="30">${esc(trKey("console.js.panels.tokens.expiry_30"))}</option><option value="90">${esc(trKey("console.js.panels.tokens.expiry_90"))}</option><option value="365">${esc(trKey("console.js.panels.tokens.expiry_365"))}</option>`;
-    const createBody = uiField({ id: 'new-token-name', label: trKey("console.js.panels.tokens.name_label"), controlHtml: `<input type="text" id="new-token-name" class="pref-input"${disabledAttr} placeholder="${esc(trKey("console.js.panels.tokens.name_placeholder"))}"/>` })
-      + '<div class="console-form-grid">'
-      + uiField({ id: 'new-token-scope', label: trKey("console.js.panels.tokens.scope_label"), controlHtml: `<select id="new-token-scope" class="pref-select"${disabledAttr}>${scopeOptsHtml}</select>` })
-      + uiField({ id: 'new-token-expiry', label: trKey("console.js.panels.tokens.expiry_label"), controlHtml: `<select id="new-token-expiry" class="pref-select"${disabledAttr}>${expiryOptsHtml}</select>` })
-      + '</div>'
-      + uiActions(uiBtn(trKey("console.js.panels.tokens.issue"), { id: 'create-api-token-btn', variant: 'accent', icon: 'key', disabled: isRetired, attrs: { onclick: 'createApiToken()' } }));
-    h += uiCard({
-      id: 'tokens-create-card',
-      icon: 'plus',
-      title: trKey("console.js.panels.tokens.new_title"),
-      hint: trKey("console.js.panels.tokens.desc"),
-      attrs: isRetired ? { style: 'opacity:0.65;' } : null,
-      bodyHtml: createBody
-    });
-
-    let listBody = '';
-    if (!tokens.length) {
-      listBody = `<p class="hint">${esc(trKey("console.js.panels.tokens.empty"))}</p>`;
-    } else {
-      const scopeTones = { owner: 'accent', write: 'ap', readonly: 'neutral' };
-      const nowTs = Date.now() / 1000;
-      let rowsHtml = '';
-      for (const tok of tokens) {
-        const isRevoked = tok.revoked_at !== null && tok.revoked_at !== undefined;
-        const isExpired = tok.expires_at && tok.expires_at < nowTs;
-        let statusTone = 'ok';
-        let statusText = trKey("console.js.panels.tokens.status_active");
-        if (isRevoked) {
-          statusTone = 'danger';
-          statusText = trKey("console.js.panels.tokens.status_revoked");
-        } else if (isExpired) {
-          statusTone = 'warn';
-          statusText = trKey("console.js.panels.tokens.status_expired");
-        }
-
-        let expStr = trKey("console.js.panels.tokens.expiry_none_short");
-        if (tok.expires_at) {
-          const d = new Date(tok.expires_at * 1000);
-          expStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-
-        let lastUsedStr = trKey("console.js.panels.tokens.never_used");
-        if (tok.last_used_at) {
-          const lu = new Date(tok.last_used_at * 1000);
-          lastUsedStr = lu.toLocaleDateString() + ' ' + lu.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-
-        const revokeHtml = isRevoked ? '' : uiBtn(trKey("console.js.panels.tokens.revoke"), { variant: 'danger', sm: true, attrs: { onclick: `revokeApiToken(${tok.id}, ${jsArg(tok.name)})` } });
-        rowsHtml += `<tr${isRevoked ? ' data-off="true"' : ''}>`;
-        rowsHtml += `<td><strong>#${tok.id} ${esc(tok.name)}</strong></td>`;
-        rowsHtml += `<td>${uiPill(tok.scope, scopeTones[tok.scope] || 'neutral')}</td>`;
-        rowsHtml += `<td>${uiPill(statusText, statusTone)}</td>`;
-        rowsHtml += `<td><code class="pref-mono">${esc(tok.token_masked || 'cb_...')}</code></td>`;
-        rowsHtml += `<td>${esc(expStr)}</td>`;
-        rowsHtml += `<td>${esc(lastUsedStr)}</td>`;
-        rowsHtml += `<td>${revokeHtml}</td>`;
-        rowsHtml += '</tr>';
-      }
-      const idHeader = trKey("console.js.panels.tokens.identifier").replace(/:+\s*$/, '');
-      listBody = uiTable({
-        headers: [
-          trKey("console.js.panels.tokens.name_label"),
-          trKey("console.js.panels.tokens.scope_label"),
-          trKey("console.js.panels.col_status"),
-          idHeader,
-          trKey("console.js.panels.tokens.expires"),
-          trKey("console.js.panels.tokens.last_used"),
-          ''
-        ],
-        bodyHtml: rowsHtml
-      });
-    }
-    h += uiCard({
-      id: 'tokens-list-card',
-      icon: 'clipboard',
-      title: trKey("console.js.panels.tokens.list_title", { count: tokens.length }),
-      split: false,
-      bodyHtml: listBody
-    });
-
-    const optsState = _tokenState.opts || {};
-    const canClose = optsState.showClose !== false && optsState.showCloseButton !== false && (typeof optsState.onClose === 'function' || typeof window.closeDrawer === 'function');
-    if (canClose) {
-      h += uiActions(uiBtn(trKey("common.action.close"), { attrs: { onclick: 'closeTokenManager()' } }));
-    }
-
-    target.innerHTML = h;
-    enhanceConsoleDom();
-  }
-
-  async function renderTokenManager(container, opts, newCreatedToken) {
-    if (container instanceof HTMLElement || (container && container.nodeType === 1) || (typeof container === 'string' && (container.startsWith('#') || container.startsWith('.')))) {
-      _tokenState.container = resolveContainer(container);
-      _tokenState.opts = opts || {};
-      if (newCreatedToken) _tokenState.newCreatedToken = newCreatedToken;
-      else if (_tokenState.opts && _tokenState.opts.initialNewToken) _tokenState.newCreatedToken = _tokenState.opts.initialNewToken;
-    } else if (typeof container === 'string') {
-      const msg = container;
-      const isSuccess = Boolean(opts);
-      if (newCreatedToken) _tokenState.newCreatedToken = newCreatedToken;
-      renderTokenManagerDOM(msg, isSuccess, _tokenState.newCreatedToken);
-      return;
-    }
-    const target = _tokenState.container;
-    if (!target) return;
-    target.innerHTML = renderPanelLoadingCard('tokens-loading-card', 'key', 'console.js.panels.tokens.title', 'console.js.panels.tokens.loading');
-    enhanceConsoleDom();
-    _tokenState.retired = false;
-    _tokenState.deprecationNotice = '';
-    try {
-      const url = resolveRootUrl(_tokenState.opts, 'tokens');
-      const r = await fetch(url);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const data = await r.json();
-      _tokenState.tokens = data.tokens || [];
-      _tokenState.retired = Boolean(data.retired);
-      _tokenState.deprecationNotice = data.deprecation_notice || '';
-      // The server sends each scope notice once (design Section 6.6 rule 2). Keep it for the next renders of this page.
-      if (Array.isArray(data.scope_notices) && data.scope_notices.length) _tokenState.scopeNotices = data.scope_notices;
-      const initialMsg = (_tokenState.opts && _tokenState.opts.initialMsg) || undefined;
-      const initialSuccess = (_tokenState.opts && _tokenState.opts.initialSuccess) || false;
-      renderTokenManagerDOM(initialMsg, initialSuccess, _tokenState.newCreatedToken);
-    } catch (e) {
-      target.innerHTML = renderPanelErrorCard('tokens-error-card', 'key', 'console.js.panels.tokens.title', 'console.js.panels.tokens.load_failed', e);
-      enhanceConsoleDom();
-    }
-  }
-
-  // ==========================================
   // EXPORTS
   // ==========================================
 
@@ -1598,7 +1331,6 @@
     renderProviderManager,
     renderLimitManager,
     renderThemeManager,
-    renderTokenManager,
     togglePassVisibility,
     saveLimitSettings,
     resetLimitSettings,
@@ -1611,11 +1343,7 @@
     toggleThemePresentation,
     createThemeFromUI,
     deleteThemeFromUI,
-    closeThemeManager,
-    createApiToken,
-    revokeApiToken,
-    closeTokenManager,
-    copyMintedToken
+    closeThemeManager
   };
 
   window.ClaireManagePanels = ClaireManagePanels;

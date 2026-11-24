@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -32,7 +33,6 @@ from claire.api.oidc import ExternalIdentity, GitHubAdapter, IdpProviderMeta, Oi
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
-from claire.store.token_store import reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ADMIN_PASSWORD = "AdminPassword123!"
@@ -45,16 +45,15 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = "owner-" + "o" * 32
-    readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
 
 
 @pytest.fixture(autouse=True)
-def reset_tokens():
-    reset_token_stores()
+def _clean_oidc_env(monkeypatch):
+    for key in list(os.environ):
+        if key.startswith("CLAIRE_"):
+            monkeypatch.delenv(key, raising=False)
     yield
-    reset_token_stores()
 
 
 @pytest.fixture

@@ -22,7 +22,6 @@ from claire.api import server
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
-from claire.store.token_store import reset_token_stores
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 SECRET_ADMIN_USERNAME = "claire_admin"
@@ -37,8 +36,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = "owner-" + "o" * 32
-    readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
     multi_theme: bool = True
     usercontent_fqdn: str = ""
@@ -50,9 +47,7 @@ def clean_env(monkeypatch):
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
-    reset_token_stores()
     yield
-    reset_token_stores()
 
 
 @pytest.fixture

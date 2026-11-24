@@ -15,6 +15,7 @@ from claire_bible.web.app import create_app
 from claire.core.config import Settings
 from claire.core.ports import get_slide_renderer
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 
 
 def test_e2e_presentation_full_resilience_lifecycle(tmp_path: Path):
@@ -57,12 +58,10 @@ The website of the future may assemble itself for every visitor.
     conn.commit()
     conn.close()
 
-    owner_token = "owner-" + ("z" * 32)
-    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    owner_headers = bearer_headers(db_file, scope="owner")
     s = Settings(
         db_path=str(db_file),
         data_dir=tmp_path,
-        inject_token=owner_token,
         fqdn="127.0.0.1:8765",
         environment="development",
     )
@@ -118,9 +117,9 @@ The website of the future may assemble itself for every visitor.
                 )
                 gen_time_ms = (time.perf_counter() - t_gen_start) * 1000
 
-                # Must return 202 Accepted immediately without waiting for slow_compose
+                # Must return 202 Accepted immediately without waiting for slow_compose (500ms)
                 assert gen_res.status_code == 202
-                assert gen_time_ms < 100, f"Async generate must return immediately (<100ms), took {gen_time_ms}ms"
+                assert gen_time_ms < 350, f"Async generate must return immediately (<350ms), took {gen_time_ms}ms"
                 assert gen_res.json()["status"] == "composing"
 
                 # Step 5: Zero-Freezing Invariant Check

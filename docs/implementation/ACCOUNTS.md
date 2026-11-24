@@ -14,7 +14,7 @@
 
 1. **[코드] 계정은 두 DB에 걸친다.** 계정 행과 자격증명의 계정 귀속은 `data/claire.db`(계정 스키마는 v15에서 도입)에, 비밀번호 해시·로그인 실패 기록·감사 기록은 `data/auth/auth.db`에 있다. 두 DB를 한 트랜잭션으로 묶지 않는다. 쓰기 순서는 §5.1에 있다.
 2. **[코드] 관리자는 `accounts.id = 1` 하나다.** 상수는 `src/claire/store/db.py`의 `ADMIN_ACCOUNT_ID`이고 `src/claire/store/accounts.py`가 다시 내보낸다. `idx_accounts_single_admin`이 `role='admin'` 행을 하나로 제한한다.
-3. **[코드] P1의 기존 자격증명 발급 경로는 모두 관리자 계정으로 기록한다.** `create_session`, `create_oauth_code`, `create_oauth_token`, `approve_oauth_auth_request`(모두 `src/claire/store/db.py`)와 `TokenStore.create_token`(`src/claire/store/token_store.py`)의 기본값이 `ADMIN_ACCOUNT_ID`다. 코드 주석은 P3 L3-e에서 명시 인자로 바꾼다고 적는다.
+3. **[코드] P1의 기존 자격증명 발급 경로는 모두 관리자 계정으로 기록한다.** `create_session`, `create_oauth_code`, `create_oauth_token`, `approve_oauth_auth_request`(모두 `src/claire/store/db.py`)의 기본값이 `ADMIN_ACCOUNT_ID`다. 수동 상시 토큰 저장소(`api_tokens.json`)는 퇴역하여 `prepare_auth_db` 시 `api_tokens.json.retired`로 보관된다.
 4. **[결정] 운영 서버에 접근하지 않는다.** 검증은 개발 모드와 단위 테스트로 한다.
 
 ## 1. 파일 지도
@@ -30,7 +30,7 @@
 | `src/claire/accounts/invites.py` | Crockford Base32 8자리 초대 코드 생성, 정규화, 매개변수 유효성 검증 | `InvitationInfo`, `normalize_invite_code`, `validate_invite_code_syntax`, `generate_invite_code`, `validate_invite_params`, `InviteError` |
 | `src/claire/core/ids.py` | 시간 정렬 64비트 번호 | `timestamp_id`, `legacy_timestamp_id`, `insert_with_timestamp_id`, `format_public_id`, `parse_public_id` |
 | `src/claire/api/principal.py` | 요청 주체 | `Principal`, `ANONYMOUS`, `request_principal`, `has_recent_auth`, `STEP_UP_WINDOW_SECONDS` |
-| `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `_env_token_credential`, `client_ip`, `parse_trusted_proxies` |
+| `src/claire/api/security.py` | 자격증명 검증과 `Principal` 배정, 라우트 접근 규칙, 실패 제한용 클라이언트 IP | `ROUTE_POLICY`, `AuthenticationMiddleware`, `_Credential`, `_bind_account`, `client_ip`, `parse_trusted_proxies` |
 | `src/claire/api/oidc.py` | OIDC 코어 클라이언트, GitHub 어댑터, PKCE S256 및 JWK 서명 검증 | `OidcClient`, `GitHubAdapter`, `generate_pkce_pair`, `verify_pkce`, `ExternalIdentity` |
 | `src/claire/api/accounts_routes/` | 계정 라우트(`setup.py`, `login.py`, `admin.py`, `me.py`, `invites.py`, `keys.py`, `server.py`, `idp.py`), 통합 콘솔(`console.py`, `console_syndication_panels.py`)과 공용 헬퍼(`common.py`) | `build_account_routes`, `prepare_auth_db`, `require_recent_auth`, `same_origin`, `console.routes`, `SETTINGS_ACCOUNT_NOTICE_TEXT`, `build_syndication_section` |
 | `src/claire/api/templates/` | `setup.html`, `login.html`, `console_shell.html`(`/admin/*`·`/account/*`·`/settings/*`·`/moderation/*` 공용 셸), `partials/settings_syndication/*.html`(`/settings/*` 신디케이션 섹션과 `/account/mcp`·`/account/webmcp` 본문) | `$이름` 자리채움(`common.render_template`) |
@@ -39,7 +39,7 @@
 | `src/bible/static/js/console_admin.js` | `/admin/*` 및 `/moderation/{oversight,themes}` 화면 컨트롤러와 단계 인증 모달. 관리자 섹션 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
 | `src/bible/static/js/console_kb.js` | `/settings/kb` 및 `/moderation/kb`·`/moderation/kb/{kb_number}` 화면 컨트롤러 | `/kb*`, `/submissions*`, `/api/auto-rule*`, `/api/reputation`, `/api/mutual-collaborations*` 호출 |
 | `src/bible/static/js/console_syndication.js` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}`와 `/account/{mcp,webmcp}` 화면 | localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>` |
-| `src/bible/static/js/manage_panels.js` | 콘솔(`/admin/*`, `/account/*`, `/settings/*`, `/moderation/*`)이 쓰는 관리 패널. 루트 `/`에는 싣지 않는다 | `window.ClaireManagePanels`(`renderProviderManager`, `renderLimitManager`, `renderThemeManager`, `renderTokenManager`) |
+| `src/bible/static/js/manage_panels.js` | 콘솔(`/admin/*`, `/account/*`, `/settings/*`, `/moderation/*`)이 쓰는 관리 패널. 루트 `/`에는 싣지 않는다 | `window.ClaireManagePanels`(`renderProviderManager`, `renderLimitManager`, `renderThemeManager`) |
 
 ## 2. 계정 모델과 상태
 
@@ -77,13 +77,11 @@
 
 | 자격증명 | 저장 위치 | `account_id` 결정 | `credential_id` | `authenticated_at` |
 | :--- | :--- | :--- | :--- | :--- |
-| 환경변수 토큰 `CLAIRE_INJECT_TOKEN`, `CLAIRE_READONLY_TOKEN` | 환경변수 | 항상 관리자(1). DB를 읽지 않는다 | `env:<scope>` (Deprecated 헤더 송출) | None |
-| 상시 API·MCP 토큰(지원 중단 예정, `AE3`) | `data/auth/api_tokens.json` | 항목의 `account_id`. 키가 없으면 1. 값이 정수가 아니거나 0 이하이면 무시(경고 로그). `retired: true` 또는 `CLAIRE_MANUAL_TOKENS_RETIRED=1`이면 검증·발급 중단(`410`) | `api:<id>` | None |
 | OAuth 2.1 액세스 토큰 (`AE2a`/`AE2b`, 권장) | `oauth_tokens.account_id` | 행 값. NULL이면 거부 (`granted_scope`: `readonly` \| `write`, Refresh 회전 패밀리·폐기 추적) | 토큰 SHA-256 hex 앞 16자 | None |
 | 세션(쿠키·`X-Session`·Bearer로 보낸 세션 토큰) | `auth_sessions.account_id`, `authenticated_at` | 행 값. NULL이면 거부 | `nonce` SHA-256 hex 앞 16자(토큰 회전에도 유지) | cookie·x-session 채널에서만 행 값. Bearer로 보낸 세션은 None |
 | CLI·텔레그램 매직 링크 | `auth_sessions`(`create_session`) | P1에서는 관리자(1) | 세션과 같음 | 발급·링크 교환 시각 |
 
-- **[코드] 검증 순서(Bearer)**: API 토큰 → 환경변수 토큰 → OAuth 토큰 → 세션 토큰(cross-origin이 아닐 때). 그다음 계정 행을 읽고 상태를 확인한다(`_bind_account`). 환경변수 토큰만 계정 행을 읽지 않는다.
+- **[코드] 검증 순서(Bearer)**: OAuth 토큰 → 세션 토큰(cross-origin이 아닐 때). 그다음 계정 행을 읽고 상태를 확인한다(`_bind_account`). 수동 정적 토큰(`api_tokens.json` 및 환경변수)은 퇴역했다.
 - **[코드] 익명**: 자격증명 없이 `read` 규칙 라우트에 익명 대체가 일어나면 `ANONYMOUS`.
 - **[코드] [결정] public 라우트**: 자격증명을 검증하지 않고 `ANONYMOUS`를 둔다. 정적 자산 요청마다 DB를 열지 않기 위해서다(설계 §16.3 (e)). 그래서 계정을 알아야 하는 화면(`/setup`, `GET /`)은 public이 아닌 규칙이고, `/login`·`/logout` 핸들러는 쿠키 값을 검증 없이 읽기만 한다(`common.cookie_session_token`).
 - **[코드] v15 이관**은 `account_id`가 NULL인 `themes`, `auth_sessions`, `oauth_codes`, `oauth_tokens`, `oauth_auth_requests` 행을 1로 채운다. `authenticated_at`은 채우지 않는다.

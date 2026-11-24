@@ -580,7 +580,7 @@
     byId("pref-mcp-stats").innerHTML = [
       ["Streamable HTTP", "stateless · JSON 응답"],
       [MCP_TOOLS.length + "종", "도구 (kb · 기여 · 추출 포함)"],
-      [tJs("console.js.synd.mcp.stat_channels_val", "OAuth 2.1"), tJs("console.js.synd.mcp.stat_channels_desc", "OAuth 2.1 (primary) · Legacy tokens (deprecated)")],
+      [tJs("console.js.synd.mcp.stat_channels_val", "OAuth 2.1"), "OAuth 2.1"],
       ["+" + proposedOn.length, "제안 도구 (미리보기)"]
     ].map(function (p) { return '<div class="pref-stat"><b>' + escapeHtml(p[0]) + "</b><span>" + escapeHtml(p[1]) + "</span></div>"; }).join("");
 

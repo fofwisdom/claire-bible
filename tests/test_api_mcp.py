@@ -16,13 +16,11 @@ from typing import Any
 
 from starlette.testclient import TestClient
 
+from tests.auth_helpers import bearer_headers
 from tests.kb_paths import kb_number
 
 from claire.api import server
 from claire.store import db as dbm
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
 
 
 @dataclass
@@ -33,8 +31,6 @@ class StubSettings:
     public_url: str = "http://127.0.0.1:8765"
     inject_host: str = "127.0.0.1"
     inject_port: int = 8765
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     effective_provider: str = "mock"
 
@@ -180,11 +176,12 @@ def test_mcp_readonly_session_tools_list_and_call(tmp_path: Path) -> None:
 def test_mcp_owner_bearer_tools_list_and_call(tmp_path: Path) -> None:
     s = _settings(tmp_path)
     app = _app(s)
+    owner_hdr = bearer_headers(s.db_file, account_id=1, scope="owner")
     with TestClient(app, base_url=s.public_url) as client:
         resp = client.post(
             "/mcp",
             json=_rpc("tools/list"),
-            headers={"Authorization": f"Bearer {OWNER_TOKEN}"},
+            headers=owner_hdr,
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -239,6 +236,7 @@ def test_mcp_telemetry_recording(tmp_path: Path) -> None:
 
     s = _settings(tmp_path)
     app = _app(s)
+    oauth_hdr = bearer_headers(s.db_file, account_id=1, scope="write", oauth=True, client_id="mcp_telemetry_client")
     with TestClient(app, base_url=s.public_url) as client:
         # 1. 미인증 호출 (HTTP 401) -> http_mcp UNAUTHORIZED 계측
         resp1 = client.post("/mcp", json=_rpc("tools/list"))
@@ -248,7 +246,7 @@ def test_mcp_telemetry_recording(tmp_path: Path) -> None:
         resp2 = client.post(
             "/mcp",
             json=_rpc("tools/call", {"name": "kb_overview", "arguments": {"kb": kb_number(s, 0)}}),
-            headers={"Authorization": f"Bearer {OWNER_TOKEN}"},
+            headers=oauth_hdr,
         )
         assert resp2.status_code == 200
 
@@ -260,7 +258,7 @@ def test_mcp_telemetry_recording(tmp_path: Path) -> None:
     assert "tool_call" in types
     tool_rec = next(r for r in records if r["call_type"] == "tool_call")
     assert tool_rec["tool_name"] == "kb_overview"
-    assert tool_rec["client_id"] in ("api:1", "env:owner")
+    assert tool_rec["client_id"] == "oauth:mcp_telemetry_client"
     assert tool_rec["status"] == "SUCCESS"
     assert tool_rec["duration_ms"] is not None
 

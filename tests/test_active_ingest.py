@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import secrets
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -32,6 +31,7 @@ from claire.ingest.active import (
 from claire.ingest.pipeline import IngestReport, ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 
 
 def test_active_ingest_lifecycle(tmp_path: Path):
@@ -165,29 +165,25 @@ def test_api_stats_and_active_ingest_endpoints(tmp_path: Path):
     dbm.init_db(conn)
     conn.close()
 
-    owner_tok = secrets.token_urlsafe(32)
-    read_tok = secrets.token_urlsafe(32)
-
     s = Settings(
         db_path=str(db_file),
         environment="development",
         fqdn="127.0.0.1:8765",
-        inject_token=owner_tok,
-        readonly_token=read_tok,
     )
+    read_headers = bearer_headers(db_file, scope="readonly")
 
     svc = MagicMock()
     app = server.create_app(s, svc)
     client = TestClient(app, base_url="http://127.0.0.1:8765")
 
     # 1. 적재가 없을 때 /stats 및 /ingest/active
-    r = client.get("/stats", headers={"Authorization": f"Bearer {read_tok}"})
+    r = client.get("/stats", headers=read_headers)
     assert r.status_code == 200
     st_data = r.json()
     assert st_data["ingesting"] is False
     assert st_data["active_ingest"] is None
 
-    r = client.get("/ingest/active", headers={"Authorization": f"Bearer {read_tok}"})
+    r = client.get("/ingest/active", headers=read_headers)
     assert r.status_code == 200
     assert r.json().get("active") is False
 
@@ -199,14 +195,14 @@ def test_api_stats_and_active_ingest_endpoints(tmp_path: Path):
         title="HN 뉴스 기사",
     )
 
-    r = client.get("/stats", headers={"Authorization": f"Bearer {read_tok}"})
+    r = client.get("/stats", headers=read_headers)
     assert r.status_code == 200
     st_data = r.json()
     assert st_data["ingesting"] is True
     assert st_data["active_ingest"]["active"] is True
     assert st_data["active_ingest"]["title"] == "HN 뉴스 기사"
 
-    r = client.get("/ingest/active", headers={"Authorization": f"Bearer {read_tok}"})
+    r = client.get("/ingest/active", headers=read_headers)
     assert r.status_code == 200
     act = r.json()
     assert act["active"] is True
@@ -214,7 +210,7 @@ def test_api_stats_and_active_ingest_endpoints(tmp_path: Path):
 
     # 3. 완료 시
     clear_active_ingest(data_dir, result={"document_id": "doc_1", "title": "HN 뉴스 기사"})
-    r = client.get("/stats", headers={"Authorization": f"Bearer {read_tok}"})
+    r = client.get("/stats", headers=read_headers)
     assert r.status_code == 200
     st_data = r.json()
     assert st_data["ingesting"] is False

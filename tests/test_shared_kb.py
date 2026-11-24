@@ -19,9 +19,7 @@ from claire.core.config import Settings
 from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store.knowledge_base import KnowledgeBaseManager, KnowledgeBaseNotFound
-
-OWNER_TOKEN = "owner-" + ("s" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -31,7 +29,6 @@ def _settings(tmp_path: Path) -> Settings:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
 
 
@@ -126,9 +123,10 @@ def test_failed_conversion_leaves_an_unavailable_row_and_the_next_start_tries_ag
         with pytest.raises(KnowledgeBaseNotFound):
             manager.get_kb(5)
         assert [(kb.id, reason) for kb, reason in manager.unavailable_kbs()] == [(5, "shared_with_owner")]
+        owner_headers = bearer_headers(settings, scope="owner")
         with TestClient(create_app(settings=settings), base_url=settings.public_url) as client:
-            assert client.get(f"/kb/{(1 << 57) + 5}/documents", headers=OWNER_HEADERS).status_code == 404
-            assert client.get(f"/themes/{(1 << 57) + 5}/documents", headers=OWNER_HEADERS).status_code == 404
+            assert client.get(f"/kb/{(1 << 57) + 5}/documents", headers=owner_headers).status_code == 404
+            assert client.get(f"/themes/{(1 << 57) + 5}/documents", headers=owner_headers).status_code == 404
         check = dbm.connect_existing(settings.db_file, readonly=True)
         assert tuple(check.execute("SELECT account_id, knowledge_type FROM knowledge_bases WHERE id=5").fetchone()) == (1, None)
         assert check.execute("SELECT COUNT(*) FROM kb_memberships WHERE kb_id=5").fetchone()[0] == 0  # the savepoint took back the membership
@@ -261,17 +259,18 @@ def test_capability_matrix_of_a_personal_knowledge_base() -> None:
 
 def test_e2e_an_account_makes_a_shared_knowledge_base_and_reads_it_at_the_kb_path(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
+    owner_headers = bearer_headers(settings, scope="owner")
     with TestClient(create_app(settings=settings), base_url=settings.public_url, follow_redirects=False) as client:
         # CT12: the knowledge type is required; CT5: a shared knowledge base is always public.
-        assert client.post("/kb", json={"label": "Cities"}, headers=OWNER_HEADERS).status_code == 400
-        assert client.post("/kb", json={"label": "Cities", "knowledge_type": "real", "is_public": False}, headers=OWNER_HEADERS).status_code == 400
-        made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER_HEADERS)
+        assert client.post("/kb", json={"label": "Cities"}, headers=owner_headers).status_code == 400
+        assert client.post("/kb", json={"label": "Cities", "knowledge_type": "real", "is_public": False}, headers=owner_headers).status_code == 400
+        made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=owner_headers)
         assert made.status_code == 201, made.text
         kb = made.json()["knowledge_base"]
         assert (kb["is_personal"], kb["account_id"], kb["created_by_account_id"], kb["knowledge_type"], kb["is_public"], kb["join_policy"], kb["state"]) == (False, None, 1, "real", True, "approval", "active")
         number = kb["number"]
         # Labels need not be unique (Section 10.1).
-        assert client.post("/kb", json={"label": "Cities", "knowledge_type": "fictional"}, headers=OWNER_HEADERS).status_code == 201
+        assert client.post("/kb", json={"label": "Cities", "knowledge_type": "fictional"}, headers=owner_headers).status_code == 201
 
         # CT8: the founder is the first moderator.
         conn = dbm.connect_existing(settings.db_file, readonly=True)
@@ -284,16 +283,16 @@ def test_e2e_an_account_makes_a_shared_knowledge_base_and_reads_it_at_the_kb_pat
         old = client.get(f"/themes/{number}/documents?x=1")
         assert old.status_code == 308 and old.headers["location"] == f"/kb/{number}/documents?x=1"
         # The number of the personal knowledge base at /kb/ gets 308 to its own path.
-        personal = client.get("/kb", headers=OWNER_HEADERS).json()["personal_kb"]
-        home = client.get(f"/kb/{personal['number']}/documents", headers=OWNER_HEADERS)
+        personal = client.get("/kb", headers=owner_headers).json()["personal_kb"]
+        home = client.get(f"/kb/{personal['number']}/documents", headers=owner_headers)
         assert home.status_code == 308 and home.headers["location"] == "/documents"
         # The collection /kb has the shared knowledge bases; the founder moderates both (Section 7).
-        listed = client.get("/kb", headers=OWNER_HEADERS).json()["knowledge_bases"]
+        listed = client.get("/kb", headers=owner_headers).json()["knowledge_bases"]
         assert [t["label"] for t in listed] == ["Cities", "Cities"] and {t["role"] for t in listed} == {"moderator"}
 
         # Section 6.2: an anonymous write is 404; ingest by a path that pins a shared knowledge base is 403 (CT4).
         assert client.post(f"/kb/{number}/document/pin", json={"id": "x", "pinned": True}).status_code in (401, 403, 404)
-        assert client.post(f"/kb/{number}/ingest", json={"payload": "text"}, headers=OWNER_HEADERS).status_code == 403
+        assert client.post(f"/kb/{number}/ingest", json={"payload": "text"}, headers=owner_headers).status_code == 403
         # Settings need the capability ``settings``: the admin (moderator) changes the label; --private is refused.
-        assert client.patch(f"/kb/{number}/", json={"label": "World cities"}, headers=OWNER_HEADERS).status_code == 200
-        assert client.patch(f"/kb/{number}/", json={"is_public": False}, headers=OWNER_HEADERS).status_code == 400
+        assert client.patch(f"/kb/{number}/", json={"label": "World cities"}, headers=owner_headers).status_code == 200
+        assert client.patch(f"/kb/{number}/", json={"is_public": False}, headers=owner_headers).status_code == 400

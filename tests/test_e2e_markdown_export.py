@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 
 from claire.core.config import Settings
 from claire.store import db as dbm
+from tests.auth_helpers import bearer_headers
 
 ADOC_BODY = """== 개요
 
@@ -47,9 +48,8 @@ def _make_app(tmp_path: Path):
     dbm.log_extraction(conn, document_id="doc-export", provider="mock", model="m", prompt_version="v", raw_response='{"summary":"문서 요약"}')
     conn.commit()
     conn.close()
-    token = "owner-" + ("e" * 32)
-    settings = Settings(db_path=str(db_file), data_dir=tmp_path, inject_token=token, environment="development", fqdn="127.0.0.1:8765")
-    return create_app(settings), {"Authorization": f"Bearer {token}"}, settings
+    settings = Settings(db_path=str(db_file), data_dir=tmp_path, environment="development", fqdn="127.0.0.1:8765")
+    return create_app(settings), bearer_headers(db_file, scope="owner"), settings
 
 
 def test_e2e_document_export_gives_a_markdown_file(tmp_path: Path):

@@ -12,10 +12,7 @@ from claire.extract.provider import MockProvider
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store import queries
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def test_format_status_samples_unit(tmp_path: Path):
@@ -93,7 +90,6 @@ def test_e2e_format_status_banner_navigation_and_healing(tmp_path: Path, monkeyp
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
     monkeypatch.setenv("CLAIRE_RENDER_FORMAT", "adoc")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
     monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
 
@@ -123,11 +119,12 @@ def test_e2e_format_status_banner_navigation_and_healing(tmp_path: Path, monkeyp
     conn.commit()
     conn.close()
 
+    owner_headers = bearer_headers(db_file, scope="owner")
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
     # 1. Initial GET /documents - verify banner triggering contract
-    res = client.get("/documents", headers=OWNER_HEADERS)
+    res = client.get("/documents", headers=owner_headers)
     assert res.status_code == 200
     data = res.json()
 
@@ -151,14 +148,14 @@ def test_e2e_format_status_banner_navigation_and_healing(tmp_path: Path, monkeyp
     regen_res = client.post(
         "/document/regenerate",
         json={"target": "doc_target", "component": "detail", "dry_run": False},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert regen_res.status_code == 200
     regen_data = regen_res.json()
     assert regen_data.get("count") == 1
 
     # 3. Subsequent GET /documents - verify banner is cleared (needs_migration is False)
-    res_healed = client.get("/documents", headers=OWNER_HEADERS)
+    res_healed = client.get("/documents", headers=owner_headers)
     assert res_healed.status_code == 200
     data_healed = res_healed.json()
 

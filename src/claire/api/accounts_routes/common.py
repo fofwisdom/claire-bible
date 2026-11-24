@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import html
+import logging
 import math
+import os
 import re
 import sqlite3
 import string
@@ -31,6 +33,7 @@ from ...store import db as dbm
 from .. import security
 from ..principal import Principal, has_recent_auth
 
+_log = logging.getLogger(__name__)
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 SESSION_CHANNELS = frozenset({"cookie", "x-session"})
 DISPLAY_NAME_MAX_LENGTH = 64
@@ -99,8 +102,25 @@ def open_client_db(ctx: AccountsContext) -> sqlite3.Connection:
     return client_db.connect_client_existing(ctx.client_db_file)
 
 
+def _retire_legacy_api_tokens_file(data_dir: Path | str) -> bool:
+    """Archive legacy ``data/auth/api_tokens.json`` without reading it so manual tokens cannot be honored."""
+    auth_dir = Path(data_dir) / "auth"
+    legacy_path = auth_dir / "api_tokens.json"
+    retired_path = auth_dir / "api_tokens.json.retired"
+    if not legacy_path.is_file() or retired_path.exists():
+        return False
+    os.replace(legacy_path, retired_path)
+    _log.info(
+        "Legacy manual token file %s has been retired to %s; use /account/mcp OAuth 2.1 tokens instead.",
+        legacy_path,
+        retired_path,
+    )
+    return True
+
+
 def prepare_auth_db(data_dir: Path | str) -> int:
     """auth.db를 만들거나 스키마를 맞추고(E3), 만료된 로그인 실패 기록을 지운다. 지운 행 수를 반환한다."""
+    _retire_legacy_api_tokens_file(data_dir)
     conn = auth_db.connect_auth_db(auth_db.auth_db_path(data_dir))
     try:
         return auth_db.prune_login_throttle(conn)

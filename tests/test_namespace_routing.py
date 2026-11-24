@@ -39,9 +39,8 @@ from claire.api.namespace import (
 from claire.api.principal import request_principal
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.token_store import reset_token_stores
+from tests.auth_helpers import bearer_headers, issue_oauth_token, issue_session_token
 
-OWNER_TOKEN = "owner-" + "o" * 32
 DEV_HOST = "192.0.2.10:8766"
 DEV_ORIGIN = "http://192.0.2.10:8766"
 
@@ -53,21 +52,13 @@ N_ALICE_PUBLIC = BASE + 200
 N_ALICE_PRIVATE = BASE + 201  # after version 28: a shared knowledge base that Alice made
 N_CAROL_PUBLIC = BASE + 300
 
-# 계정별 자격증명 대역: 토큰 → (계정, 범위)
-ALICE_OWNER = "alice-owner-" + "a" * 30
-ALICE_READONLY = "alice-readonly-" + "a" * 30
-CAROL_OWNER = "carol-owner-" + "c" * 30
-ADMIN_COLLAB = "admin-collab-" + "b" * 30
-
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch):
     for name in list(os.environ):
         if name.startswith("CLAIRE_"):
             monkeypatch.delenv(name, raising=False)
-    reset_token_stores()
     yield
-    reset_token_stores()
 
 
 @dataclass
@@ -78,6 +69,11 @@ class World:
     dave: int
     alice_public_id: int
     admin_public_id: int
+    owner_token: str
+    alice_owner: str
+    alice_readonly: str
+    carol_owner: str
+    admin_collab: str
 
     def set_mode(self, mode: str) -> None:
         conn = dbm.connect(self.db_file)
@@ -152,33 +148,24 @@ def world(tmp_path: Path) -> World:
         admin_public_id = accounts_store.AccountStore(conn).admin().public_id
     finally:
         conn.close()
-    return World(db_file, alice, carol, dave, BASE + 7001, admin_public_id)
-
-
-def _credentials(world: World) -> dict[str, security._Credential]:
-    def cred(account_id: int, scope: str, role: str = "member") -> security._Credential:
-        return security._Credential(
-            scope=scope, account_id=account_id, server_role=role,  # type: ignore[arg-type]
-            credential_id=f"test:{account_id}:{scope}", authenticated_at=0.0,
-        )
-
-    return {
-        ALICE_OWNER: cred(world.alice, "owner"),
-        ALICE_READONLY: cred(world.alice, "readonly"),
-        CAROL_OWNER: cred(world.carol, "owner"),
-        ADMIN_COLLAB: cred(1, "write", "admin"),
-    }
-
-
-@pytest.fixture
-def fake_sessions(monkeypatch, world):
-    table = _credentials(world)
-
-    async def validate(_config, token):
-        return table.get(token)
-
-    monkeypatch.setattr(security, "_validate_session", validate)
-    return table
+    owner_token = issue_session_token(db_file, account_id=1, scope="owner")
+    alice_owner = issue_session_token(db_file, account_id=alice, scope="owner")
+    alice_readonly = issue_oauth_token(db_file, account_id=alice, scope="readonly")
+    carol_owner = issue_session_token(db_file, account_id=carol, scope="owner")
+    admin_collab = issue_oauth_token(db_file, account_id=1, scope="write")
+    return World(
+        db_file,
+        alice,
+        carol,
+        dave,
+        BASE + 7001,
+        admin_public_id,
+        owner_token,
+        alice_owner,
+        alice_readonly,
+        carol_owner,
+        admin_collab,
+    )
 
 
 async def _echo(request: Request) -> JSONResponse:
@@ -201,7 +188,7 @@ def _inner(static_dir: Path) -> Starlette:
             Route("/whoami", _echo, methods=["GET"]),
             Route("/graph", _echo, methods=["GET"]),
             Route("/themes", _echo, methods=["GET"]),
-            Route("/tokens", _echo, methods=["GET"]),
+            Route("/me", _echo, methods=["GET"]),
             Route("/health", _echo, methods=["GET"]),
             Route("/syndication", _echo, methods=["GET"]),
             Route("/admin/accounts", _echo, methods=["GET"]),
@@ -216,8 +203,6 @@ def _settings(world: World) -> SimpleNamespace:
         environment="development",
         public_url=DEV_ORIGIN,
         cors_allowed_origins="",
-        inject_token=OWNER_TOKEN,
-        readonly_token="",
         db_file=world.db_file,
         data_dir=world.db_file.parent,
     )
@@ -351,14 +336,14 @@ def test_grammar_violations_are_404(path):
 
 
 @pytest.mark.asyncio
-async def test_middleware_maps_rejections_and_redirects(app_factory):
+async def test_middleware_maps_rejections_and_redirects(app_factory, world):
     app = app_factory()
     assert (await _call(app, "/a/b", raw_path=b"/a%2Fb")).status == 400
-    assert (await _call(app, f"/@{ADMIN_NAME}/graph", raw_path=f"/@{ADMIN_NAME}/graph?url=https://x.test/a".encode(), token=OWNER_TOKEN)).status == 200
-    mixed_ok = await _call(app, f"/@{ADMIN_NAME.upper()}/graph", raw_path=f"/@{ADMIN_NAME.upper()}/graph".encode(), token=OWNER_TOKEN)
+    assert (await _call(app, f"/@{ADMIN_NAME}/graph", raw_path=f"/@{ADMIN_NAME}/graph?url=https://x.test/a".encode(), token=world.owner_token)).status == 200
+    mixed_ok = await _call(app, f"/@{ADMIN_NAME.upper()}/graph", raw_path=f"/@{ADMIN_NAME.upper()}/graph".encode(), token=world.owner_token)
     assert mixed_ok.status == 200 and mixed_ok.json()["ns"]["username"] == ADMIN_NAME
     # Single mode: a root path of the personal knowledge base gets 308 to ``/@{username}/…`` (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 2).
-    root_path = await _call(app, "/graph", raw_path=b"/graph?url=https://x.test/a", token=OWNER_TOKEN)
+    root_path = await _call(app, "/graph", raw_path=b"/graph?url=https://x.test/a", token=world.owner_token)
     assert root_path.status == 308 and root_path.headers["location"] == f"/@{ADMIN_NAME}/graph"
     redirect = await _call(app, f"/@{ADMIN_NAME.upper()}", query="doc=1")
     assert redirect.status == 308 and redirect.headers["location"] == f"/@{ADMIN_NAME.upper()}/?doc=1"
@@ -384,10 +369,10 @@ async def test_static_mount_is_untouched_and_system_under_prefix_is_404(app_fact
 
 
 @pytest.mark.asyncio
-async def test_access_log_and_router_see_original_and_stripped_paths(app_factory, caplog):
+async def test_access_log_and_router_see_original_and_stripped_paths(app_factory, world, caplog):
     app = app_factory()
     caplog.set_level("INFO", logger="claire.api.access")
-    res = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
+    res = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=world.owner_token)
     assert res.status == 200 and res.json()["path"] == "/graph"
     assert f"path=/kb/{N_ADMIN_PRIVATE}/graph" in caplog.text
 
@@ -440,12 +425,12 @@ async def test_single_mode_before_setup_keeps_the_root_paths(app_factory, world)
 
 
 @pytest.mark.asyncio
-async def test_single_mode_account_prefix_is_404_for_other_names(app_factory):
+async def test_single_mode_account_prefix_is_404_for_other_names(app_factory, world):
     """In single mode only the USERNAME of the admin has a namespace. A member name and an unknown name get 404, also for the admin."""
     app = app_factory()
-    assert (await _call(app, f"/@{ADMIN_NAME}/graph", token=OWNER_TOKEN)).status == 200
+    assert (await _call(app, f"/@{ADMIN_NAME}/graph", token=world.owner_token)).status == 200
     for path in ("/@alice/", "/@alice/graph", "/@nobody/"):
-        res = await _call(app, path, token=OWNER_TOKEN)
+        res = await _call(app, path, token=world.owner_token)
         assert res.status == 404
         assert ADMIN_NAME.encode() not in res.body
 
@@ -463,7 +448,7 @@ async def test_single_mode_old_admin_theme_link_goes_to_username(app_factory, wo
 async def test_single_mode_kb_path_pins_a_shared_knowledge_base(app_factory, world):
     """Design Section 7: ``/kb/{number}/`` pins a shared knowledge base with no namespace account. Old ``/themes/{number}/`` links get 308."""
     app = app_factory()
-    res = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
+    res = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=world.owner_token)
     assert res.status == 200
     body = res.json()
     assert body["ns"]["pinned_kb_id"] == 5 and body["ns"]["prefix"] == f"/kb/{N_ADMIN_PRIVATE}"
@@ -471,26 +456,26 @@ async def test_single_mode_kb_path_pins_a_shared_knowledge_base(app_factory, wor
     assert body["bootstrap"]["api-base"] == f"/kb/{N_ADMIN_PRIVATE}/"
     assert body["link"] == f"{DEV_ORIGIN}/kb/{N_ADMIN_PRIVATE}/graph"
     # A shared knowledge base that another account made has the same path.
-    assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=OWNER_TOKEN)).status == 200
+    assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=world.owner_token)).status == 200
     # Old links: shared -> 308 /kb/{number}/…; the personal knowledge base of the admin -> 308 /@{username}/… (single mode, KNOWLEDGE_FEDERATION_DESIGN.md Section 15).
-    old = await _call(app, f"/themes/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN, query="a=1")
+    old = await _call(app, f"/themes/{N_ADMIN_PRIVATE}/graph", token=world.owner_token, query="a=1")
     assert old.status == 308 and old.headers["location"] == f"/kb/{N_ADMIN_PRIVATE}/graph?a=1"
-    personal = await _call(app, f"/themes/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)
+    personal = await _call(app, f"/themes/{N_ADMIN_DEFAULT}/graph", token=world.owner_token)
     assert personal.status == 308 and personal.headers["location"] == f"/@{ADMIN_NAME}/graph"
-    assert (await _call(app, f"/kb/{N_ADMIN_DEFAULT}/graph", token=OWNER_TOKEN)).headers["location"] == f"/@{ADMIN_NAME}/graph"
+    assert (await _call(app, f"/kb/{N_ADMIN_DEFAULT}/graph", token=world.owner_token)).headers["location"] == f"/@{ADMIN_NAME}/graph"
     # The personal knowledge base of another account has no path in single mode; an unknown number is 404.
-    assert (await _call(app, f"/kb/{N_ALICE_PUBLIC}/graph", token=OWNER_TOKEN)).status == 404
-    assert (await _call(app, f"/themes/{N_ALICE_PUBLIC}/graph", token=OWNER_TOKEN)).status == 404
-    assert (await _call(app, f"/kb/{BASE + 999}/graph", token=OWNER_TOKEN)).status == 404
-    assert (await _call(app, f"/themes/{BASE + 999}/graph", token=OWNER_TOKEN)).status == 404
+    assert (await _call(app, f"/kb/{N_ALICE_PUBLIC}/graph", token=world.owner_token)).status == 404
+    assert (await _call(app, f"/themes/{N_ALICE_PUBLIC}/graph", token=world.owner_token)).status == 404
+    assert (await _call(app, f"/kb/{BASE + 999}/graph", token=world.owner_token)).status == 404
+    assert (await _call(app, f"/themes/{BASE + 999}/graph", token=world.owner_token)).status == 404
 
 
 @pytest.mark.asyncio
-async def test_csp_follows_pinned_theme_ga(app_factory):
+async def test_csp_follows_pinned_theme_ga(app_factory, world):
     app = app_factory()
-    pinned = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=OWNER_TOKEN)
+    pinned = await _call(app, f"/kb/{N_ADMIN_PRIVATE}/graph", token=world.owner_token)
     assert "googletagmanager" in pinned.headers["content-security-policy"]
-    no_ga = await _call(app, "/graph", token=OWNER_TOKEN)
+    no_ga = await _call(app, "/graph", token=world.owner_token)
     assert "googletagmanager" not in no_ga.headers["content-security-policy"]
 
 
@@ -498,16 +483,16 @@ async def test_csp_follows_pinned_theme_ga(app_factory):
 
 
 @pytest.mark.asyncio
-async def test_admin_access_requires_owner_scope_of_admin_account(app_factory, world, fake_sessions):
+async def test_admin_access_requires_owner_scope_of_admin_account(app_factory, world):
     app = app_factory()
-    assert (await _call(app, "/admin/accounts", token=OWNER_TOKEN)).status == 200
-    assert (await _call(app, "/providers", token=OWNER_TOKEN)).status == 200
-    assert (await _call(app, "/providers", token=ALICE_OWNER)).status == 404
-    assert (await _call(app, "/admin/accounts", token=ALICE_OWNER)).status == 404
-    assert (await _call(app, "/providers", token=ADMIN_COLLAB)).status == 404
+    assert (await _call(app, "/admin/accounts", token=world.owner_token)).status == 200
+    assert (await _call(app, "/providers", token=world.owner_token)).status == 200
+    assert (await _call(app, "/providers", token=world.alice_owner)).status == 404
+    assert (await _call(app, "/admin/accounts", token=world.alice_owner)).status == 404
+    assert (await _call(app, "/providers", token=world.admin_collab)).status == 404
     # any 표면: 접두를 무시하고 자격증명 계정을 쓴다.
-    tokens = await _call(app, "/tokens", token=ALICE_OWNER)
-    assert tokens.status == 200 and tokens.json()["ns"]["account_id"] == world.alice
+    me = await _call(app, "/me", token=world.alice_owner)
+    assert me.status == 200 and me.json()["ns"]["account_id"] == world.alice
 
 
 # --- 네트워크 모드 -------------------------------------------------------------
@@ -519,20 +504,20 @@ async def test_network_root_redirects_spa_query_or_directory(app_factory, world)
     app = app_factory()
     # P3 D4: SPA 쿼리가 없으면 공개 디렉터리 렌더링(200)
     assert (await _call(app, "/")).status == 200
-    assert (await _call(app, "/", token=OWNER_TOKEN)).status == 200
+    assert (await _call(app, "/", token=world.owner_token)).status == 200
     res = await _call(app, "/", query="doc=abc&x=1")
     assert res.status == 308 and res.headers["location"] == f"/@{ADMIN_NAME}/?doc=abc&x=1"
     assert (await _call(app, "/", query="node=n1")).headers["location"] == f"/@{ADMIN_NAME}/?node=n1"
 
 
 @pytest.mark.asyncio
-async def test_network_account_prefix_resolution(app_factory, world, fake_sessions):
+async def test_network_account_prefix_resolution(app_factory, world):
     world.set_mode("network")
     app = app_factory()
     res = await _call(app, "/@alice/graph")
     assert res.status == 200 and res.json()["principal"] is None and res.json()["ns"]["account_id"] == world.alice
     assert (await _call(app, "/@alice/syndication")).status == 404
-    res = await _call(app, "/@alice/graph", token=CAROL_OWNER)
+    res = await _call(app, "/@alice/graph", token=world.carol_owner)
     body = res.json()
     assert res.status == 200
     # N4: 네임스페이스는 접두가 정한다(자격증명 계정 carol이 아니다).
@@ -541,39 +526,39 @@ async def test_network_account_prefix_resolution(app_factory, world, fake_sessio
     assert body["bootstrap"] == {"api-base": "/@alice/", "root-base": "/", "storage-key": f"a{world.alice_public_id}"}
     assert body["link"] == f"{DEV_ORIGIN}/@alice/graph"
     # Old links under an account (design Section 7): a shared knowledge base -> 308 /kb/{number}/…
-    old = await _call(app, f"/@alice/themes/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
+    old = await _call(app, f"/@alice/themes/{N_ALICE_PRIVATE}/", token=world.alice_owner)
     assert old.status == 308 and old.headers["location"] == f"/kb/{N_ALICE_PRIVATE}/"
-    pinned = await _call(app, f"/kb/{N_ALICE_PRIVATE}/", token=ALICE_OWNER)
+    pinned = await _call(app, f"/kb/{N_ALICE_PRIVATE}/", token=world.alice_owner)
     assert pinned.status == 200 and pinned.json()["ns"]["pinned_kb_id"] == 11 and pinned.json()["ns"]["account_id"] is None
     # Personal knowledge base redirect depends solely on KB ``is_public`` (decision GD8), not ``profile_public``.
-    carol_link = await _call(app, f"/@alice/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)
+    carol_link = await _call(app, f"/@alice/themes/{N_CAROL_PUBLIC}/", token=world.alice_owner)
     assert carol_link.status == 308 and carol_link.headers["location"] == "/@carol/"
 
 
 @pytest.mark.asyncio
-async def test_network_n1_private_profile_suspended_and_tombstones(app_factory, world, fake_sessions):
+async def test_network_n1_private_profile_suspended_and_tombstones(app_factory, world):
     world.set_mode("network")
     app = app_factory()
     # Decision GD8: active accounts with a USERNAME always resolve ``/@{username}/...`` regardless of ``profile_public``; writes remain gated by principal/KB access.
-    alice_root = await _call(app, "/@carol/", token=ALICE_OWNER)
+    alice_root = await _call(app, "/@carol/", token=world.alice_owner)
     assert alice_root.status == 200 and alice_root.json()["ns"]["account_id"] == world.carol and alice_root.json()["ns"]["username"] == "carol"
-    owner_root = await _call(app, "/@carol/", token=OWNER_TOKEN)
+    owner_root = await _call(app, "/@carol/", token=world.owner_token)
     assert owner_root.status == 200 and owner_root.json()["ns"]["account_id"] == world.carol
-    carol_root = await _call(app, "/@carol/", token=CAROL_OWNER)
+    carol_root = await _call(app, "/@carol/", token=world.carol_owner)
     assert carol_root.status == 200 and carol_root.json()["ns"]["account_id"] == world.carol
-    assert (await _call(app, "/@carol/graph", token=ALICE_OWNER)).status == 200
-    assert (await _call(app, "/@carol/graph", token=OWNER_TOKEN)).status == 200
-    assert (await _call(app, "/@carol/", method="PATCH", token=ALICE_OWNER)).status == 405
-    assert (await _call(app, "/@nobody_here/", token=OWNER_TOKEN)).status == 404
-    assert (await _call(app, "/@dave/", token=OWNER_TOKEN)).status == 404  # active가 아님
-    assert (await _call(app, "/@zed/", token=OWNER_TOKEN)).status == 410  # active tombstone returns 410 regardless of was_public
-    assert (await _call(app, "/@ZED/", token=OWNER_TOKEN)).status == 410
-    assert (await _call(app, "/@yan/", token=OWNER_TOKEN)).status == 410  # retired private-profile name also returns 410 until released
+    assert (await _call(app, "/@carol/graph", token=world.alice_owner)).status == 200
+    assert (await _call(app, "/@carol/graph", token=world.owner_token)).status == 200
+    assert (await _call(app, "/@carol/", method="PATCH", token=world.alice_owner)).status == 405
+    assert (await _call(app, "/@nobody_here/", token=world.owner_token)).status == 404
+    assert (await _call(app, "/@dave/", token=world.owner_token)).status == 404  # active가 아님
+    assert (await _call(app, "/@zed/", token=world.owner_token)).status == 410  # active tombstone returns 410 regardless of was_public
+    assert (await _call(app, "/@ZED/", token=world.owner_token)).status == 410
+    assert (await _call(app, "/@yan/", token=world.owner_token)).status == 410  # retired private-profile name also returns 410 until released
 
     # Mixed-case display handle responds 200 across case variants with stored casing in ResolvedNamespace.
     world.execute("UPDATE accounts SET username='AliceDev' WHERE id=?", (world.alice,))
     for variant in ("/@AliceDev/", "/@alicedev/", "/@ALICEDEV/"):
-        resp = await _call(app, variant, token=OWNER_TOKEN)
+        resp = await _call(app, variant, token=world.owner_token)
         assert resp.status == 200
         assert resp.json()["ns"]["username"] == "AliceDev"
         assert resp.json()["ns"]["prefix"] == "/@AliceDev"
@@ -585,18 +570,18 @@ async def test_network_n1_private_profile_suspended_and_tombstones(app_factory, 
         "('expiredname', ?, 1, 1.0, NULL, NULL, ?)",
         (world.alice, time.time() + 3600.0, world.alice, time.time() - 10.0),
     )
-    assert (await _call(app, "/@heldname/", token=OWNER_TOKEN)).status == 410
-    assert (await _call(app, "/@expiredname/", token=OWNER_TOKEN)).status == 404
+    assert (await _call(app, "/@heldname/", token=world.owner_token)).status == 410
+    assert (await _call(app, "/@expiredname/", token=world.owner_token)).status == 404
 
 
 @pytest.mark.asyncio
-async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_factory, world, fake_sessions):
+async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_factory, world):
     world.set_mode("network")
     app = app_factory()
     assert (await _call(app, "/graph")).status == 404
     # ``/themes`` at the root is the collection of themes of the server (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7), not a namespaced route.
     assert (await _call(app, "/themes")).status == 200
-    res = await _call(app, "/graph", token=ALICE_READONLY)
+    res = await _call(app, "/graph", token=world.alice_readonly)
     body = res.json()
     assert body["ns"]["account_id"] == world.alice and body["ns"]["prefix"] == "/@alice"
     assert body["ns"]["via_prefix"] is False
@@ -605,7 +590,7 @@ async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_fac
 
 
 @pytest.mark.asyncio
-async def test_network_root_theme_resolver(app_factory, world, fake_sessions):
+async def test_network_root_theme_resolver(app_factory, world):
     world.set_mode("network")
     app = app_factory()
     # A public personal knowledge base: each requester (also anonymous) gets 308 to the path of the owner (query kept).
@@ -614,15 +599,15 @@ async def test_network_root_theme_resolver(app_factory, world, fake_sessions):
     assert res.headers["location"] == "/@alice/graph?doc=1"
     assert (await _call(app, f"/kb/{N_ALICE_PUBLIC}/graph", query="doc=1")).headers["location"] == "/@alice/graph?doc=1"
     # A shared knowledge base: each requester gets 308 to /kb/{number}/ from the old link, and the /kb path serves it.
-    for token in (ALICE_OWNER, CAROL_OWNER, OWNER_TOKEN):
+    for token in (world.alice_owner, world.carol_owner, world.owner_token):
         old = await _call(app, f"/themes/{N_ALICE_PRIVATE}/", token=token)
         assert old.status == 308 and old.headers["location"] == f"/kb/{N_ALICE_PRIVATE}/"
-    assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=CAROL_OWNER)).status == 200
+    assert (await _call(app, f"/kb/{N_ALICE_PRIVATE}/graph", token=world.carol_owner)).status == 200
     # Decision GD8: personal KB redirect depends solely on KB ``is_public``, not ``profile_public``.
-    carol_old = await _call(app, f"/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)
+    carol_old = await _call(app, f"/themes/{N_CAROL_PUBLIC}/", token=world.alice_owner)
     assert carol_old.status == 308 and carol_old.headers["location"] == "/@carol/"
     world.execute("UPDATE knowledge_bases SET is_public=0 WHERE number=?", (N_CAROL_PUBLIC,))
-    assert (await _call(app, f"/themes/{N_CAROL_PUBLIC}/", token=ALICE_OWNER)).status == 404
+    assert (await _call(app, f"/themes/{N_CAROL_PUBLIC}/", token=world.alice_owner)).status == 404
     assert (await _call(app, f"/themes/{BASE + 999}/")).status == 404
 
 
@@ -637,13 +622,13 @@ async def test_modes_404_for_network_only_rule(app_factory, world, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_directory_cache_reloads_after_db_change(app_factory, world, fake_sessions):
+async def test_directory_cache_reloads_after_db_change(app_factory, world):
     app = app_factory()
-    assert (await _call(app, "/@alice/", token=ALICE_OWNER)).status == 404
+    assert (await _call(app, "/@alice/", token=world.alice_owner)).status == 404
     world.set_mode("network")
-    assert (await _call(app, "/@alice/", token=ALICE_OWNER)).status == 200
+    assert (await _call(app, "/@alice/", token=world.alice_owner)).status == 200
     world.execute("UPDATE accounts SET status='suspended' WHERE id=?", (world.alice,))
-    assert (await _call(app, "/@alice/", token=CAROL_OWNER)).status == 404
+    assert (await _call(app, "/@alice/", token=world.carol_owner)).status == 404
 
 
 def test_unknown_mode_is_an_error(world):
@@ -655,7 +640,7 @@ def test_unknown_mode_is_an_error(world):
 @pytest.mark.asyncio
 async def test_db_errors_inside_resolver_are_sanitized(app_factory, world):
     world.set_mode("galaxy")
-    res = await _call(app_factory(), "/graph", token=OWNER_TOKEN)
+    res = await _call(app_factory(), "/graph", token=world.owner_token)
     assert res.status == 500 and res.json() == {"error": "internal server error"}
 
 
@@ -721,7 +706,6 @@ def real_app(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     client = TestClient(create_app(settings=settings), base_url=settings.public_url)
     return client, settings
@@ -729,7 +713,7 @@ def real_app(tmp_path: Path):
 
 def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
     client, settings = real_app
-    owner = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+    owner = bearer_headers(settings, scope="owner")
     assert client.get("/whoami").json() == {
         "scope": "anonymous", "server": {"mode": "single"}, "relation": "visitor", "is_admin": False,
     }
@@ -752,7 +736,7 @@ def test_create_app_wires_namespace_whoami_static_and_legacy_location(real_app):
     assert single.status_code == 308
     assert single.headers["location"] == f"http://127.0.0.1:8765/kb/{number}/graph"
     assert client.get(f"/kb/{number}/", follow_redirects=False).status_code == 200
-    World(settings.db_file, 0, 0, 0, 0, 0).set_mode("network")
+    World(settings.db_file, 0, 0, 0, 0, 0, "", "", "", "", "").set_mode("network")
     network = client.get("/graph", headers={"Host": "old.example.com"}, follow_redirects=False)
     assert network.status_code == 308
     assert network.headers["location"] == f"http://127.0.0.1:8765/kb/{number}/graph"  # a shared knowledge base has the same path in each mode

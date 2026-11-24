@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 
 from tests.kb_paths import step_up_request
-from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _contribute, _personal_document, world  # noqa: F401 (fixtures)
 
 from claire.collaboration import contributions
 from claire.store import db as dbm

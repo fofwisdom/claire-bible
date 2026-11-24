@@ -33,8 +33,7 @@ def build_status_text(settings: Settings, *, full: bool = True) -> str:
     if full:
         lines.append(f"  telegram : {'set' if s.telegram_bot_token else 'NOT set'} "
                      f"· allowed {sorted(s.allowed_user_ids) or 'ALL'}")
-        lines.append(f"  inject   : {s.inject_host}:{s.inject_port} "
-                     f"(token {'set' if s.inject_token else 'NONE'})")
+        lines.append(f"  inject   : {s.inject_host}:{s.inject_port}")
         lines.append("  vector   : brute")
         lines.append(f"  db       : {s.db_file}")
 

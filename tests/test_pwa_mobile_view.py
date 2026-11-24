@@ -19,7 +19,6 @@ from claire.api.server import create_app
 from claire.core.config import Settings
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.token_store import reset_token_stores
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 APP_JS_PATH = PROJECT_ROOT / "src" / "bible" / "static" / "js" / "app.js"
@@ -32,9 +31,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     for name in list(os.environ):
         if name.startswith("CLAIRE_"):
             monkeypatch.delenv(name, raising=False)
-    reset_token_stores()
     yield
-    reset_token_stores()
 
 
 def _node_available() -> bool:

@@ -441,7 +441,6 @@ class Settings(BaseSettings):
     environment: str = Field(default="", alias="CLAIRE_ENVIRONMENT")
     inject_host: str = Field(default="127.0.0.1", alias="CLAIRE_INJECT_HOST")
     inject_port: int = Field(default=8765, alias="CLAIRE_INJECT_PORT")
-    inject_token: str = Field(default="", alias="CLAIRE_INJECT_TOKEN")
     # Compose-managed service URL.  Telegram uses the API as the sole Support
     # Bundle producer so the process returning the public download also owns the
     # archive and registry transaction.
@@ -451,9 +450,6 @@ class Settings(BaseSettings):
     graph_bundle_api_url: str = Field(
         default="", alias="CLAIRE_GRAPH_BUNDLE_API_URL"
     )
-    # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
-    # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
-    readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
     # 공개 도메인 호스트명 (FQDN, 예: claire.example.com). 프로덕션 환경 기준 필수 authority.
     fqdn: str = Field(default="", alias="CLAIRE_FQDN")
     # 역할 호스트(설계 §5.1). 형식은 CLAIRE_FQDN과 같다: production은 포트 없는 DNS 이름,

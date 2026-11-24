@@ -10,7 +10,7 @@ import time
 import pytest
 
 from tests.kb_paths import seed
-from tests.test_contributions import EXTRACTION, _contribute, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _contribute, _personal_document, world  # noqa: F401 (fixtures)
 
 from claire.collaboration import campaign, contributions, reputation, theme_judgement
 from claire.core import ids

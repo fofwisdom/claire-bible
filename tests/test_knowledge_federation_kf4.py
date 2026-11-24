@@ -16,7 +16,6 @@ from claire.core import ids
 from claire.federation.knowledge import grants, handlers, journal, offers, remote_kbs, vocabulary
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import reset_token_stores
 from tests.knowledge_federation_servers import KfWorld
 from tests.test_contributions import EXTRACTION, _personal_document, no_llm  # noqa: F401 (fixture)
 
@@ -35,10 +34,8 @@ def _isolate(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(journal, "HANDLERS", {})
     handlers.install()
     reset_secret_service()
-    reset_token_stores()
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 @pytest.fixture

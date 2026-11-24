@@ -6,7 +6,6 @@ Starlette 라우트와 Uvicorn 실행기는 이 모듈 안쪽에 둔다. 여기�
 from __future__ import annotations
 
 import asyncio
-import hmac
 import ipaddress
 import json
 import logging
@@ -557,11 +556,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/limits"): _any("admin", "none"),
     ("POST", "/limits"): _any("admin", "none"),
     ("PATCH", "/limits"): _any("admin", "none"),
-    ("GET", "/tokens"): _any("owner", "none"),
-    ("HEAD", "/tokens"): _any("owner", "none"),
-    ("POST", "/tokens"): _any("owner", "none"),
-    ("POST", "/tokens/revoke"): _any("owner", "none"),
-    ("DELETE", "/tokens"): _any("owner", "none"),
     ("GET", "/ingest-limits"): _any("admin", "none"),
     ("HEAD", "/ingest-limits"): _any("admin", "none"),
     ("POST", "/ingest-limits"): _any("admin", "none"),
@@ -846,8 +840,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/admin/limits"): _system("admin", "none"),
     ("GET", "/admin/themes"): _system("admin", "none"),
     ("HEAD", "/admin/themes"): _system("admin", "none"),
-    ("GET", "/admin/tokens"): _system("admin", "none"),
-    ("HEAD", "/admin/tokens"): _system("admin", "none"),
     ("GET", "/admin/backups"): _system("admin", "none"),
     ("HEAD", "/admin/backups"): _system("admin", "none"),
     ("GET", "/admin/plugins"): _system("admin", "none"),
@@ -899,8 +891,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/account/mcp"): _system("owner", "none"),
     ("GET", "/account/webmcp"): _system("owner", "none"),
     ("HEAD", "/account/webmcp"): _system("owner", "none"),
-    ("GET", "/account/tokens"): _system("owner", "none"),
-    ("HEAD", "/account/tokens"): _system("owner", "none"),
     ("GET", "/settings"): _system("owner", "none"),
     ("HEAD", "/settings"): _system("owner", "none"),
     ("GET", "/settings/account"): _system("owner", "none"),
@@ -921,8 +911,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/settings/keys"): _system("owner", "none"),
     ("GET", "/settings/themes"): _system("owner", "none"),
     ("HEAD", "/settings/themes"): _system("owner", "none"),
-    ("GET", "/settings/tokens"): _system("owner", "none"),
-    ("HEAD", "/settings/tokens"): _system("owner", "none"),
     ("GET", "/settings/reader"): _system("owner", "none"),
     ("HEAD", "/settings/reader"): _system("owner", "none"),
     ("GET", "/settings/connections"): _system("owner", "none"),
@@ -1101,8 +1089,6 @@ class WebRuntimeConfig:
     expected_authority: str
     cors_allowed_origins: frozenset[str]
     secure_cookie: bool
-    owner_token: str = field(repr=False)
-    readonly_token: str = field(repr=False)
     db_file: Any = field(repr=False)
     ga_measurement_id: str = ""
     cloudflare_ips_only: bool = False
@@ -1136,25 +1122,6 @@ class WebRuntimeConfig:
         _, authority, public_origin = _parse_url(
             str(raw_pub), environment=environment
         )
-
-        owner_token = str(_setting(settings, "inject_token"))
-        if not owner_token or owner_token != owner_token.strip():
-            raise ValueError(
-                "CLAIRE_INJECT_TOKEN must not be empty or contain outer whitespace"
-            )
-        if not dbm.plausible_session_token(owner_token):
-            raise ValueError(
-                "CLAIRE_INJECT_TOKEN must be a 32-128 character URL-safe token"
-            )
-        readonly_token = str(getattr(settings, "readonly_token", "") or "")
-        if readonly_token != readonly_token.strip():
-            raise ValueError("CLAIRE_READONLY_TOKEN must not contain outer whitespace")
-        if readonly_token and not dbm.plausible_session_token(readonly_token):
-            raise ValueError(
-                "CLAIRE_READONLY_TOKEN must be a 32-128 character URL-safe token"
-            )
-        if readonly_token and _constant_equal(owner_token, readonly_token):
-            raise ValueError("owner and readonly tokens must be different")
 
         origins: set[str] = set()
         for raw_origin in _split_origins(
@@ -1191,8 +1158,6 @@ class WebRuntimeConfig:
             expected_authority=authority,
             cors_allowed_origins=frozenset(origins),
             secure_cookie=environment == "production",
-            owner_token=owner_token,
-            readonly_token=readonly_token,
             db_file=_setting(settings, "db_file"),
             ga_measurement_id=ga_id,
             cloudflare_ips_only=cf_ips_only,
@@ -1282,12 +1247,6 @@ def _parse_bearer(scope: Scope) -> tuple[bool, str | None]:
     raw = values[0].decode("latin-1")
     match = _BEARER_RE.fullmatch(raw)
     return True, match.group(1) if match else None
-
-
-def _constant_equal(candidate: str, expected: str) -> bool:
-    if not candidate or not expected:
-        return False
-    return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
 
 
 # 세션 쿠키 이름(§5.2, Rev. 2.3). 운영 환경(``secure_cookie``)은 ``__Host-`` 접두로 서브도메인의 쿠키 토싱을 막는다.
@@ -1515,16 +1474,6 @@ class _Credential:
         )
 
 
-def _env_token_credential(scope: str) -> _Credential:
-    """환경변수 토큰은 서버 설정이므로 관리자 계정의 것이다(§8.3). DB를 읽지 않는다."""
-    return _Credential(
-        scope=scope,
-        account_id=accounts_store.ADMIN_ACCOUNT_ID,
-        server_role="admin",
-        credential_id=f"env:{scope}",
-    )
-
-
 def _bind_account(
     conn: Any,
     *,
@@ -1601,36 +1550,6 @@ async def _validate_oauth_token(config: WebRuntimeConfig, token: str) -> _Creden
             return None
 
     return await asyncio.to_thread(_validate)
-
-
-async def _validate_api_token(config: WebRuntimeConfig, token: str) -> _Credential | None:
-    if not token or len(token) < 16:
-        return None
-    data_dir = config.data_dir or (Path(config.db_file).parent if config.db_file else None)
-    try:
-        from ..store.token_store import get_token_store
-
-        store = get_token_store(data_dir=data_dir)
-        entry = store.validate_api_token(token)
-    except Exception:
-        return None
-    if entry is None:
-        return None
-
-    def _bind() -> _Credential | None:
-        conn = dbm.connect_existing(config.db_file)
-        try:
-            return _bind_account(
-                conn,
-                scope=str(entry["scope"]),
-                account_id=int(entry["account_id"]),
-                credential_id=f"api:{int(entry['id'])}",
-                authenticated_at=None,
-            )
-        finally:
-            conn.close()
-
-    return await asyncio.to_thread(_bind)
 
 
 async def _bootstrap_session(
@@ -2295,16 +2214,9 @@ class AuthenticationMiddleware:
         cookie_invalid_or_expired = False
 
         if bearer is not None:
-            credential = await _validate_api_token(self.config, bearer)
-            if credential is None:
-                if self.config.owner_token and _constant_equal(bearer, self.config.owner_token):
-                    credential = _env_token_credential("owner")
-                elif self.config.readonly_token and _constant_equal(bearer, self.config.readonly_token):
-                    credential = _env_token_credential("readonly")
-                else:
-                    credential = await _validate_oauth_token(self.config, bearer)
-                    if credential is None and origin_kind != "cross":
-                        credential = await _validate_session(self.config, bearer)
+            credential = await _validate_oauth_token(self.config, bearer)
+            if credential is None and origin_kind != "cross":
+                credential = await _validate_session(self.config, bearer)
             if credential is not None:
                 auth_scope, auth_channel = credential.scope, "bearer"
 
@@ -2494,23 +2406,6 @@ class AuthenticationMiddleware:
                 await send(message)
 
             await self.app(scope, receive, clear_cookie_send)
-            return
-
-        if auth_channel == "bearer" and credential is not None and (credential.credential_id or "").startswith(("api:", "env:")):
-            log.info("Deprecated manual bearer token used path=%s credential=%s", _safe_log_path(path), credential.credential_id)
-
-            async def deprecated_bearer_send(message: Message) -> None:
-                if message["type"] == "http.response.start":
-                    headers = list(message.get("headers", []))
-                    names = {name.lower() for name, _val in headers}
-                    if b"deprecation" not in names:
-                        headers.append((b"deprecation", b"true"))
-                    if b"link" not in names:
-                        headers.append((b"link", b'</account/mcp>; rel="successor-version"'))
-                    message = {**message, "headers": headers}
-                await send(message)
-
-            await self.app(scope, receive, deprecated_bearer_send)
             return
 
         await self.app(scope, receive, send)

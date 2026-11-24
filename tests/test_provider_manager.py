@@ -17,6 +17,7 @@ from claire.core.provider_manager import (
     comment_out_env_file,
     get_provider_manager,
 )
+from tests.auth_helpers import bearer_headers
 
 
 def test_comment_out_env_file(tmp_path: Path):
@@ -29,7 +30,7 @@ def test_comment_out_env_file(tmp_path: Path):
         "CLAIRE_GEMINI_MODEL=gemini-3.1-flash-lite\n"
         "# Already commented\n"
         "# CLAIRE_AGY_BIN=agy\n"
-        "CLAIRE_INJECT_TOKEN=test-token-12345678901234567890\n",
+        "CLAIRE_FQDN=claire.example.com\n",
         encoding="utf-8",
     )
 
@@ -39,7 +40,7 @@ def test_comment_out_env_file(tmp_path: Path):
     lines = env_file.read_text(encoding="utf-8").splitlines()
     assert "CLAIRE_ENVIRONMENT=production" in lines
     assert "CB_API_PORT=8765" in lines
-    assert "CLAIRE_INJECT_TOKEN=test-token-12345678901234567890" in lines
+    assert "CLAIRE_FQDN=claire.example.com" in lines
     assert "# Already commented" in lines
 
     # Verify commented lines
@@ -181,12 +182,12 @@ def test_provider_api_routes(tmp_path: Path):
     db_file = tmp_path / "claire.db"
     settings = Settings(
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_INJECT_TOKEN="owner-secret-token-123456789012345678",
-        CLAIRE_READONLY_TOKEN="readonly-secret-token-123456789012345",
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_FQDN="127.0.0.1:8765",
     )
+    owner_headers = bearer_headers(db_file, scope="owner")
+    readonly_headers = bearer_headers(db_file, scope="readonly")
 
     app = create_app(settings)
     client = TestClient(app, base_url="http://127.0.0.1:8765")
@@ -196,11 +197,11 @@ def test_provider_api_routes(tmp_path: Path):
     assert resp.status_code == 404
 
     # 2. Readonly access -> 404 Not Found (stealth mode)
-    resp = client.get("/providers", headers={"Authorization": "Bearer readonly-secret-token-123456789012345"})
+    resp = client.get("/providers", headers=readonly_headers)
     assert resp.status_code == 404
 
     # 3. Owner access -> 200 OK
-    resp = client.get("/providers", headers={"Authorization": "Bearer owner-secret-token-123456789012345678"})
+    resp = client.get("/providers", headers=owner_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert "active_provider" in data
@@ -210,7 +211,7 @@ def test_provider_api_routes(tmp_path: Path):
     # 4. PATCH update providers
     patch_resp = client.patch(
         "/providers",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678"},
+        headers=owner_headers,
         json={
             "active_provider": "gemini",
             "providers": {
@@ -232,7 +233,7 @@ def test_provider_api_routes(tmp_path: Path):
     # 4b. PATCH with unsupported model -> 400
     bad_resp = client.patch(
         "/providers",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678"},
+        headers=owner_headers,
         json={"providers": {"gemini": {"model": "unsupported-gemini-model"}}},
     )
     assert bad_resp.status_code == 400
@@ -240,7 +241,7 @@ def test_provider_api_routes(tmp_path: Path):
     # 4c. The block of a retired provider is ignored: nothing is stored for it
     retired_resp = client.patch(
         "/providers",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678"},
+        headers=owner_headers,
         json={"providers": {"antigravity": {"model": "gemini-4-hydrogen"}}},
     )
     assert retired_resp.status_code == 200
@@ -249,7 +250,7 @@ def test_provider_api_routes(tmp_path: Path):
     # 5. POST test connection: Bearer API is rejected (403); only admin browser cookie session + same-origin is allowed.
     bearer_test = client.post(
         "/providers/test",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678", "Origin": "http://127.0.0.1:8765"},
+        headers={**owner_headers, "Origin": "http://127.0.0.1:8765"},
         json={"provider": "mock"},
     )
     assert bearer_test.status_code == 403
@@ -260,7 +261,7 @@ def test_provider_api_routes(tmp_path: Path):
 
     bearer_check = client.post(
         "/providers/check",
-        headers={"Authorization": "Bearer owner-secret-token-123456789012345678", "Origin": "http://127.0.0.1:8765"},
+        headers={**owner_headers, "Origin": "http://127.0.0.1:8765"},
         json={"active_provider": "openai"},
     )
     assert bearer_check.status_code == 403

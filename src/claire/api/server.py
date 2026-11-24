@@ -75,7 +75,6 @@ from ..store.public_index import SqlitePublicIndexStore
 from ..store.queries import theme_summary
 from ..store.legacy_hosts import SqliteLegacyHostDirectory
 from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound, get_kb_manager
-from ..store.token_store import get_token_store
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from .accounts_routes.common import same_origin
 from . import public_kb_routes
@@ -254,20 +253,6 @@ def create_app(
     # client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27): the communication data of accounts. init_db above already moved the feed tables of version 21 into it.
     prepare_client_db(s.db_file)
 
-    token_store = get_token_store(data_dir=s.data_dir)
-    token_store.migrate_env_tokens(
-        getattr(s, "inject_token", ""),
-        getattr(s, "readonly_token", ""),
-    )
-    if not getattr(s, "inject_token", ""):
-        owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))
-        try:
-            s.inject_token = owner_tok["token"]
-        except Exception:
-            try:
-                object.__setattr__(s, "inject_token", owner_tok["token"])
-            except Exception:
-                pass
     runtime_cfg = WebRuntimeConfig.from_settings(s)
     account_routes = build_account_routes(s, runtime_cfg)
     svc = service or IngestService(s)
@@ -478,7 +463,7 @@ def create_app(
 
         principal = request_principal(request)
         credential_id = principal.credential_id or ""
-        if principal.channel != "bearer" or principal.account_id is None or not credential_id or credential_id.startswith(("api:", "env:")):
+        if principal.channel != "bearer" or principal.account_id is None or not credential_id:
             return False
         conn = dbm.connect_existing(s.db_file, readonly=True)
         try:
@@ -3507,136 +3492,6 @@ def create_app(
         except Exception as exc:
             _log_operation_failure(request, "ingest limits update", exc)
             raise HTTPException(status_code=500, detail="failed to update ingest limits configuration") from exc
-
-    _token_deprecation_headers = {
-        "Deprecation": "true",
-        "Link": '</account/mcp>; rel="successor-version"',
-    }
-    _token_deprecation_notice = "Manual persistent tokens are deprecated. Connect clients via OAuth 2.1 (/account/mcp)."
-
-    async def tokens_list_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        principal = request_principal(request)
-        target_account_id = principal.account_id if principal.account_id is not None else 1
-        store = get_token_store(data_dir=s.data_dir)
-        tokens = store.list_api_tokens(include_revoked=True, account_id=target_account_id)
-        sanitized = []
-        for t in tokens:
-            raw_val = t["token"]
-            prefix = raw_val[:8] if len(raw_val) >= 8 else raw_val[:4]
-            suffix = raw_val[-4:] if len(raw_val) >= 8 else ""
-            masked = f"{prefix}...{suffix}" if suffix else f"{prefix}..."
-            item = dict(t)
-            item["token_masked"] = masked
-            del item["token"]
-            item.pop("scope_notice", None)
-            sanitized.append(item)
-        # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.6 rule 2: the tokens whose scope ``collaborator`` became ``readonly`` are listed once.
-        notices = store.take_scope_notices(target_account_id) if request.method == "GET" else []
-        return JSONResponse(
-            {
-                "tokens": sanitized,
-                "scope_notices": notices,
-                "deprecated": True,
-                "deprecation_notice": _token_deprecation_notice,
-                "retired": store.is_retired(),
-            },
-            headers=_token_deprecation_headers,
-        )
-
-    async def tokens_create_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        principal = request_principal(request)
-        target_account_id = principal.account_id if principal.account_id is not None else 1
-        store = get_token_store(data_dir=s.data_dir)
-        if store.is_retired():
-            return JSONResponse(
-                {
-                    "error": "manual_tokens_retired",
-                    "detail": "Manual persistent tokens are retired. Use OAuth 2.1 (/account/mcp).",
-                },
-                status_code=410,
-                headers=_token_deprecation_headers,
-            )
-        body = await _json_object(request)
-        name = str(body.get("name") or "").strip()
-        if not name:
-            raise HTTPException(status_code=400, detail="토큰 이름(name)은 필수입니다.")
-        tok_scope = str(body.get("scope") or "readonly").strip().lower()
-        expires_in = body.get("expires_in_days")
-        try:
-            expires_in_days = int(expires_in) if expires_in is not None and str(expires_in).strip() else None
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="만료 기간(expires_in_days)은 정수여야 합니다.")
-
-        try:
-            created = store.create_api_token(name=name, scope=tok_scope, expires_in_days=expires_in_days, account_id=target_account_id)
-            return JSONResponse(
-                {
-                    "ok": True,
-                    "token": created,
-                    "message": "API/MCP 토큰이 성공적으로 생성되었습니다.",
-                    "deprecated": True,
-                    "deprecation_notice": _token_deprecation_notice,
-                },
-                status_code=201,
-                headers=_token_deprecation_headers,
-            )
-        except PermissionError as p_err:
-            return JSONResponse(
-                {"error": "manual_tokens_retired", "detail": str(p_err)},
-                status_code=410,
-                headers=_token_deprecation_headers,
-            )
-        except ValueError as v_err:
-            raise HTTPException(status_code=400, detail=str(v_err)) from v_err
-        except Exception as exc:
-            _log_operation_failure(request, "token create", exc)
-            raise HTTPException(status_code=500, detail="토큰 생성 중 오류가 발생했습니다.") from exc
-
-    async def tokens_revoke_route(request: Request) -> JSONResponse:
-        scope = request_auth_scope(request)
-        if scope != "owner":
-            raise HTTPException(
-                status_code=403,
-                detail="지식 관리자(owner) 권한이 필요합니다.",
-            )
-        principal = request_principal(request)
-        target_account_id = principal.account_id if principal.account_id is not None else 1
-        body = await _json_object(request) if request.method in {"POST", "DELETE"} else {}
-        token_id = body.get("token_id") or body.get("id") or request.query_params.get("id") or request.query_params.get("token_id")
-        if not token_id:
-            raise HTTPException(status_code=400, detail="폐기할 토큰 식별자(id)가 필요합니다.")
-
-        store = get_token_store(data_dir=s.data_dir)
-        try:
-            revoked = store.revoke_api_token(token_id, account_id=target_account_id)
-            if not revoked:
-                raise HTTPException(status_code=404, detail="토큰을 찾을 수 없거나 이미 폐기되었습니다.")
-            return JSONResponse(
-                {
-                    "ok": True,
-                    "message": "토큰이 성공적으로 폐기되었습니다.",
-                    "deprecated": True,
-                    "deprecation_notice": _token_deprecation_notice,
-                },
-                headers=_token_deprecation_headers,
-            )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            _log_operation_failure(request, "token revoke", exc)
-            raise HTTPException(status_code=500, detail="토큰 폐기 중 오류가 발생했습니다.") from exc
 
     async def do_ingest(request: Request) -> JSONResponse:
         body = await _json_object(request)
@@ -7908,10 +7763,6 @@ def create_app(
         Route("/providers/check", providers_check_route, methods=["POST"]),
         Route("/limits", limits_get_route, methods=["GET", "HEAD"]),
         Route("/limits", limits_update_route, methods=["PATCH", "POST"]),
-        Route("/tokens", tokens_list_route, methods=["GET", "HEAD"]),
-        Route("/tokens", tokens_create_route, methods=["POST"]),
-        Route("/tokens/revoke", tokens_revoke_route, methods=["POST"]),
-        Route("/tokens", tokens_revoke_route, methods=["DELETE"]),
         Route("/ingest-limits", limits_get_route, methods=["GET", "HEAD"]),
         Route("/ingest-limits", limits_update_route, methods=["PATCH", "POST"]),
         Route("/ingest", do_ingest, methods=["POST"]),
@@ -8075,20 +7926,6 @@ def run_api() -> int:
         finally:
             conn.close()
 
-        token_store = get_token_store(data_dir=s.data_dir)
-        token_store.migrate_env_tokens(
-            getattr(s, "inject_token", ""),
-            getattr(s, "readonly_token", ""),
-        )
-        if not getattr(s, "inject_token", ""):
-            owner_tok = token_store.ensure_default_owner_token(fallback_token=getattr(s, "inject_token", ""))
-            try:
-                s.inject_token = owner_tok["token"]
-            except Exception:
-                try:
-                    object.__setattr__(s, "inject_token", owner_tok["token"])
-                except Exception:
-                    pass
         runtime = WebRuntimeConfig.from_settings(s)
         app = create_app(s)
     except ValueError as exc:

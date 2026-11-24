@@ -18,12 +18,21 @@ from starlette.routing import Route
 
 from claire.api import security
 from claire.store import db as dbm
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
 OWNER_TOKEN = "owner-" + "o" * 32
 READONLY_TOKEN = "readonly-" + "r" * 32
 DEV_HOST = "192.0.2.10:8766"
 DEV_ORIGIN = "http://192.0.2.10:8766"
 CROSS_ORIGIN = "http://ui.example.test:5173"
+
+
+def _issue_bearers(tmp_path: Path) -> tuple[str, str]:
+    db_file = tmp_path / "claire.db"
+    return (
+        issue_session_token(db_file, account_id=1, scope="owner"),
+        issue_oauth_token(db_file, account_id=1, scope="readonly"),
+    )
 
 
 def _session_credential(scope: str | None):
@@ -45,15 +54,11 @@ def _settings(
     environment: str = "development",
     public_url: str = DEV_ORIGIN,
     cors_allowed_origins: str = CROSS_ORIGIN,
-    inject_token: str = OWNER_TOKEN,
-    readonly_token: str = READONLY_TOKEN,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         environment=environment,
         public_url=public_url,
         cors_allowed_origins=cors_allowed_origins,
-        inject_token=inject_token,
-        readonly_token=readonly_token,
         db_file=tmp_path / "claire.db",
     )
 
@@ -230,13 +235,6 @@ def test_runtime_config_validates_environment_url_origins_and_cookie_mode(tmp_pa
             },
             "must use https",
         ),
-        ({"inject_token": ""}, "CLAIRE_INJECT_TOKEN"),
-        ({"inject_token": "short"}, "32-128"),
-        ({"inject_token": "x" * 31 + "!"}, "URL-safe"),
-        ({"inject_token": f" {OWNER_TOKEN}"}, "CLAIRE_INJECT_TOKEN"),
-        ({"readonly_token": "short"}, "32-128"),
-        ({"readonly_token": f"{READONLY_TOKEN} "}, "CLAIRE_READONLY_TOKEN"),
-        ({"readonly_token": OWNER_TOKEN}, "must be different"),
         ({"cors_allowed_origins": "*"}, "wildcard"),
         ({"cors_allowed_origins": f"{CROSS_ORIGIN}/"}, "trailing slash"),
     ],
@@ -404,8 +402,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/membership",
         "/resolution/rollback",
         "/document/matrix/purge",
-        "/tokens",
-        "/tokens/revoke",
         "/setup",
         "/api/auth/reauth",
         "/api/me/password",
@@ -434,9 +430,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/remote-collaborators"),
         ("DELETE", "/remote-collaborators/{grant}"),
         ("PATCH", "/contributions/{number}"),
-        ("GET", "/tokens"),
-        ("HEAD", "/tokens"),
-        ("DELETE", "/tokens"),
         *(
             (method, path)
             for path in ("/setup", "/me", "/api/me", "/syndication", "/syndication/preferences")
@@ -470,14 +463,12 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/settings/backups",
                 "/settings/mcp",
                 "/settings/webmcp",
-                "/settings/tokens",
                 "/account/invites",
                 "/account/providers",
                 "/settings/kb",
                 "/settings/kb/manage",
                 "/settings/kb/{kb_number:int}",
                 "/settings/themes",
-                "/account/tokens",
                 "/moderation",
                 "/moderation/kb",
                 "/moderation/kb/{kb_number:int}",
@@ -616,7 +607,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
                 "/admin/themes",
                 "/moderation/oversight",
                 "/moderation/themes",
-                "/admin/tokens",
                 "/admin/audit",
                 "/admin/mcp",
                 "/admin/webmcp",
@@ -671,7 +661,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
     surfaces = {key: rule.surface for key, rule in security.ROUTE_POLICY.items()}
     assert surfaces[("GET", "/")] == "root"
     assert surfaces[("GET", "/graph")] == "namespaced"
-    assert surfaces[("GET", "/tokens")] == "any"
     assert surfaces[("GET", "/static/{path:path}")] == "system"
     assert surfaces[("GET", "/admin/accounts")] == "system"
 
@@ -727,8 +716,9 @@ async def test_public_read_and_owner_route_policy(tmp_path):
     assert unauthenticated_owner.status == 404
     assert unauthenticated_owner.header("cache-control") == "no-store"
 
-    owner_headers = [("Authorization", f"Bearer {OWNER_TOKEN}")]
-    readonly_headers = [("Authorization", f"Bearer {READONLY_TOKEN}")]
+    owner_tok, readonly_tok = _issue_bearers(tmp_path)
+    owner_headers = [("Authorization", f"Bearer {owner_tok}")]
+    readonly_headers = [("Authorization", f"Bearer {readonly_tok}")]
     owner_read = await _call(app, "/graph", headers=owner_headers)
     readonly_read = await _call(app, "/graph", headers=readonly_headers)
     assert owner_read.status == 200 and owner_read.json()["scope"] == "owner"
@@ -808,8 +798,9 @@ async def test_anonymous_readonly_never_replaces_valid_owner_or_readonly_scope(
         _inner_app(),
         _settings(tmp_path),
     )
-    owner_headers = [("Authorization", f"Bearer {OWNER_TOKEN}")]
-    readonly_headers = [("Authorization", f"Bearer {READONLY_TOKEN}")]
+    owner_tok, readonly_tok = _issue_bearers(tmp_path)
+    owner_headers = [("Authorization", f"Bearer {owner_tok}")]
+    readonly_headers = [("Authorization", f"Bearer {readonly_tok}")]
 
     owner = await _call(app, "/graph", headers=owner_headers)
     readonly = await _call(app, "/graph", headers=readonly_headers)
@@ -832,6 +823,7 @@ async def test_anonymous_readonly_cross_origin_still_requires_valid_bearer(tmp_p
         _inner_app(),
         _settings(tmp_path),
     )
+    _, readonly_tok = _issue_bearers(tmp_path)
     origin = [("Origin", CROSS_ORIGIN)]
 
     assert (await _call(app, "/graph", headers=origin)).status == 403
@@ -850,7 +842,7 @@ async def test_anonymous_readonly_cross_origin_still_requires_valid_bearer(tmp_p
         "/graph",
         headers=[
             *origin,
-            ("Authorization", f"Bearer {READONLY_TOKEN}"),
+            ("Authorization", f"Bearer {readonly_tok}"),
         ],
     )
     assert bearer.status == 200
@@ -876,7 +868,7 @@ async def test_anonymous_readonly_cross_origin_still_requires_valid_bearer(tmp_p
         method="HEAD",
         headers=[
             *origin,
-            ("Authorization", f"Bearer {READONLY_TOKEN}"),
+            ("Authorization", f"Bearer {readonly_tok}"),
         ],
     )
     assert bearer_head.status == 200
@@ -1043,11 +1035,14 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
 ):
     owner_session = "s" * 43
     readonly_session = "r" * 43
+    owner_tok, readonly_tok = _issue_bearers(tmp_path)
+    write_oauth_tok = issue_oauth_token(tmp_path / "claire.db", account_id=1, scope="write")
 
     async def validate(_config, token):
         return _session_credential(
             {
                 owner_session: "owner",
+                owner_tok: "owner",
                 readonly_session: "readonly",
             }.get(token)
         )
@@ -1058,8 +1053,9 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
         _settings(tmp_path),
     )
     credential_headers = {
-        "owner_bearer": [("Authorization", f"Bearer {OWNER_TOKEN}")],
-        "readonly_bearer": [("Authorization", f"Bearer {READONLY_TOKEN}")],
+        "owner_bearer": [("Authorization", f"Bearer {owner_tok}")],
+        "write_oauth": [("Authorization", f"Bearer {write_oauth_tok}")],
+        "readonly_bearer": [("Authorization", f"Bearer {readonly_tok}")],
         "owner_session": [("Cookie", f"claire_session={owner_session}")],
         "readonly_session": [("Cookie", f"claire_session={readonly_session}")],
         "anonymous": [],
@@ -1071,7 +1067,8 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
         "cross": [("Origin", CROSS_ORIGIN)],
     }
     expected_read = {
-        "owner_bearer": {"none": 200, "same": 200, "cross": 200},
+        "owner_bearer": {"none": 200, "same": 200, "cross": 403},
+        "write_oauth": {"none": 200, "same": 200, "cross": 200},
         "readonly_bearer": {"none": 200, "same": 200, "cross": 200},
         "owner_session": {"none": 200, "same": 200, "cross": 403},
         "readonly_session": {"none": 200, "same": 200, "cross": 403},
@@ -1079,7 +1076,8 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
         "invalid": {"none": 404, "same": 404, "cross": 403},
     }
     expected_owner = {
-        "owner_bearer": {"none": 200, "same": 200, "cross": 200},
+        "owner_bearer": {"none": 200, "same": 200, "cross": 403},
+        "write_oauth": {"none": 200, "same": 200, "cross": 200},
         "readonly_bearer": {"none": 403, "same": 403, "cross": 403},
         "owner_session": {"none": 403, "same": 200, "cross": 403},
         "readonly_session": {"none": 403, "same": 403, "cross": 403},
@@ -1088,6 +1086,7 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
     }
     expected_scope = {
         "owner_bearer": "owner",
+        "write_oauth": "write",
         "readonly_bearer": "readonly",
         "owner_session": "owner",
         "readonly_session": "readonly",
@@ -1112,7 +1111,7 @@ async def test_complete_scope_origin_read_and_owner_permission_matrix(
             if read.status == 200:
                 assert read.json()["scope"] == expected_scope[identity]
             if owner.status == 200:
-                assert owner.json()["scope"] == "owner"
+                assert owner.json()["scope"] == expected_scope[identity]
 
 
 @pytest.mark.asyncio
@@ -1143,7 +1142,8 @@ async def test_unknown_method_path_pairs_fail_closed_before_routing(tmp_path):
         _inner_app(),
         _settings(tmp_path),
     )
-    owner = [("Authorization", f"Bearer {OWNER_TOKEN}")]
+    owner_tok, _ = _issue_bearers(tmp_path)
+    owner = [("Authorization", f"Bearer {owner_tok}")]
 
     assert (await _call(app, "/health", method="POST")).status == 404
     assert (await _call(app, "/ingest", method="GET", headers=owner)).status == 404
@@ -1191,6 +1191,7 @@ async def test_malformed_duplicate_and_mixed_credentials_are_rejected(
 @pytest.mark.asyncio
 async def test_cors_preflight_and_bearer_only_actual_request(tmp_path):
     app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
+    _, readonly_tok = _issue_bearers(tmp_path)
     preflight = await _call(
         app,
         "/graph",
@@ -1212,7 +1213,7 @@ async def test_cors_preflight_and_bearer_only_actual_request(tmp_path):
         "/graph",
         headers=[
             ("Origin", CROSS_ORIGIN),
-            ("Authorization", f"Bearer {READONLY_TOKEN}"),
+            ("Authorization", f"Bearer {readonly_tok}"),
         ],
     )
     assert actual.status == 200
@@ -1404,7 +1405,8 @@ async def test_anonymous_head_bootstrap_is_404_and_does_not_consume_token(tmp_pa
 @pytest.mark.asyncio
 async def test_json_body_helper_distinguishes_400_and_413(tmp_path):
     app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
-    auth = [("Authorization", f"Bearer {OWNER_TOKEN}")]
+    owner_tok, _ = _issue_bearers(tmp_path)
+    auth = [("Authorization", f"Bearer {owner_tok}")]
 
     valid = await _call(
         app,
@@ -1439,13 +1441,14 @@ async def test_json_body_helper_distinguishes_400_and_413(tmp_path):
 @pytest.mark.asyncio
 async def test_413_keeps_allowed_cors_headers(tmp_path):
     app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
+    _, readonly_tok = _issue_bearers(tmp_path)
     response = await _call(
         app,
         "/search",
         method="POST",
         headers=[
             ("Origin", CROSS_ORIGIN),
-            ("Authorization", f"Bearer {OWNER_TOKEN}"),
+            ("Authorization", f"Bearer {readonly_tok}"),
             ("Content-Type", "application/json"),
             ("Content-Length", str(security.MAX_REQUEST_BODY + 1)),
         ],
@@ -1458,7 +1461,8 @@ async def test_413_keeps_allowed_cors_headers(tmp_path):
 @pytest.mark.asyncio
 async def test_chunked_body_limit_and_bodyless_route_policy(tmp_path):
     app = security.wrap_web_app(_inner_app(), _settings(tmp_path))
-    auth = [("Authorization", f"Bearer {OWNER_TOKEN}")]
+    owner_tok, _ = _issue_bearers(tmp_path)
+    auth = [("Authorization", f"Bearer {owner_tok}")]
 
     bodyless = await _call(
         app,
@@ -1596,8 +1600,9 @@ async def test_share_endpoint_allows_anonymous_and_readonly_in_public_mode(tmp_p
     assert anon_res.status == 200
     assert anon_res.json()["scope"] == "anonymous"
 
+    _, readonly_tok = _issue_bearers(tmp_path)
     ro_headers = [
-        ("Authorization", f"Bearer {READONLY_TOKEN}"),
+        ("Authorization", f"Bearer {readonly_tok}"),
         ("Content-Type", "application/json"),
     ]
     ro_res = await _call(
@@ -1620,7 +1625,6 @@ def _state_changing_app() -> Starlette:
         routes=[
             Route("/document/presentation/adoc", _endpoint, methods=["PUT"]),
             Route("/", _endpoint, methods=["PATCH", "DELETE"]),
-            Route("/tokens", _endpoint, methods=["DELETE"]),
             Route("/document/seen", _endpoint, methods=["POST"]),
         ]
     )
@@ -1634,16 +1638,16 @@ def _state_changing_app() -> Starlette:
         ("PUT", "/document/presentation/adoc"),
         ("PATCH", "/"),
         ("DELETE", "/"),
-        ("DELETE", "/tokens"),
     ],
 )
 async def test_cookie_state_changing_methods_require_exact_same_origin(
     tmp_path, monkeypatch, method, path
 ):
     full_session = "s" * 43
+    owner_tok = issue_session_token(tmp_path / "claire.db", account_id=1, scope="owner")
 
     async def validate(_config, token):
-        return _session_credential("owner" if token == full_session else None)
+        return _session_credential("owner" if token in (full_session, owner_tok) else None)
 
     monkeypatch.setattr(security, "_validate_session", validate)
     app = security.wrap_web_app(_state_changing_app(), _settings(tmp_path))
@@ -1657,7 +1661,7 @@ async def test_cookie_state_changing_methods_require_exact_same_origin(
     ).status == 403
     ok = await _call(app, path, method=method, headers=[cookie, ("Origin", DEV_ORIGIN)])
     bearer = await _call(
-        app, path, method=method, headers=[("Authorization", f"Bearer {OWNER_TOKEN}")]
+        app, path, method=method, headers=[("Authorization", f"Bearer {owner_tok}")]
     )
     if security.lookup_route_rule(method, path).step_up:
         # SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 6.8: a step-up route needs a recent sign-in in a session; a bearer credential never passes.

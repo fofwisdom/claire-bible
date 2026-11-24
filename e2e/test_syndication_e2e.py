@@ -10,9 +10,7 @@ from starlette.testclient import TestClient
 from claire.api import server
 from claire.core.config import Settings
 from claire.store import db as dbm
-
-OWNER_TOKEN = "owner-token-secret-12345678901234"
-READONLY_TOKEN = "readonly-token-secret-123456789012"
+from tests.auth_helpers import bearer_headers
 
 
 @pytest.fixture
@@ -26,11 +24,8 @@ def syndication_e2e_env(tmp_path: Path):
         _env_file=None,
         db_path=str(db_file),
         data_path=str(tmp_path),
-        vault_path=str(tmp_path / "vault"),
         environment="development",
         fqdn="127.0.0.1:8765",
-        inject_token=OWNER_TOKEN,
-        readonly_token=READONLY_TOKEN,
         robots_policy="public",
         block_ai_crawlers=True,
         sitemap_enabled=True,
@@ -53,7 +48,9 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
     conn.close()
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
-        r_pub = client.get("/syndication")
+        assert client.get("/syndication").status_code == 404
+        owner = bearer_headers(db_file, account_id=1, scope="owner")
+        r_pub = client.get("/syndication", headers=owner)
         assert r_pub.status_code == 200
         assert "Claire Bible — Syndication" in r_pub.text
         assert 'data-layout="three-panel"' in r_pub.text
@@ -76,7 +73,6 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         r_prefs_anon = client.get("/syndication/preferences", follow_redirects=False)
         assert r_prefs_anon.status_code in (401, 403, 404)
         assert "location" not in r_prefs_anon.headers
-        owner = {"Authorization": f"Bearer {OWNER_TOKEN}"}
         r_prefs = client.get("/syndication/preferences?tab=accounts", headers=owner, follow_redirects=False)
         assert r_prefs.status_code == 302
         assert r_prefs.headers["location"] == "/settings/connections"

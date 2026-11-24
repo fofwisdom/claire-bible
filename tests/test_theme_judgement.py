@@ -18,6 +18,7 @@ from claire.ontology.base import normalize_name
 from claire.store import db as dbm
 from claire.store import themes as themes_store
 from claire.store.knowledge_base import KnowledgeBaseManager
+from tests.auth_helpers import bearer_headers
 
 KOREA = ["Seoul", "Busan", "Incheon", "Daegu", "Han River", "Jeju"]
 SPACE = ["Mars", "Jupiter", "Saturn", "Voyager", "Apollo", "Hubble"]
@@ -32,7 +33,6 @@ def env(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN="owner-" + "s" * 32,
     )
     conn = dbm.connect(settings.db_file)
     dbm.init_db(conn)
@@ -274,9 +274,7 @@ def test_e2e_theme_pages_and_admin_adjustments(env) -> None:
 
     from claire.api.server import create_app
     from claire.store import accounts as accounts_store
-    from claire.store.token_store import get_token_store, reset_token_stores
 
-    reset_token_stores()
     settings, manager = env
     conn = dbm.connect(settings.db_file)
     try:
@@ -290,76 +288,72 @@ def test_e2e_theme_pages_and_admin_adjustments(env) -> None:
     myths = manager.define_kb("Myths", account_id=1, knowledge_type="fictional")
     for kb, names in ((korea_a, KOREA), (korea_b, KOREA), (space, SPACE), (myths, ["Zeus", "Hera", "Olympus", "Athena", "Ares"])):
         _fill(settings, kb.id, names)
-    tokens = get_token_store(data_dir=settings.data_dir)
-    admin = {"Authorization": f"Bearer {tokens.create_api_token(name='admin', scope='owner', account_id=1)['token']}"}
-    member = {"Authorization": f"Bearer {tokens.create_api_token(name='ann', scope='owner', account_id=2)['token']}"}
-    try:
-        with TestClient(create_app(settings=settings), base_url="http://127.0.0.1:8765", follow_redirects=False) as client:
-            # Only the admin starts a run and sees the admin view.
-            assert client.post("/api/admin/themes/judge", headers=member).status_code == 404
-            report = client.post("/api/admin/themes/judge", headers=admin).json()["report"]
-            assert (report["signatures"], report["themes_active"]) == (4, 3)
-            overview = client.get("/api/admin/themes", headers=admin).json()
-            assert overview["settings"] == {**tj.SETTINGS, **contributions.LIMITS} and overview["last_run_at"] is not None
-            by_label = {t["label"]: t for t in overview["themes"]}
-            korea, cosmos, legends = by_label["Seoul · Busan"], by_label["Mars · Jupiter"], by_label["Zeus · Hera"]
+    admin = bearer_headers(settings, account_id=1, scope="owner")
+    member = bearer_headers(settings, account_id=2, scope="owner")
+    with TestClient(create_app(settings=settings), base_url="http://127.0.0.1:8765", follow_redirects=False) as client:
+        # Only the admin starts a run and sees the admin view.
+        assert client.post("/api/admin/themes/judge", headers=member).status_code == 404
+        report = client.post("/api/admin/themes/judge", headers=admin).json()["report"]
+        assert (report["signatures"], report["themes_active"]) == (4, 3)
+        overview = client.get("/api/admin/themes", headers=admin).json()
+        assert overview["settings"] == {**tj.SETTINGS, **contributions.LIMITS} and overview["last_run_at"] is not None
+        by_label = {t["label"]: t for t in overview["themes"]}
+        korea, cosmos, legends = by_label["Seoul · Busan"], by_label["Mars · Jupiter"], by_label["Zeus · Hera"]
 
-            # The collection and the page of a theme, for each reader.
-            listed = client.get("/themes").json()["themes"]
-            assert {t["number"] for t in listed} == {korea["number"], cosmos["number"], legends["number"]}
-            assert [t["number"] for t in client.get("/themes?knowledge_type=fictional").json()["themes"]] == [legends["number"]]
-            assert client.get(f"/themes/{korea['number']}").status_code == 308  # the path without the last slash
-            page = client.get(f"/themes/{korea['number']}/").json()
-            assert (page["label"], page["knowledge_type"], page["shared_knowledge_bases"], page["top_entities"][:2]) == ("Seoul · Busan", "real", 2, ["Seoul", "Busan"])
-            assert sorted(kb["label"] for kb in page["knowledge_bases"]) == ["Korea A", "Korea B"] and "pinned" not in page["knowledge_bases"][0]
-            assert page["knowledge_bases"][0]["url"].endswith(f"/kb/{ids_number(korea_a)}/")
-            html_page = client.get(f"/themes/{korea['number']}/", headers={"Accept": "text/html"})
-            # The HTML form is the page of the public views; its script shows the JSON form of the same path.
-            assert html_page.status_code == 200 and "<title>Seoul · Busan" in html_page.text and 'data-public-view="theme_detail"' in html_page.text and f'"ref": "{korea["number"]}"' in html_page.text
-            assert client.get("/themes/999999/", headers={"Accept": "text/html"}).status_code == 404
-            # The root page of network mode shows the themes first.
-            root = client.get("/", headers={"Accept": "text/html"})
-            assert root.status_code == 200 and f'/themes/{korea["number"]}/' in root.text and "Mars · Jupiter" in root.text
-            # An unknown number, and an inner path of a theme: 404.
-            assert client.get("/themes/999999/").status_code == 404
-            assert client.get(f"/themes/{korea['number']}/documents").status_code == 404
+        # The collection and the page of a theme, for each reader.
+        listed = client.get("/themes").json()["themes"]
+        assert {t["number"] for t in listed} == {korea["number"], cosmos["number"], legends["number"]}
+        assert [t["number"] for t in client.get("/themes?knowledge_type=fictional").json()["themes"]] == [legends["number"]]
+        assert client.get(f"/themes/{korea['number']}").status_code == 308  # the path without the last slash
+        page = client.get(f"/themes/{korea['number']}/").json()
+        assert (page["label"], page["knowledge_type"], page["shared_knowledge_bases"], page["top_entities"][:2]) == ("Seoul · Busan", "real", 2, ["Seoul", "Busan"])
+        assert sorted(kb["label"] for kb in page["knowledge_bases"]) == ["Korea A", "Korea B"] and "pinned" not in page["knowledge_bases"][0]
+        assert page["knowledge_bases"][0]["url"].endswith(f"/kb/{ids_number(korea_a)}/")
+        html_page = client.get(f"/themes/{korea['number']}/", headers={"Accept": "text/html"})
+        # The HTML form is the page of the public views; its script shows the JSON form of the same path.
+        assert html_page.status_code == 200 and "<title>Seoul · Busan" in html_page.text and 'data-public-view="theme_detail"' in html_page.text and f'"ref": "{korea["number"]}"' in html_page.text
+        assert client.get("/themes/999999/", headers={"Accept": "text/html"}).status_code == 404
+        # The root page of network mode shows the themes first.
+        root = client.get("/", headers={"Accept": "text/html"})
+        assert root.status_code == 200 and f'/themes/{korea["number"]}/' in root.text and "Mars · Jupiter" in root.text
+        # An unknown number, and an inner path of a theme: 404.
+        assert client.get("/themes/999999/").status_code == 404
+        assert client.get(f"/themes/{korea['number']}/documents").status_code == 404
 
-            # Adjustments (Section 8.3): rename with a lock, pin, exclude; each one stays after a new run.
-            renamed = client.patch(f"/api/admin/themes/{korea['number']}", json={"label": "Korean geography"}, headers=admin).json()["theme"]
-            assert (renamed["label"], renamed["label_locked"]) == ("Korean geography", True)
-            member_url = f"/api/admin/themes/{korea['number']}/knowledge-bases"
-            assert client.put(f"{member_url}/{ids_number(space)}", json={"membership": "pinned"}, headers=admin).status_code == 200
-            assert client.put(f"{member_url}/{ids_number(korea_b)}", json={"membership": "excluded"}, headers=admin).status_code == 200
-            # A theme has one knowledge type.
-            assert client.put(f"{member_url}/{ids_number(myths)}", json={"membership": "pinned"}, headers=admin).json() == {"error": "knowledge_type_mismatch"}
-            assert client.put(f"{member_url}/{ids_number(space)}", json={"membership": "maybe"}, headers=admin).json() == {"error": "membership_invalid"}
-            client.post("/api/admin/themes/judge", headers=admin)
-            page = client.get(f"/themes/{korea['number']}/").json()
-            assert (page["label"], sorted(kb["label"] for kb in page["knowledge_bases"])) == ("Korean geography", ["Korea A", "Space"])
-            admin_view = {t["number"]: t for t in client.get("/api/admin/themes", headers=admin).json()["themes"]}[korea["number"]]
-            assert {kb["label"]: (kb["pinned"], kb["excluded"]) for kb in admin_view["knowledge_bases"]} == {"Korea A": (False, False), "Space": (True, False), "Korea B": (False, True)}
+        # Adjustments (Section 8.3): rename with a lock, pin, exclude; each one stays after a new run.
+        renamed = client.patch(f"/api/admin/themes/{korea['number']}", json={"label": "Korean geography"}, headers=admin).json()["theme"]
+        assert (renamed["label"], renamed["label_locked"]) == ("Korean geography", True)
+        member_url = f"/api/admin/themes/{korea['number']}/knowledge-bases"
+        assert client.put(f"{member_url}/{ids_number(space)}", json={"membership": "pinned"}, headers=admin).status_code == 200
+        assert client.put(f"{member_url}/{ids_number(korea_b)}", json={"membership": "excluded"}, headers=admin).status_code == 200
+        # A theme has one knowledge type.
+        assert client.put(f"{member_url}/{ids_number(myths)}", json={"membership": "pinned"}, headers=admin).json() == {"error": "knowledge_type_mismatch"}
+        assert client.put(f"{member_url}/{ids_number(space)}", json={"membership": "maybe"}, headers=admin).json() == {"error": "membership_invalid"}
+        client.post("/api/admin/themes/judge", headers=admin)
+        page = client.get(f"/themes/{korea['number']}/").json()
+        assert (page["label"], sorted(kb["label"] for kb in page["knowledge_bases"])) == ("Korean geography", ["Korea A", "Space"])
+        admin_view = {t["number"]: t for t in client.get("/api/admin/themes", headers=admin).json()["themes"]}[korea["number"]]
+        assert {kb["label"]: (kb["pinned"], kb["excluded"]) for kb in admin_view["knowledge_bases"]} == {"Korea A": (False, False), "Space": (True, False), "Korea B": (False, True)}
 
-            # Split: the admin makes a theme and pins a knowledge base to it. Merge: the page of the merged theme gives 308.
-            made = client.post("/api/admin/themes", json={"label": "Planets", "knowledge_type": "real"}, headers=admin)
-            assert made.status_code == 201
-            planets = made.json()["theme"]
-            assert client.put(f"/api/admin/themes/{planets['number']}/knowledge-bases/{ids_number(space)}", json={"membership": "pinned"}, headers=admin).status_code == 200
-            merged = client.post(f"/api/admin/themes/{cosmos['number']}/merge", json={"into": planets["number"]}, headers=admin)
-            assert merged.status_code == 200, merged.text
-            old = client.get(f"/themes/{cosmos['number']}/")
-            assert (old.status_code, old.headers["location"]) == (308, f"/themes/{planets['number']}/")
-            assert client.post(f"/api/admin/themes/{legends['number']}/merge", json={"into": planets["number"]}, headers=admin).json() == {"error": "knowledge_type_mismatch"}
-            client.post("/api/admin/themes/judge", headers=admin)
-            assert client.get(f"/themes/{cosmos['number']}/").status_code == 308
-            assert [kb["label"] for kb in client.get(f"/themes/{planets['number']}/").json()["knowledge_bases"]] == ["Space"]
+        # Split: the admin makes a theme and pins a knowledge base to it. Merge: the page of the merged theme gives 308.
+        made = client.post("/api/admin/themes", json={"label": "Planets", "knowledge_type": "real"}, headers=admin)
+        assert made.status_code == 201
+        planets = made.json()["theme"]
+        assert client.put(f"/api/admin/themes/{planets['number']}/knowledge-bases/{ids_number(space)}", json={"membership": "pinned"}, headers=admin).status_code == 200
+        merged = client.post(f"/api/admin/themes/{cosmos['number']}/merge", json={"into": planets["number"]}, headers=admin)
+        assert merged.status_code == 200, merged.text
+        old = client.get(f"/themes/{cosmos['number']}/")
+        assert (old.status_code, old.headers["location"]) == (308, f"/themes/{planets['number']}/")
+        assert client.post(f"/api/admin/themes/{legends['number']}/merge", json={"into": planets["number"]}, headers=admin).json() == {"error": "knowledge_type_mismatch"}
+        client.post("/api/admin/themes/judge", headers=admin)
+        assert client.get(f"/themes/{cosmos['number']}/").status_code == 308
+        assert [kb["label"] for kb in client.get(f"/themes/{planets['number']}/").json()["knowledge_bases"]] == ["Space"]
 
-            # Thresholds are admin settings.
-            changed = client.put("/api/admin/themes/settings", json={"theme_match_threshold": 0.9}, headers=admin)
-            assert changed.json()["settings"]["theme_match_threshold"] == 0.9
-            for body in ({}, {"other": 0.5}, {"theme_match_threshold": 2}):
-                assert client.put("/api/admin/themes/settings", json=body, headers=admin).json() == {"error": "settings_invalid"}
-    finally:
-        reset_token_stores()
+        # Thresholds are admin settings.
+        changed = client.put("/api/admin/themes/settings", json={"theme_match_threshold": 0.9}, headers=admin)
+        assert changed.json()["settings"]["theme_match_threshold"] == 0.9
+        for body in ({}, {"other": 0.5}, {"theme_match_threshold": 2}):
+            assert client.put("/api/admin/themes/settings", json=body, headers=admin).json() == {"error": "settings_invalid"}
 
 
 def ids_number(kb) -> str:

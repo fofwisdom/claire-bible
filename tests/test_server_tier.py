@@ -34,9 +34,8 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import usage_ledger as ul
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
-OWNER_TOKEN = "owner-" + "o" * 32
-READONLY_TOKEN = "readonly-" + "r" * 32
 PUBLIC_URL = "http://127.0.0.1:8765"
 USERNAME = "kim_lee"
 PASSWORD = "correct-horse-battery"
@@ -510,8 +509,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
 
 
@@ -590,10 +587,11 @@ def test_server_tier_api_is_admin_only(client, app_settings):
     finally:
         conn.close()
     member = _session(app_settings, 2)
+    readonly_tok = issue_oauth_token(app_settings.db_file, scope="readonly")
     for method in ("GET", "HEAD", "PUT"):
         kw = {"json": GOOD_TIER} if method == "PUT" else {}
         assert _req(client, method, TIER_PATH, **kw).status_code == 404
-        assert _req(client, method, TIER_PATH, bearer=READONLY_TOKEN, **kw).status_code == 404
+        assert _req(client, method, TIER_PATH, bearer=readonly_tok, **kw).status_code == 404
         assert _req(client, method, TIER_PATH, session=member, **kw).status_code == 404
         assert _req(client, method, TIER_PATH, session=_session(app_settings, scope="readonly"), **kw).status_code == 404
     assert _audit_rows(app_settings) == []
@@ -603,6 +601,7 @@ def test_server_tier_api_is_admin_only(client, app_settings):
 def test_server_tier_get_reports_default_and_usage(client, app_settings):
     _activate_admin(app_settings)
     token = _session(app_settings)
+    owner_bearer = issue_session_token(app_settings.db_file, scope="owner")
     r = _req(client, "GET", TIER_PATH, session=token)
     assert r.status_code == 200
     body = r.json()
@@ -610,7 +609,7 @@ def test_server_tier_get_reports_default_and_usage(client, app_settings):
     assert body["tier"] == ServerTier().to_dict()
     assert body["usage"] == [] and len(body["period"]) == 7 and len(body["day"]) == 10
     assert _req(client, "HEAD", TIER_PATH, session=token).status_code == 200
-    assert _req(client, "GET", TIER_PATH, bearer=OWNER_TOKEN).status_code == 200
+    assert _req(client, "GET", TIER_PATH, bearer=owner_bearer).status_code == 200
 
     conn = _db(app_settings)
     try:
@@ -627,7 +626,8 @@ def test_server_tier_put_requires_step_up(client, app_settings):
     stale = _session(app_settings, authenticated_ago=STEP_UP_WINDOW_SECONDS + 60)
     r = _req(client, "PUT", TIER_PATH, session=stale, json=GOOD_TIER)
     assert r.status_code == 401 and r.json()["error"] == "reauth_required"
-    r = _req(client, "PUT", TIER_PATH, bearer=OWNER_TOKEN, json=GOOD_TIER)
+    owner_bearer = issue_session_token(app_settings.db_file, scope="owner")
+    r = _req(client, "PUT", TIER_PATH, bearer=owner_bearer, json=GOOD_TIER)
     assert r.status_code == 403 and r.json()["error"] == "step_up_requires_session"
     r = _req(client, "PUT", TIER_PATH, session=_session(app_settings), json=GOOD_TIER, origin="https://evil.example")
     assert r.status_code == 403

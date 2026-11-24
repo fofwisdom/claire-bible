@@ -27,11 +27,7 @@ from claire.ops.graph_bundle import (
     lookup_graph_bundle_by_token,
 )
 from claire.store import db as dbm
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def _seed_db(db_path: Path) -> None:
@@ -129,8 +125,6 @@ def _build_settings(tmp_path: Path) -> Settings:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
     )
 
 
@@ -187,6 +181,8 @@ async def test_create_graph_bundle_route_direct_handler_scope_enforcement(tmp_pa
 def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
     """HTTP Client tests verifying authorization, generation, and downloading."""
     s = _build_settings(tmp_path)
+    owner_headers = bearer_headers(s, scope="owner")
+    readonly_headers = bearer_headers(s, scope="readonly")
     app = server.create_app(s)
 
     with TestClient(app, base_url=s.public_url) as client:
@@ -197,7 +193,7 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
         # 2. POST with readonly token is rejected (403 from the gate middleware: the scope is too small)
         resp_ro = client.post(
             "/support/graph-bundle",
-            headers=READONLY_HEADERS,
+            headers=readonly_headers,
             json={"kb_id": 0},
         )
         assert resp_ro.status_code == 403
@@ -205,7 +201,7 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
         # 3. POST with owner token succeeds (200 OK)
         resp_owner = client.post(
             "/support/graph-bundle",
-            headers=OWNER_HEADERS,
+            headers=owner_headers,
             json={"kb_id": 0},
         )
         assert resp_owner.status_code == 200
@@ -244,11 +240,12 @@ def test_api_graph_bundle_permissions_and_creation(tmp_path: Path):
 def test_api_graph_bundle_expired_token_returns_410(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Expired bundle token returns HTTP 410 Gone and cleans up the bundle."""
     s = _build_settings(tmp_path)
+    owner_headers = bearer_headers(s, scope="owner")
     app = server.create_app(s)
 
     with TestClient(app, base_url=s.public_url) as client:
         # Create bundle
-        resp_create = client.post("/support/graph-bundle", headers=OWNER_HEADERS, json={"kb_id": 0})
+        resp_create = client.post("/support/graph-bundle", headers=owner_headers, json={"kb_id": 0})
         assert resp_create.status_code == 200
         token = resp_create.json()["token"]
 

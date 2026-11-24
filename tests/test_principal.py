@@ -29,10 +29,7 @@ from claire.api.principal import (
 )
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
-from claire.store.token_store import TokenStore, reset_token_stores
 
-OWNER_TOKEN = "owner-" + "o" * 32
-READONLY_TOKEN = "readonly-" + "r" * 32
 DEV_ORIGIN = "http://192.0.2.10:8766"
 
 COOKIE_SESSION = "s" * 43
@@ -40,9 +37,8 @@ X_SESSION = "x" * 43
 SUSPENDED_SESSION = "z" * 43
 ORPHAN_SESSION = "q" * 43
 OAUTH_TOKEN = "oauth-" + "a" * 40
-API_TOKEN_LEGACY = "cb_" + "l" * 40
-API_TOKEN_MEMBER = "cb_" + "m" * 40
-API_TOKEN_SUSPENDED = "cb_" + "p" * 40
+OAUTH_TOKEN_SUSPENDED = "oauth-" + "s" * 40
+MANUAL_TOKEN_RETIRED = "cb_" + "l" * 40
 
 ADMIN_AUTH_AT = 1_700_000_000.0
 
@@ -88,6 +84,9 @@ OAUTH = {
     OAUTH_TOKEN: accounts_store.CredentialBinding(
         scope="readonly", account_id=7, authenticated_at=None, credential_id="oauth:eeee"
     ),
+    OAUTH_TOKEN_SUSPENDED: accounts_store.CredentialBinding(
+        scope="write", account_id=9, authenticated_at=None, credential_id="oauth:ffff"
+    ),
 }
 
 
@@ -119,29 +118,9 @@ def fake_accounts(monkeypatch):
 
 @pytest.fixture
 def data_dir(tmp_path: Path) -> Path:
-    reset_token_stores()
     # OAuth 검증은 DB 파일이 있을 때만 시도한다.
     (tmp_path / "claire.db").touch()
-    auth_dir = tmp_path / "auth"
-    auth_dir.mkdir()
-    (auth_dir / "api_tokens.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "tokens": [
-                    # v15 이전 항목: account_id가 없다 → 관리자(1)
-                    {"id": 3, "token": API_TOKEN_LEGACY, "name": "legacy", "scope": "owner", "created_at": 0.0},
-                    {"id": 4, "token": API_TOKEN_MEMBER, "name": "member", "scope": "readonly",
-                     "created_at": 0.0, "account_id": 7},
-                    {"id": 5, "token": API_TOKEN_SUSPENDED, "name": "suspended", "scope": "owner",
-                     "created_at": 0.0, "account_id": 9},
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    yield tmp_path
-    reset_token_stores()
+    return tmp_path
 
 
 def _settings(data_dir: Path) -> SimpleNamespace:
@@ -149,8 +128,6 @@ def _settings(data_dir: Path) -> SimpleNamespace:
         environment="development",
         public_url=DEV_ORIGIN,
         cors_allowed_origins="",
-        inject_token=OWNER_TOKEN,
-        readonly_token=READONLY_TOKEN,
         db_file=data_dir / "claire.db",
         data_dir=data_dir,
     )
@@ -215,78 +192,17 @@ def test_public_route_is_anonymous_and_does_not_validate_credentials(fake_accoun
     assert calls == []
 
 
-# --- 환경변수 토큰 -------------------------------------------------------------
+# --- 퇴역 수동 토큰 거부 ---------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("token", "scope"),
-    [(OWNER_TOKEN, "owner"), (READONLY_TOKEN, "readonly")],
-)
-def test_env_tokens_map_to_admin_without_reading_accounts(data_dir, monkeypatch, token, scope):
-    def forbidden(*_a, **_k):
-        raise AssertionError("env tokens must not read the accounts table")
-
-    monkeypatch.setattr(accounts_store.AccountStore, "get", forbidden)
-    response = _client(data_dir).get("/whoami", headers=_bearer(token))
-    assert response.json()["auth_scope"] == scope
-    assert _principal(response) == {
-        "account_id": accounts_store.ADMIN_ACCOUNT_ID,
-        "server_role": "admin",
-        "scope": scope,
-        "channel": "bearer",
-        "credential_id": f"env:{scope}",
-        "authenticated_at": None,
-        "locale": None,
-        "entity_language": None,
-    }
-
-
-# --- api_tokens.json ------------------------------------------------------------
-
-
-def test_api_token_without_account_id_belongs_to_admin(fake_accounts, data_dir):
-    principal = _principal(_client(data_dir).get("/whoami", headers=_bearer(API_TOKEN_LEGACY)))
-    assert principal == {
-        "account_id": 1,
-        "server_role": "admin",
-        "scope": "owner",
-        "channel": "bearer",
-        "credential_id": "api:3",
-        "authenticated_at": None,
-        "locale": None,
-        "entity_language": None,
-    }
-
-
-def test_api_token_with_account_id_maps_to_that_account(fake_accounts, data_dir):
-    principal = _principal(_client(data_dir).get("/whoami", headers=_bearer(API_TOKEN_MEMBER)))
-    assert principal["account_id"] == 7
-    assert principal["server_role"] == "member"
-    assert principal["scope"] == "readonly"
-    assert principal["credential_id"] == "api:4"
-
-
-def test_create_api_token_stores_account_id(tmp_path):
-    store = TokenStore(data_dir=tmp_path)
-    default = store.create_api_token("default", scope="readonly")
-    explicit = store.create_api_token("member", scope="owner", account_id=7)
-    assert default["account_id"] == accounts_store.ADMIN_ACCOUNT_ID
-    assert explicit["account_id"] == 7
-    saved = json.loads((tmp_path / "auth" / "api_tokens.json").read_text(encoding="utf-8"))
-    assert {t["id"]: t["account_id"] for t in saved["tokens"]} == {default["id"]: 1, explicit["id"]: 7}
-    assert store.validate_api_token(explicit["token"])["account_id"] == 7
-    with pytest.raises(ValueError):
-        store.create_api_token("bad", account_id=0)
-
-
-def test_api_token_with_invalid_account_id_is_ignored(tmp_path):
-    auth_dir = tmp_path / "auth"
-    auth_dir.mkdir()
+def test_retired_manual_bearer_tokens_are_rejected(fake_accounts, data_dir):
+    auth_dir = data_dir / "auth"
+    auth_dir.mkdir(exist_ok=True)
     (auth_dir / "api_tokens.json").write_text(
-        json.dumps({"tokens": [{"id": 1, "token": API_TOKEN_MEMBER, "scope": "owner", "account_id": "7"}]}),
+        json.dumps({"version": 1, "tokens": [{"id": 3, "token": MANUAL_TOKEN_RETIRED, "name": "legacy", "scope": "owner", "account_id": 1}]}),
         encoding="utf-8",
     )
-    assert TokenStore(data_dir=tmp_path).validate_api_token(API_TOKEN_MEMBER) is None
+    assert _client(data_dir).post("/ingest", headers=_bearer(MANUAL_TOKEN_RETIRED)).status_code == 404
 
 
 # --- 세션, OAuth ----------------------------------------------------------------
@@ -346,7 +262,7 @@ def test_oauth_token_maps_to_bound_account(fake_accounts, data_dir):
     [
         {"headers": _cookie(SUSPENDED_SESSION)},
         {"headers": {"X-Session": SUSPENDED_SESSION}},
-        {"headers": _bearer(API_TOKEN_SUSPENDED)},
+        {"headers": _bearer(OAUTH_TOKEN_SUSPENDED)},
         {"headers": _cookie(ORPHAN_SESSION)},
     ],
 )
@@ -376,7 +292,7 @@ def test_suspended_account_falls_back_to_anonymous_only_like_unknown_cookie(fake
 def test_admin_setup_required_status_accepts_credentials(fake_accounts, data_dir):
     assert ACCOUNTS[1].status == "setup_required"
     assert "setup_required" in accounts_store.CREDENTIAL_ACCEPTING_STATUSES
-    response = _client(data_dir).post("/ingest", headers=_bearer(API_TOKEN_LEGACY))
+    response = _client(data_dir).post("/ingest", headers=_bearer(COOKIE_SESSION))
     assert _principal(response)["scope"] == "owner"
 
 
@@ -386,13 +302,10 @@ def test_admin_setup_required_status_accepts_credentials(fake_accounts, data_dir
 def test_credential_id_never_contains_token_value(fake_accounts, data_dir):
     client = _client(data_dir)
     cases = [
-        (OWNER_TOKEN, {"headers": _bearer(OWNER_TOKEN)}),
-        (READONLY_TOKEN, {"headers": _bearer(READONLY_TOKEN)}),
-        (API_TOKEN_LEGACY, {"headers": _bearer(API_TOKEN_LEGACY)}),
-        (API_TOKEN_MEMBER, {"headers": _bearer(API_TOKEN_MEMBER)}),
         (OAUTH_TOKEN, {"headers": _bearer(OAUTH_TOKEN)}),
         (COOKIE_SESSION, {"headers": _cookie(COOKIE_SESSION)}),
         (X_SESSION, {"headers": {"X-Session": X_SESSION}}),
+        (COOKIE_SESSION, {"headers": _bearer(COOKIE_SESSION)}),
     ]
     for token, kwargs in cases:
         client.cookies.clear()  # 앞 요청이 갱신한 세션 쿠키가 섞이지 않게 한다

@@ -13,17 +13,44 @@ pytestmark = pytest.mark.usefixtures("korean_interface")
 
 async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
     import json
+    import time
 
     import httpx
     from claire.core.config import Settings
+    from claire.store import db as dbm
     from claire.telegram.bot import _create_support_bundle_for_delivery
 
     archive = tmp_path / "support_bundle_api.tar.zst"
     archive.write_bytes(b"bundle")
 
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        support_bundle_api_url="http://api:8765",
+        environment="production",
+        fqdn="cb.example",
+        db_path=str(tmp_path / "claire.db"),
+    )
+    seen_session: list[str] = []
+
     async def handle(request: httpx.Request) -> httpx.Response:
         assert request.url == "http://api:8765/support/bundle"
-        assert request.headers["Authorization"] == "Bearer " + ("o" * 32)
+        assert "Authorization" not in request.headers
+        session_tok = request.headers["X-Session"]
+        seen_session.append(session_tok)
+        conn = dbm.connect_existing(settings.db_file, readonly=True)
+        try:
+            row = conn.execute(
+                "SELECT account_id, scope, approved, expires_at, created_at FROM auth_sessions WHERE session_token=?",
+                (session_tok,),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert int(row["account_id"]) == dbm.ADMIN_ACCOUNT_ID
+        assert row["scope"] == "owner"
+        assert int(row["approved"]) == 1
+        assert 50.0 <= (float(row["expires_at"]) - float(row["created_at"])) <= 61.0
+        assert float(row["expires_at"]) > time.time()
         assert request.headers["Host"] == "cb.example"
         assert json.loads(request.content) == {
             "days": 2,
@@ -46,14 +73,6 @@ async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
             },
         )
 
-    settings = Settings(
-        telegram_bot_token="12345:fake_token_for_test",
-        inject_token="o" * 32,
-        support_bundle_api_url="http://api:8765",
-        environment="production",
-        fqdn="cb.example",
-        data_dir=tmp_path,
-    )
     info = await _create_support_bundle_for_delivery(
         settings,
         days=2,
@@ -64,6 +83,52 @@ async def test_support_bundle_delivery_is_created_by_api_service(tmp_path):
 
     assert info.bundle_id == "sb_api"
     assert info.filepath == archive
+    assert len(seen_session) == 1
+    conn = dbm.connect_existing(settings.db_file, readonly=True)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE session_token=?", (seen_session[0],)).fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+async def test_bundle_delivery_revokes_ephemeral_session_on_http_error(tmp_path):
+    import json
+
+    import httpx
+    from claire.core.config import Settings
+    from claire.store import db as dbm
+    from claire.telegram.bot import _create_graph_bundle_for_delivery
+
+    settings = Settings(
+        telegram_bot_token="12345:fake_token_for_test",
+        graph_bundle_api_url="http://api:8765",
+        environment="production",
+        fqdn="cb.example",
+        db_path=str(tmp_path / "claire.db"),
+    )
+    seen_session: list[str] = []
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        assert request.url == "http://api:8765/support/graph-bundle"
+        assert "Authorization" not in request.headers
+        seen_session.append(request.headers["X-Session"])
+        assert json.loads(request.content) == {"kb_id": 0, "source_channel": "telegram_command"}
+        return httpx.Response(500, json={"error": "boom"})
+
+    with pytest.raises(RuntimeError, match="HTTP 500"):
+        await _create_graph_bundle_for_delivery(
+            settings,
+            kb_id=0,
+            channel="telegram_command",
+            transport=httpx.MockTransport(handle),
+        )
+
+    assert len(seen_session) == 1
+    conn = dbm.connect_existing(settings.db_file, readonly=True)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM auth_sessions WHERE session_token=?", (seen_session[0],)).fetchone()[0] == 0
+    finally:
+        conn.close()
 
 
 def test_status_emoji_maps_result():
@@ -1720,7 +1785,8 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     await handlers["on_web"](update, ctx)
     msg.reply_text.assert_not_called()
     # 운영자 전용 명령은 거부한다(세션을 만들지 않는다).
-    for name in ("on_web", "on_webro", "on_token", "on_status"):
+    assert "on_token" not in handlers
+    for name in ("on_web", "on_webro", "on_status"):
         update, msg = _update(42)
         await handlers[name](update, ctx)
         assert msg.reply_text.call_args[0][0] == t("bot.error.member_refusal", locale="ko")

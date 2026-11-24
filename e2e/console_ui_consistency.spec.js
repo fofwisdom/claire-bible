@@ -31,7 +31,6 @@ const ADMIN_ROUTES = [
   '/admin/providers',
   '/admin/limits',
   '/admin/plugins',
-  '/admin/tokens',
   '/admin/audit',
   '/admin/mcp',
   '/admin/webmcp',

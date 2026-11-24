@@ -28,10 +28,8 @@ from claire.api.principal import STEP_UP_WINDOW_SECONDS
 from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
-from claire.store.token_store import reset_token_stores
+from tests.auth_helpers import issue_session_token
 
-OWNER_TOKEN = "owner-" + "o" * 32
-READONLY_TOKEN = "readonly-" + "r" * 32
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
 ADMIN_USERNAME = "admin_kim"
@@ -43,9 +41,7 @@ def _isolate_env(monkeypatch):
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
-    reset_token_stores()
     yield
-    reset_token_stores()
 
 
 @pytest.fixture(autouse=True)
@@ -67,8 +63,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
 
 
@@ -353,7 +347,7 @@ def test_admin_step_up_authentication_enforcement(client: _Client, settings: _Se
         assert resp_stale.status_code == 401
         assert "reauth_required" in resp_stale.json()["error"]
 
-        resp_bearer = client.request(method, path, bearer=OWNER_TOKEN, json=payload)
+        resp_bearer = client.request(method, path, bearer=issue_session_token(settings, account_id=1, scope="owner"), json=payload)
         assert resp_bearer.status_code == 403
         assert "step_up_requires_session" in resp_bearer.json()["error"]
 

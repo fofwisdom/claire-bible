@@ -27,7 +27,7 @@ from claire.store import kb_collab
 from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.queries import documents_with_hidden_source, hide_document_source
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 PRIVATE_URL = "https://private.example/secret-article"
@@ -37,13 +37,11 @@ CONTRIBUTED_URL = "https://news.example/contributed"
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _add_account(conn: sqlite3.Connection, account_id: int, username: str, role: str = "member") -> None:
@@ -96,12 +94,11 @@ def env(tmp_path: Path):
         CLAIRE_FQDN=PUBLIC_URL,
     )
     KnowledgeBaseManager(settings).reload()
-    tokens = get_token_store(data_dir=data_dir)
-    alice = tokens.create_token(name="alice", scope="owner", account_id=2)["token"]
-    bob = tokens.create_token(name="bob", scope="owner", account_id=3)["token"]
+    alice = bearer_headers(db_file, account_id=2, scope="owner")
+    bob = bearer_headers(db_file, account_id=3, scope="owner")
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     with TestClient(app, base_url=PUBLIC_URL) as client:
-        yield SimpleNamespace(client=client, db_file=db_file, alice={"Authorization": f"Bearer {alice}"}, bob={"Authorization": f"Bearer {bob}"}, anonymous={})
+        yield SimpleNamespace(client=client, db_file=db_file, alice=alice, bob=bob, anonymous={})
 
 
 def _sources(env: SimpleNamespace, headers: dict[str, str]) -> dict[str, object]:

@@ -29,10 +29,9 @@ from claire.store import db as dbm
 from claire.store import federation as federation_store
 from claire.store import themes as themes_store
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import reset_token_stores
 from tests.knowledge_federation_servers import KfWorld, root_recent, server_actor
 from tests.test_auto_contribution import KOREA, _document, _mcp
-from tests.test_contributions import _fresh_token_stores, no_llm, world  # noqa: F401 (fixtures)
+from tests.test_contributions import no_llm, world  # noqa: F401 (fixtures)
 
 A = "https://a.example"
 C = "https://c.example"
@@ -49,10 +48,8 @@ def _isolate(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(journal, "HANDLERS", {})
     handlers.install()
     reset_secret_service()
-    reset_token_stores()
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 @pytest.fixture

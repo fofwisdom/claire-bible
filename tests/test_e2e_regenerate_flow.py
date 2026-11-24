@@ -17,10 +17,7 @@ from claire.ingest.pipeline import ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.vectors import make_vector_store
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
@@ -43,7 +40,6 @@ def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
     monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
 
@@ -94,13 +90,14 @@ def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
     conn.close()
 
     # Step 3: WebUI API endpoint /document/regenerate (Summary component only)
+    owner_headers = bearer_headers(db_file, scope="owner")
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
     res_summ = client.post(
         "/document/regenerate",
         json={"target": doc_id, "component": "summary", "dry_run": False},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_summ.status_code == 200
     summ_json = res_summ.json()
@@ -116,7 +113,7 @@ def test_e2e_regenerate_lifecycle(tmp_path: Path, monkeypatch):
     res_stream = client.post(
         "/regenerate-stream",
         json={"target": doc_id, "component": "all", "dry_run": False, "effort": "medium"},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_stream.status_code == 200
     lines = [ln for ln in res_stream.text.split("\n") if ln.strip()]
@@ -138,7 +135,6 @@ def test_e2e_regenerate_failure_keeps_graph_and_reports_error(tmp_path: Path, mo
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
     monkeypatch.setenv("CLAIRE_DATA_DIR", str(data_dir))
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(tmp_path / "vault"))
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
     monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
     get_settings.cache_clear()
@@ -167,8 +163,9 @@ def test_e2e_regenerate_failure_keeps_graph_and_reports_error(tmp_path: Path, mo
 
     monkeypatch.setattr(MockProvider, "extract", failing_extract)
 
+    owner_headers = bearer_headers(db_file, scope="owner")
     client = TestClient(create_app(settings), base_url=settings.public_url)
-    res = client.post("/regenerate-stream", json={"target": doc_id, "component": "all", "dry_run": False}, headers=OWNER_HEADERS)
+    res = client.post("/regenerate-stream", json={"target": doc_id, "component": "all", "dry_run": False}, headers=owner_headers)
     assert res.status_code == 200
     last = json.loads([ln for ln in res.text.split("\n") if ln.strip()][-1])
     assert last.get("done") is True

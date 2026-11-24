@@ -19,14 +19,7 @@ from claire.ingest.pipeline import IngestReport, ingest
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store.vectors import make_vector_store
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-COLLAB_TOKEN = "collab-" + ("c" * 32)
-READONLY_TOKEN = "readonly-" + ("r" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
-COLLAB_HEADERS = {"Authorization": f"Bearer {COLLAB_TOKEN}"}
-READONLY_HEADERS = {"Authorization": f"Bearer {READONLY_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def test_cli_regenerate_parser_options():
@@ -142,8 +135,6 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
     monkeypatch.setenv("CLAIRE_DATA_LIFECYCLE", "purgeable")
     monkeypatch.setenv("CLAIRE_ALLOW_PURGE", "1")
-    monkeypatch.setenv("CLAIRE_INJECT_TOKEN", OWNER_TOKEN)
-    monkeypatch.setenv("CLAIRE_READONLY_TOKEN", READONLY_TOKEN)
     monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
     monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
 
@@ -179,18 +170,20 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     assert rep.document_id is not None
     doc_id = rep.document_id
 
+    owner_headers = bearer_headers(db_file, scope="owner")
+    readonly_headers = bearer_headers(db_file, scope="readonly")
     app = create_app(settings)
     client = TestClient(app, base_url=settings.public_url)
 
     # 1. Readonly user must be rejected with 403 (the scope is too small)
-    res_ro = client.post("/regenerate", json={"target": doc_id}, headers=READONLY_HEADERS)
+    res_ro = client.post("/regenerate", json={"target": doc_id}, headers=readonly_headers)
     assert res_ro.status_code == 403
 
     # 2. Owner dry-run
     res_dry = client.post(
         "/regenerate",
         json={"target": doc_id, "component": "detail", "dry_run": True},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_dry.status_code == 200
     d_dry = res_dry.json()
@@ -201,7 +194,7 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     res_app = client.post(
         "/document/regenerate",
         json={"target": doc_id, "component": "summary", "dry_run": False},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_app.status_code == 200
     d_app = res_app.json()
@@ -211,7 +204,7 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     res_stream = client.post(
         "/regenerate-stream",
         json={"target": doc_id, "component": "detail", "dry_run": False},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert res_stream.status_code == 200
     lines = [ln for ln in res_stream.text.split("\n") if ln.strip()]

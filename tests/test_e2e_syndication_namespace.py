@@ -33,11 +33,7 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.store.token_store import TokenStore, get_token_store, reset_token_stores
-
-ADMIN_TOKEN = "adm-" + ("a" * 32)
-ALICE_TOKEN = "ali-" + ("a" * 32)
-BOB_TOKEN = "bob-" + ("b" * 32)
+from tests.auth_helpers import issue_oauth_token, issue_session_token
 
 
 def _setup_theme(
@@ -94,13 +90,11 @@ def _add_account(conn: sqlite3.Connection, account_id: int, username: str, role:
 @pytest.fixture(autouse=True)
 def _cleanup_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 @pytest.fixture
@@ -118,7 +112,6 @@ def p6_env(tmp_path: Path):
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=ADMIN_TOKEN,
     )
 
     conn = dbm.connect(db_file)
@@ -128,17 +121,15 @@ def p6_env(tmp_path: Path):
     _add_account(conn, 2, "alice", role="member")
     _add_account(conn, 3, "bob", role="member")
 
-    token_store = get_token_store(data_dir=data_dir)
-    token_store.ensure_default_owner_token(fallback_token=ADMIN_TOKEN)
-    alice_token = token_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-    bob_token = token_store.create_token(name="bob-collab", scope="write", account_id=3)["token"]
-
     conn.close()
-    return settings, tmp_path, alice_token, bob_token
+    admin_token = issue_session_token(db_file, account_id=1, scope="owner")
+    alice_token = issue_session_token(db_file, account_id=2, scope="owner")
+    bob_token = issue_oauth_token(db_file, account_id=3, scope="write")
+    return settings, tmp_path, admin_token, alice_token, bob_token
 
 
 def test_e2e_syndication_single_mode(p6_env):
-    settings, tmp_path, alice_token, bob_token = p6_env
+    settings, tmp_path, admin_token, alice_token, bob_token = p6_env
     app = server.create_app(settings=settings)
 
     with TestClient(app, base_url="http://127.0.0.1:8765") as client:
@@ -149,7 +140,7 @@ def test_e2e_syndication_single_mode(p6_env):
         assert res_head_unauth.status_code in (401, 404)
 
         # 2. Authenticated access succeeds with owner token
-        headers = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+        headers = {"Authorization": f"Bearer {admin_token}"}
         res_auth = client.get("/syndication", headers=headers)
         assert res_auth.status_code == 200
         assert "authScope: 'owner'" in res_auth.text
@@ -183,7 +174,7 @@ def test_e2e_syndication_single_mode(p6_env):
 
 
 def test_e2e_syndication_network_mode_isolation(p6_env):
-    settings, tmp_path, alice_token, bob_token = p6_env
+    settings, tmp_path, _admin_token, alice_token, bob_token = p6_env
 
     # Configure network mode and themes
     conn = dbm.connect(settings.db_file)

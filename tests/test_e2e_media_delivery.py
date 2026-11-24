@@ -13,6 +13,7 @@ from claire.store import db as dbm
 from claire.store.media import LocalMediaStore, create_media_capability_token
 from claire.store.secrets import SecretService
 from claire.store.knowledge_base import bump_kb_visibility_epoch
+from tests.auth_helpers import ensure_test_account
 
 
 async def _call_asgi(app, path, host="127.0.0.1:8766", headers=None, method="GET"):
@@ -69,20 +70,23 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
     # Initialize DB
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
+    conn.close()
+    ensure_test_account(db_file, account_id=2)
+    conn = dbm.connect(db_file)
 
-    # Insert public theme 10 and private theme 20
+    # Insert public theme 10 (shared) and private theme 20 (personal for account 2)
     now = time.time()
     conn.execute(
         """
-        INSERT INTO knowledge_bases (id, seq, label, db_path, is_personal, is_public, account_id, number, visibility_epoch, created_at, updated_at)
-        VALUES (10, 10, 'Public Theme', ?, 0, 1, 1, 10000000000000010, 1, ?, ?)
+        INSERT INTO knowledge_bases (id, seq, label, db_path, is_personal, is_public, account_id, knowledge_type, number, visibility_epoch, created_at, updated_at)
+        VALUES (10, 10, 'Public Theme', ?, 0, 1, NULL, 'real', 10000000000000010, 1, ?, ?)
         """,
         (str(db_file), now, now),
     )
     conn.execute(
         """
         INSERT INTO knowledge_bases (id, seq, label, db_path, is_personal, is_public, account_id, number, visibility_epoch, created_at, updated_at)
-        VALUES (20, 20, 'Private Theme', ?, 0, 0, 1, 10000000000000020, 1, ?, ?)
+        VALUES (20, 20, 'Private Theme', ?, 1, 0, 2, 10000000000000020, 1, ?, ?)
         """,
         (str(db_file), now, now),
     )
@@ -121,8 +125,6 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
         site_domain="",
         public_url=f"http://{APP_HOST}",
         cors_allowed_origins="",
-        inject_token="t" * 32,
-        readonly_token="",
         fqdn=APP_HOST,
         usercontent_fqdn=UC_HOST,
         media_fqdn=MEDIA_HOST,
@@ -165,7 +167,7 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
 
     # 4. Render Private Doc from Usercontent Host with Doc Viewing Token
     doc_token = create_viewing_token(
-        account_id=1,
+        account_id=2,
         kb_id=20,
         doc_id=201,
         visibility_epoch=1,

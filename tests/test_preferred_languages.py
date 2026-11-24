@@ -20,7 +20,7 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 
@@ -28,13 +28,11 @@ PUBLIC_URL = "http://127.0.0.1:8765"
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith(("CLAIRE_", "GEMINI_")):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _world(tmp_path: Path) -> SimpleNamespace:
@@ -91,9 +89,8 @@ def test_jobs_of_an_account_get_its_list_and_the_others_the_server_default_langu
 
 def test_server_default_language_route_is_for_the_administrator_and_records_an_audit(tmp_path: Path) -> None:
     world = _world(tmp_path)
-    tokens = get_token_store(data_dir=world.data_dir)
-    admin = {"Authorization": f"Bearer {tokens.create_token(name='admin', scope='owner', account_id=1)['token']}", "Origin": PUBLIC_URL}
-    member = {"Authorization": f"Bearer {tokens.create_token(name='member', scope='owner', account_id=2)['token']}", "Origin": PUBLIC_URL}
+    admin = {**bearer_headers(world.db_file, account_id=1, scope="owner"), "Origin": PUBLIC_URL}
+    member = {**bearer_headers(world.db_file, account_id=2, scope="owner"), "Origin": PUBLIC_URL}
     app = server.create_app(world.settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     with TestClient(app, base_url=PUBLIC_URL) as client:
         assert client.put("/api/admin/server/languages", headers=member, json={"languages": ["ko"]}).status_code == 404

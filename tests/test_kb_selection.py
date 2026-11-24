@@ -19,9 +19,7 @@ from claire.core.config import Settings
 from claire.ingest.service import IngestService
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
-
-OWNER_TOKEN = "owner-" + ("k" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
+from tests.auth_helpers import bearer_headers
 
 
 def _settings(tmp_path) -> Settings:
@@ -34,7 +32,6 @@ def _settings(tmp_path) -> Settings:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
 
 
@@ -87,49 +84,53 @@ def test_old_names_give_the_same_result_as_without_them(kb_env):
 
 
 def test_the_path_selects_the_knowledge_base(kb_env):
-    client, _settings, _tm, other = kb_env
-    assert _titles(client.get(f"/kb/{_number(other)}/documents", headers=OWNER_HEADERS)) == ["Other"]
-    assert client.get(f"/kb/{(1 << 60) + 3}/documents", headers=OWNER_HEADERS).status_code == 404
+    client, settings, _tm, other = kb_env
+    owner_headers = bearer_headers(settings, scope="owner")
+    assert _titles(client.get(f"/kb/{_number(other)}/documents", headers=owner_headers)) == ["Other"]
+    assert client.get(f"/kb/{(1 << 60) + 3}/documents", headers=owner_headers).status_code == 404
 
 
 def test_e2e_ingest_writes_only_to_the_personal_knowledge_base(kb_env):
-    client, _settings, _tm, other = kb_env
-    resp = client.post("/ingest", json={"payload": "New\na new text for the personal knowledge base.", "theme": _number(other), "extraction_mode": "provider"}, headers=OWNER_HEADERS)
+    client, settings, _tm, other = kb_env
+    owner_headers = bearer_headers(settings, scope="owner")
+    resp = client.post("/ingest", json={"payload": "New\na new text for the personal knowledge base.", "theme": _number(other), "extraction_mode": "provider"}, headers=owner_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["kb_id"] == 0
-    assert _titles(client.get("/documents", headers=OWNER_HEADERS)) == ["New", "Personal"]
-    assert _titles(client.get(f"/kb/{_number(other)}/documents", headers=OWNER_HEADERS)) == ["Other"]
+    assert _titles(client.get("/documents", headers=owner_headers)) == ["New", "Personal"]
+    assert _titles(client.get(f"/kb/{_number(other)}/documents", headers=owner_headers)) == ["Other"]
 
-    pinned = client.post(f"/kb/{_number(other)}/ingest", json={"payload": "Title: Pinned\nBody: text."}, headers=OWNER_HEADERS)
+    pinned = client.post(f"/kb/{_number(other)}/ingest", json={"payload": "Title: Pinned\nBody: text."}, headers=owner_headers)
     assert pinned.status_code == 403
     assert pinned.json() == {"error": "kb_ingest_by_contribution"}
 
 
 def test_routes_without_a_namespace_need_kb(kb_env):
-    client, _settings, _tm, other = kb_env
-    missing = client.post("/api/me/data-bundles", json={}, headers=OWNER_HEADERS)
+    client, settings, _tm, other = kb_env
+    owner_headers = bearer_headers(settings, scope="owner")
+    missing = client.post("/api/me/data-bundles", json={}, headers=owner_headers)
     assert missing.status_code == 400
     assert missing.json()["error"] == "kb_required"
-    old_name = client.post("/api/me/data-bundles", json={"theme": _number(other)}, headers=OWNER_HEADERS)
+    old_name = client.post("/api/me/data-bundles", json={"theme": _number(other)}, headers=owner_headers)
     assert old_name.status_code == 400
 
-    assert client.get("/syndication/preferences?kb=nope", headers=OWNER_HEADERS).status_code == 404
+    assert client.get("/syndication/preferences?kb=nope", headers=owner_headers).status_code == 404
 
 
-def _mcp(client: TestClient, name: str, arguments: dict) -> dict:
+def _mcp(client: TestClient, headers: dict[str, str], name: str, arguments: dict) -> dict:
     resp = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}},
-        headers=OWNER_HEADERS,
+        headers=headers,
     )
     assert resp.status_code == 200, resp.text
     return json.loads(resp.json()["result"]["content"][0]["text"])
 
 
 def test_mcp_read_tools_need_kb_as_a_number(kb_env):
-    client, _settings, _tm, other = kb_env
-    assert _mcp(client, "kb_overview", {}) == {"error": "kb_required"}
-    assert _mcp(client, "kb_overview", {"kb": str(other.id)}) == {"error": "kb_not_found"}
-    assert _mcp(client, "kb_overview", {"kb": "Other knowledge base"}) == {"error": "kb_not_found"}
-    overview = _mcp(client, "kb_overview", {"kb": _number(other)})
+    client, settings, _tm, other = kb_env
+    owner_headers = bearer_headers(settings, scope="owner")
+    assert _mcp(client, owner_headers, "kb_overview", {}) == {"error": "kb_required"}
+    assert _mcp(client, owner_headers, "kb_overview", {"kb": str(other.id)}) == {"error": "kb_not_found"}
+    assert _mcp(client, owner_headers, "kb_overview", {"kb": "Other knowledge base"}) == {"error": "kb_not_found"}
+    overview = _mcp(client, owner_headers, "kb_overview", {"kb": _number(other)})
     assert overview.get("stats", {}).get("documents") == 1

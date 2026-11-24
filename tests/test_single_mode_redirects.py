@@ -36,14 +36,12 @@ from claire.store import accounts as accounts_store
 from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store import legacy_hosts
-from claire.store.token_store import reset_token_stores
+from tests.auth_helpers import issue_oauth_token
 
 ADMIN_USERNAME = "classified_adm_x99"
 ADMIN_DISPLAY_NAME = "Super Admin"
 ADMIN_PASSWORD = "correct-horse-battery-admin-1234"
 ADMIN_PUBLIC_ID = 1164999888777666555
-READONLY_TOKEN = "readonly-" + "r" * 32
-OWNER_TOKEN = "owner-" + "o" * 32
 PUBLIC_URL = "http://127.0.0.1:8765"
 
 
@@ -53,8 +51,6 @@ class _Settings:
     data_dir: Path
     environment: str = "development"
     public_url: str = PUBLIC_URL
-    inject_token: str = OWNER_TOKEN
-    readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
     multi_theme: bool = True
     usercontent_fqdn: str = ""
@@ -66,9 +62,7 @@ def clean_env(monkeypatch):
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
-    reset_token_stores()
     yield
-    reset_token_stores()
 
 
 @pytest.fixture
@@ -134,7 +128,8 @@ def test_whoami_anonymous_in_single_mode(app_env):
 
 def test_whoami_readonly_in_single_mode(app_env):
     """/whoami of the admin namespace with a readonly bearer."""
-    resp = app_env.client.get(f"/@{ADMIN_USERNAME}/whoami", headers={"Authorization": f"Bearer {READONLY_TOKEN}"}, follow_redirects=False)
+    readonly_token = issue_oauth_token(app_env.db_file, account_id=1, scope="readonly")
+    resp = app_env.client.get(f"/@{ADMIN_USERNAME}/whoami", headers={"Authorization": f"Bearer {readonly_token}"}, follow_redirects=False)
     assert resp.status_code == 200
     assert resp.json()["server"]["mode"] == "single"
 
@@ -142,7 +137,8 @@ def test_whoami_readonly_in_single_mode(app_env):
 def test_root_gives_302_to_the_admin_namespace(app_env):
     """Rule 2: ``/`` gives a temporary redirect (302, ``no-store``) to ``/@{username}/`` with the same query, for each credential and for HEAD. It is temporary because the meaning of ``/`` depends on the server mode."""
     token = _login_admin(app_env)
-    for kwargs in ({}, {"headers": {"Authorization": f"Bearer {READONLY_TOKEN}"}}, {"headers": _admin_headers(token)}):
+    readonly_token = issue_oauth_token(app_env.db_file, account_id=1, scope="readonly")
+    for kwargs in ({}, {"headers": {"Authorization": f"Bearer {readonly_token}"}}, {"headers": _admin_headers(token)}):
         for method in ("GET", "HEAD"):
             resp = app_env.client.request(method, "/?doc=42&pwa=1", follow_redirects=False, **kwargs)
             assert resp.status_code == 302
@@ -232,7 +228,8 @@ def test_before_setup_root_has_no_redirect(tmp_path: Path):
     admin = client.get("/", headers={"Cookie": f"claire_session={setup_token}"}, follow_redirects=False)
     assert admin.status_code == 302 and admin.headers["Location"] == "/setup"
     client.cookies.clear()
-    for headers in ({}, {"Authorization": f"Bearer {READONLY_TOKEN}"}):
+    readonly_token = issue_oauth_token(db_file, account_id=1, scope="readonly")
+    for headers in ({}, {"Authorization": f"Bearer {readonly_token}"}):
         resp = client.get("/", headers=headers, follow_redirects=False)
         assert resp.status_code == 503
         assert "Location" not in resp.headers

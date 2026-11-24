@@ -11,7 +11,6 @@ Test areas:
 from __future__ import annotations
 
 import json
-import secrets
 import threading
 import time
 from pathlib import Path
@@ -19,6 +18,7 @@ from unittest.mock import MagicMock
 
 from starlette.testclient import TestClient
 
+from tests.auth_helpers import bearer_headers
 from tests.kb_paths import kb_number, kb_url, seed  # noqa: F401
 
 from claire.api import server
@@ -152,7 +152,7 @@ def test_multi_slot_concurrent_jobs_and_cleanup(tmp_path: Path):
     jobs_dir = data_dir / "active_jobs"
     jobs_dir.mkdir(parents=True, exist_ok=True)
 
-    barrier = threading.Barrier(3)
+    barrier = threading.Barrier(4)
     results: list[str] = []
 
     def worker(idx: int, kb_id: int, theme_name: str):
@@ -165,7 +165,7 @@ def test_multi_slot_concurrent_jobs_and_cleanup(tmp_path: Path):
             title=f"Task {idx}",
         ) as handle:
             results.append(handle.job_id)
-            barrier.wait()
+            barrier.wait(timeout=5.0)
             # Wait inside context manager so all 3 are active concurrently
             time.sleep(0.05)
 
@@ -178,7 +178,7 @@ def test_multi_slot_concurrent_jobs_and_cleanup(tmp_path: Path):
         t.start()
 
     # Wait until all workers enter context manager
-    time.sleep(0.02)
+    barrier.wait(timeout=5.0)
     active_list = get_active_jobs(data_dir)
     assert len(active_list) >= 1
 
@@ -292,13 +292,11 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
     dbm.init_db(conn)
     conn.close()
 
-    read_tok = secrets.token_urlsafe(32)
     s = Settings(
         db_path=str(db_file),
         data_dir=str(data_dir),
         environment="development",
         fqdn="127.0.0.1:8765",
-        readonly_token=read_tok,
         multi_theme=True,
     )
     tm = KnowledgeBaseManager(s)
@@ -306,7 +304,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
 
     app = server.create_app(s, MagicMock())
     client = TestClient(app, base_url="http://127.0.0.1:8765")
-    auth_header = {"Authorization": f"Bearer {read_tok}"}
+    auth_header = bearer_headers(db_file, scope="readonly")
 
     # Step 1: Initial state - no active jobs
     r = client.get("/stats", headers=auth_header)

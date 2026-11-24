@@ -25,7 +25,6 @@ from claire.store import federation as federation_store
 from claire.store import kb_collab
 from claire.store import themes as themes_store
 from claire.store.secrets import reset_secret_service
-from claire.store.token_store import reset_token_stores
 from tests.knowledge_federation_servers import ALICE, B_KB_NUMBER, KfServer, KfWorld, fixture, server_actor
 from tests.test_contributions import no_llm  # noqa: F401 (fixture)
 
@@ -44,10 +43,8 @@ def _isolate(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(journal, "HANDLERS", {})
     handlers.install()
     reset_secret_service()
-    reset_token_stores()
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _tasks(server) -> list[dict]:

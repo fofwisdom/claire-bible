@@ -31,13 +31,10 @@ from claire.core.config import Settings
 from claire.ingest.service import IngestService, IngestServicePool
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager, KnowledgeBaseNotFound
+from tests.auth_helpers import bearer_headers
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 
 
 def _settings(tmp_path, *, multi: bool = True) -> Settings:
@@ -50,7 +47,6 @@ def _settings(tmp_path, *, multi: bool = True) -> Settings:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
 
 
@@ -73,7 +69,7 @@ def _num(kb) -> str:
 def _seed(client: TestClient, settings: Settings, tm: KnowledgeBaseManager, kb, text: str) -> str:
     """HTTP ingest writes only to the personal knowledge base (CT23). Seed another one with its service, then read the ID by its path."""
     IngestService(tm.get_settings_for_kb(kb.id, settings), kb_id=kb.id).ingest(text, source="cli", expand_max=0)
-    docs = client.get(f"/kb/{_num(kb)}/documents", headers=OWNER_HEADERS).json()["documents"]
+    docs = client.get(f"/kb/{_num(kb)}/documents", headers=bearer_headers(settings, scope="owner")).json()["documents"]
     return docs[0]["id"]
 
 
@@ -147,20 +143,21 @@ def test_get_settings_for_theme_raises_for_deleted_theme(tmp_path):
 
 def test_http_dispatch_unknown_target_or_source_theme_is_404(strict_env):
     client, settings, tm, t1 = strict_env
+    owner_headers = bearer_headers(settings, scope="owner")
 
     doc_id = _seed(client, settings, tm, t1, "배급 원본 문서 본문")
 
     bad_target = client.post(
         "/api/syndication/dispatch",
         json={"document_id": doc_id, "target_kb_id": 999},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert bad_target.status_code == 404
 
     bad_source = client.post(
         "/api/syndication/dispatch",
         json={"document_id": doc_id, "target_kb_id": 0, "source_kb_id": "nope"},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert bad_source.status_code == 404
 
@@ -168,7 +165,7 @@ def test_http_dispatch_unknown_target_or_source_theme_is_404(strict_env):
     no_source = client.post(
         "/api/syndication/dispatch?theme=999",
         json={"document_id": doc_id, "target_kb_id": 0},
-        headers=OWNER_HEADERS,
+        headers=owner_headers,
     )
     assert no_source.status_code == 400
 
@@ -176,6 +173,7 @@ def test_http_dispatch_unknown_target_or_source_theme_is_404(strict_env):
 def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
     """DB에서 읽은 문서의 kb_id가 삭제된 테마면 그 후보를 테마 0으로 다루지 않는다 (`_resolve_presentation_target`)."""
     client, settings, tm, t1 = strict_env
+    owner_headers = bearer_headers(settings, scope="owner")
     t2 = tm.define_kb("Beta Live", presentation_enabled=True, knowledge_type="real")
     # 예전 폴백이면 삭제된 테마의 문서가 테마 0 설정(프레젠테이션 활성)으로 200을 받았다
     tm.update_kb(0, presentation_enabled=True)
@@ -187,12 +185,12 @@ def test_http_doc_in_deleted_theme_is_not_served_as_theme_zero(strict_env):
     # The HTTP delete purges (design Section 10.1). This test needs the rows of the documents to stay, so it deletes with the store.
     tm.delete_kb(t1.id, purge=False)
 
-    live = client.get(f"/kb/{_num(t2)}/document/presentation?id={doc_t2}", headers=OWNER_HEADERS)
+    live = client.get(f"/kb/{_num(t2)}/document/presentation?id={doc_t2}", headers=owner_headers)
     assert live.status_code == 200
 
     # 삭제된 지식 베이스의 경로는 404다 (지식 베이스 0으로 다루지 않는다)
-    assert client.get(f"/kb/{_num(t1)}/document/presentation?id={doc_t1}", headers=OWNER_HEADERS).status_code == 404
-    assert client.get(f"/kb/{_num(t1)}/stats", headers=OWNER_HEADERS).status_code == 404
+    assert client.get(f"/kb/{_num(t1)}/document/presentation?id={doc_t1}", headers=owner_headers).status_code == 404
+    assert client.get(f"/kb/{_num(t1)}/stats", headers=owner_headers).status_code == 404
 
 
 # ---------------------------------------------------------------------------

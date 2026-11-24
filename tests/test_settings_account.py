@@ -27,7 +27,7 @@ from claire.store import provider_keys
 from claire.store import usage_ledger
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ADMIN_USERNAME = "hidden_operator_p3a"
@@ -47,11 +47,9 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     # 저장소 루트 data/auth/master.key를 만들지 않도록 마스터 키를 환경변수로 준다.
     monkeypatch.setenv("CLAIRE_SECRET_KEY", TEST_MASTER_KEY_HEX)
     reset_secret_service()
-    reset_token_stores()
     secret_scrub._reset_for_tests()
     yield
     reset_secret_service()
-    reset_token_stores()
     secret_scrub._reset_for_tests()
 
 
@@ -114,10 +112,6 @@ def env(tmp_path: Path):
     alice_theme = _insert_theme(tm, settings, kb_id=20, seq=2, number=(2 << 56) | 20, label="Alice Garden", account_id=2)
     bob_theme = _insert_theme(tm, settings, kb_id=30, seq=3, number=(3 << 56) | 30, label="Bob Secret Lab", account_id=3)
 
-    tok_store = get_token_store(data_dir=data_dir)
-    admin_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    alice_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
-
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     client = TestClient(app, base_url=PUBLIC_URL)
     return SimpleNamespace(
@@ -127,8 +121,8 @@ def env(tmp_path: Path):
         admin_theme=admin_theme,
         alice_theme=alice_theme,
         bob_theme=bob_theme,
-        admin={"Authorization": f"Bearer {admin_tok}"},
-        alice={"Authorization": f"Bearer {alice_tok}"},
+        admin=bearer_headers(db_file, account_id=1, scope="owner"),
+        alice=bearer_headers(db_file, account_id=2, scope="owner"),
     )
 
 
@@ -299,8 +293,9 @@ def test_tokens_page_lists_only_callers_own_oauth_clients(env):
     finally:
         conn.close()
 
-    html = _get(env, "/account/tokens", env.alice).text
-    assert 'id="settings-tokens-host"' in html
+    assert env.client.get("/account/tokens", headers=env.alice, follow_redirects=False).status_code == 404
+    html = _get(env, "/account/mcp", env.alice).text
+    assert 'id="pref-mcp-grants-card"' in html
     assert "Alice Desktop Agent" in html
     assert "cli-alice" in html
     assert "Bob Private Agent" not in html
@@ -308,9 +303,6 @@ def test_tokens_page_lists_only_callers_own_oauth_clients(env):
     assert ALICE_OAUTH_TOKEN not in html
     assert BOB_OAUTH_TOKEN not in html
     assert "/admin/" not in html
-    clients = _bootstrap(html)["settings_account"]["oauth_clients"]
-    assert [c["client_id"] for c in clients] == ["cli-alice"]
-    assert clients[0]["token_count"] == 1
 
 
 def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
@@ -335,11 +327,13 @@ def test_kb_page_member_hosts_kb_console_without_admin_markup(env):
 
 def test_admin_theme_and_token_settings_still_redirect(env):
     _set_mode(env.db_file, "network")
-    # The retired page ``/settings/themes`` is an old web link: 308 to ``/moderation/themes``. ``/account/tokens`` is a section that the admin has in ``/admin``: 302.
-    for slug, status, target in (("themes", 308, "/moderation/themes"), ("tokens", 302, "/admin/tokens")):
-        resp = env.client.get(f"/{'settings' if slug == 'themes' else 'account'}/{slug}", headers=env.admin, follow_redirects=False)
-        assert resp.status_code == status
-        assert resp.headers["location"] == target
+    # The retired page ``/settings/themes`` is an old web link: 308 to ``/moderation/themes``. Retired token pages return 404.
+    resp = env.client.get("/settings/themes", headers=env.admin, follow_redirects=False)
+    assert resp.status_code == 308
+    assert resp.headers["location"] == "/moderation/themes"
+    for retired in ("/account/tokens", "/admin/tokens", "/settings/tokens"):
+        assert env.client.get(retired, headers=env.admin, follow_redirects=False).status_code == 404
+        assert env.client.get(retired, headers=env.alice, follow_redirects=False).status_code == 404
 
 
 def test_moderation_routes_and_legacy_redirects(env):

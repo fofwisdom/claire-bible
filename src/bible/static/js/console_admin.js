@@ -1986,11 +1986,6 @@
       if (themeHost) initAdminThemesV2(themeHost);
     } else if (section === "kb") {
       initAdminKbSection();
-    } else if (section === "tokens") {
-      var tokHost = document.getElementById("admin-tokens-host");
-      if (tokHost && typeof panels.renderTokenManager === "function") {
-        panels.renderTokenManager(tokHost, { showClose: false, canWrite: true, isAdmin: true });
-      }
     } else if (section === "accounts") {
       initAccountsSection(bootstrap);
     } else if (section === "idp") {

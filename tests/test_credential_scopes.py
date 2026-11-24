@@ -36,35 +36,23 @@ from claire.store import db as dbm
 from claire.store import kb_collab
 from claire.store import themes as themes_store
 from claire.store.knowledge_base import KnowledgeBaseManager
-from claire.store.token_store import SCOPE_NOTICE_COLLABORATOR, TokenStore, get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
-OWNER_TOKEN = "owner-" + ("s" * 32)
-OWNER = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 PUBLIC_URL = "http://127.0.0.1:8765"
-
-
-@pytest.fixture(autouse=True)
-def _fresh_token_stores():
-    reset_token_stores()
-    yield
-    reset_token_stores()
 
 
 def _settings(tmp_path: Path) -> Settings:
     (tmp_path / "data").mkdir(parents=True, exist_ok=True)
     return Settings(
         CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
 
 
 def _bearer(settings: Settings, scope: str, *, account_id: int = 1) -> dict[str, str]:
-    token = get_token_store(data_dir=settings.data_dir).create_api_token(name=f"{scope}-{account_id}", scope=scope, account_id=account_id)["token"]
-    return {"Authorization": f"Bearer {token}"}
+    return bearer_headers(settings, scope=scope, account_id=account_id)
 
 
 # --- Section 6.9 rule 3: each route has a capability and a minimum scope ------------------------------------------
@@ -102,7 +90,6 @@ KB_ROUTES = [
     ("GET|HEAD", "/resolution/decisions", "readonly", "read"),
     ("POST", "/search", "readonly", "read"),
     ("GET|HEAD", "/stats", "readonly", "read"),
-    ("GET|HEAD", "/syndication", "readonly", "read"),
     ("GET|HEAD", "/whoami", "readonly", "read"),
     ("GET|HEAD", "/document/raw", "write", "read"),
     ("POST", "/document/matrix/purge", "owner", "remove"),
@@ -207,7 +194,8 @@ def test_route_review_of_the_old_collaborator_level() -> None:
 def test_e2e_write_token_ingests_into_the_personal_knowledge_base_and_gets_403_for_the_decisions_of_the_person(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
-        made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER)
+        owner_hdr = _bearer(settings, "owner", account_id=1)
+        made = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=owner_hdr)
         assert made.status_code == 201, made.text
         shared = made.json()["knowledge_base"]
         write = _bearer(settings, "write")
@@ -250,8 +238,8 @@ def test_e2e_write_token_ingests_into_the_personal_knowledge_base_and_gets_403_f
         # In a shared knowledge base the scope ``write`` has no ``maintain``, also for a moderator (regeneration by hand, Section 13.1 rule 5).
         regenerate = client.post(f"/kb/{shared['number']}/regenerate", json={"doc_id": document_id}, headers=write)
         assert (regenerate.status_code, regenerate.json()) == (403, {"error": "kb_capability_required"})
-        # Account and credential routes stay hidden for a smaller scope (404), as before.
-        assert client.get("/tokens", headers=write).status_code == 404
+        # Account and retired routes stay hidden for a smaller scope (404), as before.
+        assert client.get("/account/profile", headers=write).status_code == 404
 
         # ``readonly`` reads and gets 403 for each write.
         assert client.get("/documents", headers=readonly).status_code == 200
@@ -271,24 +259,16 @@ def test_write_scope_contributes_and_has_no_role_or_review_capability() -> None:
     assert kb_access.shared_capabilities(outsider) == {"read", "contribute_theme", "share"}
 
 
-def test_token_api_takes_the_three_scopes_only(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    with TestClient(create_app(settings=settings), base_url=PUBLIC_URL) as client:
-        for scope in ("owner", "write", "readonly"):
-            assert client.post("/tokens", json={"name": scope, "scope": scope}, headers=OWNER).status_code == 201
-        for scope in ("collaborator", "collab", "admin"):
-            assert client.post("/tokens", json={"name": scope, "scope": scope}, headers=OWNER).status_code == 400, scope
-
-
 # --- Section 6.8: step-up ------------------------------------------------------------------------------------------
 
 
 def test_bearer_credential_never_passes_a_step_up_route(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
-        number = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER).json()["knowledge_base"]["number"]
+        owner_hdr = _bearer(settings, "owner", account_id=1)
+        number = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=owner_hdr).json()["knowledge_base"]["number"]
         # The owner token of the admin has each capability, but it is a bearer credential: 403.
-        for headers in (OWNER, _bearer(settings, "owner")):
+        for headers in (owner_hdr, _bearer(settings, "owner")):
             refused = client.request("DELETE", f"/kb/{number}/?apply=true", headers=headers)
             assert (refused.status_code, refused.json()) == (403, {"error": "step_up_requires_session"})
         # A session without a recent sign-in: 401 with the place to sign in again.
@@ -301,14 +281,14 @@ def test_bearer_credential_never_passes_a_step_up_route(tmp_path: Path) -> None:
         stale = client.request("DELETE", f"/kb/{number}/?apply=true", headers={"Cookie": f"claire_session={old}", "Origin": PUBLIC_URL})
         client.cookies.clear()
         assert (stale.status_code, stale.json()) == (401, {"error": "reauth_required", "reauth": "/api/auth/reauth"})
-        assert [kb["number"] for kb in kb_list(client, headers=OWNER) if not kb["is_personal"]] == [number]
+        assert [kb["number"] for kb in kb_list(client, headers=owner_hdr) if not kb["is_personal"]] == [number]
         # A session with a recent sign-in passes.
         # PRINCIPLES D3: without ``apply=true`` the answer is the plan only.
         plan = step_up_request(client, settings, "DELETE", f"/kb/{number}/")
         assert (plan.status_code, plan.json()["applied"], plan.json()["would_delete"]["members"]) == (200, False, 1)
-        assert [kb["number"] for kb in kb_list(client, headers=OWNER) if not kb["is_personal"]] == [number]
+        assert [kb["number"] for kb in kb_list(client, headers=owner_hdr) if not kb["is_personal"]] == [number]
         assert step_up_request(client, settings, "DELETE", f"/kb/{number}/?apply=true").json()["applied"] is True
-        assert [kb for kb in kb_list(client, headers=OWNER) if not kb["is_personal"]] == []
+        assert [kb for kb in kb_list(client, headers=owner_hdr) if not kb["is_personal"]] == []
 
 
 # --- Section 6.7: no IdP claim gives a right -----------------------------------------------------------------------
@@ -370,37 +350,6 @@ def test_collaborator_sessions_end_and_the_collaborator_column_goes(tmp_path: Pa
         conn.close()
 
 
-def test_collaborator_tokens_become_readonly_and_the_notice_shows_once(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    auth_dir = Path(settings.data_dir) / "auth"
-    auth_dir.mkdir(parents=True, exist_ok=True)
-    old_token = "cb_" + "c" * 40
-    (auth_dir / "api_tokens.json").write_text(json.dumps({"version": 1, "tokens": [
-        {"id": 1, "token": old_token, "name": "team agent", "scope": "collaborator", "account_id": 1, "created_at": 1.0},
-        {"id": 2, "token": "cb_" + "r" * 40, "name": "reader", "scope": "readonly", "account_id": 1, "created_at": 1.0},
-    ]}), encoding="utf-8")
-
-    store = TokenStore(data_dir=settings.data_dir)
-    assert store.validate_api_token(old_token)["scope"] == "readonly"
-    # The file has no ``collaborator`` scope after the first load.
-    on_disk = json.loads((auth_dir / "api_tokens.json").read_text(encoding="utf-8"))["tokens"]
-    assert [(t["id"], t["scope"], t.get("scope_notice")) for t in on_disk] == [(1, "readonly", SCOPE_NOTICE_COLLABORATOR), (2, "readonly", None)]
-    with pytest.raises(ValueError):
-        store.create_api_token(name="x", scope="collaborator")
-
-    with TestClient(create_app(settings=settings), base_url=PUBLIC_URL) as client:
-        old = {"Authorization": f"Bearer {old_token}"}
-        # The old token only reads.
-        assert client.get("/whoami", headers=old).json()["scope"] == "readonly"
-        assert client.get("/documents", headers=old).status_code == 200
-        assert client.post("/ingest", json={"payload": "x"}, headers=old).status_code == 403
-        # The console lists the changed token once.
-        first = client.get("/tokens", headers=OWNER).json()
-        assert first["scope_notices"] == [{"id": 1, "name": "team agent", "notice": SCOPE_NOTICE_COLLABORATOR}]
-        assert all("scope_notice" not in t for t in first["tokens"])
-        assert client.get("/tokens", headers=OWNER).json()["scope_notices"] == []
-
-
 def test_environment_collaborator_token_is_not_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env_token = "collab-" + ("c" * 32)
     monkeypatch.setenv("CLAIRE_COLLABORATOR_TOKEN", env_token)
@@ -410,7 +359,6 @@ def test_environment_collaborator_token_is_not_read(tmp_path: Path, monkeypatch:
         headers = {"Authorization": f"Bearer {env_token}"}
         assert client.get("/whoami", headers=headers).status_code == 404
         assert client.post("/ingest", json={"payload": "x"}, headers=headers).status_code == 404
-    assert get_token_store(data_dir=settings.data_dir).validate_api_token(env_token) is None
 
 
 # --- Section 7: collections and old links ---------------------------------------------------------------------------
@@ -419,8 +367,9 @@ def test_environment_collaborator_token_is_not_read(tmp_path: Path, monkeypatch:
 def test_kb_and_themes_collections_in_single_mode(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     with TestClient(create_app(settings=settings), base_url=PUBLIC_URL, follow_redirects=False) as client:
-        real = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=OWNER).json()["knowledge_base"]
-        fiction = client.post("/kb", json={"label": "Middle-earth", "knowledge_type": "fictional"}, headers=OWNER).json()["knowledge_base"]
+        owner_hdr = _bearer(settings, "owner", account_id=1)
+        real = client.post("/kb", json={"label": "Cities", "knowledge_type": "real"}, headers=owner_hdr).json()["knowledge_base"]
+        fiction = client.post("/kb", json={"label": "Middle-earth", "knowledge_type": "fictional"}, headers=owner_hdr).json()["knowledge_base"]
 
         # /kb: the shared knowledge bases, newest first, for each reader.
         anonymous = client.get("/kb").json()
@@ -429,7 +378,7 @@ def test_kb_and_themes_collections_in_single_mode(tmp_path: Path) -> None:
         assert all("role" not in kb and "reembed_required" not in kb and "legacy_hosts" not in kb for kb in anonymous["knowledge_bases"])
         assert anonymous["knowledge_bases"][0]["url"] == f"{PUBLIC_URL}/kb/{fiction['number']}/"
         # The founder sees its role and the settings view; ``personal_kb`` is the personal knowledge base of the requester.
-        owner = client.get("/kb", headers=OWNER).json()
+        owner = client.get("/kb", headers=owner_hdr).json()
         assert {kb["role"] for kb in owner["knowledge_bases"]} == {"moderator"} and all("reembed_required" in kb for kb in owner["knowledge_bases"])
         assert (owner["personal_kb"]["id"], owner["personal_kb"]["is_personal"]) == (0, True)
 
@@ -437,7 +386,7 @@ def test_kb_and_themes_collections_in_single_mode(tmp_path: Path) -> None:
         assert [kb["number"] for kb in client.get("/kb?knowledge_type=real").json()["knowledge_bases"]] == [real["number"]]
         assert [kb["number"] for kb in client.get("/kb?knowledge_type=fictional").json()["knowledge_bases"]] == [fiction["number"]]
         assert client.get("/kb?joined=true").json()["knowledge_bases"] == []
-        assert len(client.get("/kb?joined=true", headers=OWNER).json()["knowledge_bases"]) == 2
+        assert len(client.get("/kb?joined=true", headers=owner_hdr).json()["knowledge_bases"]) == 2
         for bad in ("/kb?knowledge_type=other", "/kb?joined=yes", "/themes?knowledge_type=other"):
             assert client.get(bad).status_code == 400, bad
         # Pages of the collection.

@@ -23,7 +23,7 @@ from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store.secrets import reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager
-from claire.store.token_store import get_token_store, reset_token_stores
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 SECRET_ADMIN_USERNAME = "hidden_operator_p3b"
@@ -67,13 +67,11 @@ OPERATOR_ONLY_MARKERS: tuple[str, ...] = (
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
-    reset_token_stores()
     for key in list(os.environ):
         if key.startswith("CLAIRE_"):
             monkeypatch.delenv(key, raising=False)
     yield
     reset_secret_service()
-    reset_token_stores()
 
 
 def _upsert_account(conn, account_id: int, public_id: int, username: str, role: str) -> None:
@@ -127,9 +125,6 @@ def env(tmp_path: Path):
     alice_private = _insert_theme(tm, settings, kb_id=21, number=(2 << 56) | 21, label="Alice <Private>", account_id=2, is_personal=False, is_public=False)
     bob_def = _insert_theme(tm, settings, kb_id=30, number=(3 << 56) | 30, label="Bob Default", account_id=3, is_personal=True)
 
-    tok_store = get_token_store(data_dir=data_dir)
-    admin_tok = tok_store.create_token(name="admin-owner", scope="owner", account_id=1)["token"]
-    alice_tok = tok_store.create_token(name="alice-owner", scope="owner", account_id=2)["token"]
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     return SimpleNamespace(
         db_file=db_file,
@@ -138,8 +133,8 @@ def env(tmp_path: Path):
         alice_def=alice_def,
         alice_private=alice_private,
         bob_def=bob_def,
-        admin_owner={"Authorization": f"Bearer {admin_tok}"},
-        alice_owner={"Authorization": f"Bearer {alice_tok}"},
+        admin_owner=bearer_headers(db_file, account_id=1, scope="owner"),
+        alice_owner=bearer_headers(db_file, account_id=2, scope="owner"),
     )
 
 
@@ -205,7 +200,9 @@ def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
         assert f'id="{control}"' in mcp, control
     assert "/.well-known/oauth-protected-resource" in mcp
     assert "syndication:draft" in mcp
-    assert 'href="/account/tokens" id="pref-mcp-tokens-link"' in mcp
+    assert 'id="pref-mcp-tokens-link"' not in mcp
+    assert "/account/tokens" not in mcp
+    assert "/tokens/revoke" not in mcp
     for removed in ("pref-mcp-apitokens-tbody", "pref-mcp-clients-tbody", "pref-mcp-rbac-tbody", "pref-mcp-gaps"):
         assert removed not in mcp, removed
 
@@ -221,8 +218,9 @@ def test_admin_viewer_mcp_section_links_to_admin_tokens(env):
     _set_mode(env.db_file, "network")
     resp = env.client.get("/account/mcp", headers=env.admin_owner)
     assert resp.status_code == 200
-    assert 'href="/admin/tokens" id="pref-mcp-tokens-link"' in resp.text
-    assert 'href="/account/tokens" id="pref-mcp-tokens-link"' not in resp.text
+    assert 'id="pref-mcp-tokens-link"' not in resp.text
+    assert "/admin/tokens" not in resp.text
+    assert "/account/tokens" not in resp.text
 
 
 def test_kb_query_scopes_section_to_the_personal_knowledge_base(env):
@@ -328,7 +326,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     assert "claude plugin install claire --marketplace fofwisdom/claire-agents" in en_resp.text
     assert "claude mcp add --transport http --scope user claire" in en_resp.text
     assert "Marketplace management" not in en_resp.text
-    assert "Antigravity · Cursor · MCP Clients" in en_resp.text
+    assert "Remote connectors such as Gemini custom connected apps" in en_resp.text
     en_bundles_section = en_resp.text.split('id="pref-mcp-client-bundles"', 1)[1].split('id="pref-mcp-tools-tbody"', 1)[0]
     en_without_prompt = re.sub(r'<code id="pref-mcp-antigravity-prompt"[^>]*>.*?</code>', "", en_bundles_section, flags=re.S)
     for jargon in ("~/.gemini/config/plugins/", "SHA256SUMS", "mcp_config.json"):
@@ -361,7 +359,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
 
     # CLAIRE_AGENT_MARKETPLACE_REPO overrides the displayed repository safely, while invalid values fall back to default.
     monkeypatch.setenv("CLAIRE_AGENT_MARKETPLACE_REPO", "fork-owner/fork-claire-agents")
-    override_settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(env.db_file), CLAIRE_VAULT_PATH=str(env.db_file.parent))
+    override_settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(env.db_file), CLAIRE_DATA_DIR=str(env.db_file.parent))
     assert override_settings.agent_marketplace_repo == "fork-owner/fork-claire-agents"
     ctx = SimpleNamespace(db_file=env.db_file, data_dir=env.db_file.parent, config=override_settings)
     alice_acc = accounts_store.Account(

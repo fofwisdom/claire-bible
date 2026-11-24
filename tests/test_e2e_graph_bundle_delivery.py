@@ -37,13 +37,10 @@ from claire.ops.graph_bundle import (
 )
 from claire.store import db as dbm
 from claire.telegram.bot import build_app
+from tests.auth_helpers import bearer_headers
 
 # The assertions of this module expect the Korean interface text (fixture in conftest.py).
 pytestmark = pytest.mark.usefixtures("korean_interface")
-
-
-OWNER_TOKEN = "owner-" + ("o" * 32)
-OWNER_HEADERS = {"Authorization": f"Bearer {OWNER_TOKEN}"}
 
 
 def _seed_comprehensive_database(db_path: Path) -> None:
@@ -159,7 +156,6 @@ def _build_test_settings(tmp_path: Path) -> Settings:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN="127.0.0.1:8765",
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         TELEGRAM_BOT_TOKEN="12345:fake_bot_token",
         TELEGRAM_ALLOWED_USERS="100,200",
     )
@@ -168,13 +164,14 @@ def _build_test_settings(tmp_path: Path) -> Settings:
 def test_e2e_graph_bundle_api_export_and_verification(tmp_path: Path):
     """End-to-End verification of REST API export, registry sidecar, and downloaded bundle payload."""
     settings = _build_test_settings(tmp_path)
+    owner_headers = bearer_headers(settings, scope="owner")
     api_app = server.create_app(settings)
 
     with TestClient(api_app, base_url=settings.public_url) as client:
         # 1. Export graph bundle via REST API
         resp = client.post(
             "/support/graph-bundle",
-            headers=OWNER_HEADERS,
+            headers=owner_headers,
             json={"kb_id": 0},
         )
         assert resp.status_code == 200

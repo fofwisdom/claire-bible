@@ -62,8 +62,6 @@ def _create_settings(tmp_path: Path, **overrides: Any) -> SimpleNamespace:
         environment="development",
         public_url=APP_ORIGIN,
         cors_allowed_origins="",
-        inject_token="owner-" + "o" * 32,
-        readonly_token="",
         db_file=tmp_path / "claire.db",
         data_dir=tmp_path / "data",
         site_domain="",
@@ -292,14 +290,17 @@ async def test_deck_profile_rendering_and_nonce_csp(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_viewing_token_access_control_on_private_content(tmp_path: Path):
     """Verify private content blocks unauthorized requests and admits valid capability tokens."""
+    from tests.auth_helpers import ensure_test_account
+
     db_path = tmp_path / "claire.db"
     _init_db(db_path)
+    ensure_test_account(db_path, account_id=2)
     sec = SecretService(master_key=TEST_MASTER_KEY)
 
     conn = dbm.connect(db_path)
-    # Theme 2 is private (is_public=0)
+    # Theme 2 is private (personal KB of account 2, is_public=0)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (2, 2, 'Private Theme', 1, 1, 0, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (2, 2, 'Private Theme', 1, 2, 1, 0, 1000.0, 1000.0)"
     )
     conn.execute(
         "INSERT INTO documents (id, kb_id, title, detail_html, hidden) VALUES ('30', 2, 'Confidential Report', '<p>Classified</p>', 0)"
@@ -319,12 +320,12 @@ async def test_viewing_token_access_control_on_private_content(tmp_path: Path):
     assert status == 403
 
     # 3. Expired token -> 403 Forbidden
-    expired_token = create_viewing_token(account_id=1, kb_id=2, doc_id=30, visibility_epoch=1, expires_in=-60, secret_service=sec)
+    expired_token = create_viewing_token(account_id=2, kb_id=2, doc_id=30, visibility_epoch=1, expires_in=-60, secret_service=sec)
     status, _, _ = await _call_asgi(app, "/render/doc/30", host=UC_HOST, query=f"token={expired_token}")
     assert status == 403
 
     # 4. Valid token -> 200 OK
-    valid_token = create_viewing_token(account_id=1, kb_id=2, doc_id=30, visibility_epoch=1, expires_in=3600, secret_service=sec)
+    valid_token = create_viewing_token(account_id=2, kb_id=2, doc_id=30, visibility_epoch=1, expires_in=3600, secret_service=sec)
     status, _, body = await _call_asgi(app, "/render/doc/30", host=UC_HOST, query=f"token={valid_token}")
     assert status == 200
     assert "Classified" in body.decode("utf-8")
@@ -339,7 +340,7 @@ async def test_viewing_token_access_control_on_private_content(tmp_path: Path):
     assert status == 403
 
     # 6. New token matching visibility_epoch=2 -> 200 OK
-    new_token = create_viewing_token(account_id=1, kb_id=2, doc_id=30, visibility_epoch=2, expires_in=3600, secret_service=sec)
+    new_token = create_viewing_token(account_id=2, kb_id=2, doc_id=30, visibility_epoch=2, expires_in=3600, secret_service=sec)
     status, _, body = await _call_asgi(app, "/render/doc/30", host=UC_HOST, query=f"token={new_token}")
     assert status == 200
     assert "Classified" in body.decode("utf-8")
@@ -481,13 +482,16 @@ async def test_e2e_full_lifecycle_rendering_journey(tmp_path: Path):
     6. The deck profile presentation is loaded with matching script nonce and deck CSP.
     7. Visibility epoch is updated, immediately revoking previous capability tokens.
     """
+    from tests.auth_helpers import ensure_test_account
+
     db_path = tmp_path / "claire.db"
     _init_db(db_path)
+    ensure_test_account(db_path, account_id=2)
     sec = SecretService(master_key=TEST_MASTER_KEY)
 
     conn = dbm.connect(db_path)
     conn.execute(
-        "INSERT INTO knowledge_bases (id, seq, label, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (5, 5, 'E2E Private Theme', 1, 1, 0, 1000.0, 1000.0)"
+        "INSERT INTO knowledge_bases (id, seq, label, is_personal, account_id, visibility_epoch, is_public, created_at, updated_at) VALUES (5, 5, 'E2E Private Theme', 1, 2, 1, 0, 1000.0, 1000.0)"
     )
     evil_html = (
         "<h1>Project Roadmap</h1>"
@@ -512,7 +516,7 @@ async def test_e2e_full_lifecycle_rendering_journey(tmp_path: Path):
 
     # Step 2: Issue 1-hour capability token
     token = create_viewing_token(
-        account_id=1,
+        account_id=2,
         kb_id=5,
         doc_id=100,
         visibility_epoch=1,

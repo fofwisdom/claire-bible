@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_auto_contribution import KOREA, SPACE, _document
-from tests.test_contributions import EXTRACTION, _fresh_token_stores, _personal_document, world  # noqa: F401 (fixtures)
+from tests.test_contributions import EXTRACTION, _personal_document, world  # noqa: F401 (fixtures)
 
 from claire.collaboration import auto_contribution, contributions, theme_judgement
 from claire.extract.decision import ResolutionDecision

@@ -18,10 +18,10 @@ from claire.store import auth_db, provider_keys
 from claire.store import db as dbm
 from claire.store.secrets import BYOK_SEAL_COOKIE, clear_volatile_user_seals, reset_secret_service
 from claire.store.knowledge_base import KnowledgeBaseManager
+from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ORIGIN = PUBLIC_URL
-OWNER_TOKEN = "owner-lineage-" + "x" * 24
 TEST_MASTER_KEY_HEX = "33" * 32
 BYOK_CANARY = "canary-e2e-byok-key-901234567890"
 
@@ -80,13 +80,12 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_FQDN=PUBLIC_URL,
-        CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     KnowledgeBaseManager(settings)
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
 
     with TestClient(app, base_url=PUBLIC_URL) as client:
-        owner_headers = {"Authorization": f"Bearer {OWNER_TOKEN}", "Origin": ORIGIN}
+        owner_headers = {**bearer_headers(db_file, scope="owner"), "Origin": ORIGIN}
         admin_sess = _create_session(db_file, 1)
         admin_cookie_headers = {"Cookie": f"claire_session={admin_sess}", "Origin": ORIGIN}
         member_sess = _create_session(db_file, 2)
