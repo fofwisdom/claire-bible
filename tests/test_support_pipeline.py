@@ -23,6 +23,21 @@ from tests.auth_helpers import bearer_headers
 
 PUBLIC_URL = "http://127.0.0.1:8765"
 ADMIN_DOC_TITLE = "Lineage record of another account"
+EXPECTED_API_STEPS = [
+    "input",
+    "classify",
+    "check",
+    "effort",
+    "extract",
+    "summary",
+    "detail",
+    "resolve",
+    "record",
+    "relations",
+    "links",
+    "lineage",
+    "post",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +50,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
 
 
-def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **setting_overrides: object) -> SimpleNamespace:
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     db_file = data_dir / "claire.db"
@@ -56,13 +71,15 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         conn.close()
     # The lineage summary reads the documents of claire.db (CLAIRE_DB_PATH first).
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
-    settings = Settings(
-        _env_file=None,
-        CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_ENVIRONMENT="development",
-        CLAIRE_FQDN=PUBLIC_URL,
-    )
+    base_settings: dict[str, object] = {
+        "_env_file": None,
+        "CLAIRE_DB_PATH": str(db_file),
+        "CLAIRE_PROVIDER": "mock",
+        "CLAIRE_ENVIRONMENT": "development",
+        "CLAIRE_FQDN": PUBLIC_URL,
+    }
+    base_settings.update(setting_overrides)
+    settings = Settings(**base_settings)
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))
     return SimpleNamespace(settings=settings, db_file=db_file, client=TestClient(app, base_url=PUBLIC_URL), admin=bearer_headers(db_file, account_id=1, scope="owner"), member=bearer_headers(db_file, account_id=2, scope="owner"))
 
@@ -92,40 +109,106 @@ def test_media_language_order_follows_the_preferred_languages_and_the_stt_langua
     assert describe_server_providers(base)["stt"]["order"] == order
 
 
-def test_pipeline_page_shows_the_steps_in_order_and_the_server_records_only_to_the_administrator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pipeline_page_renders_tabs_svg_accurate_flow_and_strict_member_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = _env(tmp_path, monkeypatch)
     _add_document_with_lineage(env.db_file)
 
     admin = env.client.get("/support/pipeline", headers=env.admin)
     assert admin.status_code == 200, admin.text
     html = admin.text
+
+    # Tabs + ToC host + SVG graph + 4 cards in Flow tab + 3 cards in Media tab + 2 cards in Records tab
+    assert 'data-toc-tabs="1"' in html
+    assert 'id="pipeline-tabs"' in html
+    assert re.findall(r'data-tab="([a-z]+)"', html) == ["flow", "media", "records"]
+    assert 'id="pipeline-lineage-svg"' in html
+    assert 'class="pipeline-graph-wrap"' in html
+    assert 'class="pipeline-graph-legend"' in html
+    assert "pg-lane" in html and "pg-node-shadow" in html
+
+    # Accurate 13-step server API flow with conditional/branch kinds and no client mark on summary/detail
     steps = re.findall(r'data-flow-step="([a-z]+)"', html)
-    assert steps == ["input", "check", "effort", "extract", "summary", "detail", "resolve", "record", "relations", "links", "lineage"]
-    # Jev is a note beside the resolution step, not a step of the flow.
+    assert steps == EXPECTED_API_STEPS
+    assert 'data-flow-step="summary" data-flow-kind="conditional"' in html
+    assert 'data-flow-step="detail" data-flow-kind="branch"' in html
+    summary_block = re.search(r'data-flow-step="summary".*?data-flow-step="detail"', html, re.S)
+    detail_block = re.search(r'data-flow-step="detail".*?data-flow-step="resolve"', html, re.S)
+    assert summary_block is not None and 'data-client-role="client"' not in summary_block.group(0)
+    assert detail_block is not None and 'data-client-role="client"' not in detail_block.group(0)
+    assert 'data-summary-state="skipped"' in html
+    assert 'data-effort-mode="adaptive"' in html
     assert "data-jev-state" in html and 'data-flow-step="jev"' not in html
     assert re.findall(r'data-flow-gate="(\d)"', html) == ["1", "2", "3", "4", "5"]
-    assert 'data-client-role="client"' in html and 'data-client-role="api_only"' in html
-    # The test provider uses one model for extraction and summary: the separate summary does not run.
-    assert 'data-summary-state="skipped"' in html
-    # The video order: publisher captions, then automatic captions, in the preferred order with en last; STT only after them.
+
+    # Client flow card + Other AI table
+    assert 'id="pipeline-client-flow"' in html
+    assert re.findall(r'data-client-step="(\d)"', html) == ["1", "2", "3", "4", "5"]
+    assert "stage_raw" in html and "extract_claim" in html and "extract_submit" in html
+    assert 'id="pipeline-other"' in html
+    for token in ("RETRIEVAL_QUERY", "summarize_search", "select_followups", "compose_presentation", "gemini-decision-1", "gemini-3.1-flash-lite"):
+        assert token in html
+
+    # Media tab: STT order + VLM + Fixed values
     order = re.findall(r'data-stt-order="([a-z]+)"', html)
     assert order == ["manual", "automatic", "stt", "none"]
     assert re.search(r"ko</code> → <code[^>]*>ja</code> → <code[^>]*>en</code>", html)
     assert 'href="/admin/server#server-languages"' in html
-    # The administrator sees the lineage of the documents of all accounts and the removed fallbacks with their old behavior.
+    assert 'id="pipeline-vlm"' in html and 'id="pipeline-fixed"' in html
+
+    # Records tab: administrator only
     assert 'id="pipeline-recent"' in html and ADMIN_DOC_TITLE in html
     assert 'data-fallback="F2"' in html and "Interactions schema failure fell back" in html
+    assert "console.support.pipeline." not in html
 
+    # Member view: strict privacy and isolation
     member = env.client.get("/support/pipeline", headers=env.member)
     assert member.status_code == 200, member.text
     page = member.text
-    assert re.findall(r'data-flow-step="([a-z]+)"', page) == steps
-    assert 'id="pipeline-stt-order"' in page
+    assert 'data-toc-tabs="1"' in page
+    assert re.findall(r'data-tab="([a-z]+)"', page) == ["flow", "media"]
+    assert re.findall(r'data-flow-step="([a-z]+)"', page) == EXPECTED_API_STEPS
+    assert 'id="pipeline-lineage-svg"' in page and "pg-node-shadow" not in page
+    assert 'id="pipeline-client-flow"' in page and 'id="pipeline-other"' in page
+    assert 'id="pipeline-stt-order"' in page and 'id="pipeline-vlm"' in page and 'id="pipeline-fixed"' in page
     assert ADMIN_DOC_TITLE not in page
-    assert 'id="pipeline-recent"' not in page and 'id="pipeline-fallbacks"' not in page and "data-jev-state" not in page
+    assert 'id="pipeline-recent"' not in page and 'id="pipeline-fallbacks"' not in page
+    assert 'data-tab="records"' not in page and "data-jev-state" not in page
+    assert "gemini-decision-1" not in page
     assert "/admin/" not in page and 'href="/account/profile#settings-languages"' in page
-    # The member has no API: the AI rows show the reason, not a model.
     assert 'data-flow-models' in page
+    assert "console.support.pipeline." not in page
+
+
+def test_pipeline_page_reflects_fixed_effort_models_and_strips_vlm_effort_suffix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from claire.core.provider_manager import ProviderManager
+
+    env = _env(
+        tmp_path,
+        monkeypatch,
+        vlm_model="gemini-3.1-flash-lite-medium",
+    )
+    pm = ProviderManager(data_dir=env.db_file.parent, auto_migrate=False)
+    cfg = pm.get_config()
+    cfg["active_provider"] = "gemini"
+    cfg["providers"]["gemini"]["api_key"] = "AIzaTestDummyKey000000000000000000000"
+    cfg["providers"]["gemini"]["model"] = "gemini-3.1-flash-lite-medium"
+    cfg["providers"]["gemini"]["effort"] = "medium"
+    cfg["feature_routing"]["classify"] = {"provider": "gemini", "model": "gemini-3.1-flash-lite-low", "effort": ""}
+    cfg["feature_routing"]["extract_graph"] = {"provider": "gemini", "model": "gemini-3.1-flash-lite-medium", "effort": ""}
+    pm.save_config(cfg)
+
+    resp = env.client.get("/support/pipeline", headers=env.admin)
+    assert resp.status_code == 200, resp.text
+    html = resp.text
+
+    assert 'data-classify-effort="fixed"' in html
+    assert 'data-effort-mode="fixed"' in html
+    # VLM displays clean API model identifier without the embedded effort suffix.
+    vlm_card = re.search(r'id="pipeline-vlm".*?id="pipeline-fixed"', html, re.S)
+    assert vlm_card is not None
+    assert "gemini-3.1-flash-lite" in vlm_card.group(0)
+    assert "gemini-3.1-flash-lite-medium" not in vlm_card.group(0)
+    assert "console.support.pipeline." not in html
 
 
 def test_account_providers_card_links_the_video_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
