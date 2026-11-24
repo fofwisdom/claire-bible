@@ -174,7 +174,7 @@ CONSOLE_PAGES_OUTSIDE_PREFIXES = ("/support/bundles", "/support/pipeline")
 
 
 def _is_console_route_path(path: str) -> bool:
-    return path in ("/account", "/settings", "/admin", "/moderation", *CONSOLE_PAGES_OUTSIDE_PREFIXES) or path.startswith(("/account/", "/settings/", "/admin/", "/moderation/"))
+    return path in ("/account", "/settings", "/admin", "/moderation", "/laboratory", *CONSOLE_PAGES_OUTSIDE_PREFIXES) or path.startswith(("/account/", "/settings/", "/admin/", "/moderation/", "/laboratory/"))
 
 
 def _inspect_html(html_text: str) -> _ConsoleHtmlInspector:

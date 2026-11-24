@@ -1,6 +1,6 @@
 # Preferred languages of each account (`ACCOUNT_PREFERRED_LANGUAGES_DESIGN`)
 
-- **Status**: Decided (owner, 2026-11-24, Section 8). Implementation: units PL1–PL5.
+- **Status**: Implemented (owner decisions of Section 8, 2026-11-24). Current behavior: [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) (the item about the preferred languages), [`I18N.md`](../implementation/I18N.md) §2, [`EXTRACTION.md`](../implementation/EXTRACTION.md) §2.3.
 - **Owner request (2026-11-24)**: on `/account/profile`, put "preferred languages" in place of "interface language", and let the STT value `auto` use the preferred languages. `CLAIRE_PREFERRED_LANGUAGES` is from the single-user design: move it into the current management or remove it.
 - **Changes**: [`PREFERRED_LANGUAGES_DESIGN.md`](PREFERRED_LANGUAGES_DESIGN.md) (the project-wide list of 2026-09-02; Section 5 names the decisions that change) and one principle of [`I18N_DESIGN.md`](I18N_DESIGN.md).
 - **Related**: [`PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md`](PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md) (PS8), [`INGESTION.md`](../implementation/INGESTION.md) §9, [`EXTRACTION.md`](../implementation/EXTRACTION.md) §2.3, [`I18N.md`](../implementation/I18N.md) §2.

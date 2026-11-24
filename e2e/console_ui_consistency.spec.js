@@ -37,6 +37,8 @@ const ADMIN_ROUTES = [
   '/admin/webmcp',
   '/admin/backups',
   '/admin/storage',
+  '/laboratory/measurements',
+  '/laboratory/shadows',
 ];
 
 const MODERATION_ROUTES = [

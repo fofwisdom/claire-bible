@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 46
+SCHEMA_VERSION = 47
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -903,6 +903,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v44_username_required(conn)
     _migrate_v45_retire_account_extraction_mode(conn)
     _migrate_v46_preferred_languages(conn)
+    _migrate_v47_lab_runs(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1961,6 +1962,26 @@ def _migrate_v46_preferred_languages(conn: sqlite3.Connection) -> None:
                 conn.execute("UPDATE accounts SET preferred_languages=? WHERE id=? AND preferred_languages IS NULL", (langs.to_stored(own), int(account_id)))
         conn.execute("ALTER TABLE accounts DROP COLUMN locale")
     conn.commit()
+
+
+def _migrate_v47_lab_runs(conn: sqlite3.Connection) -> None:
+    """v47 schema (SCHEMA_VERSIONING.md "v47", LABORATORY_DESIGN.md LB2): the runs of the laboratory measurements. A run never changes the knowledge graph; the table keeps its parameters and its result. Idempotent; it runs at each start."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS lab_runs (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('running', 'done', 'failed')),
+            created_at REAL NOT NULL,
+            finished_at REAL,
+            created_by INTEGER,
+            params TEXT NOT NULL,
+            result TEXT,
+            error TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_lab_runs_created ON lab_runs(created_at)")
 
 
 def _migrate_v36_shadow_verdict_columns(conn: sqlite3.Connection) -> None:

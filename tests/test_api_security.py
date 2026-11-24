@@ -611,6 +611,10 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/admin/server/mode"),
         ("POST", "/api/admin/server/invites"),
         ("PUT", "/api/admin/server/languages"),
+        # LABORATORY_DESIGN.md: the laboratory area and its API.
+        *((m, p) for p in ("/laboratory", "/laboratory/measurements", "/laboratory/shadows", "/api/admin/laboratory/runs", "/api/admin/laboratory/runs/{run_id}") for m in ("GET", "HEAD")),
+        ("DELETE", "/api/admin/laboratory/runs/{run_id}"),
+        ("POST", "/api/admin/laboratory/stt-hints"),
         ("POST", "/api/admin/server/legacy-hosts/sunset"),
         ("PATCH", "/api/admin/accounts"),
         ("GET", "/api/admin/usernames/retired"),

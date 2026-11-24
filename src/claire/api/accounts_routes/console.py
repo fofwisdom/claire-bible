@@ -97,7 +97,7 @@ class ConsoleSectionSpec:
 
     slug: str
     path: str
-    area: str  # "account" | "settings" | "admin" | "moderation" | "support"
+    area: str  # "account" | "settings" | "admin" | "moderation" | "support" | "laboratory"
     group_id: str
     theme_scoped: bool = False
     # Name of a line icon in static/js/icons.js (HD4 of HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md).
@@ -231,6 +231,13 @@ ACCOUNT_AI_SPECS: tuple[ConsoleSectionSpec, ...] = (
         icon="key",
     ),
 )
+
+# The laboratory (/laboratory/*, LABORATORY_DESIGN.md): the server administrator only; api.accounts_routes.laboratory renders the bodies.
+LABORATORY_SPECS: tuple[ConsoleSectionSpec, ...] = (
+    ConsoleSectionSpec(slug="measurements", path="/laboratory/measurements", area="laboratory", group_id="laboratory", icon="chart"),
+    ConsoleSectionSpec(slug="shadows", path="/laboratory/shadows", area="laboratory", group_id="laboratory", icon="eye"),
+)
+LABORATORY_SPEC_BY_SLUG: dict[str, ConsoleSectionSpec] = {spec.slug: spec for spec in LABORATORY_SPECS}
 
 ALL_ACCOUNT_SPECS: tuple[ConsoleSectionSpec, ...] = (
     *ACCOUNT_WORKSPACE_SPECS,
@@ -575,6 +582,7 @@ def _build_sidebar_html(
         if admin_viewer:
             groups.append(("admin_server", t("console.group.admin_server"), list(ADMIN_SIDEBAR_GROUP_4_SPECS)))
             groups.append(("admin_system", t("console.group.admin_system"), list(ADMIN_CONSOLE_GROUP_5_SPECS)))
+            groups.append(("laboratory", t("console.group.laboratory"), list(LABORATORY_SPECS)))
 
     parts: list[str] = []
     for group_id, group_label, specs in groups:
@@ -651,8 +659,7 @@ def _build_admin_section_body_and_extra(ctx: AccountsContext, slug: str, princip
     if slug == "limits":
         body = (
             console_host("admin-limits-host", loading_text=t("console.admin.limits.loading"), panel_host="admin:limits", outer_id="admin-limits-card", attrs={"aria-label": t("console.admin.limits.label")})
-            # The review of the shadow records of the same-subject source merge (EXPANSION.md §3.1). console_admin.js fills it from GET /api/admin/expansion/shadow.
-            + console_host("admin-expansion-review-host", loading_text=t("console.admin.limits.loading"), outer_id="admin-expansion-review-card", attrs={"aria-label": t("console.js.admin.expansion_review.title")})
+            # The review of the shadow records of the same-subject source merge moved to /laboratory/shadows (LABORATORY_DESIGN.md LB3).
         )
         return body, {}
 
@@ -1717,7 +1724,7 @@ def _render_console_section(
         owned_themes=owned_themes,
         selected_theme=selected_theme,
     )
-    is_admin_section = spec.area == "admin" or spec in MODERATION_ADMIN_SPECS
+    is_admin_section = spec.area in ("admin", "laboratory") or spec in MODERATION_ADMIN_SPECS
     if is_admin_section and not admin_viewer:
         raise RuntimeError("admin section requires an administrator principal")
     built_extra: dict[str, Any] = {}

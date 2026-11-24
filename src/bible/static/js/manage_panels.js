@@ -477,16 +477,13 @@
 
   function renderAdvancedFormHtml(cfg) {
     const gem = ((cfg.providers || {}).gemini) || {};
-    const jev = ((cfg.providers || {}).jev) || {};
     const eff = cfg.effective || {};
     let fields = '<div class="console-form-grid">'
       + uiField({ id: 'prov-gemini-interval', label: trKey('console.js.panels.providers.adv.interval'), controlHtml: `<input id="prov-gemini-interval" name="prov-gemini-interval" type="number" step="0.5" min="0" class="pref-input" value="${esc(gem.min_interval != null ? gem.min_interval : 4)}" required/>` })
       + uiField({ id: 'prov-gemini-retries', label: trKey('console.js.panels.providers.adv.retries'), controlHtml: `<input id="prov-gemini-retries" name="prov-gemini-retries" type="number" step="1" min="0" class="pref-input" value="${esc(gem.max_retries != null ? gem.max_retries : 5)}" required/>` })
       + '</div>'
       + `<p class="hint">${esc(trKey('console.js.panels.providers.adv.interval_hint'))}</p>`
-      + uiToggleRow({ id: 'prov-jev-enabled', label: trKey('console.js.panels.providers.adv.jev'), desc: trKey('console.js.panels.providers.adv.jev_hint'), checked: Boolean(jev.enabled) })
-      + uiField({ id: 'prov-jev-key', label: trKey('console.js.panels.providers.adv.jev_key'), controlHtml: `<div class="console-form-row"><input id="prov-jev-key" name="prov-jev-key" type="password" class="pref-input" style="flex:1;min-width:12rem;" autocomplete="off" placeholder="${esc(trKey(jev.has_api_key ? 'console.js.panels.providers.key.placeholder_set' : 'console.js.panels.providers.adv.jev_key_placeholder'))}"/>${renderTogglePassBtn('prov-jev-key')}</div>` })
-      + uiField({ id: 'prov-jev-url', label: trKey('console.js.panels.providers.adv.jev_url'), controlHtml: `<input id="prov-jev-url" name="prov-jev-url" class="pref-input" value="${esc(jev.base_url || 'https://api.typesafe.ai/v1')}"/>` });
+      + `<p class="hint" data-prov-jev-moved>${esc(trKey('console.js.panels.providers.adv.jev_moved'))} <a href="/laboratory/shadows#lab-jev">${esc(trKey('console.js.panels.providers.adv.jev_link'))}</a></p>`;
     if (!eff.is_production) {
       // The test provider exists only on a development server: the server refuses it in production.
       fields += uiToggleRow({ id: 'prov-mock-enabled', label: trKey('console.js.panels.providers.adv.mock'), desc: trKey('console.js.panels.providers.adv.mock_hint'), checked: (cfg.active_provider || '') === 'mock' });
@@ -592,12 +589,9 @@
     if (kind === 'advanced') {
       const payload = {
         providers: {
-          gemini: { min_interval: parseFloat(val('prov-gemini-interval')), max_retries: parseInt(val('prov-gemini-retries'), 10) },
-          jev: { enabled: checked('prov-jev-enabled'), base_url: val('prov-jev-url').trim() }
+          gemini: { min_interval: parseFloat(val('prov-gemini-interval')), max_retries: parseInt(val('prov-gemini-retries'), 10) }
         }
       };
-      const jevKey = val('prov-jev-key').trim();
-      if (jevKey) payload.providers.jev.api_key = jevKey;
       if (form.querySelector('#prov-mock-enabled')) payload.active_provider = checked('prov-mock-enabled') ? 'mock' : 'gemini';
       return payload;
     }
@@ -661,8 +655,6 @@
       _provState.config = body.config || _provState.config;
       const keyEl = form.querySelector('#prov-gemini-key');
       if (keyEl) keyEl.value = '';
-      const jevKeyEl = form.querySelector('#prov-jev-key');
-      if (jevKeyEl) jevKeyEl.value = '';
       setFormStatus(form, 'ok', trKey(action === 'delete' ? 'console.js.panels.providers.key.deleted' : 'console.js.panels.providers.saved_at', { time: nowStamp() }));
       refreshProviderStatus();
       if (_provState.opts && typeof _provState.opts.onSave === 'function') _provState.opts.onSave(body);
@@ -724,7 +716,6 @@
     const expandBudget = parseInt(document.getElementById('limit-expand-budget').value, 10);
     const expandMax = parseInt(document.getElementById('limit-expand-max').value, 10);
     const autoExpand = document.getElementById('limit-auto-expand').checked;
-    const sameSubjectMerge = document.getElementById('limit-same-subject-merge').value;
     const watchIntervalDays = document.getElementById('limit-watch-interval-days').value;
     const researchBudget = parseInt(document.getElementById('limit-research-budget').value, 10);
 
@@ -752,7 +743,6 @@
         expand_char_budget: isNaN(expandBudget) ? 2000 : expandBudget,
         expand_max: isNaN(expandMax) ? 5 : expandMax,
         auto_expand: autoExpand,
-        same_subject_merge: sameSubjectMerge,
         watch_interval_days: watchIntervalDays,
         research_context_budget: isNaN(researchBudget) ? 8000 : researchBudget,
         presentation_pdf_max_bytes: isNaN(presPdfBytes) ? 67108864 : presPdfBytes,
@@ -802,7 +792,6 @@
         expand_char_budget: 2000,
         expand_max: 5,
         auto_expand: true,
-        same_subject_merge: 'off',
         watch_interval_days: 1,
         research_context_budget: 8000,
         presentation_pdf_max_bytes: 67108864,
@@ -907,9 +896,8 @@
       bodyHtml: ctxBody
     });
 
-    const mergeOpts = `<option value="off" ${lims.same_subject_merge !== 'shadow' ? 'selected' : ''}>${esc(trKey("console.js.panels.limits.same_subject_merge_off"))}</option><option value="shadow" ${lims.same_subject_merge === 'shadow' ? 'selected' : ''}>${esc(trKey("console.js.panels.limits.same_subject_merge_shadow"))}</option>`;
     const expandBody = uiToggleRow({ id: 'limit-auto-expand', label: trKey("console.js.panels.limits.auto_expand"), desc: trKey("console.js.panels.limits.auto_expand_hint"), checked: lims.auto_expand !== false })
-      + uiField({ id: 'limit-same-subject-merge', label: trKey("console.js.panels.limits.same_subject_merge"), hint: trKey("console.js.panels.limits.same_subject_merge_hint"), controlHtml: `<select id="limit-same-subject-merge" class="pref-select">${mergeOpts}</select>` })
+      + `<p class="hint" data-limit-merge-moved>${esc(trKey("console.js.panels.limits.same_subject_merge_moved"))} <a href="/laboratory/shadows#lab-merge">${esc(trKey("console.js.panels.limits.same_subject_merge_link"))}</a></p>`
       + '<div class="console-form-grid">'
       + uiField({ id: 'limit-expand-max', label: trKey("console.js.panels.limits.expand_max"), controlHtml: `<input id="limit-expand-max" type="number" min="0" class="pref-input" value="${esc(lims.expand_max ?? 5)}"/>` })
       + uiField({ id: 'limit-watch-interval-days', label: trKey("console.js.panels.limits.watch_interval_days"), controlHtml: `<input id="limit-watch-interval-days" type="number" min="0.01" step="any" class="pref-input" value="${esc(lims.watch_interval_days ?? 1)}"/>` })

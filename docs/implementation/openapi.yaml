@@ -3786,6 +3786,85 @@ paths:
         '404':
           description: Not the server admin.
 
+  /api/admin/laboratory/stt-hints:
+    post:
+      summary: Start the measurement M0 (STT language hints)
+      description: Requires admin scope and the same origin (LABORATORY_DESIGN.md LB2). The run downloads the audio of the video (at most 300 seconds), transcribes it without hints and with the hints, and keeps the result in `lab_runs`. One run at a time. Two STT calls with the server key of Google AI Studio; the audio goes to Google.
+      operationId: startLaboratorySttHints
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [url, hints]
+              properties:
+                url:
+                  type: string
+                hints:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '202':
+          description: The run (status `running`).
+        '400':
+          description: '`invalid_request`, `invalid_url`, or `invalid_languages`.'
+        '409':
+          description: '`run_in_progress` or `no_api_key`.'
+        '404':
+          description: Not the server administrator.
+  /api/admin/laboratory/runs:
+    get:
+      summary: The last 20 laboratory runs
+      operationId: listLaboratoryRuns
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"runs": [...]}` (id, kind, status, created_at, finished_at, params, result, error).'
+        '404':
+          description: Not the server administrator.
+  /api/admin/laboratory/runs/{run_id}:
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: One laboratory run
+      operationId: getLaboratoryRun
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"run": {...}}`.'
+        '404':
+          description: Not found, or not the server administrator.
+    delete:
+      summary: Delete a finished laboratory run
+      operationId: deleteLaboratoryRun
+      x-claire-access: admin
+      security:
+        - SessionHeader: []
+        - SessionCookie: []
+      responses:
+        '200':
+          description: '`{"deleted": run_id}`.'
+        '403':
+          description: '`forbidden` (not the same origin).'
+        '404':
+          description: Not found, still running, or not the server administrator.
   /api/admin/server/languages:
     put:
       summary: Select or remove the server default language

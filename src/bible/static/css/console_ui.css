@@ -212,6 +212,9 @@ th, .pref-table th { background: var(--panel-bg); color: var(--muted); font-weig
 
 .pref-mono { font-family: 'D2Coding', monospace; font-size: 0.71875rem; }
 .pref-code { margin: 0; padding: 0.625rem 0.75rem; border-radius: 0.375rem; border: 1px solid var(--border); background: var(--panel-bg); font-family: 'D2Coding', monospace; font-size: 0.71875rem; line-height: 1.5; overflow-x: auto; white-space: pre; }
+/* Laboratory (laboratory.js) */
+.console-lab-form { display: flex; flex-direction: column; gap: 0.625rem; }
+.console-lab-excerpt { margin: 0.5rem 0 0; max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.75rem; line-height: 1.5; }
 /* Ordered language list (console_language_list, console_languages.js) */
 .console-lang-form { display: flex; flex-direction: column; gap: 0.625rem; }
 .console-lang-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.375rem; counter-reset: lang; }

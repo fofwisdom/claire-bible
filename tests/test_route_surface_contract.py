@@ -78,6 +78,8 @@ SYSTEM = {
     "/api/admin/mcp/telemetry",
     "/admin/backups", "/api/admin/account-backups", "/api/admin/account-backups/restore",
     "/admin/storage", "/api/admin/storage", "/api/admin/storage/test",
+    # The laboratory (LABORATORY_DESIGN.md): the server administrator only.
+    "/laboratory", "/laboratory/measurements", "/laboratory/shadows", "/api/admin/laboratory/runs", "/api/admin/laboratory/runs/{run_id}", "/api/admin/laboratory/stt-hints",
     "/admin/plugins", "/api/admin/plugins", "/api/admin/plugins/{id}",
     "/account/telegram", "/account/notifications", "/account/bundles", "/account/backups", "/account/federation",
     # One page for the bundles of each account and of the server (the old /account/bundles is a 308 to it).
@@ -117,6 +119,10 @@ ADMIN_KEYS = {
     ("POST", "/api/admin/server/mode"),
     ("POST", "/api/admin/server/invites"),
     ("PUT", "/api/admin/server/languages"),
+    # LABORATORY_DESIGN.md: the laboratory area and its API.
+    *((m, p) for p in ("/laboratory", "/laboratory/measurements", "/laboratory/shadows", "/api/admin/laboratory/runs", "/api/admin/laboratory/runs/{run_id}") for m in ("GET", "HEAD")),
+    ("DELETE", "/api/admin/laboratory/runs/{run_id}"),
+    ("POST", "/api/admin/laboratory/stt-hints"),
     ("POST", "/api/admin/server/legacy-hosts/sunset"),
     *((m, "/api/admin/server-tier") for m in ("GET", "HEAD", "PUT")),
     *((m, "/api/admin/federation") for m in ("GET", "HEAD")),

@@ -1978,6 +1978,8 @@
       if (limHost && typeof panels.renderLimitManager === "function") {
         panels.renderLimitManager(limHost, { showClose: false, canWrite: true, isAdmin: true });
       }
+    } else if (section === "shadows") {
+      // LABORATORY_DESIGN.md LB3: the review of the same-subject source merge is on /laboratory/shadows.
       initExpansionReview(document.getElementById("admin-expansion-review-host"));
     } else if (section === "themes") {
       var themeHost = document.getElementById("admin-themes-host");
@@ -2010,7 +2012,7 @@
     bindThemeSelector();
     bindReauthModal();
     var bootstrap = parseBootstrap();
-    if (!bootstrap || (bootstrap.area !== "admin" && bootstrap.area !== "moderation")) return;
+    if (!bootstrap || (bootstrap.area !== "admin" && bootstrap.area !== "moderation" && bootstrap.area !== "laboratory")) return;
     initAdminSection(bootstrap);
   }
 

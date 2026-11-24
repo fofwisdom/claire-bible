@@ -46,7 +46,8 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 43 | 직전 version (아래 "v43" 절) | 고유 주소 대장 `permalinks`, `doc_shares` 이관 후 테이블 제거 |
 | 44 | 직전 version (아래 "v44" 절) | USERNAME 없는 계정을 `setup_required` 상태로만 허용하는 트리거 |
 | 45 | 직전 version (아래 "v45" 절) | 계정 추출 모드 `accounts.extraction_mode` 제거, 요청의 추출 모드 `raw_inbox.extraction_mode` |
-| 46 | 현재 version (아래 "v46" 절) | 선호 언어: `accounts.preferred_languages`, 서버 기본 언어 `server_settings.default_languages`, `accounts.locale` 제거 |
+| 46 | 직전 version (아래 "v46" 절) | 선호 언어: `accounts.preferred_languages`, 서버 기본 언어 `server_settings.default_languages`, `accounts.locale` 제거 |
+| 47 | 현재 version (아래 "v47" 절) | 실험실 측정 기록 `lab_runs` |
 | 46 이상 | 미래 version | 현재 코드가 변경하지 않고 거부 |
 
 v12는 정본 DB에 진단 테이블을 추가해 관측성 저장소 분리 원칙(PRINCIPLES A4)을 위반했던 version이므로 영구 폐기한다(`RETIRED_SCHEMA_VERSIONS`).
@@ -433,3 +434,10 @@ Design: [`ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md`](../design/ACCOUNT_PREFERRED_LA
 
 - **[code]** `_migrate_v46_preferred_languages` (runs at each start, idempotent): adds `accounts.preferred_languages` (`TEXT`, NULL: the account follows the server default language); one time (marker `server_settings.languages_v46`) it writes `server_settings.default_languages` from `CLAIRE_PREFERRED_LANGUAGES` (else `ko` for a database from before v46; a new database gets no row unless the variable is set), then `en`; an account with `accounts.locale` gets an own list (that locale, then the server default language) when it differs from the server default language; then the step drops `accounts.locale`. The step v19 no longer adds `accounts.locale`.
 - **[test]** `tests/test_i18n_api.py` (`test_v45_database_migrates_the_locale_to_the_preferred_languages_and_the_migration_is_idempotent`, `test_new_database_has_no_server_default_language_unless_the_variable_is_set`).
+
+## v47 (laboratory runs)
+
+Design: [`LABORATORY_DESIGN.md`](../design/LABORATORY_DESIGN.md) LB2.
+
+- **[code]** `_migrate_v47_lab_runs` creates `lab_runs` (`id` TEXT primary key, `kind`, `status` `running`/`done`/`failed`, `created_at`, `finished_at`, `created_by`, `params` JSON, `result` JSON, `error`) and the index `idx_lab_runs_created`. Idempotent; it runs at each start. No row of another table changes.
+- **[test]** `tests/test_laboratory.py`.

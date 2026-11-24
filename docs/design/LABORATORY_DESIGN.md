@@ -1,6 +1,6 @@
 # Laboratory: measurements and shadow evaluations (`LABORATORY_DESIGN`)
 
-- **Status**: Decided (owner, 2026-11-24). Implementation: units LB1–LB4.
+- **Status**: Implemented (LB1–LB4, 2026-11-24). Current behavior: [`ACCOUNTS.md`](../implementation/ACCOUNTS.md) (the item `/laboratory/*`). The first real M0 run needs the server key of Google AI Studio (the development server has none).
 - **Owner request (2026-11-24)**: "Make a path `/laboratory/` that manages these measurements and the shadows together, and give it sections."
 - **Related**: [`ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md`](ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md) (measurement M0), [`JEV_SHADOW_EVALUATION_DESIGN.md`](JEV_SHADOW_EVALUATION_DESIGN.md), [`EXPANSION.md`](../implementation/EXPANSION.md) §3.1 (same-subject source merge, mode `shadow`), [`PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md`](PROVIDER_SETTINGS_SIMPLIFICATION_DESIGN.md) (principle 3: one place for one record).
 
