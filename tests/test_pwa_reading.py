@@ -159,9 +159,8 @@ def _setup_multi_account_network_env(tmp_path: Path):
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     return s, {
         "db_file": db_file,
@@ -288,8 +287,8 @@ def test_render_graph_html_account_isolation_anonymous(tmp_path: Path):
     assert "Bob Public Work" not in alice_anon_html
 
 
-def test_render_graph_html_single_mode_default_theme(tmp_path: Path):
-    """Verify that in single mode (multi_theme=False), default single theme dict is rendered."""
+def test_render_graph_html_default_kb_when_only_kb0_exists(tmp_path: Path):
+    """Verify default KB dict is rendered when only KB 0 exists in DB."""
     db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -297,8 +296,6 @@ def test_render_graph_html_single_mode_default_theme(tmp_path: Path):
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=False,
     )
     html = render_graph_html(s)
     assert "기본 지식베이스" in html

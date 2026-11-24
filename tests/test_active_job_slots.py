@@ -297,7 +297,7 @@ def test_e2e_api_stats_and_active_jobs_multi_theme(tmp_path: Path):
         db_path=str(db_file),
         data_dir=str(data_dir),
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
         readonly_token=read_tok,
         multi_theme=True,
     )

@@ -95,18 +95,72 @@ def test_source_base_url_custom_explicit_override(monkeypatch):
     assert settings.effective_source_base_url == "https://gitlab.com/custom/source"
 
 
-def test_sorcerer_defaults(monkeypatch):
-    monkeypatch.delenv("CLAIRE_SORCERER", raising=False)
+def test_tier2_and_tier3_retired_env_vars_are_removed(monkeypatch, tmp_path: Path):
+    """Tier 2 and Tier 3 retired env vars and _ExactDotEnvSettingsSource are absent from Settings."""
+    import claire.core.config as config_mod
 
-    settings = Settings(_env_file=None)
+    retired_env = {
+        "CLAIRE_PUBLIC_URL": "https://legacy.example.com/",
+        "CLAIRE_CLOUDFLARE_ONLY": "true",
+        "CLAIRE_STT_PROVIDER": "antigravity",
+        "STT_PROVIDER": "mock",
+        "STT_PROIVDER": "mock",
+        "CLAIRE_MULTI_THEME": "false",
+        "CLAIRE_PRESENTATION_ENABLED": "true",
+        "CLAIRE_SORCERER": "merlin",
+    }
+    for name, value in retired_env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("CB_DATA_DIR", str(tmp_path / "data"))
 
-    assert settings.sorcerer == "owner"
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("".join(f"{name}={value}\n" for name, value in retired_env.items()), encoding="utf-8")
+
+    settings = Settings(_env_file=dotenv)
+
+    assert not hasattr(config_mod, "_ExactDotEnvSettingsSource")
+    for attr in ("legacy_public_url", "stt_provider", "multi_theme", "presentation_enabled", "sorcerer"):
+        assert not hasattr(settings, attr), f"removed attribute {attr!r} still present"
+        assert attr not in Settings.model_fields
 
 
-def test_sorcerer_custom_env(monkeypatch):
-    monkeypatch.setenv("CLAIRE_SORCERER", "merlin")
-    s1 = Settings(_env_file=None)
-    assert s1.sorcerer == "merlin"
+def test_public_url_derived_from_fqdn_and_environment(monkeypatch):
+    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "https://ignored-legacy.example.com/")
+    monkeypatch.delenv("CLAIRE_FQDN", raising=False)
+    prod = Settings(_env_file=None, environment="production", fqdn="claire.example.com")
+    assert prod.public_url == "https://claire.example.com/"
+    dev = Settings(_env_file=None, environment="development", fqdn="127.0.0.1:8765")
+    assert dev.public_url == "http://127.0.0.1:8765/"
+    empty = Settings(_env_file=None, environment="production", fqdn="")
+    assert empty.public_url == ""
+
+
+def test_settings_source_priority_without_exact_dotenv(monkeypatch, tmp_path: Path):
+    """Verify Settings priority: init_settings > ingest_limits.json > providers.json > env > .env."""
+    from claire.core.ingest_limit_manager import IngestLimitManager
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("CB_DATA_DIR", str(data_dir))
+    (data_dir / "providers.json").write_text(json.dumps({"provider": "gemini", "providers": {"gemini": {"model": "gemini-json-model", "effort": "high"}}}), encoding="utf-8")
+    IngestLimitManager(data_dir=data_dir, auto_migrate=False).update_config({"limits": {"raw_char_budget": 12345}})
+
+    monkeypatch.setenv("CLAIRE_GEMINI_MODEL", "from-env-model")
+    monkeypatch.setenv("CLAIRE_SITE_NAME", "FromEnv")
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("CLAIRE_SITE_NAME=FromDotEnv\nCLAIRE_ENVIRONMENT=production\nCLAIRE_GEMINI_MODEL=from-dotenv-model\n", encoding="utf-8")
+
+    from_files = Settings(_env_file=dotenv)
+    assert from_files.raw_char_budget == 12345
+    assert from_files.gemini_model == "gemini-json-model"
+    assert from_files.gemini_effort == "high"
+    assert from_files.site_name == "FromEnv"
+    assert from_files.environment == "production"
+
+    overridden = Settings(_env_file=dotenv, raw_char_budget=54321, gemini_model="gemini-init-model", site_name="FromInit")
+    assert overridden.raw_char_budget == 54321
+    assert overridden.gemini_model == "gemini-init-model"
+    assert overridden.site_name == "FromInit"
 
 
 def test_slicing_config_defaults(monkeypatch, tmp_path):

@@ -146,7 +146,7 @@ log = logging.getLogger("claire.ingest.service")
 
 def run_theme_judgement_if_due(settings: Any) -> bool:
     """Run the subject judgement when it is due (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.2 rule 10: once a day, or when a knowledge base has 20 new visible documents). Each service job calls this when it ends, so the API and the worker loops run it. A server without a shared knowledge base has no themes: nothing runs. A failure is in the log and never fails the caller."""
-    if settings is None or not getattr(settings, "multi_theme", False):
+    if settings is None:
         return False
     try:
         from ..collaboration import theme_judgement

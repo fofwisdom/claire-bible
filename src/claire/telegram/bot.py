@@ -719,8 +719,6 @@ def parse_message_theme(
         return "", None
     from ..store.knowledge_base import get_kb_manager
     tm = theme_mgr or get_kb_manager()
-    if hasattr(tm, "settings") and not getattr(tm.settings, "multi_theme", False):
-        return t, None
 
     matches = list(_THEME_TAG_RE.finditer(t))
     for m in matches:
@@ -1314,12 +1312,6 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         user = update.effective_user
         if not _is_allowed(user.id if user else None):
             return
-        if not getattr(s, "multi_theme", False):
-            await update.message.reply_text(
-                _t("bot.theme.single_mode"),
-                parse_mode="HTML",
-            )
-            return
         uid = user.id if user else 0
         theme_mgr.reload()
         themes = theme_mgr.readable_kbs()
@@ -1383,26 +1375,19 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
         from ..core.config import extract_own_share_token
 
-        is_multi = bool(getattr(s, "multi_theme", False))
         explicit_kb_id = None
-        if is_multi:
-            theme_mgr.reload()
-            text, explicit_kb_id = parse_message_theme(raw_text, theme_mgr)
-            user_id = user.id if user else 0
-            if explicit_kb_id is not None:
-                active_theme = theme_mgr.get_kb(explicit_kb_id)
-            else:
-                active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
-                if active_theme is None:
-                    await update.message.reply_text(_t("bot.theme.stale"))
-                    return
-            active_kb_id = active_theme.id
-            active_svc = service_pool.get_service(active_kb_id)
+        theme_mgr.reload()
+        text, explicit_kb_id = parse_message_theme(raw_text, theme_mgr)
+        user_id = user.id if user else 0
+        if explicit_kb_id is not None:
+            active_theme = theme_mgr.get_kb(explicit_kb_id)
         else:
-            text = raw_text
-            active_theme = theme_mgr.personal_kb()
-            active_kb_id = active_theme.id
-            active_svc = svc
+            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+            if active_theme is None:
+                await update.message.reply_text(_t("bot.theme.stale"))
+                return
+        active_kb_id = active_theme.id
+        active_svc = service_pool.get_service(active_kb_id)
 
         # CT28: the parser still separates the URL from the text after a separator; the text is ignored.
         payload, sealed_focus = parse_message_focus(text)
@@ -1460,7 +1445,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                             active_kb_id = matched_tid
                             active_svc = service_pool.get_service(matched_tid)
                             target_doc_id = payload_clean
-                            if is_multi and user:
+                            if user:
                                 user_active_themes[user.id] = matched_tid
                 except Exception:
                     pass
@@ -1614,8 +1599,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             uid, cid, len(payload_to_ingest), payload_to_ingest[:60],
         )
 
-        themes = theme_mgr.list_kbs() if is_multi else []
-        if is_multi and len(themes) > 1 and explicit_kb_id is None:
+        themes = theme_mgr.list_kbs()
+        if len(themes) > 1 and explicit_kb_id is None:
             token = f"{update.update_id}"
             target_snippet = payload_to_ingest[:60] + ("…" if len(payload_to_ingest) > 60 else "")
             prompt_msg = await _prompt_theme_selection(
@@ -1674,9 +1659,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 name = "document"
         msg = update.message
         caption = update.message.caption
-        is_multi = bool(getattr(s, "multi_theme", False))
-        if is_multi:
-            theme_mgr.reload()
+        theme_mgr.reload()
 
         try:
             caption_clean, flag_mode = parse_extraction_mode_flag(caption)
@@ -1684,7 +1667,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             await _reply_extraction_flags_conflict(msg)
             return
         composite_url, sealed_focus, explicit_tid, has_refetch_full, has_effort = parse_caption_composite(
-            caption_clean or None, theme_mgr if is_multi else None
+            caption_clean or None, theme_mgr
         )
         if sealed_focus:
             await _reply_focus_sealed(msg)
@@ -1707,8 +1690,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         is_composite = bool(composite_url)
         kind_label = _t("bot.kind.composite") if is_composite else _t("bot.kind.file")
 
-        themes = theme_mgr.list_kbs() if is_multi else []
-        if is_multi and len(themes) > 1 and explicit_tid is None:
+        themes = theme_mgr.list_kbs()
+        if len(themes) > 1 and explicit_tid is None:
             token = f"{update.update_id}"
             prompt_msg = await _prompt_theme_selection(
                 msg,
@@ -1816,13 +1799,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             )
             return
 
-        is_multi = bool(getattr(s, "multi_theme", False))
-        explicit_tid = None
-        if is_multi:
-            theme_mgr.reload()
-            raw_clean_theme, explicit_tid = parse_message_theme(raw, theme_mgr)
-        else:
-            raw_clean_theme = raw
+        theme_mgr.reload()
+        raw_clean_theme, explicit_tid = parse_message_theme(raw, theme_mgr)
 
         payload, sealed_focus = parse_message_focus(raw_clean_theme)
         if sealed_focus:
@@ -1839,8 +1817,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
 
-        themes = theme_mgr.list_kbs() if is_multi else []
-        if is_multi and len(themes) > 1 and explicit_tid is None:
+        themes = theme_mgr.list_kbs()
+        if len(themes) > 1 and explicit_tid is None:
             token = f"{update.update_id}"
             target_snippet = payload_to_ingest[:60] + ("…" if len(payload_to_ingest) > 60 else "")
             prompt_msg = await _prompt_theme_selection(
@@ -2002,15 +1980,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
 
             # Determine the document's theme: check active theme first, then theme_mgr.resolve_document_targets
             user_id = user.id if user else 0
-            is_multi = bool(getattr(s, "multi_theme", False))
-            if is_multi:
-                active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
-                if active_theme is None:
-                    await status_msg.edit_text(_t("bot.theme.stale"))
-                    return
-                target_svc = service_pool.get_service(active_theme.id)
-            else:
-                target_svc = svc
+            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+            if active_theme is None:
+                await status_msg.edit_text(_t("bot.theme.stale"))
+                return
+            target_svc = service_pool.get_service(active_theme.id)
             doc_in_active = False
             try:
                 chk_conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
@@ -2028,7 +2002,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     if matches:
                         resolved_tid = matches[0].get("kb_id", 0)
                         target_svc = service_pool.get_service(resolved_tid)
-                        if is_multi and user:
+                        if user:
                             user_active_themes[user.id] = resolved_tid
                 except Exception:
                     pass
@@ -2638,23 +2612,18 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         if not msg:
             return
 
-        is_multi = bool(getattr(s, "multi_theme", False))
         user = update.effective_user
         user_id = user.id if user else 0
-        if is_multi:
-            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
-            if active_theme is None:
-                await msg.reply_text(_t("bot.theme.stale"))
-                return
-            active_kb_id = active_theme.id
-            active_svc = service_pool.get_service(active_kb_id)
-        else:
-            active_kb_id = 0
-            active_svc = svc
+        active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+        if active_theme is None:
+            await msg.reply_text(_t("bot.theme.stale"))
+            return
+        active_kb_id = active_theme.id
+        active_svc = service_pool.get_service(active_kb_id)
 
         try:
             items = await asyncio.to_thread(active_svc.list_failures, limit=10)
-            if not items and is_multi:
+            if not items:
                 all_items = []
                 for t in theme_mgr.list_kbs(include_private=True):
                     if t.id == active_kb_id:
@@ -2693,51 +2662,45 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
         inbox_id = int(arg)
 
-        is_multi = bool(getattr(s, "multi_theme", False))
         user = update.effective_user
         user_id = user.id if user else 0
-        if is_multi:
-            active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
-            if active_theme is None:
-                await msg.reply_text(_t("bot.theme.stale"))
-                return
-            active_kb_id = active_theme.id
-            target_svc = service_pool.get_service(active_kb_id)
-        else:
-            active_kb_id = 0
-            target_svc = svc
+        active_theme = resolve_selected_theme(theme_mgr, user_active_themes, user_id)
+        if active_theme is None:
+            await msg.reply_text(_t("bot.theme.stale"))
+            return
+        active_kb_id = active_theme.id
+        target_svc = service_pool.get_service(active_kb_id)
 
-        if is_multi:
-            found = False
+        found = False
+        try:
+            conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
             try:
-                conn = dbm.connect_existing(target_svc.s.db_file, readonly=True)
-                try:
-                    if dbm.get_inbox(conn, inbox_id, kb_id=active_kb_id) is not None:
-                        found = True
-                finally:
-                    conn.close()
-            except Exception:
-                pass
+                if dbm.get_inbox(conn, inbox_id, kb_id=active_kb_id) is not None:
+                    found = True
+            finally:
+                conn.close()
+        except Exception:
+            pass
 
-            if not found:
-                for t in theme_mgr.list_kbs(include_private=True):
-                    if t.id == active_kb_id:
-                        continue
-                    tsvc = service_pool.get_service(t.id)
-                    if not Path(tsvc.s.db_file).is_file():
-                        continue
+        if not found:
+            for t in theme_mgr.list_kbs(include_private=True):
+                if t.id == active_kb_id:
+                    continue
+                tsvc = service_pool.get_service(t.id)
+                if not Path(tsvc.s.db_file).is_file():
+                    continue
+                try:
+                    conn = dbm.connect_existing(tsvc.s.db_file, readonly=True)
                     try:
-                        conn = dbm.connect_existing(tsvc.s.db_file, readonly=True)
-                        try:
-                            if dbm.get_inbox(conn, inbox_id, kb_id=t.id) is not None:
-                                target_svc = tsvc
-                                user_active_themes[user_id] = t.id
-                                found = True
-                                break
-                        finally:
-                            conn.close()
-                    except Exception:
-                        continue
+                        if dbm.get_inbox(conn, inbox_id, kb_id=t.id) is not None:
+                            target_svc = tsvc
+                            user_active_themes[user_id] = t.id
+                            found = True
+                            break
+                    finally:
+                        conn.close()
+                except Exception:
+                    continue
 
         status = await msg.reply_text(_t("bot.retry.progress", id=inbox_id))
         try:

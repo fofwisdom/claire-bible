@@ -47,12 +47,10 @@ def _settings(tmp_path, *, multi: bool = True) -> Settings:
     vault_dir.mkdir(parents=True, exist_ok=True)
     return Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_MULTI_THEME=multi,
     )
 
 

@@ -334,7 +334,6 @@ class Runtime:
         env = os.environ.copy()
         # The security boundary values are passed into the actual container by service env_file.
         # Prevent host process values of the same name from interfering with Compose interpolation.
-        env.pop("CLAIRE_PUBLIC_URL", None)
         env.pop("CLAIRE_FQDN", None)
         env.pop(SITE_DOMAIN_KEY, None)
         for _role, host_key, _port_key in ROLE_HOST_SETTINGS:
@@ -659,50 +658,22 @@ def _validate_public_url(
     # This value enters the container via Compose service env_file. Process env is not
     # passed to container, so validate the effective file value directly here as well.
     raw_fqdn = values.get("CLAIRE_FQDN", "")
-    raw_pub = values.get("CLAIRE_PUBLIC_URL", "")
-
-    if raw_fqdn:
-        if raw_fqdn != raw_fqdn.strip():
-            raise ManuscriptError("CLAIRE_FQDN cannot have leading or trailing whitespace.")
-        raw = raw_fqdn.strip()
-        if "://" in raw:
-            raw = raw.split("://", 1)[1]
-        raw = raw.rstrip("/")
-        if environment == DEVELOPMENT:
-            expected_authority = f"{bind}:{port}"
-            if raw != expected_authority and raw != bind:
-                raise ManuscriptError(
-                    f"CLAIRE_FQDN in development must be {expected_authority}"
-                )
-            return
-        _validate_dns_hostname(raw.split(":")[0], field="CLAIRE_FQDN")
-        return
-
-    raw = raw_pub
-    if not raw:
-        raise ManuscriptError("CLAIRE_FQDN or CLAIRE_PUBLIC_URL is required.")
-    if raw != raw.strip():
-        raise ManuscriptError("CLAIRE_PUBLIC_URL cannot have leading or trailing whitespace.")
-    parsed = _split_url(raw, field="CLAIRE_PUBLIC_URL")
-    if parsed.path not in {"", "/"}:
-        raise ManuscriptError("CLAIRE_PUBLIC_URL can only use a root path.")
-
+    if not raw_fqdn:
+        raise ManuscriptError("CLAIRE_FQDN is required.")
+    if raw_fqdn != raw_fqdn.strip():
+        raise ManuscriptError("CLAIRE_FQDN cannot have leading or trailing whitespace.")
+    raw = raw_fqdn.strip()
+    if "://" in raw:
+        raw = raw.split("://", 1)[1]
+    raw = raw.rstrip("/")
     if environment == DEVELOPMENT:
         expected_authority = f"{bind}:{port}"
-        if parsed.scheme != "http" or parsed.netloc != expected_authority:
+        if raw != expected_authority and raw != bind:
             raise ManuscriptError(
-                "CLAIRE_PUBLIC_URL in development must be "
-                f"http://{expected_authority}/"
+                f"CLAIRE_FQDN in development must be {expected_authority}"
             )
         return
-
-    if parsed.scheme != "https":
-        raise ManuscriptError(
-            "CLAIRE_PUBLIC_URL in production must be an external reverse proxy "
-            "https URL."
-        )
-    hostname = parsed.hostname or ""
-    _validate_dns_hostname(hostname, field="CLAIRE_PUBLIC_URL")
+    _validate_dns_hostname(raw.split(":")[0], field="CLAIRE_FQDN")
 
 
 def _parse_role_port(values: Mapping[str, str], key: str) -> int | None:
@@ -735,10 +706,10 @@ def _role_host_value(values: Mapping[str, str], key: str) -> str:
 
 def _app_hostname(values: Mapping[str, str]) -> str:
     raw = values.get("CLAIRE_FQDN", "").strip()
-    if raw:
-        raw = raw.split("://", 1)[-1].rstrip("/")
-        return raw.split(":", 1)[0].lower()
-    return (urlsplit(values.get("CLAIRE_PUBLIC_URL", "").strip()).hostname or "").lower()
+    if not raw:
+        return ""
+    raw = raw.split("://", 1)[-1].rstrip("/")
+    return raw.split(":", 1)[0].lower()
 
 
 def _validate_role_hosts(
@@ -834,7 +805,7 @@ def _validate_cors_origins(
     *,
     environment: str,
 ) -> None:
-    # Similar to CLAIRE_PUBLIC_URL, validate the actual container value passed from env_file.
+    # Similar to CLAIRE_FQDN, validate the actual container value passed from env_file.
     # Whitespace between items is allowed identically to the application.
     raw = values.get("CLAIRE_CORS_ALLOWED_ORIGINS", "").strip()
     if not raw:
@@ -920,16 +891,12 @@ def _validate_edge(values: Mapping[str, str], *, environment: str) -> str:
     if environment == DEVELOPMENT:
         return ""
     fqdn = values.get("CLAIRE_FQDN", "").strip()
-    if fqdn:
-        authority = fqdn.split("://", 1)[1] if "://" in fqdn else fqdn
-    else:
-        public_url = values.get("CLAIRE_PUBLIC_URL", "").strip()
-        if not public_url:
-            raise ManuscriptError("Edge service requires CLAIRE_FQDN or CLAIRE_PUBLIC_URL.")
-        authority = _split_url(public_url, field="CLAIRE_PUBLIC_URL").netloc
+    if not fqdn:
+        raise ManuscriptError("Edge service requires CLAIRE_FQDN.")
+    authority = fqdn.split("://", 1)[1] if "://" in fqdn else fqdn
     authority = authority.rstrip("/").lower()
     if not authority:
-        raise ManuscriptError("Edge service requires CLAIRE_FQDN or CLAIRE_PUBLIC_URL.")
+        raise ManuscriptError("Edge service requires CLAIRE_FQDN.")
     return authority
 
 
@@ -1245,53 +1212,6 @@ def _ensure_timezone(path: Path) -> bool:
     return changed
 
 
-def _ensure_fqdn(path: Path, environment: str) -> bool:
-    """Migrate legacy CLAIRE_PUBLIC_URL to CLAIRE_FQDN if needed."""
-    if not path.is_file():
-        return False
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines(keepends=True)
-    has_fqdn = False
-    pub_url_index = None
-    pub_url_val = ""
-
-    for index, original in enumerate(lines):
-        candidate = original.strip()
-        if not candidate or candidate.startswith("#"):
-            continue
-        if candidate.startswith("export "):
-            candidate = candidate[7:].lstrip()
-        if "=" not in candidate:
-            continue
-        key, raw = candidate.split("=", 1)
-        k = key.strip()
-        if k == "CLAIRE_FQDN":
-            v = _dotenv_value(raw, path, index + 1)
-            if v:
-                has_fqdn = True
-        elif k == "CLAIRE_PUBLIC_URL":
-            pub_url_index = index
-            pub_url_val = _dotenv_value(raw, path, index + 1)
-
-    if has_fqdn or pub_url_index is None or not pub_url_val:
-        return False
-
-    raw = pub_url_val.strip()
-    if "://" in raw:
-        from urllib.parse import urlsplit
-
-        parsed = urlsplit(raw)
-        extracted = parsed.netloc or parsed.path
-        fqdn = extracted.strip().rstrip("/")
-    else:
-        fqdn = raw.rstrip("/")
-
-    newline = "\n" if lines[pub_url_index].endswith("\n") else ""
-    lines[pub_url_index] = f"CLAIRE_FQDN={fqdn}{newline}"
-    _atomic_write(path, "".join(lines), mode=0o600)
-    return True
-
-
 def _sync_missing_env_keys(target_path: Path, template_path: Path) -> list[str]:
     """Safely backfill missing environment variables from template into target env file."""
 
@@ -1318,12 +1238,6 @@ def _sync_missing_env_keys(target_path: Path, template_path: Path) -> list[str]:
             continue
         key, _raw = candidate.split("=", 1)
         k = key.strip()
-        if k == "CLAIRE_PUBLIC_URL" and ("CLAIRE_FQDN" in target_values or "CLAIRE_PUBLIC_URL" in target_values):
-            current_comments = []
-            continue
-        if k == "CLAIRE_FQDN" and ("CLAIRE_FQDN" in target_values or "CLAIRE_PUBLIC_URL" in target_values):
-            current_comments = []
-            continue
         if k and k not in target_values:
             blocks.append((current_comments, k, line))
         current_comments = []
@@ -1361,9 +1275,6 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_timezone(layout.env):
             if "TZ" not in changes["env"]:
                 changes["env"].append("TZ")
-        if _ensure_fqdn(layout.env, PRODUCTION):
-            if "CLAIRE_FQDN" not in changes["env"]:
-                changes["env"].append("CLAIRE_FQDN")
         if _ensure_inject_token(layout.env):
             if "CLAIRE_INJECT_TOKEN" not in changes["env"]:
                 changes["env"].append("CLAIRE_INJECT_TOKEN")
@@ -1383,9 +1294,6 @@ def sync_environment_files(layout: Layout) -> dict[str, list[str]]:
         if _ensure_timezone(layout.dev_env):
             if "TZ" not in changes["dev_env"]:
                 changes["dev_env"].append("TZ")
-        if _ensure_fqdn(layout.dev_env, DEVELOPMENT):
-            if "CLAIRE_FQDN" not in changes["dev_env"]:
-                changes["dev_env"].append("CLAIRE_FQDN")
         if _ensure_inject_token(layout.dev_env):
             if "CLAIRE_INJECT_TOKEN" not in changes["dev_env"]:
                 changes["dev_env"].append("CLAIRE_INJECT_TOKEN")
@@ -3756,7 +3664,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Pre-flight check deployment configuration, Docker Compose validity, network, and security constraints.\n\n"
             "Checks:\n"
             "  - Environment files (.env / .env.dev) existence and syntax\n"
-            "  - CB_API_BIND (IPv4), CB_API_PORT, and CLAIRE_FQDN/CLAIRE_PUBLIC_URL consistency\n"
+            "  - CB_API_BIND (IPv4), CB_API_PORT, and CLAIRE_FQDN consistency\n"
             "  - Role hosts CLAIRE_USERCONTENT_FQDN / CLAIRE_MEDIA_FQDN:\n"
             "      development: CB_API_BIND:CB_USERCONTENT_PORT / CB_API_BIND:CB_MEDIA_PORT,\n"
             "                   every port distinct from CB_API_PORT and each other\n"
@@ -3765,7 +3673,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  - Security tokens (CLAIRE_INJECT_TOKEN, CLAIRE_READONLY_TOKEN)\n"
             "  - Fedify sidecar host port CB_FEDIFY_PORT in development\n"
             "      (different from CB_API_PORT and the role host ports)\n"
-            "  - Edge service public authority in production (from CLAIRE_FQDN or CLAIRE_PUBLIC_URL)\n"
+            "  - Edge service public authority in production (from CLAIRE_FQDN)\n"
             "  - Docker compose config syntax and legacy container conflicts\n"
             "  - data/ directory permissions (0700)"
         ),

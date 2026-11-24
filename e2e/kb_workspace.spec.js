@@ -4,7 +4,7 @@ const { authenticateOwner, json, watchErrors, expectNoRawKeys, kbInfo, kbItem, i
 test.use({ serviceWorkers: 'block' });
 
 // The workspace of a shared knowledge base ("/kb/101/?doc=…": the shared knowledge base bar of app.js with the buttons of kb_dialogs.js), and the campaign notices of the ingest dialog (ingest_dialogs.js, design Section 8.7). The membership, the contribution, the fork, the ingest stream, and the submission get fixed answers in the shapes of api/server.py ("_shared_kb_root", "kb_membership_route", "kb_contribute_route", "kb_forks_route", "campaign.notices_for_ingest", "_submission_view").
-// The E2E server runs in single mode without CLAIRE_MULTI_THEME: "_select_kb" gives 404 for each knowledge base other than 0, also for "/kb/101/". Thus the spec gives the workspace page of the admin ("/@e2eadmin/?doc=doc-1", from the server) with the API base "/kb/101/", and sends each content request of "/kb/101/…" (graph, documents, statistics) to "/@e2eadmin/…" of the server.
+// The E2E server database has no shared KB 101 seeded: "_select_kb" gives 404 for "/kb/101/". Thus the spec gives the workspace page of the admin ("/@e2eadmin/?doc=doc-1", from the server) with the API base "/kb/101/", and sends each content request of "/kb/101/…" (graph, documents, statistics) to "/@e2eadmin/…" of the server.
 
 const ADMIN_BASE = '/@e2eadmin/';
 

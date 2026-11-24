@@ -158,7 +158,7 @@ def _build_test_settings(tmp_path: Path) -> Settings:
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         TELEGRAM_BOT_TOKEN="12345:fake_bot_token",
         TELEGRAM_ALLOWED_USERS="100,200",

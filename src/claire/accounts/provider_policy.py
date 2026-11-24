@@ -547,12 +547,9 @@ def settings_for_context(settings: "Settings", ctx: ProviderContext) -> "Setting
         "gemini_embed_model": ctx.embed_model,
         "gemini_effort": effort,
         "telegram_bot_token": "",
-        "stt_provider": "gemini" if stt_ok else "none",
         "vlm_provider": "gemini" if vlm_ok else "none",
         "enable_video_transcription": bool(getattr(settings, "enable_video_transcription", False)) and stt_ok,
         "enable_vlm_transcription": bool(getattr(settings, "enable_vlm_transcription", False)) and vlm_ok,
-        "presentation_enabled": bool(getattr(settings, "presentation_enabled", False))
-        and ctx.feature_allowed("presentation"),
         **languages,
     }
     if not ctx.server_admin:

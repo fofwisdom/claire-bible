@@ -130,7 +130,7 @@ def _app(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
     finally:
         conn.close()
     auth_db.connect_auth_db(auth_db.auth_db_path(data_dir)).close()
-    settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_DATA_DIR=str(data_dir), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_PUBLIC_URL=PUBLIC_URL, GEMINI_API_KEY=gemini_key)
+    settings = Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_DATA_DIR=str(data_dir), CLAIRE_PROVIDER="mock", CLAIRE_ENVIRONMENT="development", CLAIRE_FQDN=PUBLIC_URL, GEMINI_API_KEY=gemini_key)
     tokens = get_token_store(data_dir=data_dir)
     admin = {"Authorization": f"Bearer {tokens.create_token(name='admin', scope='owner', account_id=1)['token']}", "Origin": PUBLIC_URL}
     member = {"Authorization": f"Bearer {tokens.create_token(name='member', scope='owner', account_id=2)['token']}", "Origin": PUBLIC_URL}

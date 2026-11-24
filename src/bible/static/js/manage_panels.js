@@ -1172,7 +1172,7 @@
     const isOwner = evalBool(optsState.isOwner, evalBool(optsState.canWrite, true));
     // Only the admin deletes a shared knowledge base (design Section 10.1).
     const isAdmin = evalBool(optsState.isAdmin, false);
-    const defaultMgr = optsState.defaultSorcerer || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || 'owner';
+    const defaultMgr = optsState.defaultSorcerer || (window.__CLAIRE_CONFIG && window.__CLAIRE_CONFIG.sorcerer) || '';
 
     let listHtml = '<div class="theme-manager-list">';
     for (const t of themes) {

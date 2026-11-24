@@ -191,7 +191,7 @@ async def test_member_bot_resolves_the_locale_of_its_owner_account(tmp_path: Pat
     from claire.store.knowledge_base import KnowledgeBaseManager
 
     monkeypatch.delenv("CLAIRE_LANG", raising=False)
-    settings = _bot_settings(tmp_path, CLAIRE_MULTI_THEME=True, telegram_bot_token="")
+    settings = _bot_settings(tmp_path, telegram_bot_token="")
     conn = dbm.connect(settings.db_file)
     member = conn.execute("INSERT INTO accounts (public_id, username, role, status, created_at, updated_at) VALUES (223456789012, 'member_alpha', 'member', 'active', 0, 0)").lastrowid
     conn.commit()

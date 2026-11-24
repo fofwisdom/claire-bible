@@ -1038,7 +1038,7 @@ def _parse_url(
         if parsed.path:
             raise ValueError("CORS origins must not contain a path or trailing slash")
     elif parsed.path not in {"", "/"}:
-        raise ValueError("CLAIRE_PUBLIC_URL must use the service root path")
+        raise ValueError("Public URL must use the service root path")
     if parsed.hostname is None:
         raise ValueError("URL hostname is required")
     if port is not None and port < 1:
@@ -2548,16 +2548,15 @@ class SafeAccessLogMiddleware:
             if extra.get("ga_measurement_id"):
                 return self._ga_csp_header_value
             return self._no_ga_csp_header_value
+        if getattr(namespace, "account_id", None) is not None:
+            return self._default_csp_header_value
         return self.csp_header_value
 
     @property
     def csp_header_value(self) -> bytes:
-        if self.theme_manager is not None and getattr(getattr(self.theme_manager, "settings", None), "multi_theme", False):
-            has_ga = self.theme_manager.has_any_ga_enabled()
-        else:
-            has_ga = bool(self.config and self.config.ga_measurement_id) or (
-                self.theme_manager is not None and self.theme_manager.has_any_ga_enabled()
-            )
+        has_ga = bool(self.config and self.config.ga_measurement_id) or (
+            self.theme_manager is not None and self.theme_manager.has_any_ga_enabled()
+        )
         return self._ga_csp_header_value if has_ga else self._default_csp_header_value
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -2597,7 +2596,7 @@ class SafeAccessLogMiddleware:
                 route_rule = lookup_route_rule(str(scope.get("method", "")), policy_path)
                 if route_rule is None or route_rule.access != "public":
                     add_header(b"cache-control", b"no-store")
-                csp_val = self._csp_for(state)
+                csp_val = self._default_csp_header_value if (300 <= status < 400 and state.get(NAMESPACE_STATE_KEY) is None) else self._csp_for(state)
                 if is_presentation_route:
                     csp_val = csp_val.replace(b"frame-ancestors 'none'", b"frame-ancestors 'self'")
                 add_header(
@@ -2666,7 +2665,7 @@ def wrap_web_app(
     """
     from .host_router import EmptyLegacyHostDirectory, HostRoles, HostRouter, not_found_app
 
-    if theme_manager is None and getattr(settings, "multi_theme", False):
+    if theme_manager is None:
         try:
             from ..store.knowledge_base import get_kb_manager
 

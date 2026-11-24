@@ -27,7 +27,7 @@ def clean_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CLAIRE_VAULT_PATH", str(vault_dir))
     monkeypatch.setenv("CLAIRE_PROVIDER", "mock")
     monkeypatch.setenv("CLAIRE_RAW_CHAR_BUDGET", "100")
-    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "https://claire.example.org")
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "production")
     monkeypatch.setenv("CLAIRE_FQDN", "claire.example.org")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11")
     get_settings.cache_clear()
@@ -221,7 +221,7 @@ def test_cli_regenerate_refetch_options():
 # --- 4. FQDN Matching & extract_own_share_token Tests ---
 
 def test_extract_own_share_token(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("CLAIRE_PUBLIC_URL", "https://claire.myorg.com")
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "production")
     monkeypatch.setenv("CLAIRE_FQDN", "claire.myorg.com")
     get_settings.cache_clear()
 

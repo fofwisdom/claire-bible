@@ -17,73 +17,18 @@ def _unwrap_json(raw: str) -> dict:
 @pytest.fixture
 def cli_theme_env(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
     data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
 
     db_path = str(data_dir / "claire.db")
-    vault_path = str(vault_dir)
 
     settings = Settings(
         CLAIRE_DB_PATH=db_path,
-        CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
     monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
     tm = KnowledgeBaseManager(settings)
     monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
     return settings, tm
-
-
-def test_cli_theme_single_mode(tmp_path, monkeypatch, capsys):
-    """CLAIRE_MULTI_THEME=False 상태에서 CLI 명령 방어 및 단일 테마 목록 출력 검증."""
-    data_dir = tmp_path / "single_data"
-    vault_dir = tmp_path / "single_vault"
-    data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
-
-    settings = Settings(
-        CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
-        CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=False,
-    )
-    monkeypatch.setattr("claire.cli.get_settings", lambda: settings)
-    tm = KnowledgeBaseManager(settings)
-    monkeypatch.setattr("claire.store.knowledge_base.get_kb_manager", lambda s=None: tm)
-
-    # 1. list 명령 -> 안내문구 및 기본 지식베이스 출력
-    ret = cli.main(["kb", "list"])
-    assert ret == 0
-    captured = capsys.readouterr().out
-    assert "single-theme mode" in captured
-    assert "Default knowledge base" in captured
-    assert "CLAIRE_MULTI_THEME=1" in captured
-
-    # 2. define 명령 -> 차단 및 에러 메시지
-    ret = cli.main(["kb", "define", "--type", "real", "--label", "금지된 테마"])
-    assert ret == 1
-    err = capsys.readouterr().err
-    assert "Multi-theme mode is off" in err
-
-    # 3. update 명령 -> 차단 및 에러 메시지
-    ret = cli.main(["kb", "update", "0", "--label", "수정 시도"])
-    assert ret == 1
-    err = capsys.readouterr().err
-    assert "Multi-theme mode is off" in err
-
-    # 4. delete 명령 -> 차단 및 에러 메시지
-    ret = cli.main(["kb", "delete", "1"])
-    assert ret == 1
-    err = capsys.readouterr().err
-    assert "Multi-theme mode is off" in err
-
-    # 5. stats --theme=1 -> 경고 후 기본 테마 진행
-    ret = cli.main(["stats", "-t", "1"])
-    assert ret == 0
-    err = capsys.readouterr().err
-    assert "Claire ignores --theme=1 and uses the default theme" in err
 
 
 def test_cli_theme_list(cli_theme_env, capsys):

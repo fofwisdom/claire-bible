@@ -102,7 +102,8 @@ def test_fetch_video_with_mock_stt(monkeypatch):
         lambda _configured: "/bin/ffmpeg",
     )
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
-    monkeypatch.setenv("CLAIRE_STT_PROVIDER", "mock")
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("CLAIRE_YTDLP_EXTRACTOR_ARGS", "")
     from claire.core.config import get_settings
     get_settings.cache_clear()

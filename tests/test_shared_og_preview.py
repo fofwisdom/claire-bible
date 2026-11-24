@@ -222,7 +222,7 @@ def test_shared_doc_page_endpoint_crawler_and_security(tmp_path: Path):
 
     s = Settings(
         db_path=str(db_file),
-        public_url="https://bible.example.com",
+        fqdn="bible.example.com",
         CLAIRE_ENVIRONMENT="production",
     )
     app = create_app(s)

@@ -14,7 +14,6 @@
     too_many_attempts: tr("console.js.common.error.too_many_attempts"),
     forbidden: tr("console.js.admin.error.forbidden"),
     network_mode_not_available: tr("console.js.admin.mode.error.network_mode_not_available"),
-    multi_theme_required: tr("console.js.admin.mode.error.multi_theme_required"),
     invalid_mode: tr("console.js.admin.mode.error.invalid_mode")
   };
 

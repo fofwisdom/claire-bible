@@ -534,24 +534,41 @@ def test_render_graph_html_default():
     assert 'function enterHome(' in html
     assert 'id="repolink"' in html
     assert 'id="drawermanager"' in html
-    assert "Knowledge manager: owner" in html
     assert html.index('id="drawermanager"') < html.index('id="repolink"')
     assert "get sourceBaseUrl(){ return 'https://github.com/fofwisdom/claire-bible'; }" in html
     assert "get githubRepository(){ return 'fofwisdom/claire-bible'; }" in html
-    assert "get sorcerer(){ return 'owner'; }" in html
-    assert "get owner(){ return 'owner'; }" in html
+    assert "get sorcerer(){ return ''; }" in html
+    assert "get owner(){ return ''; }" in html
 
 
-def test_render_graph_html_custom_settings():
+def test_render_graph_html_custom_settings(tmp_path):
+    from types import SimpleNamespace
     from claire.core.config import Settings
+    from claire.store import db as dbm
+
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    conn.execute("UPDATE accounts SET display_name = 'Alice' WHERE id = 1")
+    conn.commit()
+    conn.close()
 
     settings = Settings(
+        CLAIRE_DB_PATH=str(db_file),
         GITHUB_REPOSITORY="custom-team/my-kb",
         SOURCE_BASE_URL="https://custom.git/custom-team/my-kb",
-        CLAIRE_SORCERER="custom_admin",
         _env_file=None,
     )
-    html = render_graph_html(settings)
+    explicit_theme = SimpleNamespace(
+        id=1,
+        label="Custom KB",
+        sorcerer="custom_admin",
+        account_id=1,
+        ga_measurement_id="",
+        fqdn="",
+        icon="📚",
+    )
+    html = render_graph_html(settings, theme=explicit_theme)
     assert 'href="https://custom.git/custom-team/my-kb"' in html
     assert 'title="custom-team/my-kb (GitHub)"' in html or 'custom-team/my-kb' in html
     assert "Knowledge manager: custom_admin" in html
@@ -560,13 +577,19 @@ def test_render_graph_html_custom_settings():
     assert "get sorcerer(){ return 'custom_admin'; }" in html
     assert "get owner(){ return 'custom_admin'; }" in html
 
+    # Fallback to owning account display_name when theme sorcerer is empty
+    fallback_html = render_graph_html(settings, account_id=1)
+    assert "Knowledge manager: Alice" in fallback_html
+    assert "get sorcerer(){ return 'Alice'; }" in fallback_html
+
 
 def test_drawerfooter_knowledge_manager_and_github_icon_layout():
     """drawerfooter 내 좌측 지식 관리자 표기 및 우측 끝 GitHub 아이콘 배치 검증."""
-    from claire.core.config import Settings
+    from types import SimpleNamespace
 
     # 1. CSS 규칙 검증: drawerfooter justify-content:space-between, drawermanager, repolink 우측 정렬
-    html = render_graph_html()
+    theme_owner = SimpleNamespace(id=0, label="Default", sorcerer="owner", account_id=1, ga_measurement_id="", fqdn="", icon="🌐")
+    html = render_graph_html(theme=theme_owner)
     assert "#drawerfooter{margin-top:auto;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px}" in html
     assert "#drawermanager{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}" in html
     assert "#repolink{margin-left:auto;flex-shrink:0}" in html
@@ -583,11 +606,8 @@ def test_drawerfooter_knowledge_manager_and_github_icon_layout():
     assert "Knowledge manager: owner" in footer_html
 
     # 3. XSS 방지 이스케이프 검증
-    settings_xss = Settings(
-        CLAIRE_SORCERER="<script>alert(1)</script>",
-        _env_file=None,
-    )
-    html_xss = render_graph_html(settings_xss)
+    theme_xss = SimpleNamespace(id=0, label="Default", sorcerer="<script>alert(1)</script>", account_id=1, ga_measurement_id="", fqdn="", icon="🌐")
+    html_xss = render_graph_html(theme=theme_xss)
     assert "<script>alert(1)</script>" not in html_xss
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_xss
     assert "Knowledge manager: &lt;script&gt;alert(1)&lt;/script&gt;" in html_xss

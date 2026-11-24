@@ -84,7 +84,7 @@ def _setup_test_layout(root: Path) -> None:
             "CB_VAULT_DIR=./vault",
             "CLAIRE_DB_PATH=data/claire.db",
             "CLAIRE_INJECT_TOKEN=" + ("s" * 32),
-            "CLAIRE_PUBLIC_URL=https://claire.example.com/",
+            "CLAIRE_FQDN=claire.example.com",
             "CLAIRE_CORS_ALLOWED_ORIGINS=",
             "TELEGRAM_BOT_TOKEN=",
             "",

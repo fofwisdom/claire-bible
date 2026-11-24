@@ -28,12 +28,10 @@ def _settings(tmp_path: Path) -> Settings:
     (tmp_path / "data").mkdir(parents=True, exist_ok=True)
     return Settings(
         CLAIRE_DB_PATH=str(tmp_path / "data" / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_MULTI_THEME=True,
     )
 
 

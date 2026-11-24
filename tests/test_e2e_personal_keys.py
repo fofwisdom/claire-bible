@@ -110,8 +110,7 @@ def _setup(tmp_path: Path) -> tuple[Path, Path, Settings]:
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN=PUBLIC_URL,
         GEMINI_API_KEY=SERVER_KEY,
         CLAIRE_GEMINI_MODEL="gemini-3.8-flash",
     )
@@ -164,8 +163,7 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN=PUBLIC_URL,
         GEMINI_API_KEY=SERVER_KEY,
         CLAIRE_GEMINI_MODEL="gemini-3.8-flash",
     )

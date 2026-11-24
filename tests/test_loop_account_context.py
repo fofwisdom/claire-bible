@@ -201,7 +201,6 @@ def test_ingest_service_and_pool_account_context_and_default_theme(tmp_path: Pat
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
     tm = KnowledgeBaseManager(settings)
 
@@ -256,7 +255,6 @@ def test_theme_services_for_cycle_skips_suspended_and_deleting_accounts(tmp_path
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
 
     state = cli._ThemeLoopState()
@@ -334,7 +332,6 @@ def test_e2e_recover_cycle_skips_suspended_account_themes(tmp_path: Path, monkey
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
 
     args = SimpleNamespace(batch=5, max_attempts=5, base_delay=1.0)
@@ -382,7 +379,6 @@ def test_refresh_and_expand_cycles_skip_suspended_accounts(tmp_path: Path):
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
 
     visited_refresh: list[int] = []

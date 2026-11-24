@@ -97,12 +97,6 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
     s = get_settings()
     theme_ref = getattr(args, "theme", None)
     if theme_ref is not None:
-        if not getattr(s, "multi_theme", False):
-            print(
-                f"[warning] Multi-theme mode is off. Claire ignores --theme={theme_ref} and uses the default theme (set CLAIRE_MULTI_THEME=1).",
-                file=sys.stderr,
-            )
-            return s, None
         from .store.knowledge_base import get_kb_manager
 
         tm = get_kb_manager(s)
@@ -113,21 +107,20 @@ def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[An
             raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
         return tm.get_settings_for_kb(theme.id, s), theme
 
-    if getattr(s, "multi_theme", False):
-        raw_target = doc_target or getattr(args, "target", None) or getattr(args, "doc_id", None) or getattr(args, "token", None)
-        if raw_target and isinstance(raw_target, str) and raw_target.strip():
-            from .store.knowledge_base import get_kb_manager
+    raw_target = doc_target or getattr(args, "target", None) or getattr(args, "doc_id", None) or getattr(args, "token", None)
+    if raw_target and isinstance(raw_target, str) and raw_target.strip():
+        from .store.knowledge_base import get_kb_manager
 
-            tm = get_kb_manager(s)
-            try:
-                matches = tm.resolve_document_targets(target=raw_target.strip())
-                if matches:
-                    matched_tid = matches[0].get("kb_id")
-                    if matched_tid is not None:
-                        theme = tm.get_kb(matched_tid)
-                        return tm.get_settings_for_kb(theme.id, s), theme
-            except Exception:
-                pass
+        tm = get_kb_manager(s)
+        try:
+            matches = tm.resolve_document_targets(target=raw_target.strip())
+            if matches:
+                matched_tid = matches[0].get("kb_id")
+                if matched_tid is not None:
+                    theme = tm.get_kb(matched_tid)
+                    return tm.get_settings_for_kb(theme.id, s), theme
+        except Exception:
+            pass
 
     return s, None
 
@@ -374,28 +367,19 @@ def cmd_untombstone(args) -> int:
     s = get_settings()
     theme_ref = getattr(args, "theme", None)
 
+    from .store.knowledge_base import get_kb_manager
+
+    tm = get_kb_manager(s)
     target_themes: list[tuple[Any, Any | None]] = []
     if theme_ref is not None:
-        if getattr(s, "multi_theme", False):
-            from .store.knowledge_base import get_kb_manager
-
-            tm = get_kb_manager(s)
-            try:
-                t = tm.get_kb(theme_ref, label_match="partial")
-            except KeyError as exc:
-                raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
-            target_themes.append((tm.get_settings_for_kb(t.id, s), t))
-        else:
-            target_themes.append((s, None))
+        try:
+            t = tm.get_kb(theme_ref, label_match="partial")
+        except KeyError as exc:
+            raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
+        target_themes.append((tm.get_settings_for_kb(t.id, s), t))
     else:
-        if getattr(s, "multi_theme", False):
-            from .store.knowledge_base import get_kb_manager
-
-            tm = get_kb_manager(s)
-            for t in tm.list_kbs():
-                target_themes.append((tm.get_settings_for_kb(t.id, s), t))
-        else:
-            target_themes.append((s, None))
+        for t in tm.list_kbs():
+            target_themes.append((tm.get_settings_for_kb(t.id, s), t))
 
     target = getattr(args, "target", None)
     doc_id = getattr(args, "doc_id", None)
@@ -1129,52 +1113,7 @@ def cmd_theme(args) -> int:
     tm = get_kb_manager(s)
     action = getattr(args, "theme_action", None) or "list"
 
-    if action in ("define", "update", "delete"):
-        if not getattr(s, "multi_theme", False):
-            print(
-                "[error] Multi-theme mode is off.\n"
-                "To make, change, or delete a theme, set the environment variable CLAIRE_MULTI_THEME=1.",
-                file=sys.stderr,
-            )
-            return 1
-
     if action == "list":
-        if not getattr(s, "multi_theme", False):
-            as_json = getattr(args, "json", False)
-            stats = {"documents": 0, "entities": 0, "relations": 0}
-            if s.db_file.is_file():
-                try:
-                    conn = dbm.connect_existing(s.db_file, readonly=True)
-                    try:
-                        stats = theme_summary(conn, include_hidden=True)
-                    finally:
-                        conn.close()
-                except Exception:
-                    pass
-            out = [{
-                "id": 0,
-                "seq": 0,
-                "label": "Default knowledge base",
-                "description": "General collected material and basic knowledge",
-                "icon": "📚",
-                "db_path": str(s.db_path),
-                "is_personal": True,
-                "stats": stats,
-            }]
-            if as_json:
-                print(json.dumps({"themes": out, "multi_theme": False}, ensure_ascii=False, indent=2))
-                return 0
-
-            print("Claire Bible themes (single-theme mode / CLAIRE_MULTI_THEME=0)")
-            print("=" * 68)
-            print(f"{'ID':<4} {'Icon':<4} {'Label':<22} {'Docs/Entities/Rels':<18} {'Default'}")
-            print("-" * 68)
-            st = f"{stats['documents']} / {stats['entities']} / {stats['relations']}"
-            print(f"{0:<4} {'📚':<4} {'Default knowledge base':<22} {st:<18} {'★ default'}")
-            print(f"     ㄴ DB  : {s.db_path}")
-            print("=" * 68)
-            print("  ※ To use multi-theme mode, set the environment variable CLAIRE_MULTI_THEME=1.")
-            return 0
         tm.reload()
         themes = tm.list_kbs()
         as_json = getattr(args, "json", False)
@@ -1298,9 +1237,6 @@ def cmd_theme(args) -> int:
         if action == "delete":
             if target_theme.is_personal or target_theme.id == 0:
                 print(f"[error] You cannot delete the default theme (ID {target_theme.id}).", file=sys.stderr)
-                return 1
-            if not getattr(tm.settings, "multi_theme", False):
-                print("[error] Multi-theme mode is off (set CLAIRE_MULTI_THEME=1)", file=sys.stderr)
                 return 1
 
         purge = action == "delete" and getattr(args, "purge", False)
@@ -3252,13 +3188,12 @@ def cmd_recompile_html(args) -> int:
         dbm.init_db(conn)
         try:
             doc_id = target
-            if getattr(s, "multi_theme", False):
-                from .store.knowledge_base import get_kb_manager
+            from .store.knowledge_base import get_kb_manager
 
-                tm = get_kb_manager(s)
-                matches = tm.resolve_document_targets(target=target)
-                if matches:
-                    doc_id = matches[0]["id"]
+            tm = get_kb_manager(s)
+            matches = tm.resolve_document_targets(target=target)
+            if matches:
+                doc_id = matches[0]["id"]
             else:
                 doc = dbm.document_by_id(conn, target)
                 if not doc:
@@ -3291,41 +3226,31 @@ def cmd_recompile_html(args) -> int:
         finally:
             conn.close()
 
-    # 3. 테마 지정 없이 일괄 실행된 경우 (멀티 테마 시 모든 활성 테마 순회)
-    if getattr(s, "multi_theme", False):
-        from .store.knowledge_base import KnowledgeBaseManager
+    # 3. 테마 지정 없이 일괄 실행된 경우 (모든 활성 테마 순회)
+    from .store.knowledge_base import KnowledgeBaseManager
 
-        try:
-            targets = KnowledgeBaseManager(s).active_kb_settings(s)
-        except Exception as exc:
-            print(f"recompile-html: registry error: {exc}", file=sys.stderr)
-            return 1
-
-        total_count = 0
-        for theme, theme_settings in targets:
-            conn = None
-            try:
-                conn = dbm.connect(theme_settings.db_file)
-                dbm.init_db(conn)
-                c = dbm.recompile_all_detail_html(conn)
-                total_count += c
-                print(f"[{theme.icon} Theme #{theme.id} - {theme.label}] AOT HTML compile done: {c} updated")
-            except Exception as exc:
-                print(f"[{theme.label}] Compile failed: {exc}", file=sys.stderr)
-            finally:
-                if conn is not None:
-                    conn.close()
-        print(f"AOT HTML compile of all themes done: {total_count} documents updated")
-        return 0
-
-    conn = dbm.connect(s.db_file)
-    dbm.init_db(conn)
     try:
-        count = dbm.recompile_all_detail_html(conn)
-        print(f"AOT HTML compile done: {count} documents updated")
-        return 0
-    finally:
-        conn.close()
+        targets = KnowledgeBaseManager(s).active_kb_settings(s)
+    except Exception as exc:
+        print(f"recompile-html: registry error: {exc}", file=sys.stderr)
+        return 1
+
+    total_count = 0
+    for theme, theme_settings in targets:
+        conn = None
+        try:
+            conn = dbm.connect(theme_settings.db_file)
+            dbm.init_db(conn)
+            c = dbm.recompile_all_detail_html(conn)
+            total_count += c
+            print(f"[{theme.icon} Theme #{theme.id} - {theme.label}] AOT HTML compile done: {c} updated")
+        except Exception as exc:
+            print(f"[{theme.label}] Compile failed: {exc}", file=sys.stderr)
+        finally:
+            if conn is not None:
+                conn.close()
+    print(f"AOT HTML compile of all themes done: {total_count} documents updated")
+    return 0
 
 
 def cmd_presentation(args) -> int:
@@ -4808,24 +4733,6 @@ def cmd_migrate(_args) -> int:
         print(f"migrate: fedify service key error: {e}", file=sys.stderr)
         return 1
 
-    if not getattr(s, "multi_theme", False):
-        conn = None
-        try:
-            conn = dbm.connect(s.db_file)
-            dbm.init_db(conn)
-            version = require_current_schema(conn)
-        except Exception as e:  # noqa: BLE001
-            print(f"migrate: error: {e}", file=sys.stderr)
-            return 1
-        finally:
-            if conn is not None:
-                conn.close()
-        print(
-            f"schema_version={version} expected={dbm.SCHEMA_VERSION} "
-            f"lineage={dbm.SCHEMA_LINEAGE}"
-        )
-        return _migrate_plugin_store(s)
-
     from .store.knowledge_base import KnowledgeBaseManager
 
     try:
@@ -5396,15 +5303,14 @@ def cmd_import_graph(args: Any) -> int:
 
     if not target_db:
         target_db = s.db_file
-        if getattr(s, "multi_theme", False) or (theme_ref and str(theme_ref) != "0"):
-            try:
-                from .store.knowledge_base import get_kb_manager
+        try:
+            from .store.knowledge_base import get_kb_manager
 
-                tm = get_kb_manager(s)
-                theme = tm.get_kb(theme_ref, label_match="partial")
-                target_db = Path(theme.db_path)
-            except Exception as exc:
-                raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
+            tm = get_kb_manager(s)
+            theme = tm.get_kb(theme_ref, label_match="partial")
+            target_db = Path(theme.db_path)
+        except Exception as exc:
+            raise ValueError(f"Theme '{theme_ref}' is not found: {exc}") from exc
 
     try:
         result = import_graph_bundle(target_db_path=target_db, bundle_path=bundle_path)

@@ -215,16 +215,15 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
     assert s2.effective_fqdn == "127.0.0.1:8766"
     assert s2.public_url == "http://127.0.0.1:8766/"
 
-    # 3. Legacy CLAIRE_PUBLIC_URL auto-migration
+    # 3. Legacy CLAIRE_PUBLIC_URL is ignored
     s3 = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="production",
         CLAIRE_PUBLIC_URL="https://migrated.example.com/",
     )
-    assert s3.effective_fqdn == "migrated.example.com"
-    assert s3.public_url == "https://migrated.example.com/"
+    assert s3.effective_fqdn == ""
+    assert s3.public_url == ""
 
     # 4. Cloudflare ips only validator boolean parsing
     s4 = Settings(

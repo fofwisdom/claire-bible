@@ -111,7 +111,6 @@ def test_theme_manager_rejects_new_fqdn_but_keeps_ga(tmp_path):
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
     tm = KnowledgeBaseManager(base_settings=settings)
     with pytest.raises(ValueError):
@@ -146,7 +145,7 @@ def _make_security_test_settings(tmp_path: Path) -> SimpleNamespace:
 
 def _theme_manager(db_file: Path) -> KnowledgeBaseManager:
     return KnowledgeBaseManager(
-        base_settings=Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file), CLAIRE_MULTI_THEME=True)
+        base_settings=Settings(_env_file=None, CLAIRE_DB_PATH=str(db_file))
     )
 
 
@@ -230,10 +229,9 @@ def multi_theme_server_env(tmp_path):
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=APP_ORIGIN,
+        CLAIRE_FQDN=APP_ORIGIN,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
-        CLAIRE_MULTI_THEME=True,
     )
     app = create_app(settings=settings)
     client = TestClient(app, base_url=settings.public_url)

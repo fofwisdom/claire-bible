@@ -57,9 +57,8 @@ def _settings(tmp_path: Path) -> Settings:
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
+        CLAIRE_FQDN=PUBLIC_URL,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_MULTI_THEME=True,
     )
 
 

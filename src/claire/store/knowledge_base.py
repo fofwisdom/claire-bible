@@ -377,13 +377,6 @@ class KnowledgeBaseManager:
 
         ``data/themes.json`` is retired (claire.db version 27, design Section 12.1 step 3): the first writable load inserts the entries that are only in the file, as the old code did, and then renames the file to ``themes.json.retired``. No code reads or writes it after that.
         """
-        if not getattr(self.settings, "multi_theme", False):
-            # 싱글 테마 모드: Theme 0은 claire.db 행에서 한 번 읽어 고정한다(§4.2, K8).
-            if not self._themes or 0 not in self._themes:
-                self._themes = {0: self._load_single_mode_theme0()}
-            self._rebuild_fqdn_index()
-            return
-
         db_file = getattr(self.settings, "db_file", None) or Path("data/claire.db")
         if not self.writable:
             if not Path(db_file).is_file():
@@ -473,7 +466,10 @@ class KnowledgeBaseManager:
 
         A file that cannot be read stays where it is, and the start continues without it (operator rule); the log gets a warning.
         """
-        path = self.settings.data_dir / LEGACY_REGISTRY_FILENAME
+        data_dir = getattr(self.settings, "data_dir", None)
+        if data_dir is None:
+            return 1
+        path = Path(data_dir) / LEGACY_REGISTRY_FILENAME
         if not path.is_file():
             return 1
         try:
@@ -546,51 +542,6 @@ class KnowledgeBaseManager:
             ),
         )
 
-    def _load_single_mode_theme0(self) -> KnowledgeBaseInfo:
-        """싱글 테마 모드의 Theme 0을 claire.db themes 행에서 읽는다(§4.2). 행이 없으면 만들어 기록한다.
-
-        설정에서 오는 값(``presentation_enabled``, 지식 관리자, ``db_path``)은 지금까지처럼 설정을 따른다.
-        읽기 전용(``writable=False``)이고 DB가 없거나 아직 themes 테이블이 없으면 기록하지 않고 기본값을 쓴다.
-        """
-        default = self._build_default_theme()
-        db_file = getattr(self.settings, "db_file", None)
-        if db_file is None:
-            return default
-        path = Path(db_file)
-        row = None
-        if self.writable:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            conn = dbm.connect(path)
-            try:
-                # 생성자가 이미 init_db를 돌렸다. 그 뒤 파일이 바뀐 경우에만 다시 맞춘다.
-                if dbm.stored_schema_version(conn) != dbm.SCHEMA_VERSION:
-                    dbm.init_db(conn)
-                row = conn.execute("SELECT * FROM knowledge_bases WHERE id=0").fetchone()
-                if row is None or row["number"] is None:
-                    if row is None:
-                        self._insert_theme_row(conn, default, db_path=str(path))
-                    dbm.backfill_theme_numbers(conn)
-                    conn.commit()
-                    row = conn.execute("SELECT * FROM knowledge_bases WHERE id=0").fetchone()
-            finally:
-                conn.close()
-        elif path.is_file():
-            conn = dbm.connect_existing(path, readonly=True)
-            try:
-                try:
-                    row = conn.execute("SELECT * FROM knowledge_bases WHERE id=0").fetchone()
-                except (sqlite3.OperationalError, sqlite3.DatabaseError):
-                    row = None
-            finally:
-                conn.close()
-        if row is None:
-            return default
-        theme = _row_to_theme(row, default_db_path=default.db_path)
-        theme.db_path = default.db_path
-        theme.sorcerer = default.sorcerer
-        theme.presentation_enabled = default.presentation_enabled
-        return theme
-
     def _build_default_theme(self) -> KnowledgeBaseInfo:
         now = time.time()
         db_path = getattr(self.settings, "db_path", None)
@@ -598,7 +549,6 @@ class KnowledgeBaseManager:
             db_file = getattr(self.settings, "db_file", None)
             db_path = str(db_file) if db_file is not None else "data/claire.db"
 
-        default_sorcerer = getattr(self.settings, "sorcerer", "owner")
         return KnowledgeBaseInfo(
             id=0,
             seq=0,
@@ -608,8 +558,8 @@ class KnowledgeBaseManager:
             db_path=str(db_path),
             is_personal=True,
             is_public=True,
-            sorcerer=str(default_sorcerer).strip() or "owner",
-            presentation_enabled=bool(getattr(self.settings, "presentation_enabled", False)),
+            sorcerer="",
+            presentation_enabled=False,
             created_at=now,
             updated_at=now,
             account_id=dbm.ADMIN_ACCOUNT_ID,
@@ -797,8 +747,6 @@ class KnowledgeBaseManager:
                 raise ValueError("a shared knowledge base is always public")
             if seed_entities is not None:
                 seeds = validate_seed_entities(seed_entities)
-        if not getattr(self.settings, "multi_theme", False):
-            raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
 
         cleaned_label = str(label or "").strip()
         if not cleaned_label:
@@ -940,8 +888,6 @@ class KnowledgeBaseManager:
 
         ``fqdn``은 폐지됐다(O5). 비어 있지 않으면 ``ValueError``, 빈 값은 아무것도 바꾸지 않는다. 기존 ``knowledge_bases.fqdn`` 열은 ``legacy_hosts``의 원본이므로 지우지 않는다(A3).
         """
-        if not getattr(self.settings, "multi_theme", False):
-            raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
         if fqdn is not None and str(fqdn).strip():
             raise ValueError(THEME_FQDN_RETIRED_MESSAGE)
 
@@ -1080,9 +1026,6 @@ class KnowledgeBaseManager:
 
     def delete_kb(self, kb_id: int | str, *, purge: bool = False) -> KnowledgeBaseInfo:
         """지식 관리자: 테마 삭제 (기본 테마 id 0은 삭제 불가)."""
-        if not getattr(self.settings, "multi_theme", False):
-            raise RuntimeError("멀티 테마 모드가 비활성화되어 있습니다 (CLAIRE_MULTI_THEME=1 필요)")
-
         self.reload()
         try:
             tid = int(kb_id)
@@ -1272,8 +1215,6 @@ class KnowledgeBaseManager:
                 "db_file": db_file,
                 "kb_id": theme.id,
             }
-            if theme.sorcerer:
-                override["sorcerer"] = theme.sorcerer
             return base.model_copy(update=override)
 
         import copy
@@ -1282,8 +1223,6 @@ class KnowledgeBaseManager:
         st.db_file = db_file
         if hasattr(st, "db_path"):
             st.db_path = db_path
-        if theme.sorcerer and hasattr(st, "sorcerer"):
-            st.sorcerer = theme.sorcerer
         st.kb_id = theme.id
         return st
 
@@ -1291,20 +1230,8 @@ class KnowledgeBaseManager:
         self,
         base_settings: Settings | Any | None = None,
     ) -> list[tuple[KnowledgeBaseInfo, Any]]:
-        """활성 테마와 경로가 적용된 설정을 테마 ID 순서로 반환한다.
-
-        멀티 테마가 꺼져 있으면 레지스트리 I/O 없이 기본 설정 한 개만 반환한다. 멀티 테마가 켜져 있으면 레지스트리를 매번 다시 읽어 신규/삭제 테마를 반영하며, 손상된 레지스트리 오류는 호출자에게 그대로 전파한다.
-        """
+        """활성 테마와 경로가 적용된 설정을 테마 ID 순서로 반환한다."""
         base = base_settings or self.settings
-        if not getattr(base, "multi_theme", False):
-            if getattr(self.settings, "multi_theme", False):
-                # 멀티 관리자에 싱글 설정을 넘긴 경우: 레지스트리를 읽지 않는다.
-                theme = self._build_default_theme()
-            else:
-                self.reload()
-                theme = self._themes[0]
-            return [(theme, self._settings_for_theme_info(theme, base))]
-
         self.reload()
         return [
             (theme, self._settings_for_theme_info(theme, base))

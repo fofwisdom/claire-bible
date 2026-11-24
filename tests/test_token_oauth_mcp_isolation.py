@@ -543,7 +543,6 @@ def test_mcp_tools_account_theme_isolation_and_write_scope(tmp_path: Path) -> No
     settings = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_DATA_DIR=str(tmp_path),
-        CLAIRE_MULTI_THEME=True,
     )
     tm = KnowledgeBaseManager(settings)
 
@@ -655,7 +654,7 @@ def test_mcp_tools_readonly_connection_and_allowed_hosts_port(tmp_path: Path) ->
     settings = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_DATA_DIR=str(tmp_path),
-        CLAIRE_PUBLIC_URL="http://bible.example.com:8766",
+        CLAIRE_FQDN="bible.example.com:8766",
         CLAIRE_INJECT_PORT=8766,
     )
 
@@ -712,8 +711,7 @@ def test_e2e_multi_account_oauth_to_mcp_flow(tmp_path: Path) -> None:
     settings = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_DATA_DIR=str(tmp_path),
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     tm = KnowledgeBaseManager(settings)
 

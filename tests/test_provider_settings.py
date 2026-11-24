@@ -66,7 +66,7 @@ def _world(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
         CLAIRE_PROVIDER="gemini",
         GEMINI_API_KEY=gemini_key,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
+        CLAIRE_FQDN=PUBLIC_URL,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
     )
     return SimpleNamespace(settings=settings, data_dir=data_dir, db_file=db_file, auth_file=auth_db.auth_db_path(data_dir))

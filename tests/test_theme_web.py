@@ -69,15 +69,13 @@ def test_theme_web_root_endpoint_serves_selector(tmp_path: Path):
         assert "switchKnowledgeTheme" in response.text
 
 
-def test_theme_web_single_mode_inlining_and_cls_prevention(tmp_path: Path):
-    """싱글 테마 모드: CLS 방지(display:none 인라인) 및 0-RTT 설정 주입 검증."""
+def test_theme_web_single_kb_inlining_and_cls_prevention(tmp_path: Path):
+    """단일 지식베이스 상태: CLS 방지(display:none 인라인) 및 0-RTT 설정 주입 검증."""
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=False,
     )
     html = render_graph_html(s)
-    assert 'themeMode: \'single\'' in html
+    assert "themeMode: 'multi'" in html
     assert 'id="theme-picker-wrap" title="Select the knowledge theme (change the database)" style="display:none"' in html
     assert '기본 지식베이스' in html
 
@@ -88,14 +86,12 @@ def test_theme_web_multi_mode_inlining(tmp_path: Path):
 
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
     )
     tm = KnowledgeBaseManager(s)
     tm.define_kb("AI 및 로보틱스", description="인공지능 연구", icon="🤖", knowledge_type="real")
 
     html = render_graph_html(s)
-    assert 'themeMode: \'multi\'' in html
+    assert "themeMode: 'multi'" in html
     assert 'id="theme-picker-wrap" title="Select the knowledge theme (change the database)" style="display:inline-flex"' in html
     assert 'AI 및 로보틱스' in html
     assert '🤖' in html
@@ -105,8 +101,6 @@ def test_theme_selector_ux_and_modification_features(tmp_path: Path):
     """테마 선택기의 단일 아이콘/일련번호 미표시 및 웹 UI 테마 변경 기능 탑재 검증."""
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
     )
     html = render_graph_html(s)
 
@@ -138,8 +132,6 @@ def test_theme_web_has_no_focus_controls(tmp_path: Path):
     """The focus is sealed (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 13.7, CT28): the UI has no control for the default focus of a knowledge base or for the focus of one document."""
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
     )
     graph_html = render_graph_html(s)
 
@@ -161,9 +153,6 @@ def test_theme_web_knowledge_manager_display(tmp_path: Path):
 
     s = Settings(
         db_path=str(tmp_path / "claire.db"),
-        vault_path=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
-        CLAIRE_SORCERER="default_owner",
     )
     tm = KnowledgeBaseManager(s)
     tm.define_kb("일반 테마", knowledge_type="real")  # 기본 관리자 상속

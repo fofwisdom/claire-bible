@@ -179,17 +179,14 @@ def world(tmp_path):
         _env_file=None,
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_MULTI_THEME=True,
         environment="development",
         provider="mock",
         gemini_api_key=ADMIN_KEY,
         gemini_min_interval=0.0,
         gemini_max_retries=0,
-        stt_provider="gemini",
         vlm_provider="gemini",
         enable_video_transcription=True,
         enable_vlm_transcription=True,
-        presentation_enabled=True,
         auto_expand=False,
     )
     return SimpleNamespace(settings=settings, db_file=db_file, data_dir=data_dir, auth_path=auth_path)

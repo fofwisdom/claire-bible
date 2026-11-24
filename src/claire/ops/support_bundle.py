@@ -675,7 +675,7 @@ def _collect_storage_diagnostics(
             },
             "settings": {
                 "environment": getattr(settings, "environment", None),
-                "multi_theme": bool(getattr(settings, "multi_theme", False)),
+                "multi_theme": True,
                 "db_path": str(getattr(settings, "db_path", configured_db)),
             },
             "paths": path_reports,
@@ -903,11 +903,7 @@ def _support_theme_inventory(
 
     try:
         manager = KnowledgeBaseManager(settings, writable=False)
-        themes = (
-            manager.list_kbs(include_private=True)
-            if getattr(settings, "multi_theme", False)
-            else [manager.get_kb(0)]
-        )
+        themes = manager.list_kbs(include_private=True)
         return manager, themes, []
     except Exception as exc:  # noqa: BLE001
         fallback = _FallbackThemeManager(settings)
@@ -1036,11 +1032,7 @@ def _theme_databases(settings: Settings) -> list[tuple[int, str, Path]]:
     from ..store.knowledge_base import KnowledgeBaseManager
 
     tm = KnowledgeBaseManager(settings)
-    themes = (
-        tm.list_kbs(include_private=True)
-        if getattr(settings, "multi_theme", False)
-        else [tm.get_kb(0)]
-    )
+    themes = tm.list_kbs(include_private=True)
     return [
         (theme.id, theme.label, Path(tm.get_settings_for_kb(theme.id).db_file))
         for theme in themes
@@ -1454,8 +1446,7 @@ def create_support_bundle(
                         "path": str(theme_db),
                         "path_metadata": _path_metadata(theme_db),
                     }
-                    if getattr(s, "multi_theme", False):
-                        db_integrity.setdefault("themes", {})[str(t.id)] = theme_entry
+                    db_integrity.setdefault("themes", {})[str(t.id)] = theme_entry
                     if not theme_db.is_file():
                         theme_entry["error"] = "database file is missing"
                         if t.id == 0:
@@ -1465,78 +1456,48 @@ def create_support_bundle(
                         conn = dbm.connect_existing(theme_db, readonly=True)
                         try:
                             # 상태별 카운트 합산
-                            if getattr(s, "multi_theme", False):
-                                rows = conn.execute(
-                                    "SELECT status, count(*) as cnt FROM raw_inbox WHERE kb_id = ? AND received_at >= ? GROUP BY status",
-                                    (t.id, cutoff_epoch),
-                                ).fetchall()
-                            else:
-                                rows = conn.execute(
-                                    "SELECT status, count(*) as cnt FROM raw_inbox WHERE received_at >= ? GROUP BY status",
-                                    (cutoff_epoch,),
-                                ).fetchall()
+                            rows = conn.execute(
+                                "SELECT status, count(*) as cnt FROM raw_inbox WHERE kb_id = ? AND received_at >= ? GROUP BY status",
+                                (t.id, cutoff_epoch),
+                            ).fetchall()
                             for r in rows:
                                 st = r["status"]
                                 inbox_summary[st] = inbox_summary.get(st, 0) + r["cnt"]
 
                             # 실패/에러 항목 수집
-                            if getattr(s, "multi_theme", False):
-                                err_rows = conn.execute(
-                                    """
-                                    SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
-                                    FROM raw_inbox
-                                    WHERE kb_id = ?
-                                      AND status IN ('error', 'failed', 'stalled')
-                                      AND (received_at >= ? OR last_attempt >= ?)
-                                    ORDER BY received_at DESC LIMIT 100
-                                    """,
-                                    (t.id, cutoff_epoch, cutoff_epoch),
-                                ).fetchall()
-                            else:
-                                err_rows = conn.execute(
-                                    """
-                                    SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
-                                    FROM raw_inbox
-                                    WHERE status IN ('error', 'failed', 'stalled')
-                                      AND (received_at >= ? OR last_attempt >= ?)
-                                    ORDER BY received_at DESC LIMIT 100
-                                    """,
-                                    (cutoff_epoch, cutoff_epoch),
-                                ).fetchall()
+                            err_rows = conn.execute(
+                                """
+                                SELECT id, document_id, payload, status, attempts, error, received_at, last_attempt
+                                FROM raw_inbox
+                                WHERE kb_id = ?
+                                  AND status IN ('error', 'failed', 'stalled')
+                                  AND (received_at >= ? OR last_attempt >= ?)
+                                ORDER BY received_at DESC LIMIT 100
+                                """,
+                                (t.id, cutoff_epoch, cutoff_epoch),
+                            ).fetchall()
                             for er in err_rows:
                                 item = dict(er)
-                                if getattr(s, "multi_theme", False):
-                                    item["kb_id"] = t.id
-                                    item["theme_label"] = safe_theme_label
+                                item["kb_id"] = t.id
+                                item["theme_label"] = safe_theme_label
                                 if not is_admin_theme:
                                     item["payload"] = "[REDACTED]"
                                 failed_items.append(item)
 
                             # 공유 링크 인덱스 (기간 내 생성되었거나 유효한 공유 링크 전체)
-                            if getattr(s, "multi_theme", False):
-                                share_rows = conn.execute(
-                                    """
-                                    SELECT token, target AS document_id, created_at, NULL AS expires_at
-                                    FROM permalinks
-                                    WHERE kind = 'document' AND link_access = 1 AND kb_id = ?
-                                    ORDER BY created_at DESC
-                                    """,
-                                    (t.id,),
-                                ).fetchall()
-                            else:
-                                share_rows = conn.execute(
-                                    """
-                                    SELECT token, target AS document_id, created_at, NULL AS expires_at
-                                    FROM permalinks
-                                    WHERE kind = 'document' AND link_access = 1
-                                    ORDER BY created_at DESC
-                                    """,
-                                ).fetchall()
+                            share_rows = conn.execute(
+                                """
+                                SELECT token, target AS document_id, created_at, NULL AS expires_at
+                                FROM permalinks
+                                WHERE kind = 'document' AND link_access = 1 AND kb_id = ?
+                                ORDER BY created_at DESC
+                                """,
+                                (t.id,),
+                            ).fetchall()
                             for sr in share_rows:
                                 s_dict = dict(sr)
-                                if getattr(s, "multi_theme", False):
-                                    s_dict["kb_id"] = t.id
-                                    s_dict["theme_label"] = safe_theme_label
+                                s_dict["kb_id"] = t.id
+                                s_dict["theme_label"] = safe_theme_label
                                 if not is_admin_theme:
                                     s_dict["token"] = "***REDACTED***"
                                     s_dict["token_sha256"] = "***REDACTED***"
@@ -1548,7 +1509,7 @@ def create_support_bundle(
                             cnts = dbm.counts(
                                 conn,
                                 include_oauth=True,
-                                kb_id=t.id if getattr(s, "multi_theme", False) else None,
+                                kb_id=t.id,
                             )
                             schema_version = dbm.stored_schema_version(conn)
                             schema_lineage = dbm.stored_schema_lineage(conn)
@@ -1557,15 +1518,14 @@ def create_support_bundle(
                                 db_integrity["counts"] = cnts
                                 db_integrity["schema_version"] = schema_version
                                 db_integrity["schema_lineage"] = schema_lineage
-                            if getattr(s, "multi_theme", False):
-                                theme_entry.update(
-                                    {
-                                        "quick_check": chk_res,
-                                        "counts": cnts,
-                                        "schema_version": schema_version,
-                                        "schema_lineage": schema_lineage,
-                                    }
-                                )
+                            theme_entry.update(
+                                {
+                                    "quick_check": chk_res,
+                                    "counts": cnts,
+                                    "schema_version": schema_version,
+                                    "schema_lineage": schema_lineage,
+                                }
+                            )
                         finally:
                             conn.close()
                     except Exception as e:  # noqa: BLE001

@@ -51,10 +51,10 @@ def test_explicit_mock_is_allowed_in_production():
 
 
 def test_stt_without_key_fails_in_production():
-    dev = _settings("development", enable_video_transcription=True, stt_provider="gemini")
+    dev = _settings("development", enable_video_transcription=True)
     assert isinstance(get_transcript_provider(dev), MockTranscriptProvider)
 
-    prod = _settings("production", enable_video_transcription=True, stt_provider="gemini")
+    prod = _settings("production", enable_video_transcription=True)
     assert prod.effective_stt_provider == "unavailable"
     stt = get_transcript_provider(prod)
     assert isinstance(stt, UnavailableTranscriptProvider)

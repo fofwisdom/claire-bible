@@ -39,11 +39,8 @@ def test_parse_caption_composite_variations():
     assert focus == "인프라 아키텍처 중심"
     assert tid is None
 
-    # 3. 설명문 + URL + 플래그 + 테마 (다중 테마 모드 매니저 주입)
+    # 3. 설명문 + URL + 플래그 + 테마
     class FakeThemeManager:
-        def __init__(self):
-            self.settings = SimpleNamespace(multi_theme=True)
-
         def get_kb(self, cand, *, label_match="exact"):
             return SimpleNamespace(id=int(cand) if str(cand).isdigit() else 1)
 
@@ -572,7 +569,7 @@ async def test_telegram_prompt_theme_selection_underscored_file_and_fallback(tmp
 
     mock_msg.reply_text = AsyncMock(side_effect=fake_reply_text)
 
-    # on_document 내부의 _prompt_theme_selection 호출 유도를 위해 multi_theme 설정
+    # on_document 내부의 _prompt_theme_selection 호출
     from claire.store.knowledge_base import KnowledgeBaseManager
     theme_mgr = KnowledgeBaseManager(settings)
     themes = [

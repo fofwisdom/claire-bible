@@ -185,7 +185,7 @@ def test_provider_api_routes(tmp_path: Path):
         CLAIRE_READONLY_TOKEN="readonly-secret-token-123456789012345",
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
 
     app = create_app(settings)

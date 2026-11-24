@@ -48,11 +48,9 @@ def favicon_e2e_app(tmp_path: Path):
         data_path=str(tmp_path),
         vault_path=str(tmp_path / "vault"),
         environment="production",
-        public_url="https://claire.example.com",
         fqdn="claire.example.com",
         inject_token="owner-token-secret-12345678901234",
         readonly_token="readonly-token-secret-123456789012",
-        multi_theme=False,
         site_name="Claire Bible",
     )
     service = SimpleNamespace(provider=SimpleNamespace(name="stub"))

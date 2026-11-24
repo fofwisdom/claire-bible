@@ -40,7 +40,7 @@ def test_e2e_ingest_detail_timeout_to_telegram_and_web(tmp_path: Path):
         vault_path=str(vault_dir),
         data_dir=tmp_path,
         provider="mock",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
         environment="development",
         render_format="md",
     )
@@ -162,7 +162,7 @@ def test_e2e_one_touch_detail_regeneration_flow(tmp_path: Path):
         vault_path=str(vault_dir),
         data_dir=tmp_path,
         provider="mock",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
         environment="development",
         render_format="md",
     )

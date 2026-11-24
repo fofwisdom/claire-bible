@@ -36,11 +36,10 @@ const webServerEnv = {
   PYTHONPATH: process.env.PYTHONPATH ? `src:${process.env.PYTHONPATH}` : 'src',
   CLAIRE_DB_PATH: dbPath,
   CLAIRE_INJECT_PORT: port,
-  CLAIRE_PUBLIC_URL: defaultUrl,
+  CLAIRE_FQDN: `127.0.0.1:${port}`,
   CLAIRE_ALLOW_INSECURE_HTTP: 'true',
   CLAIRE_ENVIRONMENT: 'development',
   CLAIRE_INJECT_TOKEN: 'e2e-owner-token-0123456789abcdef',
-  CLAIRE_PRESENTATION_ENABLED: 'true',
   // The plugin folder of the E2E server: a folder of the run in the git-ignored data folder, never the plugin folder of a person (docs/implementation/INGESTION.md section 2.2). e2e/seed_db.py empties it.
   CLAIRE_PLUGINS_DIR: path.join(repoRoot, 'data', 'e2e-plugins'),
 };

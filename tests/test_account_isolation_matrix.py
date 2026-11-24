@@ -142,8 +142,7 @@ def test_environment(tmp_path: Path):
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN=PUBLIC_URL,
     )
 
     tm = KnowledgeBaseManager(settings)

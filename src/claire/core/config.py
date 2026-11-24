@@ -16,7 +16,6 @@ from typing import Any
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
-    DotEnvSettingsSource,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
@@ -54,59 +53,6 @@ def resolve_app_root(
 
 
 ROOT = resolve_app_root()
-
-
-class _ExactDotEnvSettingsSource(DotEnvSettingsSource):
-    """보안 selector의 dotenv 원문 계약을 보존하는 settings source."""
-
-    def __init__(
-        self,
-        settings_cls: type[BaseSettings],
-        env_file: Any = None,
-        env_file_encoding: str | None = None,
-        case_sensitive: bool | None = None,
-        env_prefix: str | None = None,
-        init_kwargs: Mapping[str, Any] | None = None,
-    ) -> None:
-        self.init_kwargs = dict(init_kwargs or {})
-        super().__init__(
-            settings_cls,
-            env_file=env_file,
-            env_file_encoding=env_file_encoding,
-            case_sensitive=case_sensitive,
-            env_prefix=env_prefix,
-        )
-
-    def _read_env_files(self) -> dict[str, str | None]:
-        env_files: Any = self.env_file
-        if env_files is None:
-            return {}
-        data = dict(super()._read_env_files())
-        has_pub_kwarg = any(
-            k in self.init_kwargs
-            for k in ("public_url", "CLAIRE_PUBLIC_URL", "legacy_public_url")
-        )
-        has_fqdn_kwarg = any(
-            k in self.init_kwargs for k in ("fqdn", "CLAIRE_FQDN")
-        )
-        if has_pub_kwarg and not has_fqdn_kwarg:
-            data.pop("CLAIRE_FQDN", None)
-            data.pop("fqdn", None)
-        return data
-
-    def __call__(self) -> dict[str, Any]:
-        data = dict(super().__call__())
-        has_pub_kwarg = any(
-            k in self.init_kwargs
-            for k in ("public_url", "CLAIRE_PUBLIC_URL", "legacy_public_url")
-        )
-        has_fqdn_kwarg = any(
-            k in self.init_kwargs for k in ("fqdn", "CLAIRE_FQDN")
-        )
-        if has_pub_kwarg and not has_fqdn_kwarg:
-            data.pop("CLAIRE_FQDN", None)
-            data.pop("fqdn", None)
-        return data
 
 
 class _ProvidersJsonSettingsSource(PydanticBaseSettingsSource):
@@ -307,12 +253,6 @@ class Settings(BaseSettings):
         file_secret_settings,
     ):
         init_kwargs = getattr(init_settings, "init_kwargs", None)
-        strict_dotenv = _ExactDotEnvSettingsSource(
-            settings_cls,
-            env_file=dotenv_settings.env_file,
-            env_file_encoding=dotenv_settings.env_file_encoding,
-            init_kwargs=init_kwargs,
-        )
         providers_json = _ProvidersJsonSettingsSource(
             settings_cls,
             init_kwargs=init_kwargs,
@@ -327,7 +267,7 @@ class Settings(BaseSettings):
             ingest_limits_json,
             providers_json,
             _WithoutModelFields(settings_cls, env_settings),
-            _WithoutModelFields(settings_cls, strict_dotenv),
+            _WithoutModelFields(settings_cls, dotenv_settings),
             file_secret_settings,
         )
 
@@ -409,7 +349,6 @@ class Settings(BaseSettings):
     enable_video_transcription: bool = Field(
         default=True, alias="CLAIRE_ENABLE_VIDEO_TRANSCRIPTION"
     )
-    stt_provider: str = Field(default="gemini", alias="CLAIRE_STT_PROVIDER")
     stt_model: str = Field(default="")
     # "auto": the preferred languages of the job go to the STT request as hints; one language tag: that language only (ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md P2).
     stt_language: str = Field(default="auto", alias="CLAIRE_STT_LANGUAGE")
@@ -443,9 +382,6 @@ class Settings(BaseSettings):
         alias="CLAIRE_PRESENTATION_PDF_MAX_BYTES",
         gt=0,
     )
-    presentation_enabled: bool = Field(
-        default=False, alias="CLAIRE_PRESENTATION_ENABLED"
-    )
 
     # --- storage ---
     db_path: str = Field(default="data/claire.db", alias="CLAIRE_DB_PATH")
@@ -455,8 +391,6 @@ class Settings(BaseSettings):
     data_lifecycle: str = Field(default="purgeable", alias="CLAIRE_DATA_LIFECYCLE")
     # 명시적 소각 허용 플래그 (0|1 또는 boolean). 기본값 True(허용).
     allow_purge: bool = Field(default=True, alias="CLAIRE_ALLOW_PURGE")
-    # 멀티 테마(다중 데이터베이스) 모드 활성화 여부. 0(기본값)이면 단일 DB(data/claire.db) 고정, 1이면 멀티 테마 활성화
-    multi_theme: bool = Field(default=False, alias="CLAIRE_MULTI_THEME")
     kb_id: int = Field(default=0, alias="CLAIRE_KB_ID")
 
     # --- expansion ---
@@ -522,8 +456,6 @@ class Settings(BaseSettings):
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
     # 공개 도메인 호스트명 (FQDN, 예: claire.example.com). 프로덕션 환경 기준 필수 authority.
     fqdn: str = Field(default="", alias="CLAIRE_FQDN")
-    # 레거시 CLAIRE_PUBLIC_URL 환경변수 및 키워드 인자 호환용 (미설정 시 fqdn 자동 추출)
-    legacy_public_url: str = Field(default="", alias="CLAIRE_PUBLIC_URL")
     # 역할 호스트(설계 §5.1). 형식은 CLAIRE_FQDN과 같다: production은 포트 없는 DNS 이름,
     # development는 app과 같은 IPv4의 다른 포트(`127.0.0.1:8767`). 빈 값이면 그 역할을 두지 않는다.
     # 검증(서로 다름, app 상위 도메인 금지, 등록 도메인 소속, CORS 허용 목록 제외)은
@@ -590,11 +522,6 @@ class Settings(BaseSettings):
         default="",
         alias="SOURCE_BASE_URL",
     )
-    # 지식 관리자 (drawerfooter 에 '지식 관리자: <환경변수>' 형태로 표기, 기본값 'owner')
-    sorcerer: str = Field(
-        default="owner",
-        alias="CLAIRE_SORCERER",
-    )
 
     # --- private network & SSRF policy ---
     # 온프레미스/사내망 수집 지원: 사설 IP 대역(10.x, 172.16-31.x, 192.168.x, 127.x) 접근 허용
@@ -647,23 +574,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def _migrate_legacy_public_url(cls, data: Any) -> Any:
+    def _normalize_fqdn_setting(cls, data: Any) -> Any:
         if isinstance(data, dict):
-            cf_val = data.get("CLAIRE_CLOUDFLARE_IPS_ONLY")
-            if cf_val is None:
-                cf_alias = (
-                    data.get("CLAIRE_CLOUDFLARE_ONLY")
-                    or data.get("cloudflare_ips_only")
-                    or data.get("cloudflare_only")
-                )
-                if cf_alias is not None:
-                    data["CLAIRE_CLOUDFLARE_IPS_ONLY"] = cf_alias
-
-            # Priority 1: explicitly passed kwarg 'fqdn'
-            explicit_fqdn = data.get("fqdn")
-            # Priority 2: explicitly passed kwarg 'public_url'
-            explicit_pub_url = data.get("public_url")
-
+            explicit_fqdn = data.get("fqdn") or data.get("CLAIRE_FQDN")
             if explicit_fqdn:
                 raw_fqdn = str(explicit_fqdn).strip()
                 if "://" in raw_fqdn:
@@ -671,36 +584,9 @@ class Settings(BaseSettings):
 
                     parsed = urlsplit(raw_fqdn)
                     raw_fqdn = parsed.netloc or parsed.path
-                data["CLAIRE_FQDN"] = raw_fqdn.rstrip("/")
-                data["fqdn"] = data["CLAIRE_FQDN"]
-            elif explicit_pub_url:
-                raw_pub = str(explicit_pub_url).strip()
-                if "://" in raw_pub:
-                    from urllib.parse import urlsplit
-
-                    parsed = urlsplit(raw_pub)
-                    extracted = parsed.netloc or parsed.path
-                    data["CLAIRE_FQDN"] = extracted.strip().rstrip("/")
-                else:
-                    data["CLAIRE_FQDN"] = raw_pub.rstrip("/")
-                data["fqdn"] = data["CLAIRE_FQDN"]
-                data["legacy_public_url"] = raw_pub
-                data["CLAIRE_PUBLIC_URL"] = raw_pub
-            else:
-                env_fqdn = data.get("CLAIRE_FQDN")
-                env_pub = data.get("CLAIRE_PUBLIC_URL") or data.get("legacy_public_url")
-                if not env_fqdn and env_pub:
-                    raw_pub = str(env_pub).strip()
-                    if "://" in raw_pub:
-                        from urllib.parse import urlsplit
-
-                        parsed = urlsplit(raw_pub)
-                        extracted = parsed.netloc or parsed.path
-                        data["CLAIRE_FQDN"] = extracted.strip().rstrip("/")
-                    else:
-                        data["CLAIRE_FQDN"] = raw_pub.rstrip("/")
-                    data["fqdn"] = data["CLAIRE_FQDN"]
-                    data["legacy_public_url"] = raw_pub
+                normalized = raw_fqdn.rstrip("/")
+                data["CLAIRE_FQDN"] = normalized
+                data["fqdn"] = normalized
         return data
 
     @field_validator("cloudflare_ips_only", mode="before")
@@ -740,18 +626,6 @@ class Settings(BaseSettings):
         raise ValueError("CLAIRE_ALLOW_PRIVATE_NETWORKS must be a boolean or 0/1")
 
 
-    @field_validator("multi_theme", mode="before")
-    @classmethod
-    def _parse_multi_theme(cls, value: object) -> bool:
-        if isinstance(value, bool):
-            return value
-        s = str(value or "").strip().lower()
-        if s in ("1", "true", "yes", "on"):
-            return True
-        if s in ("0", "false", "no", "off", ""):
-            return False
-        raise ValueError("CLAIRE_MULTI_THEME must be a boolean or 0/1")
-
     @field_validator("enable_video_transcription", mode="before")
     @classmethod
     def _parse_enable_video_transcription(cls, value: object) -> bool:
@@ -787,14 +661,6 @@ class Settings(BaseSettings):
                 "CLAIRE_GA_MEASUREMENT_ID must contain only alphanumeric characters, dashes, and underscores"
             )
         return s
-
-    @field_validator("stt_provider", mode="before")
-    @classmethod
-    def _parse_stt_provider(cls, value: object) -> str:
-        s = str(value or "").strip()
-        if not s:
-            s = os.environ.get("STT_PROVIDER", "").strip() or os.environ.get("CLAIRE_STT_PROVIDER", "").strip()
-        return s or "gemini"
 
     @field_validator("stt_model", mode="before")
     @classmethod
@@ -877,14 +743,11 @@ class Settings(BaseSettings):
         return f"CLAIRE_PROVIDER={self.provider}: 알 수 없는 프로바이더"
 
     def _stt_unavailable_reason(self) -> str | None:
-        raw = (self.stt_provider or "gemini").strip().lower()
-        if self._member_context() is not None:
+        ctx = self._member_context()
+        if ctx is not None:
+            raw = "gemini" if (ctx.provider == "gemini" and ctx.feature_allowed("stt")) else "none"
             return self._member_unavailable_reason("stt", raw)
-        if raw in ("gemini", "google"):
-            return None if self.gemini_api_key else f"CLAIRE_STT_PROVIDER={raw}: GEMINI_API_KEY가 비어 있다"
-        if raw == "mock":
-            return None
-        return f"CLAIRE_STT_PROVIDER={self.stt_provider}: STT를 지원하지 않는 프로바이더"
+        return None if self.gemini_api_key else "STT: GEMINI_API_KEY가 비어 있다"
 
     def _vlm_unavailable_reason(self) -> str | None:
         raw = (self.vlm_provider or "gemini").strip().lower()
@@ -920,8 +783,7 @@ class Settings(BaseSettings):
             return PROVIDER_UNAVAILABLE if self._member_context() is not None else "mock"
         if self._stt_unavailable_reason() is not None:
             return self._unavailable_or_mock()
-        raw = (self.stt_provider or "gemini").strip().lower()
-        return "gemini" if raw in ("gemini", "google") else "mock"
+        return "gemini"
 
     @property
     def effective_vlm_provider(self) -> str:
@@ -971,46 +833,22 @@ class Settings(BaseSettings):
 
     @property
     def effective_fqdn(self) -> str:
-        """FQDN 호스트명. CLAIRE_FQDN 우선, 없으면 레거시 legacy_public_url 에서 추출."""
-        if self.fqdn:
-            raw = self.fqdn.strip()
-            if "://" in raw:
-                from urllib.parse import urlsplit
-
-                raw = urlsplit(raw).netloc or urlsplit(raw).path
-            return raw.rstrip("/").lower()
-        if self.legacy_public_url:
+        """Canonical FQDN hostname extracted from CLAIRE_FQDN."""
+        if not self.fqdn:
+            return ""
+        raw = self.fqdn.strip()
+        if "://" in raw:
             from urllib.parse import urlsplit
 
-            raw = self.legacy_public_url.strip()
-            if "://" not in raw:
-                raw = f"http://{raw}"
-            host = urlsplit(raw).hostname
-            if host:
-                return host.strip().lower()
-        return ""
+            raw = urlsplit(raw).netloc or urlsplit(raw).path
+        return raw.rstrip("/").lower()
 
     @property
     def public_url(self) -> str:
-        """호환성을 위한 public_url 속성.
-
-        CLAIRE_FQDN 기반으로 프로덕션 환경(production)은 https://, 개발 환경(development/local 등)은 http:// 스킴으로 자동 구성된다.
-        """
-        if self.legacy_public_url and "://" in self.legacy_public_url:
-            raw = self.legacy_public_url.strip()
-            if not raw.endswith("/"):
-                raw += "/"
-            return raw
-
+        """Canonical public origin derived from CLAIRE_FQDN and CLAIRE_ENVIRONMENT."""
         eff = self.effective_fqdn
         if not eff:
-            raw = (self.legacy_public_url or "").strip()
-            if raw:
-                if not raw.endswith("/"):
-                    raw += "/"
-                return raw
             return ""
-
         is_prod = (self.environment or "").strip().lower() == "production"
         scheme = "https" if is_prod else "http"
         return f"{scheme}://{eff}/"
@@ -1058,7 +896,7 @@ def extract_own_share_token(url_candidate: str, settings: Settings | None = None
             is_match = True
         elif not eff_fqdn and not pub_host and host in ("localhost", "127.0.0.1"):
             is_match = True
-        elif getattr(s, "multi_theme", False):
+        else:
             try:
                 from ..store.knowledge_base import get_kb_manager
 

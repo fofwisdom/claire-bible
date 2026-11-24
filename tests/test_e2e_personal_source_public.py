@@ -93,8 +93,7 @@ def env(tmp_path: Path):
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_MULTI_THEME=True,
+        CLAIRE_FQDN=PUBLIC_URL,
     )
     KnowledgeBaseManager(settings).reload()
     tokens = get_token_store(data_dir=data_dir)

@@ -144,7 +144,6 @@ def test_e2e_recompile_html_multi_theme_and_target_resolution(tmp_path, monkeypa
 
     test_settings = Settings(
         db_path=str(db_theme0),
-        multi_theme=True,
     )
     monkeypatch.setattr(cli, "get_settings", lambda: test_settings)
 

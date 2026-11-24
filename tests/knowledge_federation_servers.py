@@ -181,12 +181,10 @@ class KfWorld:
         self.origin = origin
         self.settings = Settings(
             CLAIRE_DB_PATH=str(directory / "data" / "claire.db"),
-            CLAIRE_VAULT_PATH=str(directory / "vault"),
             CLAIRE_PROVIDER="mock",
             CLAIRE_ENVIRONMENT="production",
-            CLAIRE_PUBLIC_URL=origin,
+            CLAIRE_FQDN=origin.split("//", 1)[1],
             CLAIRE_INJECT_TOKEN="owner-" + ("s" * 32),
-            CLAIRE_MULTI_THEME=True,
         )
         conn = dbm.connect(self.settings.db_file)
         try:

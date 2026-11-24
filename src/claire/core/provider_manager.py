@@ -196,7 +196,6 @@ MIGRATED_ENV_VARS: set[str] = {
     "CLAIRE_JEV_MODEL",
     # STT
     "CLAIRE_ENABLE_VIDEO_TRANSCRIPTION",
-    "CLAIRE_STT_PROVIDER",
     "CLAIRE_STT_MODEL",
     "CLAIRE_STT_LANGUAGE",
     "CLAIRE_STT_TIMEOUT",
@@ -742,9 +741,9 @@ class ProviderManager:
             warnings.append("Gemini 임베딩 모델 'gemini-embedding-001'은 2028-05-14 서비스 종료(EOS) 예정입니다. 'gemini-embedding-2' (3072d)로 그림자 백필 전환을 권장합니다.")
 
         stt_enabled = stt.get("enabled", True) is not False
-        stt_prov = str(stt.get("provider") or "gemini").strip().lower()
-        stt_ready = (not stt_enabled) or stt_prov == "mock" or (stt_prov == "gemini" and gem_has_key)
-        if stt_enabled and stt_prov == "gemini" and not gem_has_key:
+        stt_prov = "gemini"
+        stt_ready = (not stt_enabled) or gem_has_key
+        if stt_enabled and not gem_has_key:
             warnings.append("STT가 Google AI Studio로 설정되어 있으나 API Key가 없어 음성 전사가 동작하지 않습니다.")
 
         jev_cfg = providers.get("jev", {})
@@ -843,8 +842,6 @@ class ProviderManager:
         # STT
         if stt.get("enabled") is not None:
             out["enable_video_transcription"] = bool(stt["enabled"])
-        if stt.get("provider"):
-            out["stt_provider"] = stt["provider"]
         if stt.get("model") is not None:
             out["stt_model"] = stt["model"]
         if stt.get("language"):
@@ -924,8 +921,6 @@ class ProviderManager:
             provs["stt"]["enabled"] = collected["CLAIRE_ENABLE_VIDEO_TRANSCRIPTION"].strip().lower() in (
                 "1", "true", "yes", "on"
             )
-        if "CLAIRE_STT_PROVIDER" in collected and collected["CLAIRE_STT_PROVIDER"].strip():
-            provs["stt"]["provider"] = collected["CLAIRE_STT_PROVIDER"].strip()
         if "CLAIRE_STT_MODEL" in collected:
             provs["stt"]["model"] = collected["CLAIRE_STT_MODEL"].strip()
         if "CLAIRE_STT_LANGUAGE" in collected and collected["CLAIRE_STT_LANGUAGE"].strip():

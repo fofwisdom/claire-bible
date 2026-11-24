@@ -101,7 +101,7 @@ def _write_layout(
             f"CB_PLUGINS_DIR={prod_plugins}",
             "CLAIRE_DB_PATH=data/claire.db",
             "CLAIRE_INJECT_TOKEN=test-only-" + ("s" * 32),
-            "CLAIRE_PUBLIC_URL=https://claire.example.com/",
+            "CLAIRE_FQDN=claire.example.com",
             "CLAIRE_CORS_ALLOWED_ORIGINS=",
             "TELEGRAM_BOT_TOKEN=",
             "",
@@ -116,7 +116,7 @@ def _write_layout(
             "CB_API_PORT=8766",
             f"CB_DATA_DIR={dev_data}",
             f"CB_PLUGINS_DIR={dev_plugins}",
-            "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
+            "CLAIRE_FQDN=127.0.0.1:8766",
             "CLAIRE_CORS_ALLOWED_ORIGINS=",
             "",
         )

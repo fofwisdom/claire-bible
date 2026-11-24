@@ -230,7 +230,7 @@ def test_production_accepts_valid_role_hosts(tmp_path, settings):
     assert runtime.environment == cb.PRODUCTION
 
 
-def test_production_accepts_legacy_public_url_app_host(tmp_path):
+def test_production_ignores_legacy_public_url_and_requires_fqdn(tmp_path):
     layout = _write_env(
         tmp_path,
         prod={
@@ -240,7 +240,8 @@ def test_production_accepts_legacy_public_url_app_host(tmp_path):
             "CLAIRE_USERCONTENT_FQDN": "usercontent.example.com",
         },
     )
-    cb.load_runtime(layout)
+    with pytest.raises(cb.ManuscriptError, match="CLAIRE_FQDN is required"):
+        cb.load_runtime(layout)
 
 
 @pytest.mark.parametrize(

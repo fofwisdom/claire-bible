@@ -1,7 +1,7 @@
 """Object storage settings of the server, the storage test, and the migration from local storage (FEDERATION_REMOTE_READING_DESIGN.md Sections 7.3, 9.1.1, 9.2, and 9.3; unit FP4-1).
 
 - The admin settings are one JSON value in ``claire.db`` ``server_settings`` (key ``media_storage``). The secret key is encrypted with ``SecretService`` and the additional authenticated data ``media_storage:s3``. No function of this module gives the secret to a caller, except ``active_config`` and ``target_config`` (for the store of this process).
-- The admin settings are the only source of the object storage configuration. The environment variables ``CLAIRE_MEDIA_S3_*`` of the releases before these settings are imported one time and have no effect after that.
+- The admin settings are the only source of the object storage configuration (/admin/storage).
 - The result of the last test and of the last migration run are two more ``server_settings`` values. The console shows them.
 
 Only this module reads and writes these ``server_settings`` keys (store boundary, DATA_STORE_LAYOUT_DESIGN.md Section 3 rule 6).
@@ -40,8 +40,6 @@ GARAGE_REGION = "garage"
 GARAGE_ENDPOINT_PLACEHOLDER = "https://garage.example:3900"
 PROBE_PREFIX = "claire-probe"
 _TEXT_MAX = {"endpoint": 2048, "bucket": 255, "region": 64, "access_key": 256, "secret_key": 1024, "public_url_base": 2048}
-# The variables of the releases before the admin settings. They are read one time only, for the import (``_import_legacy_environment``).
-_LEGACY_ENV = {"endpoint": "CLAIRE_MEDIA_S3_ENDPOINT", "bucket": "CLAIRE_MEDIA_S3_BUCKET", "access_key": "CLAIRE_MEDIA_S3_ACCESS_KEY", "secret_key": "CLAIRE_MEDIA_S3_SECRET_KEY", "region": "CLAIRE_MEDIA_S3_REGION"}
 
 
 class StorageSettingsError(ValueError):
@@ -246,28 +244,9 @@ def _config_from_db(settings: Any, *, need_mode_s3: bool) -> S3Config | None:
         conn.close()
 
 
-def _import_legacy_environment(settings: Any) -> None:
-    """Move the object storage of the old environment variables into the admin settings, one time: only when all four necessary variables are set and the admin settings were never saved. After the import the variables have no effect."""
-    values = {name: (os.environ.get(var) or "").strip() for name, var in _LEGACY_ENV.items()}
-    if not all(values[name] for name in ("endpoint", "bucket", "access_key", "secret_key")):
-        return
-    db_file = getattr(settings, "db_file", None) if settings is not None else None
-    if not db_file or not Path(db_file).is_file():
-        return
-    conn = dbm.connect_existing(Path(db_file))
-    try:
-        if _read_json(conn, SETTING_KEY) is not None:
-            return
-        set_admin_settings(conn, {"mode": "s3", **values, "region": values["region"] or DEFAULT_REGION}, secret_service=secret_service_for(settings), updated_by=None)
-        log.warning("The object storage of the environment variables CLAIRE_MEDIA_S3_* is now in the admin settings (/admin/storage). The variables have no effect from now on; remove them.")
-    finally:
-        conn.close()
-
-
 def active_config(settings: Any) -> S3Config | None:
     """The object storage configuration that this process uses for its store, or ``None`` for local storage. A stored setting that cannot be read is logged and gives ``None``."""
     try:
-        _import_legacy_environment(settings)
         return _config_from_db(settings, need_mode_s3=True)
     except (sqlite3.Error, RuntimeError, SecretError, ValueError, KeyError) as exc:
         log.error("The object storage settings cannot be read; the media store is local storage: %s", exc)

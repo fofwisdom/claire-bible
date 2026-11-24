@@ -116,7 +116,7 @@ def test_health_rejects_foreign_lineage_without_migrating(monkeypatch, tmp_path)
 
 
 def test_multi_theme_health_aggregates_and_reports_each_database(monkeypatch, tmp_path):
-    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.execute("INSERT INTO raw_inbox(status,payload) VALUES ('error','base')")
@@ -139,7 +139,7 @@ def test_multi_theme_health_aggregates_and_reports_each_database(monkeypatch, tm
 
 
 def test_multi_theme_health_fails_when_one_database_is_stale(monkeypatch, tmp_path):
-    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()
@@ -165,7 +165,7 @@ def test_multi_theme_health_fails_when_one_database_is_stale(monkeypatch, tmp_pa
 def test_multi_theme_liveness_fails_for_each_database_fault(
     monkeypatch, tmp_path, failure
 ):
-    s = _settings(monkeypatch, tmp_path).model_copy(update={"multi_theme": True})
+    s = _settings(monkeypatch, tmp_path)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     conn.close()

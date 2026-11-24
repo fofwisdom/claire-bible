@@ -68,7 +68,6 @@ def theme_env(monkeypatch, tmp_path):
         CLAIRE_DB_PATH=db_path,
         CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
     tm = KnowledgeBaseManager(base_settings=settings)
     monkeypatch.setattr(svcmod, "default_fetch", _fetch)

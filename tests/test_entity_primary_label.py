@@ -167,7 +167,6 @@ def test_api_primary_label_endpoint(tmp_path: Path):
             self.inject_token = owner_token
             self.readonly_token = readonly_token
             self.cors_allowed_origins = ""
-            self.multi_theme = False
 
     class StubService:
         def __init__(self):
@@ -230,7 +229,6 @@ def test_cli_entity_select_and_batch(tmp_path: Path, monkeypatch, capsys):
         CLAIRE_DATA_DIR=str(tmp_path),
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=False,
     )
     monkeypatch.setattr("claire.cli.get_settings", lambda: s)
 

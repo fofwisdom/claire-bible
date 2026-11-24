@@ -60,7 +60,6 @@ def test_theme_manager_presentation_flag_persistence_io(tmp_path: Path):
     s = Settings(
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_MULTI_THEME=True,
     )
     manager = KnowledgeBaseManager(base_settings=s)
 
@@ -113,12 +112,10 @@ def test_theme_api_presentation_flag_contract(tmp_path: Path):
     s = Settings(
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=owner_token,
-        CLAIRE_MULTI_THEME=True,
     )
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -176,13 +173,10 @@ def test_presentation_endpoints_gated_by_theme_flag(tmp_path: Path):
     s = Settings(
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=owner_token,
-        CLAIRE_MULTI_THEME=True,
-        CLAIRE_PRESENTATION_ENABLED=False,
     )
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)

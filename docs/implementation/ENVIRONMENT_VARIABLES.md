@@ -46,10 +46,9 @@ graph TD
 1. **소스 우선순위** (`Settings.settings_customise_sources`): 생성자 인자 → `data/ingest_limits.json` → `data/providers.json` → 프로세스 환경변수 → `.env` 파일. 즉 두 JSON 파일이 관리하는 키는 export된 환경변수보다도 우선한다. 그 밖의 키는 프로세스 환경변수가 `.env`보다 우선한다.
 2. **개발 환경 파일 오버레이**: `CLAIRE_ENVIRONMENT=development` 선택 시 `.env`를 먼저 읽고, `.env.dev`의 설정이 뒤이어 로드되어 덮어쓴다.
 3. **셸 Sourcing 금지 (`treated as data`)**: `cb-manuscript`와 `deploy.sh`는 `.env` 파일을 셸 스크립트로 `source`하지 않으며, 자체 파서를 통해 안전하게 키-값 데이터로만 읽어 전달한다.
-4. **엄격한 DotEnv 파서 (`_ExactDotEnvSettingsSource`)**: 생성자 인자와 `.env` 파일 간의 `CLAIRE_PUBLIC_URL` 및 `CLAIRE_FQDN` 우선순위 규칙을 처리한다.
-5. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONS.md](OPERATIONS.md), 원칙 [PRINCIPLES.md](../PRINCIPLES.md) E1–E3 참조).
-6. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
-7. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다. 파일이 이미 있으면 파일에 없는 키(나중 버전에서 추가된 키)만 이전한다. 설정 소스는 값을 별칭(`CLAIRE_*`) 이름으로 넘기므로 export된 환경변수보다 우선한다. `recover-loop`, `refresh-loop`, `expand-loop`는 주기마다 이 파일을 다시 읽으므로, WebUI 변경은 재시작 없이 적용된다. `bot`(텔레그램)은 시작 시점의 값을 쓴다.
+4. **자동 마이그레이션 및 백필**: `./cb-manuscript init`, `install`, `update` 실행 시 신규 추가된 환경변수가 `.env.example` 및 `.env.dev.example`로부터 기존 사용자 설정을 훼손하지 않고 파일 끝에 자동으로 백필된다 ([OPERATIONS.md](OPERATIONS.md), 원칙 [PRINCIPLES.md](../PRINCIPLES.md) E1–E3 참조).
+5. **WebUI 프로바이더 관리 우선 및 자동 마이그레이션 (`data/providers.json`)**: LLM 및 하이퍼스케일러 프로바이더 설정(Gemini, Jev, STT 등)은 WebUI에서 브라우저를 통해 직관적으로 관리되며 `data/providers.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `providers.json`의 값이 `.env` 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 프로바이더 설정은 기동 시 자동으로 `providers.json`으로 이전된 후 `.env` 내에서 주석 처리(`# VAR=val`)된다.
+6. **WebUI 상황 별 적재 제한 관리 및 환경변수 선언 종료 (`data/ingest_limits.json`)**: 상황 별 적재 제한 및 슬라이싱 예산 설정(원문 글자 수 상한, PDF 추출 및 논문 판정 기준, 슬라이싱 전략, 임베딩/확장/리서치 예산, 미디어 용량 상한 등)은 WebUI 상세 메뉴의 단독 기능인 **📏 적재 제한**에서 직관적으로 관리되며 `data/ingest_limits.json`에 안전하게 영속화된다. 런타임 설정 해석 시 `ingest_limits.json`이 환경변수 파일보다 우선 적용되며, 기존 `.env` 및 `.env.dev`의 적재 제한 설정은 기동 시 자동으로 `ingest_limits.json`으로 이전된 후 주석 처리되어 환경변수에서의 선언 사용이 공식 종료된다. 파일이 이미 있으면 파일에 없는 키(나중 버전에서 추가된 키)만 이전한다. 설정 소스는 값을 별칭(`CLAIRE_*`) 이름으로 넘기므로 export된 환경변수보다 우선한다. `recover-loop`, `refresh-loop`, `expand-loop`는 주기마다 이 파일을 다시 읽으므로, WebUI 변경은 재시작 없이 적용된다. `bot`(텔레그램)은 시작 시점의 값을 쓴다.
 
 ---
 
@@ -156,8 +155,7 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 STT 파이프라인 활성화 여부. ([INGESTION.md](INGESTION.md) §9 참조) |
-| `CLAIRE_STT_PROVIDER` | `gemini` | `gemini`, `mock` | 음성 텍스트 변환(STT)에 사용할 프로바이더 (Google AI Studio Gemini 전용. `STT_PROVIDER`, `STT_PROIVDER` 별칭 지원). `GEMINI_API_KEY`가 없거나 STT를 지원하지 않는 프로바이더이면 `CLAIRE_ENVIRONMENT=development`에서는 `mock`으로 대체하고, `production`에서는 대체하지 않고 호출 시 실패한다(`ProviderUnavailableError`). |
+| `CLAIRE_ENABLE_VIDEO_TRANSCRIPTION` | `1` (`true`) | `0`, `1`, `true`, `false` | 자막이 없는 비디오/오디오 웹 문서 적재 시 ffmpeg/yt-dlp 및 Gemini STT 파이프라인 활성화 여부. ([INGESTION.md](INGESTION.md) §9 참조) |
 | `CLAIRE_STT_LANGUAGE` | `auto` | `auto` 또는 언어 태그 하나 (예: `ja`) | `providers.json`이 없을 때의 STT 언어(한 번 이전된 뒤에는 `/admin/providers`가 정한다). `auto`는 작업 계정의 선호 언어를 힌트(`language_codes`)로 보내고, 언어 태그 하나는 그 언어만 보낸다. 예전 값 `ko`는 자동 판별을 뜻했으므로 이전할 때 `auto`가 된다([ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md](../design/ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md) P2). |
 | `CLAIRE_STT_TIMEOUT` | `600.0` | 부동소수점 (초) | STT 호출 제한 시간. |
 | `CLAIRE_STT_CUSTOM_VOCABULARY` | *(빈 목록)* | 쉼표 또는 줄바꿈 구분 문자열 | STT 프롬프트에 추가할 사용자 지정 용어 목록 (예: `vSAN,vCenter,Tanzu`). |
@@ -181,8 +179,6 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 | `CLAIRE_PLUGINS_DIR` | `var/plugins` | 상대/절대 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 데이터 폴더와 분리된다. 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. 이미지는 기본값(`/app/var/plugins`, 읽기 전용 마운트)을 쓴다. 프로젝트 플러그인 폴더는 `<app root>/plugins`로 고정이다 ([`INGESTION.md`](INGESTION.md) §2). |
 | `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |
 | `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE.md](DATA_LIFECYCLE.md) §2 참조) |
-| `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마 활성화 플래그**. 모든 테마는 단일 `data/claire.db`에서 `kb_id`로 나뉜다. `0`이면 테마 정의·수정·삭제를 잠그고 기본 테마만 쓴다. `1`이면 테마 정의·선택·권한 제어가 켜진다. ([THEMES.md](THEMES.md) 참조) |
-| `CLAIRE_PRESENTATION_ENABLED` | `0` (`false`) | `0`, `1`, `true`, `false` | 기본 테마(#0)의 프레젠테이션 기능 활성값. 다른 테마는 테마 레지스트리의 테마별 값을 쓴다. |
 | `CLAIRE_KB_ID` | `0` | 정수 | **[내부]** 현재 요청·작업의 지식 베이스 번호(v27 전 이름 `CLAIRE_THEME_ID`). 테마 라우팅이 테마별 `Settings` 사본에 채우며(`KnowledgeBaseManager._settings_for_theme_info`) 사용자가 `.env`에 설정하지 않는다. |
 | *(환경변수 아님)* 텔레메트리 보관 기한 | `30` | 코드 상수 | `src/claire/store/telemetry.py`의 `DEFAULT_TELEMETRY_RETENTION_DAYS`. Support Bundle 생성 시 지정 가능한 최대 기간(`days`) 상한이다. `CLAIRE_TELEMETRY_RETENTION_DAYS`라는 환경변수는 `Settings`에 없으므로 설정해도 적용되지 않는다. ([TELEMETRY.md](TELEMETRY.md) §2 참조) |
 
@@ -282,15 +278,14 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | `CLAIRE_GRAPH_BUNDLE_API_URL` | `""` | Compose 내부 URL | Telegram이 그래프 번들 생성을 위임할 API URL. 비어 있으면 `CLAIRE_SUPPORT_BUNDLE_API_URL`을 쓰고, 둘 다 비면 같은 프로세스에서 직접 만든다. |
 | `CLAIRE_INJECT_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Owner 토큰. 정적 환경변수 통제에서 분리되어 기동 시 `data/auth/api_tokens.json`으로 이관되며, 직접 사용 시 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 웹 콘솔 `/account/mcp` OAuth 2.1 사용을 권장한다. |
 | `CLAIRE_READONLY_TOKEN` | `""` | 32~128자 URL-safe 문자열 | **[지원 중단 예정 (`AE3`) / 자동 이관]** 레거시 Readonly 조회 토큰. 기동 시 `data/auth/api_tokens.json`으로 이관되며, 사용 시 `Deprecation: true` 및 `Link: </account/mcp>; rel="successor-version"` 헤더를 반환한다. 신규 연동은 `/account/mcp` OAuth 2.1(`readonly` 스코프)을 권장한다. |
-| `CLAIRE_PUBLIC_URL` | `""` / `http://127.0.0.1:8766` | URL (예: `https://claire.example.com`) | **[필수]** 브라우저 기준 canonical 공개 URL (`CLAIRE_FQDN` 미지정 시 필수). Host 헤더 검증, Same-Origin 판정, 고유 주소(`/silvercord/...`) 생성에 사용된다. |
-| `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명 (`CLAIRE_PUBLIC_URL` 미지정 시 필수). 미설정 시 `CLAIRE_PUBLIC_URL`의 호스트명을 자동으로 추출하여 사용한다. |
+| `CLAIRE_FQDN` | `""` | 도메인 호스트명 (예: `claire.example.com`) | **[필수]** 공개 FQDN 호스트명. Host 헤더 검증, Same-Origin 판정, 고유 주소(`/silvercord/...`) 및 `Settings.public_url` 구성에 사용된다. |
 | `CLAIRE_SITE_DOMAIN` | `""` | 등록 도메인 (예: `example.com`) | 운영 환경의 등록 도메인. app(`CLAIRE_FQDN`)을 포함한 모든 역할 호스트는 이 값과 같거나 그 서브도메인이어야 한다. 공개 접미사 목록으로 추정하지 않는다. app 외 역할 호스트를 두지 않는 설치와 `development`에서는 비워도 된다. |
 | `CLAIRE_USERCONTENT_FQDN` | `""` | 호스트명 (운영 예: `usercontent.example.com`, 개발 예: `127.0.0.1:8767`) | 계정이 만든 HTML을 그리는 usercontent 역할 호스트. 쿠키를 읽지도 쓰지도 않는다. 개발에서는 app과 같은 IPv4의 다른 포트다. 네트워크 모드 운영 환경에서는 필수다. P2에서는 모든 경로가 404다. |
 | `CLAIRE_MEDIA_FQDN` | `""` | 호스트명 (운영 예: `media.example.com`, 개발 예: `127.0.0.1:8768`) | 캐시 미디어를 내보내는 media 역할 호스트(선택). 쿠키를 읽지도 쓰지도 않는다. P2에서는 모든 경로가 404다. |
 | `CLAIRE_SECRET_KEY` | `""` | 64자리 16진수 또는 32바이트 키 | 자격 비밀, 계정 API 키 및 초대 코드 암호화에 사용하는 AES-256-GCM 마스터 키. 64자리 16진수 문자열 또는 32바이트 이상 키를 사용한다. 미지정 시 `data/auth/master.key`(권한 `0600`)를 자동 생성하여 사용한다. |
 | `CLAIRE_CORS_ALLOWED_ORIGINS` | `""` | 쉼표 구분 Origin URL 목록 | Cross-Origin 브라우저 API 호출을 허용할 exact Origin 목록 (예: `https://app.example.com`). 비어있으면 Same-Origin 요청만 허용된다. |
 | `CLAIRE_AGENT_MARKETPLACE_REPO` | `fofwisdom/claire-agents` | `owner/repo` | 에이전트 전용 GitHub 마켓플레이스 저장소 식별자. `/account/mcp` 안내 카드의 기본 저장소(`fofwisdom/claire-agents`)를 포크 운영자가 바꿀 때 사용한다. 잘못된 형식이면 기본값으로 폴백한다. |
-| `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). 레거시 이름 `CLAIRE_CLOUDFLARE_ONLY`도 읽는다. |
+| `CLAIRE_CLOUDFLARE_IPS_ONLY` | `0` (`false`) | `0`, `1`, `true`, `false` | Cloudflare 공인 IP 대역에서 온 접속만 허용한다 (사설 IP는 영향 없음). |
 | `CLAIRE_TRUSTED_PROXIES` | `""` | 쉼표 구분 CIDR 목록 (예: `192.168.10.1/32,10.0.0.0/8`) | 로그인 실패 제한에 쓸 클라이언트 IP 판정에서 `X-Forwarded-For`를 믿을 바로 앞 프록시 대역. 바로 앞 피어가 이 목록(과 `CLAIRE_CLOUDFLARE_IPS_ONLY=1`이면 Cloudflare 대역)에 있을 때만 헤더를 오른쪽부터 읽어 신뢰하지 않는 첫 주소를 쓴다. 비면 헤더를 읽지 않고 피어 주소를 쓴다. 잘못된 CIDR이면 기동이 실패한다. 접근 로그의 IP 표기와 Host·scheme 판정에는 쓰지 않는다. [EXTERNAL_ACCESS.md](EXTERNAL_ACCESS.md) 참고. |
 | `CLAIRE_EDGE_LISTENER` | `0` (`false`, 운영 Compose `1`) | 정확히 `0` 또는 `1` | `1`이면 `api` 프로세스가 `data/run/edge.sock`(권한 0660)에 edge 리스너를 열고, 그 리스너로 온 요청의 피어 주소를 `X-Claire-Edge-Peer` 헤더(edge가 본 주소)에서 읽는다. 헤더가 없거나 주소가 아니면 400이다. `.env`에 적는 값이 아니다: 운영 `docker-compose.yml`이 `api` 서비스에 `1`을, 개발 `docker-compose.dev.yml`이 `0`을 넣는다. [FEDERATION.md](FEDERATION.md) §10.1 |
 | `CLAIRE_GA_MEASUREMENT_ID` | `""` | 문자열 (예: `G-XXXXXXXXXX`) | Google Analytics 4 측정 ID. 테마 문맥이 없는 메인 화면과 모든 모드의 공유 문서 페이지(`/p`)가 쓴다. 테마 문맥이 있는 화면은 그 테마의 ID만 쓰고, 이 값으로 폴백하지 않는다([PUBLIC_SITE.md](PUBLIC_SITE.md) §6). 비워두면 GA 스크립트가 로드되지 않으며 외부 통신을 차단하는 엄격한 CSP 정책이 유지된다. |
@@ -316,7 +311,6 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | :--- | :--- | :--- | :--- |
 | `GITHUB_REPOSITORY` | `fofwisdom/claire-bible` | `소유자/저장소` | 애플리케이션 원본 소스 코드 저장소 식별자. |
 | `SOURCE_BASE_URL` | `""` | URL 문자열 | 소스 코드 링크 베이스 URL. 비어있으면 `https://github.com/$GITHUB_REPOSITORY`로 자동 해석된다. |
-| `CLAIRE_SORCERER` | `owner` | 문자열 | 드로어 하단(drawerfooter)에 `지식 관리자: <환경변수>` 형태로 표기될 지식 관리자 명칭 (기본값: `owner`). |
 
 ---
 
@@ -357,7 +351,7 @@ chmod 0600 .env .env.dev .env.deploy
 
 ### 3.3 Reverse Proxy 및 네트워크 바인딩
 - **`CB_API_BIND` 보안**: Docker 데몬이 모든 인터페이스(`0.0.0.0`)에 포트를 노출하지 않도록 기본값인 `127.0.0.1` 또는 신뢰할 수 있는 LAN 내부 고정 IP를 지정해야 한다.
-- **`CLAIRE_PUBLIC_URL` 일치**: Nginx, Caddy, Cloudflare Tunnel 등의 Reverse Proxy 뒤에 배포할 때는 사용자가 브라우저 주소창에 입력하는 실제 FQDN URL(`https://claire.example.com`)을 반드시 `CLAIRE_PUBLIC_URL`에 설정해야 정상적인 Host 헤더 검증과 공유 링크 동작이 가능하다.
+- **`CLAIRE_FQDN` 일치**: Nginx, Caddy, Cloudflare Tunnel 등의 Reverse Proxy 뒤에 배포할 때는 사용자가 브라우저 주소창에 입력하는 실제 FQDN 호스트명(`claire.example.com`)을 반드시 `CLAIRE_FQDN`에 설정해야 정상적인 Host 헤더 검증과 공유 링크 동작이 가능하다.
 
 ### 3.4 데이터 수명주기 보호
 데이터 소각(`claire purge`) 명령을 방지하고 엄격한 무손실 보존 모드를 적용하려면 `CLAIRE_DATA_LIFECYCLE=append-only`와 `CLAIRE_ALLOW_PURGE=0`을 명시해야 한다. 기본값은 `CLAIRE_DATA_LIFECYCLE=purgeable` 및 `CLAIRE_ALLOW_PURGE=1`로 설정되어 있어 기본 상태에서 소각 명령이 허용된다.
@@ -396,7 +390,7 @@ CLAIRE_GEMINI_EFFORT=medium
 # --- 웹 서비스 및 보안 ---
 CLAIRE_INJECT_TOKEN=secure_random_32_character_token_here_12345
 CLAIRE_READONLY_TOKEN=optional_readonly_agent_token_here_67890
-CLAIRE_PUBLIC_URL=https://claire.example.com
+CLAIRE_FQDN=claire.example.com
 
 # --- 저장소 및 수명주기 ---
 CLAIRE_DATA_LIFECYCLE=purgeable
@@ -422,7 +416,7 @@ TELEGRAM_BOT_TOKEN=
 
 # --- 웹 서비스 ---
 CLAIRE_INJECT_TOKEN=dev_insecure_owner_token_32_characters_123
-CLAIRE_PUBLIC_URL=http://127.0.0.1:8766
+CLAIRE_FQDN=127.0.0.1:8766
 ```
 
 ---

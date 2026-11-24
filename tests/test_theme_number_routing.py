@@ -2,7 +2,7 @@
 
 검증 항목:
 1. v16 테마 번호 하한 (MIN_CURRENT_NUMBER >= 2^56, created_at=0 하한 고정 포함)
-2. CLAIRE_MULTI_THEME=0 일관성 (Theme 0이 DB에서 읽히고, /kb/{number}/ 및 ?theme={number}와 ?theme=0이 동작, Theme 1 등 다른 테마는 404)
+2. 기본 지식베이스 DB 일관성 (Theme 0이 DB에서 읽히고, /kb/{number}/ 및 ?theme={number}와 ?theme=0이 동작)
 3. 테마 고정: 경로에 테마 번호가 있을 때 ns.pinned_kb_id 바인딩
 4. 고정과 다른 ?theme= 가 들어오면 400 거부
 5. 다른 계정의 테마 번호 요청 시 404
@@ -62,10 +62,8 @@ def _create_single_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, K
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=False,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     theme_mgr = KnowledgeBaseManager(s)
     theme0 = theme_mgr.get_kb(0)
@@ -89,10 +87,8 @@ def _create_multi_theme_client(tmp_path: Path) -> tuple[TestClient, Settings, Kn
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     theme_mgr = KnowledgeBaseManager(s)
     theme0 = theme_mgr.get_kb(0)
@@ -156,10 +152,8 @@ def _create_network_mode_client(tmp_path: Path) -> tuple[TestClient, Settings, d
 
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
@@ -216,8 +210,6 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
     # 새로 생성하는 테마 번호도 하한 이상인지 확인
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
     )
     mgr = KnowledgeBaseManager(s)
@@ -230,7 +222,7 @@ def test_v16_theme_number_lower_bound_migration(tmp_path: Path) -> None:
 
 
 # ============================================================================
-# 2. CLAIRE_MULTI_THEME=0 일관성
+# 2. 기본 지식베이스 DB 일관성
 # ============================================================================
 
 
@@ -264,7 +256,7 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     resp_q_0 = client.get("/@adminuser/documents")
     assert resp_q_0.status_code == 200
 
-    # DB에 Theme 1 등 추가 테마가 있어도 CLAIRE_MULTI_THEME=0 에서는 404
+    # DB에 Theme 1 등 추가 테마가 생성되어도 /@{admin}/...는 기본 지식베이스로 동작하고 없는 번호만 404
     conn = dbm.connect(Path(s.db_file))
     now = time.time()
     num1 = ids.timestamp_id("knowledge_bases", salt=dbm.read_id_salt(conn), unix_ms=int(now * 1000) + 100)
@@ -276,10 +268,10 @@ def test_single_theme_mode_consistency(tmp_path: Path) -> None:
     conn.commit()
     conn.close()
 
-    # ``theme`` is ignored (CT23): the path of the admin namespace is knowledge base 0
+    # ``theme`` is ignored (CT23): the path of the admin namespace is knowledge base 0; DB KB 1 is reachable on /kb/{num1}/
     assert client.get("/@adminuser/documents?theme=1").status_code == 200
     assert client.get(f"/@adminuser/documents?theme={num1}").status_code == 200
-    assert client.get(f"/kb/{num1}/documents").status_code == 404
+    assert client.get(f"/kb/{num1}/documents").status_code == 200
     assert client.get("/kb/99999999999999999/documents").status_code == 404
     assert client.get("/kb/99999999999999999/").status_code == 404
 

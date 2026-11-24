@@ -367,7 +367,7 @@ def test_member_settings_copy(tmp_path):
     assert s.provider == "gemini" and s.gemini_model == "gemini-test" and s.gemini_embed_model == "embed-test"
     assert s.gemini_effort == "low" and s.pdf_paper_effort == "low"
     assert s.enable_jev is False and not s.jev_api_key
-    assert s.stt_provider == "none" and s.vlm_provider == "gemini"
+    assert s.enable_video_transcription is False and s.vlm_provider == "gemini"
     assert s.effective_stt_provider == "unavailable" and s.effective_vlm_provider == "gemini"
     assert s.effective_provider == "gemini"
 

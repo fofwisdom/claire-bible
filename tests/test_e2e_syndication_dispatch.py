@@ -37,11 +37,10 @@ def e2e_dispatch_client(tmp_path: Path):
         CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
         CLAIRE_READONLY_TOKEN=READONLY_TOKEN,
         CLAIRE_COLLABORATOR_TOKEN=COLLAB_TOKEN,
-        CLAIRE_MULTI_THEME=True,
     )
 
     conn = dbm.connect(settings.db_file)

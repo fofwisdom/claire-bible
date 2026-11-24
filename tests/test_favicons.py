@@ -17,7 +17,7 @@ def client(tmp_path: Path) -> TestClient:
     # ``db_file`` and ``data_dir`` are not fields of ``Settings``: the database path is ``db_path``. Without it the test opened the database of the working copy (``data/claire.db``).
     settings = Settings(
         environment="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8000",
+        CLAIRE_FQDN="127.0.0.1:8000",
         inject_host="127.0.0.1",
         inject_port=8000,
         inject_token="x" * 32,
@@ -327,7 +327,7 @@ def test_template_entry_points_pwa_head_tags(client: TestClient, tmp_path: Path)
     net_settings = Settings(
         CLAIRE_DB_PATH=str(net_db),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8000",
+        CLAIRE_FQDN="127.0.0.1:8000",
         CLAIRE_ENVIRONMENT="development",
     )
     net_app = server.create_app(net_settings)

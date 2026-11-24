@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 import html as _html
 import json as _json
+from pathlib import Path
 from typing import Any
 
 from bible import STATIC_DIR as _STATIC_DIR
@@ -84,6 +85,29 @@ def shared_html(doc: dict, settings: Any = None, *, base_url: str = "", share_to
     )
 
 
+def _resolve_sorcerer_name(s: Any, *, theme: Any | None = None, account_id: int | None = None) -> str:
+    explicit = str(getattr(theme, "sorcerer", "") or "").strip() if theme is not None else ""
+    if explicit:
+        return explicit
+    target_account = getattr(theme, "account_id", None) if theme is not None else None
+    if target_account is None:
+        target_account = account_id
+    db_file = getattr(s, "db_file", None)
+    if target_account is None or db_file is None or not Path(db_file).is_file():
+        return ""
+    try:
+        from claire.store import db as dbm
+
+        conn = dbm.connect_existing(Path(db_file), readonly=True)
+        try:
+            row = conn.execute("SELECT display_name FROM accounts WHERE id = ?", (int(target_account),)).fetchone()
+            return str(row[0] or "").strip() if row is not None else ""
+        finally:
+            conn.close()
+    except Exception:
+        return ""
+
+
 def render_graph_html(settings: Any = None, *, include_private: bool = True, theme: Any | None = None, host: str | None = None, request: Any | None = None, bootstrap: dict[str, str] | None = None, account_id: int | None = None) -> str:
     """Hydrate settings, themes, and locale data into the workspace graph HTML."""
     if settings is None:
@@ -103,11 +127,6 @@ def render_graph_html(settings: Any = None, *, include_private: bool = True, the
     kb_id = getattr(theme, "id", None) if theme else None
     theme_label = getattr(theme, "label", "") if theme else ""
     ga_tag = _metadata.render_ga_tag(ga_id, kb_id=kb_id, theme_label=theme_label)
-    sorcerer = getattr(s, "sorcerer", "owner")
-    raw_sorcerer = str(sorcerer).strip() if sorcerer is not None else ""
-    if not raw_sorcerer:
-        raw_sorcerer = "owner"
-    safe_sorcerer = _html.escape(raw_sorcerer, quote=True)
 
     if account_id is None and request is not None:
         try:
@@ -130,9 +149,9 @@ def render_graph_html(settings: Any = None, *, include_private: bool = True, the
     if account_id is None:
         account_id = 1
 
-    is_multi = bool(getattr(s, "multi_theme", False))
-    theme_mode = "multi" if is_multi else "single"
-    if is_multi:
+    safe_sorcerer = _html.escape(_resolve_sorcerer_name(s, theme=theme, account_id=account_id), quote=True)
+    theme_mode = "multi"
+    if getattr(s, "db_file", None) is not None or getattr(s, "db_path", None) is not None:
         from claire.store.knowledge_base import get_kb_manager
 
         tm = get_kb_manager(s)
@@ -160,15 +179,18 @@ def render_graph_html(settings: Any = None, *, include_private: bool = True, the
             {
                 "id": 0,
                 "seq": 0,
-                "number": "0",
                 "label": "기본 지식베이스",
-                "description": "일반 수집 자료 및 기본 지식",
-                "icon": "📚",
+                "description": "",
+                "icon": "🌐",
+                "db_path": "",
                 "is_personal": True,
-                "is_public": True,
-                "sorcerer": safe_sorcerer,
-                "knowledge_manager": safe_sorcerer,
-                "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
+                "is_public": False,
+                "knowledge_type": None,
+                "fqdn": "",
+                "ga_measurement_id": "",
+                "sorcerer": "",
+                "knowledge_manager": "",
+                "presentation_enabled": False,
             }
         ]
     themes_json = _json.dumps(themes_list, ensure_ascii=False)
@@ -207,7 +229,7 @@ def render_graph_html(settings: Any = None, *, include_private: bool = True, the
         plain_icon = _html.escape(getattr(theme, "icon", None) or "📚")
         plain_label = _html.escape(getattr(theme, "label", None) or "")
     else:
-        if is_multi and len(themes_list) > 1:
+        if len(themes_list) > 1:
             picker_style_attr = 'style="display:inline-flex"'
         else:
             picker_style_attr = 'style="display:none"'
@@ -269,11 +291,6 @@ def _render_syndication_bundle(bundle_html: str, settings: Any = None, *, includ
     kb_id = getattr(theme, "id", None) if theme else None
     theme_label = getattr(theme, "label", "") if theme else ""
     ga_tag = _metadata.render_ga_tag(ga_id, kb_id=kb_id, theme_label=theme_label)
-    sorcerer = getattr(s, "sorcerer", "owner")
-    raw_sorcerer = str(sorcerer).strip() if sorcerer is not None else ""
-    if not raw_sorcerer:
-        raw_sorcerer = "owner"
-    safe_sorcerer = _html.escape(raw_sorcerer, quote=True)
 
     caller_account_id: int | None = None
     is_network_mode = False
@@ -298,32 +315,15 @@ def _render_syndication_bundle(bundle_html: str, settings: Any = None, *, includ
         except Exception:
             pass
 
-    is_multi = bool(getattr(s, "multi_theme", False))
-    theme_mode = "multi" if is_multi else "single"
-    if is_multi:
-        from claire.store.knowledge_base import get_kb_manager
+    safe_sorcerer = _html.escape(_resolve_sorcerer_name(s, theme=theme, account_id=caller_account_id or 1), quote=True)
+    theme_mode = "multi"
+    from claire.store.knowledge_base import get_kb_manager
 
-        tm = get_kb_manager(s)
-        raw_themes = tm.list_kbs(include_private=include_private, host=host)
-        if is_network_mode and caller_account_id is not None:
-            raw_themes = [t_item for t_item in raw_themes if getattr(t_item, "account_id", 1) == caller_account_id]
-        themes_list = [t_item.to_dict() for t_item in raw_themes]
-    else:
-        themes_list = [
-            {
-                "id": 0,
-                "seq": 0,
-                "label": "기본 지식베이스",
-                "description": "일반 수집 자료 및 기본 지식",
-                "icon": "📚",
-                "is_personal": True,
-                "is_public": True,
-                "sorcerer": safe_sorcerer,
-                "knowledge_manager": safe_sorcerer,
-                "presentation_enabled": bool(getattr(s, "presentation_enabled", False)),
-                "number": _theme_zero_number(s),
-            }
-        ]
+    tm = get_kb_manager(s)
+    raw_themes = tm.list_kbs(include_private=include_private, host=host)
+    if is_network_mode and caller_account_id is not None:
+        raw_themes = [t_item for t_item in raw_themes if getattr(t_item, "account_id", 1) == caller_account_id]
+    themes_list = [t_item.to_dict() for t_item in raw_themes]
     themes_json = _json.dumps(themes_list, ensure_ascii=False)
     themes_json_safe = themes_json.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     active_kb_id = str(kb_id if kb_id is not None else (themes_list[0]["id"] if themes_list else 0))

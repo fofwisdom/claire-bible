@@ -10,29 +10,28 @@ def test_config_video_defaults(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     s = Settings(gemini_api_key="", environment="development")
     assert s.enable_video_transcription is True
-    assert s.stt_provider == "gemini"
     assert s.effective_stt_provider == "mock"  # No GEMINI_API_KEY -> mock
     assert s.stt_language == "auto"
     assert s.ffmpeg_bin == "ffmpeg"
     assert s.ytdlp_extractor_args == "generic:impersonate"
 
 
-def test_config_stt_provider_antigravity_no_hijack(monkeypatch):
-    """CLAIRE_STT_PROVIDER=antigravity 설정 시 GEMINI_API_KEY가 있어도 gemini로 하이잭되지 않고 mock으로 처리되어야 함."""
+def test_config_stt_fixed_to_gemini_ignores_legacy_env(monkeypatch):
+    """Retired STT provider env vars are ignored; STT is fixed to Gemini when configured."""
     monkeypatch.setenv("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION", "1")
     monkeypatch.setenv("CLAIRE_STT_PROVIDER", "antigravity")
+    monkeypatch.setenv("STT_PROVIDER", "mock")
     monkeypatch.setenv("GEMINI_API_KEY", "test-api-key")
 
     s = Settings(environment="development")
-    assert s.stt_provider == "antigravity"
-    # 하이잭 없이 mock으로 안전 폴백
-    assert s.effective_stt_provider == "mock"
+    assert not hasattr(s, "stt_provider")
+    assert s.effective_stt_provider == "gemini"
 
     from claire.extract.transcript.factory import get_transcript_provider
-    from claire.extract.transcript.mock_stt import MockTranscriptProvider
+    from claire.extract.transcript.gemini_stt import GeminiTranscriptProvider
 
     provider = get_transcript_provider(s)
-    assert isinstance(provider, MockTranscriptProvider)
+    assert isinstance(provider, GeminiTranscriptProvider)
 
 
 def test_config_video_toggle(monkeypatch):

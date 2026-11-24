@@ -114,9 +114,8 @@ def _setup_network_env(tmp_path: Path):
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     return s, {
         "db_file": db_file,
@@ -261,9 +260,8 @@ def test_single_mode_serves_the_account_directory_and_the_old_path_is_gone(tmp_p
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)
@@ -321,9 +319,8 @@ def test_empty_state_rendering(tmp_path: Path):
     s = Settings(
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
     )
     app = create_app(s)
     client = TestClient(app, base_url=s.public_url, follow_redirects=False)

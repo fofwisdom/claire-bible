@@ -110,8 +110,6 @@ def _setup_network_env(tmp_path: Path) -> SimpleNamespace:
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_MULTI_THEME=True,
         CLAIRE_FQDN="127.0.0.1:8765",
     )
     KnowledgeBaseManager(settings).reload()

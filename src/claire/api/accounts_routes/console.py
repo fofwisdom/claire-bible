@@ -492,7 +492,7 @@ def _append_theme_query(path: str, theme_query: str | None) -> str:
 
 def _kb_manager(ctx: AccountsContext) -> KnowledgeBaseManager:
     data_dir = ctx.data_dir if ctx.data_dir is not None else ctx.db_file.parent
-    return KnowledgeBaseManager(SimpleNamespace(db_file=ctx.db_file, db_path=str(ctx.db_file), data_dir=data_dir, multi_theme=True))
+    return KnowledgeBaseManager(SimpleNamespace(db_file=ctx.db_file, db_path=str(ctx.db_file), data_dir=data_dir))
 
 
 def _resolve_caller_theme_and_list(

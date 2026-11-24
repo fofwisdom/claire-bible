@@ -720,9 +720,8 @@ def real_app(tmp_path: Path):
         CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
+        CLAIRE_FQDN="127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_MULTI_THEME=True,
     )
     client = TestClient(create_app(settings=settings), base_url=settings.public_url)
     return client, settings

@@ -277,7 +277,7 @@ def test_rollback_resolution_api_route(tmp_path):
         data_dir=tmp_path / "data",
         inject_token=owner_token,
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
     )
     svc = IngestService(settings)
     app = server.create_app(settings, svc)
@@ -424,7 +424,7 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
         data_dir=tmp_path / "data",
         inject_token=owner_token,
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
     )
     svc = StreamingTestService(settings)
     app = server.create_app(settings, svc)
@@ -473,7 +473,7 @@ def test_get_resolution_decisions_global_api_route(tmp_path):
         inject_token=owner_token,
         readonly_token=readonly_token,
         environment="development",
-        public_url="http://127.0.0.1:8765",
+        fqdn="127.0.0.1:8765",
     )
     svc = IngestService(settings)
     app = server.create_app(settings, svc)

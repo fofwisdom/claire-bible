@@ -79,9 +79,8 @@ def test_e2e_admin_routing_lineage_and_member_byok_baseline_flow(tmp_path: Path)
         CLAIRE_DATA_DIR=str(data_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
-        CLAIRE_PUBLIC_URL=PUBLIC_URL,
+        CLAIRE_FQDN=PUBLIC_URL,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_MULTI_THEME=True,
     )
     KnowledgeBaseManager(settings)
     app = server.create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock")))

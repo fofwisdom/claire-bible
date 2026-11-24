@@ -308,7 +308,6 @@ def test_theme_registry_account_id(tmp_path: Path) -> None:
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
-        CLAIRE_MULTI_THEME=True,
     )
     manager = KnowledgeBaseManager(base_settings=settings)
     # The entry without account_id is of the admin; version 28 converts it to a shared knowledge base that the admin made.
