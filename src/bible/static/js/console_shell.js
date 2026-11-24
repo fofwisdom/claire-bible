@@ -320,6 +320,55 @@
 
   let tocObserver = null;
 
+  function openTabForHash(body){
+    if(!body) return;
+    const raw = (window.location.hash || '').slice(1);
+    if(!raw) return;
+    let id = raw;
+    try{ id = decodeURIComponent(raw); }catch(_){}
+    if(!id) return;
+    const el = document.getElementById(id);
+    if(!el || !body.contains(el)) return;
+    const tabPanel = el.closest('[role="tabpanel"][data-tabpanel]');
+    if(!tabPanel || !body.contains(tabPanel)) return;
+    const tabsRoot = tabPanel.closest('.claire-tabs');
+    if(!tabsRoot) return;
+    const pid = tabPanel.getAttribute('data-tabpanel');
+    if(!pid) return;
+    if(tabsRoot.dataset.tabsBound !== '1' && window.ClaireUi && typeof window.ClaireUi.enhance === 'function'){
+      window.ClaireUi.enhance(tabsRoot);
+    }
+    const tabBtn = Array.from(tabsRoot.querySelectorAll('[role="tab"][data-tab]')).find(function(btn){
+      return btn.closest('.claire-tabs') === tabsRoot && btn.getAttribute('data-tab') === pid;
+    });
+    if(tabBtn && tabBtn.getAttribute('aria-selected') !== 'true'){
+      tabBtn.click();
+    }
+    el.scrollIntoView({ block: 'start' });
+    flashTarget(el);
+  }
+
+  function scheduleOpenTabForHash(body){
+    if(!body) return;
+    if(document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', function(){ openTabForHash(body); }, { once: true });
+      return;
+    }
+    const unbound = body.querySelector('.claire-tabs:not([data-tabs-bound="1"])');
+    if(unbound){
+      let ran = false;
+      function runOnce(){
+        if(ran) return;
+        ran = true;
+        openTabForHash(body);
+      }
+      document.addEventListener('DOMContentLoaded', runOnce, { once: true });
+      window.requestAnimationFrame(runOnce);
+    } else {
+      openTabForHash(body);
+    }
+  }
+
   function rebuildToc(body){
     const layout = document.getElementById('console-layout');
     const tocList = document.getElementById('console-toc-list');
@@ -330,18 +379,47 @@
       tocObserver = null;
     }
 
+    const tocTabsHost = body.querySelector('[data-toc-tabs="1"]');
     const items = [];
     const seen = new Set();
-    body.querySelectorAll('h2').forEach(function(heading, idx){
-      if(heading.classList.contains('sr-only') || heading.closest('[hidden], dialog, .sr-only')) return;
-      const text = (heading.textContent || '').trim();
-      if(!text || seen.has(text)) return;
-      seen.add(text);
-      const card = heading.closest('section, form, .card, .console-subcard, .pref-card, .claire-card') || heading;
-      if(!card.id && !heading.id) heading.id = 'console-sec-' + (idx + 1);
-      const target = card.id ? card : heading;
-      items.push({ id: target.id, label: text, target: target });
-    });
+
+    if(!tocTabsHost){
+      body.querySelectorAll('h2').forEach(function(heading, idx){
+        if(heading.classList.contains('sr-only') || heading.closest('[hidden], dialog, .sr-only')) return;
+        const text = (heading.textContent || '').trim();
+        if(!text || seen.has(text)) return;
+        seen.add(text);
+        const card = heading.closest('section, form, .card, .console-subcard, .pref-card, .claire-card') || heading;
+        if(!card.id && !heading.id) heading.id = 'console-sec-' + (idx + 1);
+        const target = card.id ? card : heading;
+        items.push({ id: target.id, label: text, target: target, inActiveTab: true, tabId: '', tabLabel: '', tabBtn: null });
+      });
+    } else {
+      body.querySelectorAll('h2').forEach(function(heading, idx){
+        if(heading.classList.contains('sr-only') || heading.closest('dialog, .sr-only')) return;
+        const hiddenParent = heading.closest('[hidden]');
+        const tabPanel = heading.closest('[role="tabpanel"][data-tabpanel]');
+        if(hiddenParent){
+          if(!tabPanel || !tocTabsHost.contains(tabPanel) || hiddenParent !== tabPanel) return;
+          if(tabPanel.parentElement && tabPanel.parentElement.closest('[hidden]')) return;
+        }
+        const text = (heading.textContent || '').trim();
+        if(!text || seen.has(text)) return;
+        seen.add(text);
+        const card = heading.closest('section, form, .card, .console-subcard, .pref-card, .claire-card') || heading;
+        if(!card.id && !heading.id) heading.id = 'console-sec-' + (idx + 1);
+        const target = card.id ? card : heading;
+        const scopedPanel = (tabPanel && tocTabsHost.contains(tabPanel)) ? tabPanel : null;
+        const tabId = scopedPanel ? (scopedPanel.getAttribute('data-tabpanel') || '') : '';
+        const tabsContainer = scopedPanel ? scopedPanel.closest('.claire-tabs') : null;
+        const tabBtn = (tabsContainer && tabId) ? Array.from(tabsContainer.querySelectorAll('[role="tab"][data-tab]')).find(function(btn){
+          return btn.closest('.claire-tabs') === tabsContainer && btn.getAttribute('data-tab') === tabId;
+        }) || null : null;
+        const tabLabel = tabBtn ? (tabBtn.textContent || '').trim() : (scopedPanel ? (scopedPanel.getAttribute('aria-label') || tabId) : '');
+        const inActiveTab = !scopedPanel || !scopedPanel.hasAttribute('hidden');
+        items.push({ id: target.id, label: text, target: target, tabPanel: scopedPanel, tabId: tabId, tabLabel: tabLabel, tabBtn: tabBtn, inActiveTab: inActiveTab });
+      });
+    }
 
     tocList.innerHTML = '';
     if(items.length < 3){
@@ -351,18 +429,49 @@
 
     layout.classList.add('has-toc');
     const linkMap = new Map();
-    items.forEach(function(item, idx){
+    const tabIds = new Set(items.map(function(it){ return it.tabId; }).filter(Boolean));
+    const showGroups = Boolean(tocTabsHost) && tabIds.size > 1;
+    let lastGroupTabId = null;
+    let firstActiveMarked = false;
+
+    items.forEach(function(item){
+      if(showGroups && item.tabId && item.tabId !== lastGroupTabId){
+        lastGroupTabId = item.tabId;
+        const groupLi = document.createElement('li');
+        groupLi.className = 'console-toc-group';
+        groupLi.setAttribute('data-toc-group', item.tabId);
+        groupLi.textContent = item.tabLabel || item.tabId;
+        tocList.appendChild(groupLi);
+      }
+
       const li = document.createElement('li');
+      if(tocTabsHost && item.tabId) li.setAttribute('data-toc-tab', item.tabId);
       const a = document.createElement('a');
       a.href = '#' + item.id;
       a.textContent = item.label;
-      if(idx === 0) a.classList.add('is-active');
-      a.addEventListener('click', function(){
+      if(tocTabsHost) a.setAttribute('data-toc-in-active-tab', item.inActiveTab ? '1' : '0');
+      if(item.inActiveTab && !firstActiveMarked){
+        a.classList.add('is-active');
+        firstActiveMarked = true;
+      }
+      a.addEventListener('click', function(ev){
+        if(!item.inActiveTab && item.tabBtn){
+          ev.preventDefault();
+          item.tabBtn.click();
+          if(window.history && typeof window.history.replaceState === 'function'){
+            window.history.replaceState(null, '', '#' + item.id);
+          }
+          window.requestAnimationFrame(function(){
+            item.target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            flashTarget(item.target);
+          });
+          return;
+        }
         flashTarget(item.target);
       });
       li.appendChild(a);
       tocList.appendChild(li);
-      linkMap.set(item.target, a);
+      if(item.inActiveTab) linkMap.set(item.target, a);
     });
 
     if(typeof IntersectionObserver === 'function'){
@@ -376,7 +485,9 @@
         });
       }, { rootMargin: '-76px 0px -65% 0px', threshold: 0.05 });
 
-      items.forEach(function(item){ tocObserver.observe(item.target); });
+      items.forEach(function(item){
+        if(item.inActiveTab) tocObserver.observe(item.target);
+      });
     }
   }
 
@@ -419,6 +530,8 @@
 
     window.ClaireConsoleShell = { enhance: run };
     run(body);
+    scheduleOpenTabForHash(body);
+    window.addEventListener('hashchange', function(){ openTabForHash(body); });
 
     body.addEventListener('click', function(ev){
       if(ev.target && ev.target.closest && ev.target.closest('[role="tab"]')){

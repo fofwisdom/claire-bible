@@ -58,6 +58,10 @@ body { height: auto; min-height: 100dvh; margin: 0; padding: 0; display: flex; f
 .console-toc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.375rem; }
 .console-toc-list a { display: block; color: var(--muted); text-decoration: none; line-height: 1.35; padding: 0.125rem 0; }
 .console-toc-list a:hover, .console-toc-list a.is-active { color: var(--accent); font-weight: 600; }
+.console-toc-group { margin-top: 0.5rem; font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.console-toc-group:first-child { margin-top: 0; }
+.console-toc-list a[data-toc-in-active-tab="0"] { opacity: 0.72; padding-left: 0.375rem; }
+.console-toc-list a[data-toc-in-active-tab="0"]:hover { opacity: 1; }
 @container cmain (max-width: 56rem) {
   .console-layout.has-toc { grid-template-columns: minmax(0, 1fr); }
   .console-toc { display: none !important; }
@@ -226,6 +230,8 @@ th, .pref-table th { background: var(--panel-bg); color: var(--muted); font-weig
 .console-flow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1.375rem; }
 .console-flow-step { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; padding: 0.125rem 0 0.125rem 0.875rem; border-left: 3px solid var(--accent); }
 .console-flow-step[data-flow-kind="rule"] { border-left-color: var(--border); }
+.console-flow-step[data-flow-kind="conditional"] { border-left-style: dashed; border-left-color: var(--accent); }
+.console-flow-step[data-flow-kind="branch"] { border-left-style: dashed; border-left-color: var(--remote); }
 .console-flow-step + .console-flow-step::before { content: "↓"; position: absolute; top: -1.3rem; left: -0.4rem; font-size: 0.875rem; line-height: 1; color: var(--muted); }
 .console-flow-main { display: flex; flex-direction: column; gap: 0.375rem; min-width: 0; }
 .console-flow-title { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
@@ -236,6 +242,27 @@ th, .pref-table th { background: var(--panel-bg); color: var(--muted); font-weig
 @container cmain (min-width: 43.75rem) {
   .console-flow-step.has-side { grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.55fr); gap: 0.5rem 1.25rem; }
 }
+/* Pipeline lineage SVG diagram */
+.pipeline-graph-wrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--panel-bg); padding: 0.5rem; }
+.pipeline-graph-wrap:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.pipeline-graph-svg { display: block; width: 100%; min-width: 720px; height: auto; font-family: inherit; }
+.pg-lane { fill: var(--card-bg, var(--bg)); stroke: var(--border); stroke-width: 1; stroke-dasharray: 4 3; }
+.pg-lane-label { fill: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 0.03em; }
+rect.pg-node, .pg-node > rect { fill: var(--card-bg, var(--bg)); stroke: var(--border); stroke-width: 1.25; }
+rect.pg-node-ai, .pg-node-ai > rect { fill: var(--active); stroke: var(--accent); stroke-width: 1.5; }
+rect.pg-node-rule, .pg-node-rule > rect { fill: var(--panel-bg); stroke: var(--border); stroke-width: 1.25; }
+rect.pg-node-client, .pg-node-client > rect { fill: var(--ok-bg); stroke: var(--ok); stroke-width: 1.5; }
+rect.pg-node-shadow, .pg-node-shadow > rect { fill: var(--proto-bg); stroke: var(--proto); stroke-width: 1.25; stroke-dasharray: 4 3; }
+.pg-node-title { fill: var(--fg); font-size: 12px; font-weight: 700; }
+.pg-node-sub { fill: var(--muted); font-size: 10.5px; font-weight: 500; }
+.pg-node-model { fill: var(--accent); font-family: 'D2Coding', monospace; font-size: 10px; font-weight: 600; }
+.pg-node-rule .pg-node-model { fill: var(--muted); }
+.pg-node-client .pg-node-model { fill: var(--ok); }
+.pg-node-shadow .pg-node-model { fill: var(--proto); }
+.pg-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pg-edge-dashed { fill: none; stroke: var(--muted); stroke-width: 1.35; stroke-dasharray: 5 4; stroke-linecap: round; stroke-linejoin: round; }
+.pg-edge-label { fill: var(--muted); font-size: 10px; font-weight: 600; }
+.pipeline-graph-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.625rem 1rem; margin-top: 0.625rem; font-size: 0.75rem; color: var(--muted); }
 details.pref-disclosure { border: 1px solid var(--border); border-radius: 0.375rem; background: var(--panel-bg); padding: 0.5rem 0.75rem; }
 details.pref-disclosure summary { cursor: pointer; font-size: 0.78125rem; font-weight: 700; color: var(--fg); }
 
