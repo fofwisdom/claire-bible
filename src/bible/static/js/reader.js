@@ -26,7 +26,7 @@ function readerApiUrl(path) {
 
 // 목록 설명 줄수(0/2/4) — 브라우저에 기억. 문서 많아지면 제목/설명이 height 를 너무
 // 차지한다는 피드백(사용자 지적) → #docs 에 lc0/lc4 클래스로 CSS line-clamp 토글(기본 2줄).
-let descLines = 3;
+let descLines = 0;
 try{ const v=parseInt(localStorage.getItem('claireDescLines')); if(v===0||v===3||v===4||v===2) descLines=(v===0?0:3); }catch(e){}
 function doclistToolbarHtml(){
   return '<div class="doclist-toolbar">'+

@@ -347,12 +347,19 @@ def test_fslider_vertical_left_of_zoomctl():
 
 
 def test_favorite_and_hide_ui_markers():
-    """좌측 패널 제목 좌측 즐겨찾기 버튼 및 우측 상세 패널 숨기기 체크박스 검증."""
-    # 좌측 패널: 제목 줄 좌측 별표 버튼
+    """Verify favorite and hide controls in the left document list and right detail panel."""
+    # Left panel: favorite and hide buttons in the title rail
     assert "doctitle-line" in GRAPH_HTML
+    assert "docitem-rail" in GRAPH_HTML
     assert "docpin-btn" in GRAPH_HTML
+    assert "dochide-btn" in GRAPH_HTML
     assert "ws.list.pinned_count" in GRAPH_HTML
-    # 우측 패널: FTS 스타일 숨기기 체크박스
+    assert "ws.list.unhide" in GRAPH_HTML
+    # Context panel source list: open text button and default titles-only mode
+    assert "srcopen" in GRAPH_HTML
+    assert "ws.node.open_doc" in GRAPH_HTML
+    assert "let descLines = 0;" in GRAPH_HTML
+    # Right panel: FTS-style hide checkbox
     assert "dochide-row" in GRAPH_HTML and "dochide-label" in GRAPH_HTML
     assert 'id="panelhidechk"' in GRAPH_HTML
     assert 'id="panelhidelabel"' in GRAPH_HTML

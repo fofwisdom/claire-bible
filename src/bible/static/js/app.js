@@ -2068,7 +2068,7 @@ function srcRowHtml(dc, prev, index){
   h += '</div><div id="' + sid + '" class="srcbody" role="region" aria-label="' + esc(tr('ws.node.src_summary', { title: dc.title })) + '" hidden>';
   h += dc.summary ? '<p class="srcsum">' + esc(dc.summary) + '</p>' : '<p class="srcsum srcnone">' + tr("ws.node.no_summary") + '</p>';
   const links = [];
-  if(isWebUrl(dc.url)) links.push('<a href="' + esc(dc.url) + '" target=_blank rel=noopener>' + tr("ws.node.open_source") + '</a>');
+  if(dc.has_detail || dc.detail || dc.summary) links.push('<button type="button" class="srcopen" data-read-doc="' + esc(dc.id) + '">' + tr("ws.node.open_doc") + '</button>');
   if(canIngest() && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target=_blank rel=noopener><span data-icon="doc"></span> ' + tr("ws.node.open_raw") + '</a>');
   if(links.length) h += '<p class="src">' + links.join(' · ') + '</p>';
   return h + '</div></div>';
@@ -2094,7 +2094,7 @@ panel.addEventListener('click', e => {
     loadNode(insight.dataset.insightEnt);
     return;
   }
-  const read = e.target.closest('.srcread');
+  const read = e.target.closest('.srcread, .srcopen');
   if(read){ openReader(read.dataset.readDoc); setCenterView('reader'); return; }
   const t = e.target.closest('.srctitle'); if(!t) return;
   const body = document.getElementById(t.getAttribute('aria-controls')); if(!body) return;
@@ -3790,14 +3790,16 @@ function dayOf(ts){ if(!ts) return tr("ws.list.no_date");
 function docItemHtml(dc){
   const unread = dc.seen===0, watching = dc.watch===1, pinned = dc.pinned===1, hid = dc.hidden===1;
   const pinBtn = canWrite()
-    ? '<button class="docpin-btn'+(pinned?' pinned':'')+'" title="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
-      '" aria-label="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+
-      '" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
+    ? '<button type="button" class="docpin-btn'+(pinned?' pinned':'')+'" title="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+'" aria-label="'+(pinned?tr("ws.list.unpin"):tr("ws.list.pin"))+'" onclick="event.stopPropagation();togglePin('+jsArg(dc.id)+','+(!pinned)+')">'+'<span data-icon="star"'+(pinned?' class="filled"':'')+'></span>'+'</button>'
     : (pinned ? '<span class="docpin-icon pinned" title="' + tr("ws.list.pinned") + '"><span data-icon="star" class="filled"></span></span>' : '');
+  const hideBtn = canWrite()
+    ? '<button type="button" class="dochide-btn'+(hid?' hidden-on':'')+'" title="'+(hid?tr("ws.list.unhide"):tr("ws.list.hide"))+'" aria-label="'+(hid?tr("ws.list.unhide"):tr("ws.list.hide"))+'" onclick="event.stopPropagation();toggleHide('+jsArg(dc.id)+','+(!hid)+')"><span data-icon="'+(hid?'eye':'eye-off')+'"></span></button>'
+    : '';
+  const rail = canWrite() ? '<span class="docitem-rail">'+pinBtn+hideBtn+'</span>' : pinBtn;
   return '<div class="docitem'+(dc.id===activeDoc?' active':'')+(unread?' unread':'')+(hid?' hidden-doc':'')+
     '" onclick="selectDoc('+jsArg(dc.id)+')">'+
     '<div class=doctitle-line>'+
-    pinBtn+
+    rail+
     (watching?'<span class=wbadge title="' + tr("ws.list.watch") + '"><span data-icon="restore"></span></span>':'')+
     (unread?'<span class=ubadge title="' + tr("ws.list.unread") + '">●</span>':'')+
     '<b>'+esc(dc.title)+'</b><span class=st>'+esc(dc.source_type||'')+'</span>'+
@@ -4747,6 +4749,14 @@ async function togglePin(id, val){
   }catch(e){ if(d){ d.pinned = val?0:1; docListPlace(d); renderDocs(document.getElementById('docq').value); } }
   return true;
 }
+function syncPanelHideState(id, val){
+  if(!curDocPanelData || curDocPanelData.id !== id) return;
+  curDocPanelData.hidden = val ? 1 : 0;
+  const chk = document.getElementById('panelhidechk');
+  const lbl = document.getElementById('panelhidelabel');
+  if(chk) chk.checked = !!val;
+  if(lbl) lbl.textContent = val ? tr("ws.list.hidden_done") : tr("ws.list.hide");
+}
 async function toggleHide(id, val){
   if(!canWrite()) return false;
   // 숨기는 방향(val=true)만 컨펌 — 오클릭 방지(사용자 지적) + 되돌리는 방법을 그 자리에서
@@ -4756,13 +4766,14 @@ async function toggleHide(id, val){
     return false;
   }
   const d=allDocs.find(x=>x.id===id); if(d){ d.hidden = val?1:0; docListPlace(d); }
+  syncPanelHideState(id, val);
   renderDocs(document.getElementById('docq').value);
   try{
     const r=await fetch(apiUrl('document/hide'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({id:id, hidden:val})});
     if(r.status===401||r.status===404) expireWriteAccess();
-    if(!r.ok && d){ d.hidden = val?0:1; docListPlace(d); renderDocs(document.getElementById('docq').value); }
-  }catch(e){ if(d){ d.hidden = val?0:1; docListPlace(d); renderDocs(document.getElementById('docq').value); } }
+    if(!r.ok){ if(d){ d.hidden = val?0:1; docListPlace(d); } syncPanelHideState(id, !val); renderDocs(document.getElementById('docq').value); }
+  }catch(e){ if(d){ d.hidden = val?0:1; docListPlace(d); } syncPanelHideState(id, !val); renderDocs(document.getElementById('docq').value); }
   return true;
 }
 // 상세 패널의 숨기기 체크박스 — toggleHide 결과(컨펌 취소 여부)를 보고 체크박스 및 라벨 갱신.

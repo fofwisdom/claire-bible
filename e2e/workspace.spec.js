@@ -2227,7 +2227,8 @@ test.describe('node detail panel and node request order', () => {
     expect(await first.locator('.srcsum').evaluate(el => getComputedStyle(el).textAlign)).toBe('justify');
     // CJK justify: a line can break between syllables, thus the extra space does not collect between eojeol.
     expect(await first.locator('.srcsum').evaluate(el => getComputedStyle(el).wordBreak)).toBe('normal');
-    await expect(first.locator('.srcbody a')).toHaveText(['↗ 원문 열기']);
+    await expect(first.locator('.srcbody .srcopen')).toHaveText('본문 열기');
+    await expect(first.locator('.srcbody a')).toHaveCount(0);
     await expect(first.locator('.srcread')).toHaveAttribute('aria-label', '본문 보기');
 
     // More than one row can be open. A document with no summary and no detail shows 요약 없음 and has no reader button.
@@ -2235,6 +2236,7 @@ test.describe('node detail panel and node request order', () => {
     await second.locator('.srctitle').click();
     await expect(second.locator('.srcsum')).toHaveText('요약 없음');
     await expect(second.locator('.srcread')).toHaveCount(0);
+    await expect(second.locator('.srcbody .srcopen')).toHaveCount(0);
     await expect(panel.locator('.srcbody:visible')).toHaveCount(2);
     await first.locator('.srctitle').click();
     await expect(first.locator('.srcsum')).toBeHidden();
@@ -2274,6 +2276,12 @@ test.describe('node detail panel and node request order', () => {
     // The reader button of a source document row opens the document in the reader view.
     await srcRows.nth(0).locator('.srcread').click();
     await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+    await expect(page.locator('#reader')).toContainText('페이징 자료 01의 본문입니다.');
+
+    // The 본문 열기 button inside the expanded source row also opens the document in the reader view.
+    await page.evaluate(() => selectEntity('ent-list-01'));
+    await srcRows.nth(0).locator('.srctitle').click();
+    await srcRows.nth(0).locator('.srcbody .srcopen').click();
     await expect(page.locator('#reader')).toContainText('페이징 자료 01의 본문입니다.');
     expect(pageErrors).toEqual([]);
   });
@@ -3497,6 +3505,96 @@ test('WebUI purge menu and command palette dry-run and purge a document for owne
   await expect(modal).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(modal).toBeHidden();
+
+  expect(pageErrors).toEqual([]);
+});
+
+test('document list defaults to titles only, places hide below favorite within two-line height, and opens document text from context source rows', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/?t=e2e-doclisthide1-token-0123456789abc', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.stabilized)).toBe(true);
+
+  await page.locator('#centertab-reader').click();
+  await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
+
+  // 1. Fresh session defaults to titles only (lc0).
+  await expect(page.locator('#docs')).toHaveClass(/\blc0\b/);
+  await expect(page.locator('#desclines')).toHaveValue('0');
+  const firstWithSummary = page.locator('#doclist .docitem').filter({ has: page.locator('p') }).first();
+  await expect(firstWithSummary.locator('p')).toBeHidden();
+  await page.locator('#desclines').selectOption('3');
+  await expect(page.locator('#docs')).toHaveClass(/\blc3\b/);
+  await expect(firstWithSummary.locator('p')).toBeVisible();
+  await page.locator('#desclines').selectOption('0');
+  await expect(page.locator('#docs')).toHaveClass(/\blc0\b/);
+  await expect(firstWithSummary.locator('p')).toBeHidden();
+
+  // 2. Hide button sits directly below favorite button inside .docitem-rail within the two-line row height budget.
+  const firstDoc = page.locator('#doclist .docitem').first();
+  const pinBox = await firstDoc.locator('.docpin-btn').boundingBox();
+  const hideBox = await firstDoc.locator('.dochide-btn').boundingBox();
+  expect(pinBox).not.toBeNull();
+  expect(hideBox).not.toBeNull();
+  expect(hideBox.y).toBeGreaterThanOrEqual(pinBox.y + pinBox.height - 0.5);
+  expect(Math.abs(hideBox.x - pinBox.x)).toBeLessThanOrEqual(2);
+
+  const desktopMetrics = await page.locator('#doclist .docitem').evaluateAll(rows => rows.slice(0, 10).map(row => {
+    const rail = row.querySelector('.docitem-rail');
+    return { rowHeight: row.getBoundingClientRect().height, railHeight: rail ? rail.getBoundingClientRect().height : 0 };
+  }));
+  for (const m of desktopMetrics) {
+    expect(m.rowHeight).toBeLessThanOrEqual(55);
+    expect(m.railHeight).toBeLessThanOrEqual(37);
+  }
+
+  // Mobile viewport also preserves the two-line row height budget.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => openDocDrawer());
+  await expect(page.locator('#doclist .docitem').first()).toBeVisible();
+  const mobileMetrics = await page.locator('#doclist .docitem').evaluateAll(rows => rows.slice(0, 10).map(row => {
+    const rail = row.querySelector('.docitem-rail');
+    return { rowHeight: row.getBoundingClientRect().height, railHeight: rail ? rail.getBoundingClientRect().height : 0 };
+  }));
+  for (const m of mobileMetrics) {
+    expect(m.rowHeight).toBeLessThanOrEqual(64);
+    expect(m.railHeight).toBeLessThanOrEqual(42);
+  }
+  await page.evaluate(() => closeDocDrawer(false));
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  // 3. Clicking the list hide button hides the document and syncs the open Context panel checkbox; unhiding needs no confirm.
+  const targetDoc = page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' }).first();
+  await targetDoc.click();
+  await expect(page.locator('#panelhidechk')).not.toBeChecked();
+
+  page.once('dialog', dialog => dialog.accept());
+  await targetDoc.locator('.dochide-btn').click();
+  await expect(page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' })).toHaveCount(0);
+  await expect(page.locator('#panelhidechk')).toBeChecked();
+
+  await page.locator('#showhidden').click();
+  const hiddenTarget = page.locator('#hiddenlist .docitem').filter({ hasText: '테스트 문서 2' }).first();
+  await expect(hiddenTarget).toBeVisible();
+  let unhideDialogCount = 0;
+  const onDialog = dialog => { unhideDialogCount += 1; dialog.dismiss(); };
+  page.on('dialog', onDialog);
+  await hiddenTarget.locator('.dochide-btn').click();
+  page.off('dialog', onDialog);
+  expect(unhideDialogCount).toBe(0);
+  await expect(page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' })).toHaveCount(1);
+  await expect(page.locator('#panelhidechk')).not.toBeChecked();
+
+  // 4. Context panel source documents show 본문 열기 (not 원문 열기) and open the document in the reader.
+  await page.evaluate(() => selectEntity('ent-list-01'));
+  const firstSrc = page.locator('#panel .srcrow').first();
+  await firstSrc.locator('.srctitle').click();
+  await expect(firstSrc.locator('.srcbody .srcopen')).toHaveText('본문 열기');
+  await expect(firstSrc.locator('.srcbody')).not.toContainText('원문 열기');
+  await firstSrc.locator('.srcbody .srcopen').click();
+  await expect(page.locator('#reader')).toContainText('페이징 자료 01의 본문입니다.');
 
   expect(pageErrors).toEqual([]);
 });

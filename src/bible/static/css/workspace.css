@@ -191,9 +191,14 @@
   .docitem.unread{border-left:3px solid var(--accent2)} .docitem.unread b{font-weight:700}
   .docitem .ubadge{color:var(--accent2);font-size:10px;margin-right:2px;vertical-align:middle;flex-shrink:0}
   .docitem .wbadge{font-size:11px;margin-right:2px;flex-shrink:0}
-  .docitem .docpin-btn{background:none;border:0;padding:0 2px 0 0;font-size:13px;cursor:pointer;line-height:1.2;opacity:.7;color:var(--fg);flex-shrink:0}
-  .docitem .docpin-btn:hover{opacity:1}
-  .docitem .docpin-btn.pinned{opacity:1;color:#e3b341}
+  .docitem .docitem-rail{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;flex-shrink:0}
+  .docitem .docpin-btn,.docitem .dochide-btn{background:none;border:0;padding:0;margin:0;width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;line-height:1;color:var(--muted);flex-shrink:0;border-radius:3px}
+  .docitem .docpin-btn .lineicon,.docitem .dochide-btn .lineicon,.docitem .docpin-btn [data-icon]:empty,.docitem .dochide-btn [data-icon]:empty{width:13px;height:13px}
+  .docitem .docpin-btn [data-icon],.docitem .dochide-btn [data-icon]{vertical-align:0}
+  .docitem .docpin-btn:hover,.docitem .dochide-btn:hover{color:var(--fg);background:var(--hover)}
+  .docitem .docpin-btn:focus-visible,.docitem .dochide-btn:focus-visible{outline:2px solid var(--accent2);outline-offset:1px}
+  .docitem .docpin-btn.pinned{color:#e3b341}
+  .docitem .dochide-btn.hidden-on{color:var(--accent)}
   .docitem .docpin-icon{font-size:13px;line-height:1.2;margin-right:2px;flex-shrink:0}
   .docitem .docpin-icon.pinned{color:#e3b341}
   .shared-kb-bar{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--docs-bg);flex-shrink:0}
@@ -268,14 +273,17 @@
   #panel .srctitle[aria-expanded="true"] .srcname{font-weight:600}
   #panel .srcmeta{grid-column:2;display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
   #panel .srctype{padding:0 6px;border:1px solid var(--border);border-radius:8px;background:var(--chip-bg)}
-  #panel .srcread{flex:none;min-width:32px;min-height:32px;margin:2px 0 0;padding:0;border:0;border-radius:4px;background:none;font-size:15px;cursor:pointer}
-  #panel .srcread:hover{background:var(--hover)}
+  #panel .srcread{flex:none;min-width:32px;min-height:32px;margin:2px 0 0;padding:0;border:0;border-radius:4px;background:none;color:var(--muted);font-size:15px;cursor:pointer}
+  #panel .srcread:hover{background:var(--hover);color:var(--fg)}
   #panel .srcbody{padding:0 4px 8px 20px}
   #panel .srcbody[hidden]{display:none}
   /* CJK justify: keep-all puts the extra space only between eojeol (wide gaps). word-break:normal lets a line break between syllables, thus the lines fill and the gaps stay small. */
   #panel .srcsum{margin:.35em 0 .2em;text-align:justify;text-align-last:start;text-justify:inter-character;word-break:normal;overflow-wrap:anywhere;line-height:1.6}
   #panel .srcsum.srcnone{color:var(--muted)}
   #panel .srcbody p.src{margin:.45em 0 0;font-size:12px}
+  #panel .srcopen{background:none;border:0;padding:0;margin:0;color:var(--accent);font:inherit;cursor:pointer;text-decoration:none}
+  #panel .srcopen:hover{text-decoration:underline}
+  #panel .srcopen:focus-visible{outline:2px solid var(--accent2);outline-offset:2px;border-radius:2px}
   #panel .docmeta, #reader .docmeta, #rbody .docmeta, .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
   .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
   /* The tags of the reader meta line have one style, the style of the source badge (.prov.det). The class names stay for the code and the tests: .trunc-tag.trunc-appendix .trunc-tag.trunc-references .trunc-tag.trunc-stt .trunc-tag.parser-fallback-tag .trunc-tag.encoding-flaw-tag .trunc-tag.scanned-tag */
@@ -483,7 +491,9 @@
     .docitem .st{font-size:12px}
     .docitem .ubadge{font-size:11px}
     .docitem .wbadge{font-size:12px}
-    .docitem .docpin-btn{min-width:32px;min-height:32px;font-size:16px}
+    .docitem .docitem-rail{gap:2px}
+    .docitem .docpin-btn,.docitem .dochide-btn{width:24px;height:19px;min-width:24px;min-height:19px;font-size:14px}
+    .docitem .docpin-btn .lineicon,.docitem .dochide-btn .lineicon,.docitem .docpin-btn [data-icon]:empty,.docitem .dochide-btn [data-icon]:empty{width:15px;height:15px}
     .dday{font-size:12.5px;padding:4px 12px}
     #pinnedhead{font-size:12px;padding:6px 12px}
     #showhidden{font-size:13px;padding:10px 12px}
