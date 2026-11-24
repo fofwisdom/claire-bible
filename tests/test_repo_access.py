@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -11,8 +12,9 @@ from claire.core.config import Settings, get_settings
 from claire.ops.status import build_status_text
 
 
-def test_status_output_contains_repo_info():
+def test_status_output_contains_repo_info(tmp_path: Path):
     settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
         GITHUB_REPOSITORY="fofwisdom/claire-bible",
         SOURCE_BASE_URL="https://github.com/fofwisdom/claire-bible",
         _env_file=None,
@@ -36,7 +38,8 @@ def test_cli_repo_command_prints_info(capsys: pytest.CaptureFixture[str], monkey
         get_settings.cache_clear()
 
 
-def test_cli_preflight_prints_repo_info(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch):
+def test_cli_preflight_prints_repo_info(tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(tmp_path / "claire.db"))
     monkeypatch.setenv("GITHUB_REPOSITORY", "testorg/testrepo")
     monkeypatch.delenv("SOURCE_BASE_URL", raising=False)
     get_settings.cache_clear()

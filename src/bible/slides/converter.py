@@ -7,8 +7,10 @@ timeouts, and in-flight request deduplication.
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -19,16 +21,28 @@ _IN_FLIGHT: dict[str, asyncio.Future[Path]] = {}
 _IN_FLIGHT_LOCK = asyncio.Lock()
 
 
+@functools.lru_cache(maxsize=8)
+def _is_runnable_asciidoctor(path: str) -> bool:
+    """Verify that the candidate executable runs on this host and is not a Windows shim."""
+    if "/windowsapps/" in path.replace("\\", "/").lower():
+        return False
+    try:
+        proc = subprocess.run([path, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
 def find_asciidoctor_executable() -> list[str] | None:
     """Find available asciidoctor executable with revealjs backend."""
     # 1. Direct asciidoctor-revealjs CLI
     cli = shutil.which("asciidoctor-revealjs")
-    if cli:
+    if cli and _is_runnable_asciidoctor(cli):
         return [cli]
 
     # 2. General asciidoctor with gem
     asc = shutil.which("asciidoctor")
-    if asc:
+    if asc and _is_runnable_asciidoctor(asc):
         return [asc, "-r", "asciidoctor-revealjs", "-b", "revealjs"]
 
     # 3. Known Homebrew / Linuxbrew / host paths
@@ -38,7 +52,7 @@ def find_asciidoctor_executable() -> list[str] | None:
         "/usr/bin/asciidoctor",
     ]
     for c in candidates:
-        if os.path.isfile(c) and os.access(c, os.X_OK):
+        if os.path.isfile(c) and os.access(c, os.X_OK) and _is_runnable_asciidoctor(c):
             return [c, "-r", "asciidoctor-revealjs", "-b", "revealjs"]
 
     return None

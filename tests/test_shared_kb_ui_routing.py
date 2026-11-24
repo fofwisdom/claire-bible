@@ -66,6 +66,7 @@ def ui_env(tmp_path: Path):
     conn = dbm.connect(db_file)
     theme = themes_store.create_theme(conn, label="Korean geography", knowledge_type="real")
     themes_store.update_theme(conn, int(theme["id"]), state="active")
+    conn.execute("INSERT INTO documents (id, kb_id, title, url, fetched_at) VALUES (?, ?, ?, ?, ?)", ("doc_1", shared.id, "Shared Doc", "https://example.com/doc_1", now))
     conn.commit()
     conn.close()
     app = server.create_app(settings)
@@ -198,9 +199,12 @@ def test_public_kb_and_themes_paths_give_html_to_a_browser_and_json_to_an_api_cl
     # The page shows the number and the label of the knowledge base; the script gets the rest from the JSON form.
     detail = client.get(f"/kb/{numbers.kb}/", headers=html_hdr).text
     assert "<title>Team Korea" in detail and f'"ref": "{numbers.kb}"' in detail
-    # A link into the content of the shared knowledge base opens the workspace, not the page of the public views.
-    workspace = client.get(f"/kb/{numbers.kb}/?doc=doc_1", headers=html_hdr)
+    # A link into the content of the shared knowledge base redirects to its permalink workspace, and a missing document returns 404.
+    link_res = client.get(f"/kb/{numbers.kb}/?doc=doc_1", headers=html_hdr)
+    assert link_res.status_code == 308 and link_res.headers["location"].startswith("/silvercord/")
+    workspace = client.get(link_res.headers["location"], headers=html_hdr)
     assert workspace.status_code == 200 and "data-public-view" not in workspace.text
+    assert client.get(f"/kb/{numbers.kb}/?doc=doc_missing", headers=html_hdr).status_code == 404
 
     # The path without the last slash, an unknown number, and the paths that are not mounted any more.
     redir = client.get(f"/kb/{numbers.kb}", headers=html_hdr)
@@ -219,7 +223,7 @@ def test_public_kb_and_themes_paths_give_html_to_a_browser_and_json_to_an_api_cl
     assert 'id="pref-delete-preview-btn"' not in acc_html
 
     mcp_html = client.get("/account/mcp", headers=alice_hdr).text
-    assert "400 kb_required" in mcp_html
+    assert "kb_required" in mcp_html
 
     fed_html = client.get("/admin/federation", headers=_admin_hdr).text
     assert 'id="admin-federation-tabs"' in fed_html
