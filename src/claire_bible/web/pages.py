@@ -61,11 +61,11 @@ def shared_html(doc: dict, settings: Any = None, *, base_url: str = "", share_to
         from claire.core.config import get_settings
 
         s = get_settings()
-        ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
+        ga_id = str(getattr(s, "ga_measurement_id", "") or "").strip()
         resolved_base_url = base_url or getattr(s, "public_url", "")
         site_name = getattr(s, "site_name", "Claire Bible")
     else:
-        ga_id = getattr(settings, "effective_ga_measurement_id", getattr(settings, "ga_measurement_id", ""))
+        ga_id = str(getattr(settings, "ga_measurement_id", "") or "").strip()
         resolved_base_url = base_url or getattr(settings, "public_url", "")
         site_name = getattr(settings, "site_name", "Claire Bible")
 
@@ -99,11 +99,11 @@ def render_graph_html(settings: Any = None, *, include_private: bool = True, the
     if theme is not None:
         ga_id = str(getattr(theme, "ga_measurement_id", "") or "").strip()
     else:
-        ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
+        ga_id = str(getattr(s, "ga_measurement_id", "") or "").strip()
     kb_id = getattr(theme, "id", None) if theme else None
     theme_label = getattr(theme, "label", "") if theme else ""
     ga_tag = _metadata.render_ga_tag(ga_id, kb_id=kb_id, theme_label=theme_label)
-    sorcerer = getattr(s, "effective_sorcerer", getattr(s, "sorcerer", getattr(s, "effective_owner", getattr(s, "owner", "owner"))))
+    sorcerer = getattr(s, "sorcerer", "owner")
     raw_sorcerer = str(sorcerer).strip() if sorcerer is not None else ""
     if not raw_sorcerer:
         raw_sorcerer = "owner"
@@ -265,11 +265,11 @@ def _render_syndication_bundle(bundle_html: str, settings: Any = None, *, includ
     if theme is not None:
         ga_id = str(getattr(theme, "ga_measurement_id", "") or "").strip()
     else:
-        ga_id = getattr(s, "effective_ga_measurement_id", getattr(s, "ga_measurement_id", ""))
+        ga_id = str(getattr(s, "ga_measurement_id", "") or "").strip()
     kb_id = getattr(theme, "id", None) if theme else None
     theme_label = getattr(theme, "label", "") if theme else ""
     ga_tag = _metadata.render_ga_tag(ga_id, kb_id=kb_id, theme_label=theme_label)
-    sorcerer = getattr(s, "effective_sorcerer", getattr(s, "sorcerer", getattr(s, "effective_owner", getattr(s, "owner", "owner"))))
+    sorcerer = getattr(s, "sorcerer", "owner")
     raw_sorcerer = str(sorcerer).strip() if sorcerer is not None else ""
     if not raw_sorcerer:
         raw_sorcerer = "owner"

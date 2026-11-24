@@ -24,17 +24,17 @@ def test_ga_measurement_id_config_validation():
     """GA 측정 ID 포맷 유효성 검사."""
     # 유효한 포맷들
     s1 = Settings(CLAIRE_GA_MEASUREMENT_ID="G-ABC123456")
-    assert s1.effective_ga_measurement_id == "G-ABC123456"
+    assert s1.ga_measurement_id == "G-ABC123456"
 
     s2 = Settings(CLAIRE_GA_MEASUREMENT_ID="GTM-XYZ789")
-    assert s2.effective_ga_measurement_id == "GTM-XYZ789"
+    assert s2.ga_measurement_id == "GTM-XYZ789"
 
     s3 = Settings(CLAIRE_GA_MEASUREMENT_ID="UA-12345-1")
-    assert s3.effective_ga_measurement_id == "UA-12345-1"
+    assert s3.ga_measurement_id == "UA-12345-1"
 
     # 빈 값 또는 공백
     s_empty = Settings(CLAIRE_GA_MEASUREMENT_ID="   ")
-    assert s_empty.effective_ga_measurement_id == ""
+    assert s_empty.ga_measurement_id == ""
 
     # 유효하지 않은 특수문자나 인젝션 시도 -> ValueError
     with pytest.raises(ValueError, match="CLAIRE_GA_MEASUREMENT_ID"):
@@ -71,7 +71,7 @@ def test_render_graph_html_with_and_without_ga():
     s_no_ga = SimpleNamespace(
         effective_github_repository="fofwisdom/claire-bible",
         effective_source_base_url="https://github.com/fofwisdom/claire-bible",
-        effective_ga_measurement_id="",
+        ga_measurement_id="",
     )
     html_no_ga = render_graph_html(s_no_ga)
     assert "<!-- __GA_TAG__ -->" not in html_no_ga
@@ -81,7 +81,7 @@ def test_render_graph_html_with_and_without_ga():
     s_ga = SimpleNamespace(
         effective_github_repository="fofwisdom/claire-bible",
         effective_source_base_url="https://github.com/fofwisdom/claire-bible",
-        effective_ga_measurement_id="G-TRACK99",
+        ga_measurement_id="G-TRACK99",
     )
     html_ga = render_graph_html(s_ga)
     assert "<!-- __GA_TAG__ -->" not in html_ga
@@ -94,7 +94,7 @@ def test_render_graph_html_theme_ga_no_fallback_to_global_settings():
     s_global_ga = SimpleNamespace(
         effective_github_repository="fofwisdom/claire-bible",
         effective_source_base_url="https://github.com/fofwisdom/claire-bible",
-        effective_ga_measurement_id="G-GLOBAL99",
+        ga_measurement_id="G-GLOBAL99",
     )
     theme_with_own_ga = SimpleNamespace(
         id=1,
@@ -130,7 +130,7 @@ def test_shared_html_with_and_without_ga():
 
     # GA 미설정 시
     s_no_ga = SimpleNamespace(
-        effective_ga_measurement_id="",
+        ga_measurement_id="",
     )
     html_no_ga = shared_html(doc, s_no_ga)
     assert "<!-- __GA_TAG__ -->" not in html_no_ga
@@ -139,7 +139,7 @@ def test_shared_html_with_and_without_ga():
 
     # GA 설정 시
     s_ga = SimpleNamespace(
-        effective_ga_measurement_id="G-SHARED42",
+        ga_measurement_id="G-SHARED42",
     )
     html_ga = shared_html(doc, s_ga)
     assert "<!-- __GA_TAG__ -->" not in html_ga

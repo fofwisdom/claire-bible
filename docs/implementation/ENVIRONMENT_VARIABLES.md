@@ -78,8 +78,7 @@ graph TD
 | `CB_ENV_FILE` | `.env` | 파일 경로 | 프로덕션 환경변수 파일 경로. |
 | `CB_DEV_ENV_FILE` | `.env.dev` | 파일 경로 | 개발 환경 오버레이 파일 경로. |
 | `CB_DATA_DIR` | `./data` / `./.dev/data` | 호스트 디렉터리 경로 | SQLite DB, raw 아티팩트, 이미지 등이 저장되는 호스트 데이터 마운트 경로 (`/app/data`). |
-| `CB_VAULT_DIR` | `./vault` / `./.dev/vault` | 호스트 디렉터리 경로 | Obsidian/AsciiDoc 볼트 파일이 동기화되는 호스트 마운트 경로 (`/app/vault`). |
-| `CB_PLUGINS_DIR` | `./var/plugins` / `./.dev/var/plugins` | 호스트 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 컨테이너에 읽기 전용으로 마운트된다(`/app/var/plugins`). `cb-manuscript`가 한 번 해석하고, 데이터·볼트·백업·프로젝트 플러그인 폴더와 같거나 겹치면 거부하며, 없으면 만든다. 백업 구성 요소 `plugins`. |
+| `CB_PLUGINS_DIR` | `./var/plugins` / `./.dev/var/plugins` | 호스트 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 컨테이너에 읽기 전용으로 마운트된다(`/app/var/plugins`). `cb-manuscript`가 한 번 해석하고, 데이터·백업·프로젝트 플러그인 폴더와 같거나 겹치면 거부하며, 없으면 만든다. 백업 구성 요소 `plugins`. |
 | `CB_BIN_DIR` | `~/.local/bin` | 호스트 디렉터리 경로 | 호스트의 선택 도구 바이너리(예: `ffmpeg`)를 컨테이너 내부 `/host-bin`에 읽기 전용으로 마운트하기 위한 경로. |
 | `CB_API_BIND` | `127.0.0.1` | 단일 IPv4 주소 | Docker가 호스트에 퍼블리시할 바인딩 IP. **`0.0.0.0` 또는 호스트명은 허용되지 않는다.** 로컬 또는 고정 LAN IPv4를 지정한다. |
 | `CB_API_PORT` | `8765` / `8766` | 정수 (`1~65535`) | 호스트에 노출할 공개 HTTP 진입 포트 번호(운영에서는 `edge`가, 개발에서는 `api`가 이 포트를 연다). |
@@ -177,12 +176,9 @@ VMware Explore 숫자형 영상 상세 페이지가 Presentation PDF를 명시�
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_APP_ROOT` | 컨테이너: `/app`; 네이티브: 소스 루트 또는 현재 작업 디렉터리 | 절대 디렉터리 경로 | `CLAIRE_DB_PATH`·`CLAIRE_VAULT_PATH` 같은 상대 런타임 경로의 기준점. Dockerfile과 Compose가 `/app`으로 고정하며 사용자가 `.env`에 설정하지 않는다. 설치된 wheel의 `site-packages` 경로를 데이터 루트로 오인하지 않게 하는 운영 불변식이다. |
+| `CLAIRE_APP_ROOT` | 컨테이너: `/app`; 네이티브: 소스 루트 또는 현재 작업 디렉터리 | 절대 디렉터리 경로 | `CLAIRE_DB_PATH`·`CLAIRE_PLUGINS_DIR` 같은 상대 런타임 경로의 기준점. Dockerfile과 Compose가 `/app`으로 고정하며 사용자가 `.env`에 설정하지 않는다. 설치된 wheel의 `site-packages` 경로를 데이터 루트로 오인하지 않게 하는 운영 불변식이다. |
 | `CLAIRE_DB_PATH` | `data/claire.db` | 상대/절대 파일 경로 | SQLite 데이터베이스 파일 경로 (컨테이너 내부 기준). 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. |
-| `CLAIRE_VAULT_PATH` | `""` | 상대/절대 디렉터리 경로 (레거시 잔여) | Obsidian Vault 동기화 기능이 영구 제거되어 기본값은 빈 문자열(`""`)이다. 과거 환경 호환성을 위해 필드만 유지된다. |
 | `CLAIRE_PLUGINS_DIR` | `var/plugins` | 상대/절대 디렉터리 경로 | 서버 관리자가 플러그인을 설치하는 플러그인 폴더. 데이터 폴더와 분리된다. 상대경로는 `CLAIRE_APP_ROOT` 아래에서 해석된다. 이미지는 기본값(`/app/var/plugins`, 읽기 전용 마운트)을 쓴다. 프로젝트 플러그인 폴더는 `<app root>/plugins`로 고정이다 ([`INGESTION.md`](INGESTION.md) §2). |
-| `CLAIRE_VECTOR_BACKEND` | `auto` | `auto`, `vec`, `brute` | 벡터 검색 백엔드 (`auto`: `sqlite-vec` 확장 우선, 미지원 시 `brute` 무차별 대입 폴백). |
-| `CLAIRE_RENDER_FORMAT` | `adoc` | `adoc` (`asciidoc`) | 적재 본문 포맷. AsciiDoc만 씁니다. Markdown(`md`, `markdown`)은 폐쇄되었습니다(RD23): 이 값이 남아 있어도 서버는 시작하고 `adoc`을 쓰며 경고를 로그에 남깁니다. ([DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md) §1 참조) |
 | `CLAIRE_DATA_LIFECYCLE` | `purgeable` | `append-only`, `purgeable` | **데이터 수명주기 정책**. 기본값 `purgeable`에서는 오염 데이터 소각(`claire purge`)이 허용된다. `append-only`(무손실 보존 모드)로 설정하면 파괴적 소각 명령이 정책상 차단된다. |
 | `CLAIRE_ALLOW_PURGE` | `1` (`true`) | `0`, `1`, `true`, `false` | 명시적 데이터 소각 허용 플래그. 기본값 `1`(허용). `0`으로 설정하고 `CLAIRE_DATA_LIFECYCLE=append-only`로 두면 소각 명령이 차단된다. ([DATA_LIFECYCLE.md](DATA_LIFECYCLE.md) §2 참조) |
 | `CLAIRE_MULTI_THEME` | `0` (`false`) | `0`, `1`, `true`, `false` | **멀티 테마 활성화 플래그**. 모든 테마는 단일 `data/claire.db`에서 `kb_id`로 나뉜다. `0`이면 테마 정의·수정·삭제를 잠그고 기본 테마만 쓴다. `1`이면 테마 정의·선택·권한 제어가 켜진다. ([THEMES.md](THEMES.md) 참조) |
@@ -250,8 +246,6 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | 환경변수명 (레거시/마이그레이션 대상) | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
 | `CLAIRE_RAW_CHAR_BUDGET` | `20000` | 정수 (글자 수) | 원문 텍스트 수집 기본 보관 상한 (웹, 텍스트 파일, X, 유튜브 등). |
-| `CLAIRE_PDF_PARSER` | `default` | `default` | PDF 텍스트 추출 엔진 (`default`: 기본 고속 Chromium C++ PDFium 파서. `pypdf`, `docling` 설정 시 `cb-manuscript preflight`에서 차단됨). ([INGESTION.md](INGESTION.md) §5.1 참조) |
-| `CLAIRE_PDF_DETECT_ENCODING_FLAWS` | `true` | `true`, `false`, `1`, `0` | PDF 텍스트 인코딩 결함(CID 누락, PUA 글꼴, 대체문자, 제어문자 노이즈 등) 및 스캔본 감지 여부. 현재 `pdf.py`는 이 값을 읽지 않으며 감지는 항상 실행된다([INGESTION.md](INGESTION.md) §5.2). |
 | `CLAIRE_PDF_MAX_EXTRACT_CHARS` | `50000` | 정수 (글자 수) | PDF 파싱 시 스트림에서 추출할 최대 텍스트 분량. ([INGESTION.md](INGESTION.md) §7.1 참조) |
 | `CLAIRE_PDF_PAPER_THRESHOLD_CHARS` | `15000` | 정수 (글자 수) | 학술 논문 PDF 판정 및 고성능 추론(high effort) 적용 기준 글자 수. |
 | `CLAIRE_PDF_EXCLUDE_APPENDIX` | `true` | `true`, `false`, `1`, `0` | 학술 논문 PDF 적재 시 부록(Appendix/Supplementary) 자동 제외 여부. |
@@ -263,8 +257,6 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | `CLAIRE_MERGED_EXTRACT_CHAR_BUDGET` | `0` | 정수 (글자 수) | 병합 문서 KG 추출 투입 본문 상한. `0` 지정 시 `CLAIRE_EXTRACT_CHAR_BUDGET * 2`로 자동 계산된다. |
 | `CLAIRE_SLICING_STRATEGY` | `table-exemption` | `table-exemption`, `strict` | 본문 슬라이싱 전략 (`table-exemption`: 본문 절단 시 테이블 구조 온전 보존, `strict`: 단순 길이 절단). ([INGESTION.md](INGESTION.md) §8.2 참조) |
 | `CLAIRE_EMBED_CHAR_BUDGET` | `8000` | 정수 (글자 수) | 임베딩 벡터 생성 시 투입할 본문 슬라이싱 상한. |
-| `CLAIRE_EXPAND_CHAR_BUDGET` | `2000` | 정수 (글자 수) | 자동 확장 후보 선별 시 LLM에 전달할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [EXPANSION.md](EXPANSION.md) §7 참조. |
-| `CLAIRE_RESEARCH_CONTEXT_BUDGET` | `8000` | 정수 (글자 수) | 리서치 보고서 작성 시 투입할 컨텍스트 상한. 현재 코드는 이 값을 읽지 않는다. 고정값은 [EXPANSION.md](EXPANSION.md) §7 참조. |
 | `CLAIRE_VIDEO_MAX_EXTRACT_CHARS` | `200000` | 정수 (글자 수) | 비디오 전사 텍스트 추출 상한. |
 | `CLAIRE_VLM_MAX_IMAGES` | `20` | 정수 | 문서 하나에서 VLM으로 전사할 최대 이미지 수. |
 
@@ -274,7 +266,6 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 
 | 환경변수명 | 기본값 | 허용 값 / 타입 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `CLAIRE_PREFERRED_LANGUAGES` | (읽지 않음) | 쉼표 구분 언어 코드 | **폐기**. 스키마 v46 이관이 한 번만 읽어 서버 기본 언어(`server_settings.default_languages`, `/admin/server`)로 옮긴다. 이관 뒤에는 어떤 코드도 읽지 않고, `claire preflight`가 효과 없음을 알린다. 선호 언어는 계정마다의 목록(`/account/profile`)과 서버 기본 언어다([ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md](../design/ACCOUNT_PREFERRED_LANGUAGES_DESIGN.md) P3). |
 | `CLAIRE_LANG` | `""` | `en`, `ko`, 또는 빈 값 | **방문자 화면 언어**(WebUI, 텔레그램 봇). 로그인하지 않은 방문자, 그리고 자기 선호 언어 목록이 없고 서버 기본 언어도 선택되지 않은 계정에서 쿠키와 `Accept-Language` 다음에 쓴다. 비어 있으면 `en`이다. 그 밖의 값은 시작할 때 `ValidationError`로 거부한다. 서버 기본 언어(`/admin/server`)와는 다른 설정이다. CLI는 번역하지 않는다(ID6). ([I18N.md](I18N.md)) |
 
 ---
@@ -317,7 +308,6 @@ TypeSafe AI Jev는 서버 관리자 계정의 작업(서버 자격 증명이든 
 | `CLAIRE_SITEMAP_ENABLED` | `1` (`true`) | `0`, `1`, `true`, `false` | `/sitemap.xml` 동적 생성 여부. `CLAIRE_ANONYMOUS_READONLY=0`이면 이 값과 관계없이 비활성이다. |
 | `CLAIRE_SITEMAP_CACHE_TTL` | `900` | 정수 (초) | 사이트맵 인메모리 캐시 TTL. |
 | `CLAIRE_SITE_NAME` | `Claire Bible` | 문자열 | 구조화 데이터 등에 쓰는 사이트 이름. |
-| `CLAIRE_SITE_DESCRIPTION` | `Personal Knowledge Base and Ontology Knowledge Graph Engine` | 문자열 | 사이트 메타 설명. 지금 이 값을 읽는 코드는 없다. |
 
 ---
 
@@ -389,7 +379,6 @@ CB_PROJECT_NAME=claire-bible
 CB_IMAGE=claire-bible
 CB_IMAGE_TAG=local
 CB_DATA_DIR=./data
-CB_VAULT_DIR=./vault
 CB_PLUGINS_DIR=./var/plugins
 CB_API_BIND=127.0.0.1
 CB_API_PORT=8765
@@ -412,7 +401,6 @@ CLAIRE_ANONYMOUS_READONLY=1
 CLAIRE_PUBLIC_URL=https://claire.example.com
 
 # --- 저장소 및 수명주기 ---
-CLAIRE_RENDER_FORMAT=adoc
 CLAIRE_DATA_LIFECYCLE=purgeable
 CLAIRE_ALLOW_PURGE=1
 ```
@@ -425,7 +413,6 @@ CLAIRE_ENVIRONMENT=development
 CB_PROJECT_NAME=claire-bible-dev
 CB_IMAGE_TAG=dev
 CB_DATA_DIR=./.dev/data
-CB_VAULT_DIR=./.dev/vault
 CB_PLUGINS_DIR=./.dev/var/plugins
 CB_API_BIND=127.0.0.1
 CB_API_PORT=8766

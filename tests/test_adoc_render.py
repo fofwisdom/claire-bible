@@ -21,24 +21,6 @@ from claire.store import db as dbm
 from claire.store.queries import document_detail
 
 
-def test_config_render_format_validation():
-    """Settings 의 render_format 필드가 기본값 adoc 이며 adoc 만 쓰는지 검증. Markdown 값은 폐쇄되어(RD23) 기동을 막지 않고 adoc 이 된다."""
-    s_default = Settings()
-    assert s_default.render_format == "adoc"
-
-    assert Settings(render_format="md").render_format == "adoc"
-    assert Settings(render_format="markdown").render_format == "adoc"
-
-    s_adoc = Settings(render_format="ADOC")
-    assert s_adoc.render_format == "adoc"
-
-    s_asciidoc = Settings(render_format="asciidoc")
-    assert s_asciidoc.render_format == "adoc"
-
-    with pytest.raises(ValueError, match="CLAIRE_RENDER_FORMAT must be"):
-        Settings(render_format="html")
-
-
 def test_aot_render_adoc():
     """render_adoc_to_html 이 AsciiDoc 문법 전체를 올바른 시맨틱 HTML 로 AOT 변환하는지 검증."""
     sample = """
@@ -353,9 +335,7 @@ def test_backfill_details_selective_migration():
         db_file = Path(tmpdir) / "test.db"
         s = Settings(
             db_path=str(db_file),
-            vault_dir=str(Path(tmpdir) / "vault"),
             provider="mock",
-            render_format="adoc",
         )
         conn = dbm.connect(str(db_file))
         dbm.init_db(conn)

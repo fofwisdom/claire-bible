@@ -52,7 +52,7 @@ DEVELOPMENT = "development"
 PRODUCTION = "production"
 ENVIRONMENTS = frozenset((DEVELOPMENT, PRODUCTION))
 BACKUP_FORMAT_VERSION = 1
-BACKUP_COMPONENTS = ("data", "vault", "plugins")
+BACKUP_COMPONENTS = ("data", "plugins")
 BACKUP_ARCHIVE_SUFFIX = ".tar.gz"
 BACKUP_ID_RE = re.compile(r"^cb-[0-9]{8}(?:-[0-9]{6})?$")
 PROJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -257,10 +257,6 @@ class Layout:
         return self.root / "data"
 
     @property
-    def vault(self) -> Path:
-        return self.root / "vault"
-
-    @property
     def backups(self) -> Path:
         return self.root / "backups"
 
@@ -367,7 +363,6 @@ class Runtime:
         # bundle-producing bot and the bundle-serving API.
         storage = resolve_storage(self)
         env["CB_DATA_DIR"] = str(storage.data)
-        env["CB_VAULT_DIR"] = str(storage.vault)
         env["CB_PLUGINS_DIR"] = str(storage.plugins)
 
         tz_value = self.values.get("TZ", "").strip() or env.get("TZ", "").strip()
@@ -384,9 +379,6 @@ class Runtime:
         target_gid = host_gid if host_gid != "0" else "1000"
         env["CB_UID"] = _effective(self.values, "CB_UID").strip() or target_uid
         env["CB_GID"] = _effective(self.values, "CB_GID").strip() or target_gid
-
-        pdf_parser = self.values.get("CLAIRE_PDF_PARSER", "").strip() or env.get("CLAIRE_PDF_PARSER", "").strip() or "default"
-        env["CLAIRE_PDF_PARSER"] = pdf_parser
 
         cached_rev = _cached_or_embedded_revision(self.layout)
         if cached_rev and not env.get("CLAIRE_BUILD_COMMIT", "").strip():
@@ -1079,32 +1071,7 @@ def _get_provider_from_providers_json(runtime: Runtime) -> str:
     return ""
 
 
-def _check_pdf_parser(runtime: Runtime) -> None:
-    raw_parser = runtime.values.get("CLAIRE_PDF_PARSER", "").strip().lower()
-    if not raw_parser:
-        data_dir_str = runtime.values.get("CB_DATA_DIR", "./data").strip()
-        data_dir = (runtime.layout.root / data_dir_str).resolve()
-        limits_file = data_dir / "ingest_limits.json"
-        if limits_file.is_file():
-            try:
-                raw = json.loads(limits_file.read_text(encoding="utf-8"))
-                raw_parser = str(raw.get("limits", {}).get("pdf_parser") or "").strip().lower()
-            except Exception:
-                pass
-    if raw_parser == "pypdf":
-        raise ManuscriptError(
-            "CLAIRE_PDF_PARSER=pypdf is not supported: it has no Korean CMap support and can damage the text encoding.\n"
-            "Set CLAIRE_PDF_PARSER to 'default' in the .env file."
-        )
-    if raw_parser == "docling":
-        raise ManuscriptError(
-            "CLAIRE_PDF_PARSER=docling is not supported (the Docling dependency is removed).\n"
-            "Set CLAIRE_PDF_PARSER to 'default' in the .env file."
-        )
-
-
 def config_preflight(runtime: Runtime) -> None:
-    _check_pdf_parser(runtime)
     for path in (*runtime.env_files, *runtime.compose_files):
         if not path.is_file():
             raise ManuscriptError(f"Required file not found: {path}")
@@ -1537,7 +1504,6 @@ def command_init(layout: Layout) -> int:
     created_dev_env = _copy_once(dev_source, layout.dev_env)
     changes = sync_environment_files(layout)
     layout.data.mkdir(parents=True, exist_ok=True)
-    layout.vault.mkdir(parents=True, exist_ok=True)
     layout.certs.mkdir(parents=True, exist_ok=True)
     (Path.home() / ".local" / "bin").mkdir(parents=True, exist_ok=True)
 
@@ -1560,7 +1526,7 @@ def command_init(layout: Layout) -> int:
         f"CLAIRE_INJECT_TOKEN: "
         f"{'created' if 'CLAIRE_INJECT_TOKEN' in changes['env'] or 'CLAIRE_INJECT_TOKEN' in changes['dev_env'] else 'kept'}"
     )
-    print("data/, vault/, certs/: ready")
+    print("data/, certs/: ready")
     return 0
 
 
@@ -1627,7 +1593,6 @@ class BackupNamespaceLock(AbstractContextManager["BackupNamespaceLock"]):
 @dataclass(frozen=True)
 class StorageLayout:
     data: Path
-    vault: Path
     database_relative: Path
     # The plugin folder of the server administrator (CB_PLUGINS_DIR, mounted read-only at /app/var/plugins). docs/implementation/INGESTION.md section 2.2
     plugins: Path
@@ -1639,8 +1604,6 @@ class StorageLayout:
     def component(self, name: str) -> Path:
         if name == "data":
             return self.data
-        if name == "vault":
-            return self.vault
         if name == "plugins":
             return self.plugins
         raise ManuscriptError(f"Unsupported backup component: {name}")
@@ -1697,38 +1660,28 @@ def _database_relative_path(runtime: Runtime) -> Path:
 
 def resolve_storage(runtime: Runtime) -> StorageLayout:
     data_default = "./.dev/data" if runtime.dev else "./data"
-    vault_default = "./.dev/vault" if runtime.dev else "./vault"
     data = _configured_host_path(runtime, "CB_DATA_DIR", data_default)
-    vault = _configured_host_path(runtime, "CB_VAULT_DIR", vault_default)
     backup_root = runtime.layout.backups.resolve()
     repository = runtime.layout.root.resolve()
     home = Path.home().resolve()
 
-    for name, path in (("CB_DATA_DIR", data), ("CB_VAULT_DIR", vault)):
-        if path in {Path("/"), repository, home} or len(path.parts) < 3:
-            raise ManuscriptError(f"{name} points to an overly broad path: {path}")
-        if _is_within(path, backup_root) or _is_within(backup_root, path):
-            raise ManuscriptError(
-                f"{name} and backups directory contain each other and cannot be backed up: {path}"
-            )
-    if (
-        data == vault
-        or _is_within(data, vault)
-        or _is_within(vault, data)
-    ):
-        raise ManuscriptError("CB_DATA_DIR and CB_VAULT_DIR cannot be identical or nested.")
+    if data in {Path("/"), repository, home} or len(data.parts) < 3:
+        raise ManuscriptError(f"CB_DATA_DIR points to an overly broad path: {data}")
+    if _is_within(data, backup_root) or _is_within(backup_root, data):
+        raise ManuscriptError(
+            f"CB_DATA_DIR and backups directory contain each other and cannot be backed up: {data}"
+        )
     plugins_default = "./.dev/var/plugins" if runtime.dev else "./var/plugins"
     plugins = _configured_host_path(runtime, "CB_PLUGINS_DIR", plugins_default)
     project_plugins = (repository / "plugins").resolve()
     if plugins in {Path("/"), repository, home} or len(plugins.parts) < 3:
         raise ManuscriptError(f"CB_PLUGINS_DIR points to an overly broad path: {plugins}")
-    for name, other in (("CB_DATA_DIR", data), ("CB_VAULT_DIR", vault), ("the backups directory", backup_root), ("the project plugin folder", project_plugins)):
+    for name, other in (("CB_DATA_DIR", data), ("the backups directory", backup_root), ("the project plugin folder", project_plugins)):
         if plugins == other or _is_within(plugins, other) or _is_within(other, plugins):
             raise ManuscriptError(f"CB_PLUGINS_DIR and {name} cannot be identical or nested: {plugins}")
     plugins.mkdir(parents=True, exist_ok=True)
     return StorageLayout(
         data=data,
-        vault=vault,
         database_relative=_database_relative_path(runtime),
         plugins=plugins,
     )
@@ -2701,7 +2654,7 @@ def _publish_backup(
 def _selected_components(raw: Sequence[str] | None) -> tuple[str, ...]:
     selected = set(raw or BACKUP_COMPONENTS)
     if not selected or not selected.issubset(BACKUP_COMPONENTS):
-        raise ManuscriptError("Backup component must be data or vault.")
+        raise ManuscriptError("Backup component must be data or plugins.")
     return tuple(component for component in BACKUP_COMPONENTS if component in selected)
 
 
@@ -3593,8 +3546,6 @@ def command_preflight(runtime: Runtime) -> int:
     if not raw_provider:
         raw_provider = _get_provider_from_providers_json(runtime)
     print(f"provider: {raw_provider or 'mock'}")
-    raw_pdf_parser = _effective(runtime.values, "CLAIRE_PDF_PARSER").strip() or "default"
-    print(f"pdf parser: {raw_pdf_parser}")
 
     print("preflight: OK")
     return 0
@@ -3892,13 +3843,13 @@ def build_parser() -> argparse.ArgumentParser:
     # 1. init
     subparsers.add_parser(
         "init",
-        help="Initialize .env/.env.dev and data/vault directories",
+        help="Initialize .env/.env.dev and data directory",
         description=(
-            "Create .env and .env.dev environment files and initialize data/ and vault/ directories.\n\n"
+            "Create .env and .env.dev environment files and initialize the data/ directory.\n\n"
             "Actions:\n"
             "  - Copy templates from .env.example and .env.dev.example (preserves existing files)\n"
             "  - Generate CLAIRE_INJECT_TOKEN and CLAIRE_READONLY_TOKEN\n"
-            "  - Create data/ and vault/ directories with secure permissions (0700)"
+            "  - Create data/ directory with secure permissions (0700)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -3927,7 +3878,7 @@ def build_parser() -> argparse.ArgumentParser:
             "      (different from CB_API_PORT and the role host ports)\n"
             "  - Edge service public authority in production (from CLAIRE_FQDN or CLAIRE_PUBLIC_URL)\n"
             "  - Docker compose config syntax and legacy container conflicts\n"
-            "  - data/ and vault/ directory permissions (0700)"
+            "  - data/ directory permissions (0700)"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -3987,9 +3938,9 @@ def build_parser() -> argparse.ArgumentParser:
     # 5. backup
     backup = subparsers.add_parser(
         "backup",
-        help="Backup data/vault/plugins to a verifiable directory or archive",
+        help="Backup data/plugins to a verifiable directory or archive",
         description=(
-            "Backup data directory (DB, etc.), vault directory (encrypted credentials, etc.), and plugin folder (CB_PLUGINS_DIR).\n"
+            "Backup data directory (DB, etc.) and plugin folder (CB_PLUGINS_DIR).\n"
             "Automatically computes checksums and metadata (manifest.json) to verify integrity."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4011,7 +3962,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="Components to backup (data, vault, plugins; repeatable; default: all)",
+        help="Components to backup (data, plugins; repeatable; default: all)",
     )
     backup.add_argument(
         "--replace",
@@ -4049,7 +4000,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--component",
         choices=BACKUP_COMPONENTS,
         action="append",
-        help="Components to restore (data, vault, plugins; repeatable; default: all from backup)",
+        help="Components to restore (data, plugins; repeatable; default: all from backup)",
     )
     restore.add_argument(
         "--yes",
@@ -4262,7 +4213,7 @@ def build_parser() -> argparse.ArgumentParser:
         "app",
         help=PASSTHROUGH_HELP["app"],
         description=(
-            "Run a claire one-off command inside the api container with current environment (.env) and volume mounts (data, vault) (docker compose run --rm --no-deps api claire ...).\n\n"
+            "Run a claire one-off command inside the api container with current environment (.env) and volume mounts (data) (docker compose run --rm --no-deps api claire ...).\n\n"
             "Safety Policy:\n"
             "  - One-off query and maintenance commands can be run by default.\n"
             "  - Service lifecycle commands (migrate, bot, serve-api, reextract, etc.) are blocked by default for safety.\n"

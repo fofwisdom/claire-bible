@@ -1439,7 +1439,7 @@ def submit_client_extraction(
     commit_ts = time.time() if now is None else float(now)
     atomic_conn = _open_atomic_conn(db_path)
     try:
-        vstore = make_vector_store(atomic_conn, getattr(kb_settings or root_settings, "vector_backend", "brute"), kb_id=int(kb_id))
+        vstore = make_vector_store(atomic_conn, "brute", kb_id=int(kb_id))
         atomic_conn.begin_atomic()
 
         # Re-check and transition document state atomically at transaction start to eliminate TOCTOU races.

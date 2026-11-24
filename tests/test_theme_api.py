@@ -26,7 +26,6 @@ def theme_app_client(tmp_path):
 
     settings = Settings(
         CLAIRE_DB_PATH=db_path,
-        CLAIRE_VAULT_PATH=vault_path,
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
@@ -49,7 +48,6 @@ def test_theme_api_single_mode_behavior(tmp_path):
 
     s = Settings(
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
@@ -348,7 +346,7 @@ def test_theme_knowledge_manager_api(theme_app_client):
     themes = kb_list(client, headers=OWNER_HEADERS)
     theme0 = next(t for t in themes if t["id"] == 0)
     theme_sec = next(t for t in themes if t["id"] == tid)
-    assert theme0["knowledge_manager"] == settings.effective_sorcerer
+    assert theme0["knowledge_manager"] == (settings.sorcerer.strip() or "owner")
     assert theme_sec["sorcerer"] == "sec_officer"
     assert theme_sec["knowledge_manager"] == "sec_officer"
 

@@ -368,7 +368,7 @@ def build_graph_from_extraction(conn: sqlite3.Connection, provider: Any, setting
     if fixed is not None and fixed.model and fixed.model != pin.model and target_matches_pin and not active_eos:
         eff_model = fixed.model
         eff_provider = fixed.provider or pin.provider
-    vstore = make_vector_store(conn, getattr(settings, "vector_backend", "brute"), kb_id=kb_id)
+    vstore = make_vector_store(conn, "brute", kb_id=kb_id)
 
     name_to_id: dict[str, str] = {}
     decisions = [] if decisions is None else decisions

@@ -128,10 +128,8 @@ def test_youtube_preferred_languages_config(tmp_path: _Path):
 
     s = Settings(_env_file=None, CLAIRE_DB_PATH=str(tmp_path / "none.db"), preferred_languages="ja, es")
     assert s.effective_preferred_languages == ["ja", "es", "en"]
-    assert s.effective_youtube_languages == ["ja", "es", "en"]
     s2 = Settings(_env_file=None, CLAIRE_DB_PATH=str(tmp_path / "none.db"), preferred_languages="")
     assert s2.effective_preferred_languages == ["en"]
-    assert s2.effective_youtube_languages == ["en"]
 
 
 def test_fetch_transcript_passes_configured_languages(monkeypatch: pytest.MonkeyPatch, tmp_path: _Path):

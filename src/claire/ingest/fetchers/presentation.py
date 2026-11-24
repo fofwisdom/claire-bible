@@ -52,7 +52,7 @@ def extract_presentation(
         attachment.content,
         url=attachment.canonical_url,
         fallback_title=attachment.filename,
-        engine=settings.pdf_parser,
+        engine="pypdfium2",
     )
     extracted_title, text, links, _anchors, error, _images = result[:6]
     if error or not text.strip():

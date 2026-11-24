@@ -110,7 +110,6 @@ def test_theme_manager_rejects_new_fqdn_but_keeps_ga(tmp_path):
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(tmp_path / "vault"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_MULTI_THEME=True,
     )
@@ -142,7 +141,7 @@ def _make_security_test_settings(tmp_path: Path) -> SimpleNamespace:
         readonly_token=READONLY_TOKEN,
         anonymous_readonly=True,
         db_file=tmp_path / "claire.db",
-        effective_ga_measurement_id="",
+        ga_measurement_id="",
     )
 
 
@@ -230,7 +229,6 @@ def multi_theme_server_env(tmp_path):
     settings = Settings(
         _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
-        CLAIRE_VAULT_PATH=str(vault_dir),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL=APP_ORIGIN,

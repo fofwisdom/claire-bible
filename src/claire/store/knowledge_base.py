@@ -598,11 +598,7 @@ class KnowledgeBaseManager:
             db_file = getattr(self.settings, "db_file", None)
             db_path = str(db_file) if db_file is not None else "data/claire.db"
 
-        default_sorcerer = getattr(
-            self.settings,
-            "effective_sorcerer",
-            getattr(self.settings, "sorcerer", "owner"),
-        )
+        default_sorcerer = getattr(self.settings, "sorcerer", "owner")
         return KnowledgeBaseInfo(
             id=0,
             seq=0,

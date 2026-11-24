@@ -49,7 +49,7 @@ def cmd_preflight(_args) -> int:
     print(f"telegram token    : {'set' if s.telegram_bot_token else 'NOT set'}")
     print(f"allowed users     : {sorted(s.allowed_user_ids) or 'ALL'}")
     print(f"db path           : {s.db_file}")
-    print(f"vector backend cfg: {s.vector_backend}")
+    print("vector backend cfg: brute")
     print(f"data lifecycle    : {s.data_lifecycle} (purge_allowed={'YES' if s.is_purge_allowed else 'NO'})")
     anonymous_status = (
         "ENABLED (full knowledge base is public)"
@@ -58,8 +58,6 @@ def cmd_preflight(_args) -> int:
     )
     print(f"anonymous readonly: {anonymous_status}")
     print(f"server languages  : {', '.join(s.effective_preferred_languages)} (server default language; set it on /admin/server)")
-    if os.environ.get("CLAIRE_PREFERRED_LANGUAGES") is not None:
-        print("  CLAIRE_PREFERRED_LANGUAGES is set, but it has no effect. Schema v46 copied it one time into the server default language.")
 
     ok, detail = probe_sqlite_vec()
     print(f"sqlite-vec probe  : {'OK' if ok else 'fallback->brute'} ({detail})")
@@ -1664,7 +1662,7 @@ def _theme_services_for_cycle(
         provider_context, provider_error = _theme_provider_context(theme_settings, theme)
         fingerprint = (
             str(getattr(theme_settings, "db_file", "")),
-            str(getattr(theme_settings, "data_dir", getattr(theme_settings, "vault_dir", ""))),
+            str(getattr(theme_settings, "data_dir", "")),
             _context_fingerprint(provider_context, provider_error),
             _limits_fingerprint(theme_settings),
         )
@@ -2224,7 +2222,7 @@ def cmd_ingest(args) -> int:
     extraction_mode = _cli_extraction_mode(args, s)
     client_staging = extraction_mode == "client"
     provider = None if client_staging else get_provider(s)
-    vstore = None if client_staging else make_vector_store(conn, s.vector_backend, kb_id=target_kb_id)
+    vstore = None if client_staging else make_vector_store(conn, "brute", kb_id=target_kb_id)
     print("(mode=client-staging)" if client_staging else f"(provider={provider.name})")
     effort = getattr(args, "effort", None)
     full_content = getattr(args, "full_content", False)
@@ -2463,7 +2461,7 @@ def cmd_reingest(args) -> int:
         dbm.init_db(conn2)
         client_staging = extraction_mode == "client"
         provider = None if client_staging else get_provider(s)
-        vstore = None if client_staging else make_vector_store(conn2, s.vector_backend, kb_id=target_kb_id)
+        vstore = None if client_staging else make_vector_store(conn2, "brute", kb_id=target_kb_id)
         try:
             report = ingest(
                 query_target,
@@ -2539,7 +2537,7 @@ def cmd_backfill_detail(args) -> int:
     s = get_settings()
     svc = IngestService(s)
     tables_only = getattr(args, "tables", False) or getattr(args, "has_tables", False)
-    fmt = getattr(args, "format", None) or s.render_format
+    fmt = getattr(args, "format", None) or "adoc"
 
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
@@ -2826,7 +2824,7 @@ def cmd_format_status(args) -> int:
     import json
 
     s = get_settings()
-    target_format = getattr(args, "format", None) or s.render_format
+    target_format = getattr(args, "format", None) or "adoc"
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
@@ -2852,7 +2850,7 @@ def cmd_format_migrate(args) -> int:
     from .ingest.service import IngestService
 
     s = get_settings()
-    target_format = getattr(args, "format", None) or s.render_format
+    target_format = getattr(args, "format", None) or "adoc"
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     try:
@@ -2871,7 +2869,7 @@ def cmd_format_migrate(args) -> int:
 
     print("claire: [Format migration status]")
     print("=" * 60)
-    print(f"• Target format (.env)     : {fmt_label} (CLAIRE_RENDER_FORMAT={status['target_format']})")
+    print(f"• Target format            : {fmt_label}")
     print(f"• Documents                : {status['total_docs']}")
     print(f"  - In the target format   : {status['matching_docs']} ({fmt_label})")
     print(f"  - In another format      : {status['mismatched_docs']} ({other_label})")
@@ -4552,7 +4550,7 @@ def cmd_search(args) -> int:
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
     provider = get_provider(s)
-    vstore = make_vector_store(conn, s.vector_backend)
+    vstore = make_vector_store(conn, "brute")
     result = search(conn, vstore, provider, args.query,
                     limit=args.limit, summarize=not args.no_summary)
     if result.answer:
@@ -4896,7 +4894,7 @@ def cmd_reembed(args) -> int:
     tid = theme.id if theme is not None else int(getattr(s, "kb_id", 0) or 0)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    vstore = make_vector_store(conn, s.vector_backend, kb_id=tid)
+    vstore = make_vector_store(conn, "brute", kb_id=tid)
     raw_target = str(getattr(args, "target_space", None) or "").strip()
     mode = str(getattr(args, "mode", None) or "sync").strip().lower()
     do_calibrate = bool(getattr(args, "calibrate", False))
@@ -5048,7 +5046,7 @@ def cmd_link_relations(args) -> int:
     s, theme = get_effective_settings(args)
     conn = dbm.connect(s.db_file)
     dbm.init_db(conn)
-    vstore = make_vector_store(conn, s.vector_backend)
+    vstore = make_vector_store(conn, "brute")
     gstore = GraphStore(conn)
     svc = IngestService(s)
     provider = svc.provider
@@ -6124,7 +6122,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Inspect document render format distribution (Markdown vs AsciiDoc) and report migration progress.",
     )
     pfs.add_argument("--format", choices=["adoc"], default=None,
-                     help="target render format (default: configured CLAIRE_RENDER_FORMAT)")
+                     help="target render format (default: adoc)")
     pfs.add_argument("--json", action="store_true", help="output format distribution in JSON format")
     pfs.set_defaults(func=cmd_format_status)
 
@@ -6134,7 +6132,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Inspect and selectively migrate document detail formats between Markdown and AsciiDoc.",
     )
     pfm.add_argument("--format", choices=["adoc"], default=None,
-                     help="target render format (default: configured CLAIRE_RENDER_FORMAT)")
+                     help="target render format (default: adoc)")
     pfm.add_argument("--apply", action="store_true", help="apply format migration (default: dry-run only)")
     pfm.add_argument("--dry-run", action="store_true", help="simulate format migration without database changes (default)")
     pfm.add_argument("--yes", "-y", action="store_true", help="confirm without interactive prompt")

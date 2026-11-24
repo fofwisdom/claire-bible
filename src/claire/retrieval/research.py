@@ -151,7 +151,7 @@ def _ingest_report_doc(settings, provider, conn: sqlite3.Connection,
         source_type="research",
         content_hash=content_hash(text),
     )
-    vstore = make_vector_store(conn, settings.vector_backend, kb_id=settings.kb_id)
+    vstore = make_vector_store(conn, "brute", kb_id=settings.kb_id)
     # payload 에 보고서 전문을 보존(Layer-1 데이터 보존) — 적재 실패 시 raw_inbox 에서
     # replay 가능(텍스트로 재적재돼도 지식은 유지됨).
     rep = run_ingest(

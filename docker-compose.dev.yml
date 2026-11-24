@@ -13,7 +13,6 @@ x-claire-dev-service: &claire-dev-service
     - "${CB_DEV_ENV_FILE:-.env.dev}"
   volumes:
     - "${CB_DATA_DIR:-./.dev/data}:/app/data"
-    - "${CB_VAULT_DIR:-./.dev/vault}:/app/vault"
     # Plugin folder of the server administrator, read-only (docs/implementation/INGESTION.md section 2.2).
     - "${CB_PLUGINS_DIR:-./.dev/var/plugins}:/app/var/plugins:ro"
     - "${CB_BIN_DIR:-~/.local/bin}:/host-bin:ro"
