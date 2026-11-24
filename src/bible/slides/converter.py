@@ -22,12 +22,12 @@ _IN_FLIGHT_LOCK = asyncio.Lock()
 
 
 @functools.lru_cache(maxsize=8)
-def _is_runnable_asciidoctor(path: str) -> bool:
-    """Verify that the candidate executable runs on this host and is not a Windows shim."""
-    if "/windowsapps/" in path.replace("\\", "/").lower():
+def _is_runnable_asciidoctor(cmd: tuple[str, ...]) -> bool:
+    """Verify that the candidate command runs on this host with the revealjs backend."""
+    if not cmd or "/windowsapps/" in cmd[0].replace("\\", "/").lower():
         return False
     try:
-        proc = subprocess.run([path, "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        proc = subprocess.run([*cmd, "-S", "secure", "-o", "-", "-"], input=b"= Probe\n", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return False
     return proc.returncode == 0
@@ -37,13 +37,17 @@ def find_asciidoctor_executable() -> list[str] | None:
     """Find available asciidoctor executable with revealjs backend."""
     # 1. Direct asciidoctor-revealjs CLI
     cli = shutil.which("asciidoctor-revealjs")
-    if cli and _is_runnable_asciidoctor(cli):
-        return [cli]
+    if cli:
+        cmd = (cli,)
+        if _is_runnable_asciidoctor(cmd):
+            return list(cmd)
 
     # 2. General asciidoctor with gem
     asc = shutil.which("asciidoctor")
-    if asc and _is_runnable_asciidoctor(asc):
-        return [asc, "-r", "asciidoctor-revealjs", "-b", "revealjs"]
+    if asc:
+        cmd = (asc, "-r", "asciidoctor-revealjs", "-b", "revealjs")
+        if _is_runnable_asciidoctor(cmd):
+            return list(cmd)
 
     # 3. Known Homebrew / Linuxbrew / host paths
     candidates = [
@@ -52,8 +56,10 @@ def find_asciidoctor_executable() -> list[str] | None:
         "/usr/bin/asciidoctor",
     ]
     for c in candidates:
-        if os.path.isfile(c) and os.access(c, os.X_OK) and _is_runnable_asciidoctor(c):
-            return [c, "-r", "asciidoctor-revealjs", "-b", "revealjs"]
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            cmd = (c, "-r", "asciidoctor-revealjs", "-b", "revealjs")
+            if _is_runnable_asciidoctor(cmd):
+                return list(cmd)
 
     return None
 
