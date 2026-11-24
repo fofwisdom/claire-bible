@@ -19,7 +19,7 @@ from ...store import kb_collab
 from ...store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound
 from ...store.queries import documents_with_hidden_source, hide_document_source
 from ..namespace import NamespaceDirectory, SqliteNamespaceDirectory, request_namespace
-from ..principal import Principal, request_principal
+from ..principal import Principal, has_recent_auth, request_principal
 from ..security import MAX_REQUEST_BODY, InvalidJSONBody, WebRuntimeConfig, read_json_body, request_auth_scope
 from .errors import V1Error, not_found_error
 
@@ -360,3 +360,71 @@ def entity_language_kwargs(request: Request) -> dict[str, Any]:
     """Return `entity_language` keyword argument when set on the Principal."""
     lang = request_principal(request).entity_language
     return {"entity_language": lang} if lang else {}
+
+
+def require_v1_step_up(principal: Principal) -> None:
+    """Enforce recent session authentication for step-up actions."""
+    if principal.channel not in ("cookie", "x-session"):
+        raise V1Error(
+            403,
+            "step_up_requires_session",
+            "This operation requires an interactive browser session",
+        )
+    if not has_recent_auth(principal):
+        raise V1Error(
+            401,
+            "reauth_required",
+            "Recent authentication is required",
+            details={"reauth": "/api/auth/reauth"},
+            headers={"WWW-Authenticate": 'Session realm="claire", error="reauth_required"'},
+        )
+
+
+def reject_foreign_kb_input(
+    ctx: V1Context,
+    request: Request,
+    personal_kb: KnowledgeBaseInfo,
+    raw_fields: dict[str, Any] | None = None,
+) -> None:
+    """Reject attempts to target a shared or foreign KB on personal-only CT4 endpoints."""
+    if "theme" in request.query_params or (raw_fields is not None and "theme" in raw_fields):
+        raise V1Error(400, "invalid_request", "Retired 'theme' parameter is not accepted")
+    raw_ref: Any = None
+    if raw_fields is not None:
+        raw_ref = raw_fields.get("kb") or raw_fields.get("kb_id")
+    if raw_ref is None:
+        raw_ref = request.query_params.get("kb") or request.query_params.get("kb_id")
+    if raw_ref is None or not str(raw_ref).strip():
+        return
+    ref_str = str(raw_ref).strip()
+    if ref_str == "personal" or (personal_kb.number is not None and ref_str == ids.format_public_id(personal_kb.number)):
+        return
+    target = None
+    try:
+        target = ctx.theme_mgr.get_kb_by_reference(ref_str)
+    except Exception:  # noqa: BLE001
+        target = None
+    if target is None:
+        try:
+            target = ctx.theme_mgr.get_kb(int(ref_str))
+        except Exception:  # noqa: BLE001
+            target = None
+    if target is None or int(target.id) != int(personal_kb.id):
+        if target is not None and target.is_shared:
+            raise V1Error(403, "kb_ingest_by_contribution", "Shared knowledge bases do not allow personal-only writes")
+        raise not_found_error("Knowledge base not found")
+
+
+async def read_optional_v1_json_dict(
+    request: Request,
+    *,
+    max_bytes: int = MAX_REQUEST_BODY,
+) -> dict[str, Any]:
+    """Read a JSON object when a body is present, or return `{}` when empty."""
+    ctype = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if not ctype:
+        raw_bytes = await request.body()
+        if not raw_bytes:
+            return {}
+        raise InvalidJSONBody("content-type must be application/json")
+    return await read_v1_json_dict(request, max_bytes=max_bytes)
