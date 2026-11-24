@@ -336,7 +336,6 @@ class _E2ESettings:
     inject_token: str = "owner-" + "o" * 32
     readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = True
     ui_lang: str = "ko"
 
 

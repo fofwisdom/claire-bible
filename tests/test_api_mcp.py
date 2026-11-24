@@ -36,7 +36,6 @@ class StubSettings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     effective_provider: str = "mock"
 
 

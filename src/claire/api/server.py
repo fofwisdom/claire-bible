@@ -4167,16 +4167,17 @@ def create_app(
                 if account is not None and account.username:
                     return RedirectResponse(f"/@{account.username}/?{qs}", status_code=302, headers={"Cache-Control": "no-store"})
 
-                if bool(getattr(s, "anonymous_readonly", True)):
-                    admin = None
-                    try:
-                        adm = namespace_directory.admin()
-                        if adm.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES and adm.status == "active" and adm.username:
+                admin = None
+                try:
+                    adm = namespace_directory.admin()
+                    if adm.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES and adm.status == "active" and adm.username:
+                        personal_kb = (theme_mgr or get_kb_manager(s)).personal_kb_for(adm.id)
+                        if getattr(personal_kb, "is_public", False):
                             admin = adm
-                    except Exception:
-                        pass
-                    if admin is not None and admin.username:
-                        return RedirectResponse(f"/@{admin.username}/?{qs}", status_code=302, headers={"Cache-Control": "no-store"})
+                except Exception:
+                    pass
+                if admin is not None and admin.username:
+                    return RedirectResponse(f"/@{admin.username}/?{qs}", status_code=302, headers={"Cache-Control": "no-store"})
 
                 return RedirectResponse("/login", status_code=302, headers={"Cache-Control": "no-store"})
 
@@ -4836,19 +4837,44 @@ def create_app(
 
         return HTMLResponse(vocabulary.vocabulary_page(), headers={"Cache-Control": "public, max-age=86400"})
 
+    def _public_sitemap_targets() -> list[tuple[Path, int]]:
+        if getattr(s, "multi_theme", False) and theme_mgr is not None:
+            private_personal_accounts: set[int] = set()
+            if s.db_file.is_file():
+                conn_mode = dbm.connect_existing(s.db_file, readonly=True)
+                try:
+                    mode_row = conn_mode.execute("SELECT value FROM server_settings WHERE key='mode'").fetchone()
+                    if mode_row is not None and str(mode_row[0]) == "network":
+                        private_personal_accounts = {
+                            int(r[0]) for r in conn_mode.execute("SELECT id FROM accounts WHERE profile_public=0 OR status!='active'").fetchall()
+                        }
+                except Exception:
+                    private_personal_accounts = set()
+                finally:
+                    conn_mode.close()
+            targets: list[tuple[Path, int]] = []
+            for t in theme_mgr.list_kbs():
+                if getattr(t, "is_personal", False) and getattr(t, "account_id", None) in private_personal_accounts:
+                    continue
+                if getattr(t, "is_public", True):
+                    t_settings = theme_mgr.get_settings_for_kb(t.id, s)
+                    targets.append((t_settings.db_file, t.id))
+            return targets
+
+        if s.db_file.is_file():
+            conn_pub = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                rows = conn_pub.execute("SELECT id FROM knowledge_bases WHERE is_public = 1 ORDER BY id").fetchall()
+                return [(s.db_file, int(r[0])) for r in rows]
+            except Exception:
+                return []
+            finally:
+                conn_pub.close()
+        return [(s.db_file, 0)]
+
     async def robots_txt_route(request: Request) -> Response:
         host_header = request.headers.get("host") or ""
-        req_host = host_header.split(":", 1)[0].strip().lower()
-
-        theme: KnowledgeBaseInfo | None = None
-        if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
-            theme = theme_mgr.get_kb_by_fqdn(req_host)
-
-        is_private = (
-            not getattr(s, "anonymous_readonly", True)
-            or getattr(s, "robots_policy", "public") == "disallow_all"
-            or (theme is not None and not getattr(theme, "is_public", True))
-        )
+        is_private = getattr(s, "robots_policy", "public") == "disallow_all" or not _public_sitemap_targets()
 
         if is_private:
             return PlainTextResponse("User-agent: *\nDisallow: /\n", media_type="text/plain; charset=utf-8")
@@ -4925,19 +4951,14 @@ def create_app(
         return PlainTextResponse(content, media_type="text/plain; charset=utf-8")
 
     async def sitemap_xml_route(request: Request) -> Response:
-        if not getattr(s, "sitemap_enabled", True) or not getattr(s, "anonymous_readonly", True):
+        if not getattr(s, "sitemap_enabled", True):
+            return PlainTextResponse("Not Found", status_code=404)
+
+        target_dbs = _public_sitemap_targets()
+        if not target_dbs:
             return PlainTextResponse("Not Found", status_code=404)
 
         host_header = request.headers.get("host") or ""
-        req_host = host_header.split(":", 1)[0].strip().lower()
-
-        theme: KnowledgeBaseInfo | None = None
-        if getattr(s, "multi_theme", False) and theme_mgr is not None and req_host:
-            theme = theme_mgr.get_kb_by_fqdn(req_host)
-
-        if theme is not None and not getattr(theme, "is_public", True):
-            return PlainTextResponse("Not Found", status_code=404)
-
         proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
         authority = host_header or getattr(s, "fqdn", "") or "localhost"
         base_url = f"{proto}://{authority}".rstrip("/")
@@ -4958,34 +4979,6 @@ def create_app(
                         "Cache-Control": f"public, max-age={int(cache_ttl)}",
                     },
                 )
-
-        # (DB 파일, 테마 ID). 모든 테마가 한 DB를 쓰므로 테마 ID로 범위를 정한다.
-        target_dbs: list[tuple[Path, int]] = []
-        if theme is not None:
-            t_settings = theme_mgr.get_settings_for_kb(theme.id, s)
-            target_dbs = [(t_settings.db_file, theme.id)]
-        elif getattr(s, "multi_theme", False) and theme_mgr is not None:
-            private_personal_accounts: set[int] = set()
-            if s.db_file.is_file():
-                conn_mode = dbm.connect_existing(s.db_file, readonly=True)
-                try:
-                    mode_row = conn_mode.execute("SELECT value FROM server_settings WHERE key='mode'").fetchone()
-                    if mode_row is not None and str(mode_row[0]) == "network":
-                        private_personal_accounts = {
-                            int(r[0]) for r in conn_mode.execute("SELECT id FROM accounts WHERE profile_public=0 OR status!='active'").fetchall()
-                        }
-                except Exception:
-                    private_personal_accounts = set()
-                finally:
-                    conn_mode.close()
-            for t in theme_mgr.list_kbs():
-                if getattr(t, "is_personal", False) and getattr(t, "account_id", None) in private_personal_accounts:
-                    continue
-                if getattr(t, "is_public", True):
-                    t_settings = theme_mgr.get_settings_for_kb(t.id, s)
-                    target_dbs.append((t_settings.db_file, t.id))
-        else:
-            target_dbs = [(s.db_file, 0)]
 
         all_doc_entries: list[dict[str, Any]] = []
         for db_file, target_tid in target_dbs:

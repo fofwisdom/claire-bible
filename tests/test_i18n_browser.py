@@ -35,7 +35,6 @@ class _Settings:
     inject_token: str = "owner-" + "o" * 32
     readonly_token: str = ""
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     ui_lang: str = ""
 
 

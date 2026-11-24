@@ -64,7 +64,6 @@ def _create_settings(tmp_path: Path, **overrides: Any) -> SimpleNamespace:
         cors_allowed_origins="",
         inject_token="owner-" + "o" * 32,
         readonly_token="",
-        anonymous_readonly=False,
         db_file=tmp_path / "claire.db",
         data_dir=tmp_path / "data",
         site_domain="",

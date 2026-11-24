@@ -1,4 +1,4 @@
-"""익명 읽기 모드(CLAIRE_ANONYMOUS_READONLY=1)에서 숨김 문서/엔티티 격리 검증."""
+"""익명 읽기에서 숨김 문서/엔티티 및 비공개 KB(is_public=0) 격리 검증."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class _Settings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = True
+    multi_theme: bool = True
     vector_backend: str = "brute"
     effective_provider: str = "mock"
 
@@ -222,3 +222,14 @@ def test_hidden_document_and_entity_isolation_for_anonymous(tmp_path: Path) -> N
         owner_stats = client.get("/stats", headers=owner_headers)
         assert owner_stats.status_code == 200
         assert owner_stats.json()["documents"] == 2
+
+        # === 3. KB is_public = 0 전환 시 익명 접근 전면 404 ===
+        conn_hide = dbm.connect(db_file)
+        conn_hide.execute("UPDATE knowledge_bases SET is_public = 0, visibility_epoch = visibility_epoch + 1 WHERE is_personal = 1")
+        conn_hide.commit()
+        conn_hide.close()
+
+        assert client.get("/documents").status_code == 404
+        assert client.get("/document", params={"id": "doc-public"}).status_code == 404
+        assert client.get("/graph").status_code == 404
+        assert client.get("/documents", headers=owner_headers).status_code == 200

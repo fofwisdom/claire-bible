@@ -51,12 +51,18 @@ def cmd_preflight(_args) -> int:
     print(f"db path           : {s.db_file}")
     print("vector backend cfg: brute")
     print(f"data lifecycle    : {s.data_lifecycle} (purge_allowed={'YES' if s.is_purge_allowed else 'NO'})")
-    anonymous_status = (
-        "ENABLED (full knowledge base is public)"
-        if s.anonymous_readonly
-        else "disabled"
-    )
-    print(f"anonymous readonly: {anonymous_status}")
+    kb_visibility = "(db not initialized)"
+    if s.db_file.is_file():
+        conn = dbm.connect_existing(s.db_file, readonly=True)
+        try:
+            row = conn.execute("SELECT COALESCE(SUM(CASE WHEN is_public = 1 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN is_public = 0 THEN 1 ELSE 0 END), 0) FROM knowledge_bases").fetchone()
+            if row is not None:
+                kb_visibility = f"{int(row[0])} public, {int(row[1])} private"
+        except Exception:
+            kb_visibility = "(unavailable)"
+        finally:
+            conn.close()
+    print(f"kb visibility     : {kb_visibility}")
     print(f"server languages  : {', '.join(s.effective_preferred_languages)} (server default language; set it on /admin/server)")
 
     ok, detail = probe_sqlite_vec()

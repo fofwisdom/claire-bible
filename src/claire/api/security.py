@@ -404,8 +404,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/static/{path:path}"): _system("public", "none"),
     ("GET", "/"): _root("read", "read"),
     ("HEAD", "/"): _root("read", "read"),
-    ("GET", "/syndication"): _system("read", "read"),
-    ("HEAD", "/syndication"): _system("read", "read"),
+    ("GET", "/syndication"): _system("owner", "none"),
+    ("HEAD", "/syndication"): _system("owner", "none"),
     ("GET", "/syndication/preferences"): _system("owner", "read"),
     ("HEAD", "/syndication/preferences"): _system("owner", "read"),
     ("POST", "/api/syndication/dispatch"): _system("write", "write"),
@@ -1101,7 +1101,6 @@ class WebRuntimeConfig:
     expected_authority: str
     cors_allowed_origins: frozenset[str]
     secure_cookie: bool
-    anonymous_readonly: bool
     owner_token: str = field(repr=False)
     readonly_token: str = field(repr=False)
     db_file: Any = field(repr=False)
@@ -1157,10 +1156,6 @@ class WebRuntimeConfig:
         if readonly_token and _constant_equal(owner_token, readonly_token):
             raise ValueError("owner and readonly tokens must be different")
 
-        anonymous_readonly = getattr(settings, "anonymous_readonly", False)
-        if not isinstance(anonymous_readonly, bool):
-            raise ValueError("CLAIRE_ANONYMOUS_READONLY must be a boolean")
-
         origins: set[str] = set()
         for raw_origin in _split_origins(
             getattr(settings, "cors_allowed_origins", "") or ""
@@ -1196,7 +1191,6 @@ class WebRuntimeConfig:
             expected_authority=authority,
             cors_allowed_origins=frozenset(origins),
             secure_cookie=environment == "production",
-            anonymous_readonly=anonymous_readonly,
             owner_token=owner_token,
             readonly_token=readonly_token,
             db_file=_setting(settings, "db_file"),
@@ -2141,54 +2135,17 @@ class AuthenticationMiddleware:
                         send,
                     )
                     return
-                if len(token_values) != 1 or not token_values[0]:
-                    if self.config.anonymous_readonly:
-                        response = RedirectResponse("/", status_code=302)
-                        clear_session_cookie(response, self.config)
-                        response.headers["Cache-Control"] = "no-store"
-                        response.headers["Referrer-Policy"] = "no-referrer"
-                        await _send_response(response, scope, receive, send)
-                        return
-                    await _send_response(
-                        PlainTextResponse("Not Found", status_code=404),
-                        scope,
-                        receive,
-                        send,
-                    )
+                exchanged: tuple[str, str] | None = None
+                if len(token_values) == 1 and token_values[0]:
+                    exchanged = await _bootstrap_session(self.config, token_values[0])
+                if exchanged is None or exchanged[0] not in {"owner", "write", "readonly"}:
+                    response = RedirectResponse("/", status_code=302)
+                    clear_session_cookie(response, self.config)
+                    response.headers["Cache-Control"] = "no-store"
+                    response.headers["Referrer-Policy"] = "no-referrer"
+                    await _send_response(response, scope, receive, send)
                     return
-                token = token_values[0]
-                exchanged = await _bootstrap_session(self.config, token)
-                if exchanged is None:
-                    if self.config.anonymous_readonly:
-                        response = RedirectResponse("/", status_code=302)
-                        clear_session_cookie(response, self.config)
-                        response.headers["Cache-Control"] = "no-store"
-                        response.headers["Referrer-Policy"] = "no-referrer"
-                        await _send_response(response, scope, receive, send)
-                        return
-                    await _send_response(
-                        PlainTextResponse("Not Found", status_code=404),
-                        scope,
-                        receive,
-                        send,
-                    )
-                    return
-                session_scope, cookie_token = exchanged
-                if session_scope not in {"owner", "write", "readonly"}:
-                    if self.config.anonymous_readonly:
-                        response = RedirectResponse("/", status_code=302)
-                        clear_session_cookie(response, self.config)
-                        response.headers["Cache-Control"] = "no-store"
-                        response.headers["Referrer-Policy"] = "no-referrer"
-                        await _send_response(response, scope, receive, send)
-                        return
-                    await _send_response(
-                        PlainTextResponse("Not Found", status_code=404),
-                        scope,
-                        receive,
-                        send,
-                    )
-                    return
+                _session_scope, cookie_token = exchanged
                 response = RedirectResponse(
                     await self._magic_link_destination(cookie_token), status_code=302
                 )
@@ -2415,7 +2372,6 @@ class AuthenticationMiddleware:
         if (
             auth_scope is None
             and can_fallback_anonymous
-            and self.config.anonymous_readonly
             and access == "read"
             and path != "/mcp"
             and origin_kind in {"none", "same"}

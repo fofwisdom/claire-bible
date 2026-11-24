@@ -192,7 +192,6 @@ async def test_wrapped_web_app_csp_response_header(tmp_path: Path):
         cors_allowed_origins="",
         inject_token="owner-" + "o" * 32,
         readonly_token="",
-        anonymous_readonly=True,
         db_file=tmp_path / "claire.db",
         ga_measurement_id="G-MIDDLEWARE1",
     )

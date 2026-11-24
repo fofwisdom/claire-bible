@@ -144,14 +144,13 @@ def data_dir(tmp_path: Path) -> Path:
     reset_token_stores()
 
 
-def _settings(data_dir: Path, *, anonymous_readonly: bool = False) -> SimpleNamespace:
+def _settings(data_dir: Path) -> SimpleNamespace:
     return SimpleNamespace(
         environment="development",
         public_url=DEV_ORIGIN,
         cors_allowed_origins="",
         inject_token=OWNER_TOKEN,
         readonly_token=READONLY_TOKEN,
-        anonymous_readonly=anonymous_readonly,
         db_file=data_dir / "claire.db",
         data_dir=data_dir,
     )
@@ -166,15 +165,16 @@ async def _echo(request: Request) -> JSONResponse:
     )
 
 
-def _client(data_dir: Path, *, anonymous_readonly: bool = False) -> TestClient:
+def _client(data_dir: Path) -> TestClient:
     inner = Starlette(
         routes=[
             Route("/whoami", _echo, methods=["GET"]),
             Route("/health", _echo, methods=["GET"]),
+            Route("/syndication", _echo, methods=["GET"]),
             Route("/ingest", _echo, methods=["POST"]),
         ]
     )
-    app = security.wrap_web_app(inner, _settings(data_dir, anonymous_readonly=anonymous_readonly))
+    app = security.wrap_web_app(inner, _settings(data_dir))
     return TestClient(app, base_url=DEV_ORIGIN)
 
 
@@ -196,7 +196,7 @@ def _principal(response) -> dict:
 
 
 def test_anonymous_read_gets_anonymous_principal(fake_accounts, data_dir):
-    response = _client(data_dir, anonymous_readonly=True).get("/whoami")
+    response = _client(data_dir).get("/whoami")
     assert response.json()["auth_scope"] == "anonymous"
     assert _principal(response) == dataclasses.asdict(ANONYMOUS)
 
@@ -352,14 +352,14 @@ def test_oauth_token_maps_to_bound_account(fake_accounts, data_dir):
 )
 def test_credentials_of_non_accepting_accounts_look_like_unknown_credentials(fake_accounts, data_dir, kwargs):
     client = _client(data_dir)
-    rejected = client.get("/whoami", **kwargs)
+    rejected = client.get("/syndication", **kwargs)
     unknown_values = {
         "Cookie": "claire_session=" + "u" * 43,
         "X-Session": "u" * 43,
         "Authorization": "Bearer cb_" + "u" * 40,
     }
     unknown = client.get(
-        "/whoami", headers={name: unknown_values[name] for name in kwargs["headers"]}
+        "/syndication", headers={name: unknown_values[name] for name in kwargs["headers"]}
     )
     assert rejected.status_code == unknown.status_code == 404
     assert rejected.content == unknown.content
@@ -367,7 +367,7 @@ def test_credentials_of_non_accepting_accounts_look_like_unknown_credentials(fak
 
 
 def test_suspended_account_falls_back_to_anonymous_only_like_unknown_cookie(fake_accounts, data_dir):
-    client = _client(data_dir, anonymous_readonly=True)
+    client = _client(data_dir)
     response = client.get("/whoami", headers=_cookie(SUSPENDED_SESSION))
     assert _principal(response) == dataclasses.asdict(ANONYMOUS)
     assert "Max-Age=0" in response.headers["set-cookie"]

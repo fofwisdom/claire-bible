@@ -52,7 +52,6 @@ async def test_e2e_multi_theme_full_lifecycle(tmp_path: Path, monkeypatch):
         CLAIRE_PUBLIC_URL=public_url,
         CLAIRE_INJECT_TOKEN=owner_token,
         CLAIRE_MULTI_THEME=True,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_DATA_LIFECYCLE="purgeable",
     )
 

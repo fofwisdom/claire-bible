@@ -160,7 +160,6 @@ def _build_test_settings(tmp_path: Path) -> Settings:
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
         TELEGRAM_BOT_TOKEN="12345:fake_bot_token",
         TELEGRAM_ALLOWED_USERS="100,200",
     )

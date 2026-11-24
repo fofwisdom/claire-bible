@@ -228,7 +228,6 @@ def _make_world(tmp_path: Path):
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL=PUBLIC_URL,
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
     conn = dbm.connect(settings.db_file)

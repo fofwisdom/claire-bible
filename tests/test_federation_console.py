@@ -48,7 +48,6 @@ class _Settings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = True
     fqdn: str = "127.0.0.1:8765"
     multi_theme: bool = True
     telemetry_retention_days: int = 30

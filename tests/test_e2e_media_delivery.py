@@ -123,7 +123,6 @@ async def test_e2e_media_delivery_and_capability_lifecycle(tmp_path):
         cors_allowed_origins="",
         inject_token="t" * 32,
         readonly_token="",
-        anonymous_readonly=False,
         fqdn=APP_HOST,
         usercontent_fqdn=UC_HOST,
         media_fqdn=MEDIA_HOST,

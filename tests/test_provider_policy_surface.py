@@ -139,7 +139,6 @@ def _build_env(tmp_path: Path, *, gemini_key: str = "") -> SimpleNamespace:
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL=PUBLIC_URL,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
     if gemini_key:

@@ -21,8 +21,6 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-_ANONYMOUS_READONLY_ENV = "CLAIRE_ANONYMOUS_READONLY"
-
 
 def resolve_app_root(
     module_file: Path | str | None = None,
@@ -58,34 +56,6 @@ def resolve_app_root(
 ROOT = resolve_app_root()
 
 
-def _validate_anonymous_readonly_dotenv(path: Path, *, encoding: str) -> None:
-    """dotenv parser가 공백/따옴표를 정규화하기 전에 exact 0|1을 검사한다."""
-
-    matches = 0
-    for lineno, original in enumerate(
-        path.read_text(encoding=encoding).splitlines(),
-        start=1,
-    ):
-        line = original.lstrip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            continue
-        key, raw = line.split("=", 1)
-        if key.strip() != _ANONYMOUS_READONLY_ENV:
-            continue
-        matches += 1
-        if raw not in {"0", "1"}:
-            raise ValueError(
-                f"{path}:{lineno}: {_ANONYMOUS_READONLY_ENV} must be exactly "
-                "0 or 1 without quotes or outer whitespace"
-            )
-    if matches > 1:
-        raise ValueError(f"{path}: duplicate {_ANONYMOUS_READONLY_ENV}")
-
-
 class _ExactDotEnvSettingsSource(DotEnvSettingsSource):
     """보안 selector의 dotenv 원문 계약을 보존하는 settings source."""
 
@@ -111,15 +81,6 @@ class _ExactDotEnvSettingsSource(DotEnvSettingsSource):
         env_files: Any = self.env_file
         if env_files is None:
             return {}
-        if isinstance(env_files, (str, Path)):
-            env_files = (env_files,)
-        for raw_path in env_files:
-            path = Path(raw_path).expanduser()
-            if path.is_file():
-                _validate_anonymous_readonly_dotenv(
-                    path,
-                    encoding=self.env_file_encoding or "utf-8",
-                )
         data = dict(super()._read_env_files())
         has_pub_kwarg = any(
             k in self.init_kwargs
@@ -559,12 +520,6 @@ class Settings(BaseSettings):
     # 읽기 전용 공개 토큰 — owner bearer(inject_token)와 별개. GET(검색/그래프/노드상세/
     # 문서목록)만 통과시키고 쓰기(ingest/dedup-merge/공유링크발급 등)는 차단(에이전트 조회용).
     readonly_token: str = Field(default="", alias="CLAIRE_READONLY_TOKEN")
-    # exact 0|1 opt-in. True면 자격증명 없는 same-origin 요청을 읽기 전용으로만
-    # 허용한다(숨김 문서는 제외). owner 인증과 쓰기 경로는 그대로 유지된다.
-    anonymous_readonly: bool = Field(
-        default=True,
-        alias="CLAIRE_ANONYMOUS_READONLY",
-    )
     # 공개 도메인 호스트명 (FQDN, 예: claire.example.com). 프로덕션 환경 기준 필수 authority.
     fqdn: str = Field(default="", alias="CLAIRE_FQDN")
     # 레거시 CLAIRE_PUBLIC_URL 환경변수 및 키워드 인자 호환용 (미설정 시 fqdn 자동 추출)
@@ -808,19 +763,6 @@ class Settings(BaseSettings):
         if s in ("0", "false", "no", "off", ""):
             return False
         raise ValueError("CLAIRE_ENABLE_VIDEO_TRANSCRIPTION must be a boolean or 0/1")
-
-    @field_validator("anonymous_readonly", mode="before")
-    @classmethod
-    def _parse_anonymous_readonly(cls, value: object) -> bool:
-        """보안 경계 설정은 Pydantic의 넓은 bool 별칭 대신 exact 0|1만 받는다."""
-
-        if isinstance(value, bool):
-            return value
-        if value == "0":
-            return False
-        if value == "1":
-            return True
-        raise ValueError("CLAIRE_ANONYMOUS_READONLY must be exactly 0 or 1")
 
     @field_validator("slicing_strategy", mode="before")
     @classmethod

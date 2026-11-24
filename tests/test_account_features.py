@@ -58,7 +58,6 @@ class _Settings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     fqdn: str = "notes.kimhome.net"
     multi_theme: bool = True
     telegram_bot_token: str = SERVER_BOT_TOKEN

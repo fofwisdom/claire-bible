@@ -167,7 +167,6 @@ def test_api_primary_label_endpoint(tmp_path: Path):
             self.inject_token = owner_token
             self.readonly_token = readonly_token
             self.cors_allowed_origins = ""
-            self.anonymous_readonly = False
             self.multi_theme = False
 
     class StubService:

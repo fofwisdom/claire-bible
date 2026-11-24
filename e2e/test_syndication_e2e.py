@@ -32,7 +32,6 @@ def syndication_e2e_env(tmp_path: Path):
         fqdn="",
         inject_token=OWNER_TOKEN,
         readonly_token=READONLY_TOKEN,
-        anonymous_readonly=True,
         multi_theme=False,
         robots_policy="public",
         block_ai_crawlers=True,

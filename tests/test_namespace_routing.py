@@ -211,14 +211,13 @@ def _inner(static_dir: Path) -> Starlette:
     )
 
 
-def _settings(world: World, *, anonymous_readonly: bool = False) -> SimpleNamespace:
+def _settings(world: World) -> SimpleNamespace:
     return SimpleNamespace(
         environment="development",
         public_url=DEV_ORIGIN,
         cors_allowed_origins="",
         inject_token=OWNER_TOKEN,
         readonly_token="",
-        anonymous_readonly=anonymous_readonly,
         db_file=world.db_file,
         data_dir=world.db_file.parent,
     )
@@ -230,8 +229,8 @@ def app_factory(world: World, tmp_path: Path):
     static_dir.mkdir()
     (static_dir / "app.css").write_text("body{}", encoding="utf-8")
 
-    def make(*, anonymous_readonly: bool = False):
-        return security.wrap_web_app(_inner(static_dir), _settings(world, anonymous_readonly=anonymous_readonly))
+    def make():
+        return security.wrap_web_app(_inner(static_dir), _settings(world))
 
     return make
 
@@ -399,7 +398,7 @@ async def test_access_log_and_router_see_original_and_stripped_paths(app_factory
 @pytest.mark.asyncio
 async def test_single_mode_admin_namespace_is_at_username(app_factory, world):
     """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rules 2 and 4: single mode serves the admin namespace at ``/@{username}/``; ``/`` gives 302 and the other root paths give 308 to it. Rule S9 is withdrawn."""
-    app = app_factory(anonymous_readonly=True)
+    app = app_factory()
     res = await _call(app, f"/@{ADMIN_NAME}/graph")
     body = res.json()
     assert res.status == 200
@@ -427,7 +426,7 @@ async def test_single_mode_before_setup_keeps_the_root_paths(app_factory, world)
     """KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 3: before the first setup the admin has no USERNAME, so there is no redirect. ``/`` comes to the route, which gives ``/setup`` or the page "setup not complete" (``tests/test_setup_flow.py``)."""
     # The USERNAME column cannot change (a trigger); the state alone decides: only an ``active`` admin has the namespace ``/@{username}/``.
     world.execute("UPDATE accounts SET status='setup_required' WHERE id=1")
-    app = app_factory(anonymous_readonly=True)
+    app = app_factory()
     res = await _call(app, "/graph")
     assert res.status == 200
     assert res.json()["ns"] == {
@@ -454,7 +453,7 @@ async def test_single_mode_account_prefix_is_404_for_other_names(app_factory):
 @pytest.mark.asyncio
 async def test_single_mode_old_admin_theme_link_goes_to_username(app_factory, world):
     """An old link ``/@{admin}/themes/{number}/…`` of the personal knowledge base of the admin gets 308 to ``/@{admin}/…``. The old O15 redirect to ``/…`` is withdrawn with S9."""
-    app = app_factory(anonymous_readonly=True)
+    app = app_factory()
     res = await _call(app, f"/@{ADMIN_NAME}/themes/{N_ADMIN_DEFAULT}/graph", query="a=1")
     assert res.status == 308 and res.headers["location"] == f"/@{ADMIN_NAME}/graph?a=1"
     assert (await _call(app, "/@alice/")).status == 404
@@ -531,7 +530,8 @@ async def test_network_account_prefix_resolution(app_factory, world, fake_sessio
     world.set_mode("network")
     app = app_factory()
     res = await _call(app, "/@alice/graph")
-    assert res.status == 404  # namespaced read: 익명은 인증 단계에서 404(ANONYMOUS_READONLY=0)
+    assert res.status == 200 and res.json()["principal"] is None and res.json()["ns"]["account_id"] == world.alice
+    assert (await _call(app, "/@alice/syndication")).status == 404
     res = await _call(app, "/@alice/graph", token=CAROL_OWNER)
     body = res.json()
     assert res.status == 200
@@ -592,7 +592,7 @@ async def test_network_n1_private_profile_suspended_and_tombstones(app_factory, 
 @pytest.mark.asyncio
 async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_factory, world, fake_sessions):
     world.set_mode("network")
-    app = app_factory(anonymous_readonly=True)
+    app = app_factory()
     assert (await _call(app, "/graph")).status == 404
     # ``/themes`` at the root is the collection of themes of the server (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 7), not a namespaced route.
     assert (await _call(app, "/themes")).status == 200
@@ -607,7 +607,7 @@ async def test_network_n3_unprefixed_uses_principal_and_anonymous_is_404(app_fac
 @pytest.mark.asyncio
 async def test_network_root_theme_resolver(app_factory, world, fake_sessions):
     world.set_mode("network")
-    app = app_factory(anonymous_readonly=True)
+    app = app_factory()
     # A public personal knowledge base: each requester (also anonymous) gets 308 to the path of the owner (query kept).
     res = await _call(app, f"/themes/{N_ALICE_PUBLIC}/graph", query="doc=1")
     assert res.status == 308
@@ -722,7 +722,6 @@ def real_app(tmp_path: Path):
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
         CLAIRE_MULTI_THEME=True,
     )
     client = TestClient(create_app(settings=settings), base_url=settings.public_url)

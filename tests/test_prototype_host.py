@@ -136,7 +136,6 @@ def _create_app(tmp_path: Path):
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL=f"http://{APP_HOST}",
         CLAIRE_INJECT_TOKEN=OWNER_TOKEN,
-        CLAIRE_ANONYMOUS_READONLY=True,
     )
     return create_app(settings=settings)
 

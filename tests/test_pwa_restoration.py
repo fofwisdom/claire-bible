@@ -111,6 +111,7 @@ def _setup_pwa_network_env(tmp_path: Path, *, anonymous_readonly: bool = True):
     # Set network mode
     store = accounts_store.AccountStore(conn)
     store.set_setting("mode", "network", updated_by=1)
+    conn.execute("UPDATE knowledge_bases SET is_public = ? WHERE account_id = 1 AND is_personal = 1", (1 if anonymous_readonly else 0,))
     conn.commit()
 
     # Sessions
@@ -125,7 +126,6 @@ def _setup_pwa_network_env(tmp_path: Path, *, anonymous_readonly: bool = True):
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=anonymous_readonly,
         CLAIRE_SESSION_SECRET="test-secret-pwa-restore",
     )
     return s, {

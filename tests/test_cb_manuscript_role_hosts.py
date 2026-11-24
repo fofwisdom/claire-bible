@@ -34,7 +34,6 @@ def _write_env(root: Path, *, prod: dict[str, str], dev: dict[str, str] | None =
         "CB_API_BIND": "127.0.0.1",
         "CB_API_PORT": "8765",
         "CLAIRE_FQDN": "claire.example.com",
-        "CLAIRE_ANONYMOUS_READONLY": "1",
         "CLAIRE_INJECT_TOKEN": OWNER_TOKEN,
     }
     base.update(prod)
@@ -47,7 +46,6 @@ def _write_env(root: Path, *, prod: dict[str, str], dev: dict[str, str] | None =
             "CB_API_BIND": "127.0.0.1",
             "CB_API_PORT": "8766",
             "CLAIRE_FQDN": "127.0.0.1:8766",
-            "CLAIRE_ANONYMOUS_READONLY": "1",
         }
         overlay.update(dev)
         (root / ".env.dev").write_text(

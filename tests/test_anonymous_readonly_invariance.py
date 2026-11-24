@@ -32,7 +32,6 @@ class _Settings:
     inject_token: str = OWNER_TOKEN
     readonly_token: str = READONLY_TOKEN
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = True
     vector_backend: str = "brute"
     effective_provider: str = "mock"
 

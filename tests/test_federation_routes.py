@@ -63,7 +63,6 @@ class _Settings:
     inject_token: str = "owner-" + "o" * 32
     readonly_token: str = "readonly-" + "r" * 32
     cors_allowed_origins: str = ""
-    anonymous_readonly: bool = False
     fqdn: str = "claire.example.com"
     multi_theme: bool = True
     trusted_proxies: str = "10.0.0.0/8,fd00::/8"

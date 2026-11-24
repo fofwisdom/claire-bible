@@ -62,7 +62,7 @@ def test_shadow_mode_from_setting_to_report(tmp_path: Path, monkeypatch: pytest.
     conn.close()
 
     # 1. The server administrator selects the shadow mode. A merge mode is refused.
-    settings = Settings(CLAIRE_ENVIRONMENT="development", CLAIRE_INJECT_TOKEN=token, CLAIRE_DB_PATH=str(db_file), CLAIRE_PUBLIC_URL="http://127.0.0.1:8765", provider="mock", anonymous_readonly=False)
+    settings = Settings(CLAIRE_ENVIRONMENT="development", CLAIRE_INJECT_TOKEN=token, CLAIRE_DB_PATH=str(db_file), CLAIRE_PUBLIC_URL="http://127.0.0.1:8765", provider="mock")
     client = TestClient(create_app(settings), base_url="http://127.0.0.1:8765")
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get("/limits", headers=headers).json()["limits"]["same_subject_merge"] == "off"

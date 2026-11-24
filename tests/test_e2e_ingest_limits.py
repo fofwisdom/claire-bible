@@ -37,7 +37,6 @@ def test_e2e_ingest_limits_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyP
         CLAIRE_DB_PATH=str(db_file),
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
         provider="mock",
-        anonymous_readonly=False,
     )
 
     app = create_app(settings)

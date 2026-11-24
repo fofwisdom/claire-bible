@@ -34,7 +34,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_token_stores()
 
 
-def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool = True):
+def _setup_multi_account_network_env(tmp_path: Path):
     db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
@@ -162,7 +162,6 @@ def _setup_multi_account_network_env(tmp_path: Path, *, anonymous_readonly: bool
         CLAIRE_MULTI_THEME=True,
         CLAIRE_ENVIRONMENT="development",
         CLAIRE_PUBLIC_URL="http://127.0.0.1:8765",
-        CLAIRE_ANONYMOUS_READONLY=anonymous_readonly,
     )
     return s, {
         "db_file": db_file,

@@ -41,7 +41,6 @@ def _write_layout(
                 "CB_API_PORT=8765",
                 "CLAIRE_PUBLIC_URL=https://claire.example.com/",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
-                "CLAIRE_ANONYMOUS_READONLY=1",
                 f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
                 "GEMINI_API_KEY=",
@@ -61,7 +60,6 @@ def _write_layout(
                 "CB_API_PORT=8766",
                 "CLAIRE_PUBLIC_URL=http://127.0.0.1:8766/",
                 "CLAIRE_CORS_ALLOWED_ORIGINS=",
-                "CLAIRE_ANONYMOUS_READONLY=1",
                 f"CLAIRE_READONLY_TOKEN={readonly_token}",
                 f"CLAIRE_INJECT_TOKEN={owner_token}",
                 f"TELEGRAM_BOT_TOKEN={token}",
@@ -186,7 +184,7 @@ def test_init_migrates_missing_environment_selectors_without_replacing_secrets(
     assert "CLAIRE_INJECT_TOKEN=existing-dev-" + ("d" * 32) in migrated_dev
 
 
-def test_init_fills_missing_anonymous_setting_and_preserves_explicit_value(
+def test_init_fills_missing_env_setting_and_preserves_explicit_value(
     tmp_path,
 ):
     _write_layout(tmp_path)
@@ -194,15 +192,15 @@ def test_init_fills_missing_anonymous_setting_and_preserves_explicit_value(
     dev_path = tmp_path / ".env.dev"
     prod_path.write_text(
         prod_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=1\n",
+            "CB_WAIT_TIMEOUT=45\n",
             "",
         ),
         encoding="utf-8",
     )
     dev_path.write_text(
         dev_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=1",
-            "CLAIRE_ANONYMOUS_READONLY=0",
+            "CB_WAIT_TIMEOUT=15",
+            "CB_WAIT_TIMEOUT=30",
         ),
         encoding="utf-8",
     )
@@ -212,9 +210,9 @@ def test_init_fills_missing_anonymous_setting_and_preserves_explicit_value(
 
     prod = prod_path.read_text(encoding="utf-8")
     dev = dev_path.read_text(encoding="utf-8")
-    assert prod.count("CLAIRE_ANONYMOUS_READONLY=1") == 1
-    assert "CLAIRE_ANONYMOUS_READONLY=0" in dev
-    assert dev.count("CLAIRE_ANONYMOUS_READONLY=") == 1
+    assert prod.count("CB_WAIT_TIMEOUT=45") == 1
+    assert "CB_WAIT_TIMEOUT=30" in dev
+    assert dev.count("CB_WAIT_TIMEOUT=") == 1
 
 
 def test_init_preserves_blank_readonly_token_by_default_and_allows_explicit_token(
@@ -419,7 +417,6 @@ def test_process_web_values_do_not_override_container_env_files(
     _write_layout(tmp_path, dev=False)
     monkeypatch.setenv("CLAIRE_PUBLIC_URL", " https://wrong.example.com/")
     monkeypatch.setenv("CLAIRE_CORS_ALLOWED_ORIGINS", "https://bad_host")
-    monkeypatch.setenv("CLAIRE_ANONYMOUS_READONLY", "1")
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success) as run:
         assert cb.main(["status"], root=tmp_path) == 0
@@ -427,84 +424,6 @@ def test_process_web_values_do_not_override_container_env_files(
     env = run.call_args.kwargs["env"]
     assert "CLAIRE_PUBLIC_URL" not in env
     assert "CLAIRE_CORS_ALLOWED_ORIGINS" not in env
-    assert "CLAIRE_ANONYMOUS_READONLY" not in env
-
-
-def test_missing_anonymous_setting_defaults_disabled_in_production(tmp_path):
-    _write_layout(tmp_path, dev=False)
-    env_path = tmp_path / ".env"
-    env_path.write_text(
-        env_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=1\n",
-            "",
-        ),
-        encoding="utf-8",
-    )
-
-    runtime = cb.load_runtime(cb.Layout(tmp_path))
-
-    assert runtime.anonymous_readonly is False
-
-
-def test_development_does_not_inherit_enabled_production_anonymous_setting(
-    tmp_path,
-):
-    _write_layout(tmp_path)
-    dev_path = tmp_path / ".env.dev"
-    dev_path.write_text(
-        dev_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=1\n",
-            "",
-        ),
-        encoding="utf-8",
-    )
-
-    with patch.object(cb.subprocess, "run") as run:
-        assert cb.main(["dev", "status"], root=tmp_path) == 2
-
-    run.assert_not_called()
-
-
-def test_profiles_use_their_explicit_anonymous_settings(tmp_path):
-    _write_layout(tmp_path)
-    dev_path = tmp_path / ".env.dev"
-    dev_path.write_text(
-        dev_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=1",
-            "CLAIRE_ANONYMOUS_READONLY=0",
-        ),
-        encoding="utf-8",
-    )
-
-    production = cb.load_runtime(cb.Layout(tmp_path))
-    development = cb.load_runtime(cb.Layout(tmp_path), legacy_dev=True)
-
-    assert production.anonymous_readonly is True
-    assert development.anonymous_readonly is False
-
-
-@pytest.mark.parametrize(
-    "value",
-    ("", "true", "yes", "2", "01", " 1", "1 ", "\t0", "0\t", '"1"'),
-)
-def test_anonymous_setting_requires_exact_zero_or_one(
-    tmp_path,
-    value,
-):
-    _write_layout(tmp_path, dev=False)
-    env_path = tmp_path / ".env"
-    env_path.write_text(
-        env_path.read_text(encoding="utf-8").replace(
-            "CLAIRE_ANONYMOUS_READONLY=1",
-            f"CLAIRE_ANONYMOUS_READONLY={value}",
-        ),
-        encoding="utf-8",
-    )
-
-    with patch.object(cb.subprocess, "run") as run:
-        assert cb.main(["status"], root=tmp_path) == 2
-
-    run.assert_not_called()
 
 
 def test_environment_is_required_without_process_or_legacy_alias(
@@ -1516,15 +1435,15 @@ def test_health_returns_liveness_exit_code_and_uses_noninteractive_exec(tmp_path
     ]
 
 
-def test_preflight_reports_anonymous_readonly_exposure(tmp_path, capsys):
+def test_preflight_succeeds_without_anonymous_readonly_line(tmp_path, capsys):
     _write_layout(tmp_path, dev=False)
 
     with patch.object(cb.subprocess, "run", side_effect=_fake_success):
         assert cb.main(["preflight"], root=tmp_path) == 0
 
     output = capsys.readouterr().out
-    assert "anonymous readonly: ENABLED" in output
-    assert "hidden documents" in output
+    assert "anonymous readonly:" not in output
+    assert "profile: production" in output
 
 
 @pytest.mark.parametrize("argv,env_file", ((["preflight"], ".env"), (["dev", "preflight"], ".env.dev")))
