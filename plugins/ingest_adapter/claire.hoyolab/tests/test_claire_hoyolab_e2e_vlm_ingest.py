@@ -29,12 +29,9 @@ def plugin(monkeypatch):
 def test_e2e_hoyolab_article_vlm_ingestion(tmp_path: Path):
     """E2E test verifying complete pipeline: classification, HoYoLAB fetch, VLM transcription, and vault export."""
     db_file = tmp_path / "claire_e2e.db"
-    vault_dir = tmp_path / "vault"
-    vault_dir.mkdir()
 
     settings = Settings(
         db_path=str(db_file),
-        vault_path=str(vault_dir),
         provider="mock",
         environment="development",
         # The preferred languages of the job (a new database has no server default language).
@@ -144,8 +141,6 @@ def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):
     from claire.extract.provider import ExtractedEntity, ExtractionResult
 
     db_file = tmp_path / "claire_lore_e2e.db"
-    vault_dir = tmp_path / "vault_lore"
-    vault_dir.mkdir()
 
     # Pre-seed existing entities with Person type in knowledge base
     conn = dbm.connect(str(db_file))
@@ -176,7 +171,6 @@ def test_e2e_hoyolab_vlm_ingest_merges_with_existing_entities(tmp_path: Path):
     # Settings follow preferred_languages without dedicated vlm_language
     settings = Settings(
         db_path=str(db_file),
-        vault_path=str(vault_dir),
         provider="mock",
         environment="development",
         preferred_languages="ko",

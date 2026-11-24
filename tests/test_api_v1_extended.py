@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -550,8 +551,9 @@ def test_oauth_grants_support_bundles_and_full_openapi_parity(ext_world: _ExtWor
     yaml_text = generate_v1_openapi_yaml()
     json_text = generate_v1_openapi_json()
     repo_root = str(Path(__file__).resolve().parents[1])
+    yaml_python = "/usr/bin/python3" if Path("/usr/bin/python3").is_file() else sys.executable
     proc = subprocess.run(
-        ["python3", "-c", "import json, sys, yaml; print(json.dumps(yaml.safe_load(sys.stdin.read()), sort_keys=True))"],
+        [yaml_python, "-c", "import json, sys, yaml; print(json.dumps(yaml.safe_load(sys.stdin.read()), sort_keys=True))"],
         input=yaml_text,
         text=True,
         capture_output=True,

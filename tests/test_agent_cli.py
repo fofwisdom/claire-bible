@@ -1,4 +1,6 @@
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
 import pytest
@@ -45,9 +47,17 @@ def test_cli_json_flag_returns_single_valid_json():
     assert "Source URL :" in res.stderr
 
 
-def test_cli_queue_json_contains_data():
+def test_cli_queue_json_contains_data(tmp_path: Path):
+    from claire.store import db as dbm
+
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    conn.close()
+
     res = subprocess.run(
         [sys.executable, "-m", "claire_bible.cli", "queue", "--json"],
+        env={**os.environ, "CLAIRE_DB_PATH": str(db_file)},
         capture_output=True,
         text=True,
     )
@@ -60,10 +70,18 @@ def test_cli_queue_json_contains_data():
     assert "inbox" in agent_out.data
 
 
-def test_cli_unified_audit():
+def test_cli_unified_audit(tmp_path: Path):
+    from claire.store import db as dbm
+
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    conn.close()
+
     # Test unified audit --check all --json
     res = subprocess.run(
         [sys.executable, "-m", "claire_bible.cli", "audit", "--check", "all", "--json"],
+        env={**os.environ, "CLAIRE_DB_PATH": str(db_file)},
         capture_output=True,
         text=True,
     )
@@ -75,10 +93,18 @@ def test_cli_unified_audit():
     assert "residuals" in agent_out.data
 
 
-def test_cli_unified_reprocess_dry_run():
+def test_cli_unified_reprocess_dry_run(tmp_path: Path):
+    from claire.store import db as dbm
+
+    db_file = tmp_path / "claire.db"
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    conn.close()
+
     # Test unified reprocess --dry-run --json
     res = subprocess.run(
         [sys.executable, "-m", "claire_bible.cli", "reprocess", "--dry-run", "--json"],
+        env={**os.environ, "CLAIRE_DB_PATH": str(db_file)},
         capture_output=True,
         text=True,
     )
@@ -89,13 +115,10 @@ def test_cli_unified_reprocess_dry_run():
     assert "dry_run" in agent_out.data
 
 
-def test_cli_auth_share_doc():
-    import sqlite3
-    from pathlib import Path
+def test_cli_auth_share_doc(tmp_path: Path):
     from claire.store import db as dbm
 
-    db_file = Path("data/claire.db")
-    db_file.parent.mkdir(parents=True, exist_ok=True)
+    db_file = tmp_path / "claire.db"
     conn = dbm.connect(db_file)
     dbm.init_db(conn)
     row = conn.execute("SELECT id FROM documents LIMIT 1").fetchone()
@@ -110,9 +133,12 @@ def test_cli_auth_share_doc():
         conn.commit()
     conn.close()
 
+    sub_env = {**os.environ, "CLAIRE_DB_PATH": str(db_file)}
+
     # 1. Test auth
     res = subprocess.run(
         [sys.executable, "-m", "claire_bible.cli", "auth", "--scope", "readonly", "--json"],
+        env=sub_env,
         capture_output=True,
         text=True,
     )
@@ -126,6 +152,7 @@ def test_cli_auth_share_doc():
     # 2. Test share with valid document
     res = subprocess.run(
         [sys.executable, "-m", "claire_bible.cli", "share", doc_id, "--json"],
+        env=sub_env,
         capture_output=True,
         text=True,
     )
@@ -138,6 +165,7 @@ def test_cli_auth_share_doc():
     # 3. Test doc pin / unpin
     res = subprocess.run(
         [sys.executable, "-m", "claire_bible.cli", "doc", doc_id, "--pin", "--json"],
+        env=sub_env,
         capture_output=True,
         text=True,
     )
@@ -149,6 +177,7 @@ def test_cli_auth_share_doc():
     # restore unpin
     res = subprocess.run(
         [sys.executable, "-m", "claire_bible.cli", "doc", doc_id, "--unpin", "--json"],
+        env=sub_env,
         capture_output=True,
         text=True,
     )

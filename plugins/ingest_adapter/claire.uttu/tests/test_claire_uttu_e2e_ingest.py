@@ -19,12 +19,9 @@ def test_e2e_uttu_story_ingestion(tmp_path: Path):
     classification -> domain adapter priority execution -> clean text/metadata extraction -> DB persistence and vault export.
     """
     db_file = tmp_path / "claire_e2e_uttu.db"
-    vault_dir = tmp_path / "vault"
-    vault_dir.mkdir()
 
     settings = Settings(
         db_path=str(db_file),
-        vault_path=str(vault_dir),
         provider="mock",
     )
 
@@ -127,12 +124,9 @@ def test_e2e_uttu_event_trail_ingestion(tmp_path: Path):
     classification -> uttu adapter -> trail fragment extraction -> DB persistence and vault export.
     """
     db_file = tmp_path / "claire_e2e_uttu_trail.db"
-    vault_dir = tmp_path / "vault_trail"
-    vault_dir.mkdir()
 
     settings = Settings(
         db_path=str(db_file),
-        vault_path=str(vault_dir),
         provider="mock",
     )
 

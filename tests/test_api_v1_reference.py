@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -128,9 +129,10 @@ def test_build_v1_openapi_spec_includes_oauth_mcp_and_valid_yaml() -> None:
     json_text = build_v1_openapi_json()
     yaml_text = build_v1_openapi_yaml()
     repo_root = str(Path(__file__).resolve().parents[1])
+    yaml_python = "/usr/bin/python3" if Path("/usr/bin/python3").is_file() else sys.executable
     proc = subprocess.run(
         [
-            "python3",
+            yaml_python,
             "-c",
             "import json, sys, yaml; y = yaml.safe_load(sys.stdin.read()); assert y['openapi'] == '3.1.0'; print(json.dumps(y, sort_keys=True))",
         ],

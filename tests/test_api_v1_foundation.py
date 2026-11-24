@@ -231,9 +231,10 @@ def test_openapi_3_1_generation_parity_and_system_pyyaml_validity() -> None:
     assert to_yaml({"a": "true", "b": 1, "c": ["x: y", None, False]})
 
     repo_root = str(Path(__file__).resolve().parents[1])
+    yaml_python = "/usr/bin/python3" if Path("/usr/bin/python3").is_file() else sys.executable
     proc = subprocess.run(
         [
-            "python3",
+            yaml_python,
             "-c",
             "import json, sys, yaml; y = yaml.safe_load(sys.stdin.read()); assert y['openapi'] == '3.1.0'; print(json.dumps(y, sort_keys=True))",
         ],

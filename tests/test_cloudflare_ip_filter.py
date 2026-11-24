@@ -182,14 +182,14 @@ def test_wrap_web_app_cloudflare_ips_only_integration(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_settings_fqdn_and_legacy_migration(tmp_path):
+def test_settings_fqdn_and_legacy_migration(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLAIRE_FQDN", raising=False)
     data_dir = tmp_path / "data"
-    vault_dir = tmp_path / "vault"
     data_dir.mkdir(parents=True)
-    vault_dir.mkdir(parents=True)
 
     # 1. Primary CLAIRE_FQDN in production
     s1 = Settings(
+        _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="production",
@@ -201,6 +201,7 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
 
     # 2. Primary CLAIRE_FQDN in development
     s2 = Settings(
+        _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="development",
@@ -211,6 +212,7 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
 
     # 3. Legacy CLAIRE_PUBLIC_URL is ignored
     s3 = Settings(
+        _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_ENVIRONMENT="production",
@@ -220,6 +222,7 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
 
     # 4. Cloudflare ips only validator boolean parsing
     s4 = Settings(
+        _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_CLOUDFLARE_IPS_ONLY="1",
@@ -227,6 +230,7 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
     assert s4.cloudflare_ips_only is True
 
     s5 = Settings(
+        _env_file=None,
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PROVIDER="mock",
         CLAIRE_CLOUDFLARE_IPS_ONLY="0",
@@ -235,6 +239,7 @@ def test_settings_fqdn_and_legacy_migration(tmp_path):
 
     with pytest.raises(ValueError, match="CLAIRE_CLOUDFLARE_IPS_ONLY"):
         Settings(
+            _env_file=None,
             CLAIRE_DB_PATH=str(data_dir / "claire.db"),
             CLAIRE_PROVIDER="mock",
             CLAIRE_CLOUDFLARE_IPS_ONLY="invalid_boolean",

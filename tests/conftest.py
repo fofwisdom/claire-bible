@@ -119,6 +119,35 @@ def _isolate_plugin_records(tmp_path_factory: pytest.TempPathFactory, monkeypatc
 
 
 @pytest.fixture(autouse=True)
+def _isolate_kb_manager(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Ensure KnowledgeBaseManager never reads or mutates the repository's live `data/claire.db` during tests."""
+    from pathlib import Path
+
+    from claire.core.config import ROOT, get_settings
+    from claire.store import knowledge_base as kb_mod
+
+    repo_db = (Path(ROOT) / "data" / "claire.db").resolve()
+    real_init = kb_mod.KnowledgeBaseManager.__init__
+    isolated: dict[str, Path] = {}
+
+    def isolated_init(self, base_settings=None, *, writable: bool = True) -> None:
+        settings = base_settings if base_settings is not None else get_settings()
+        db_file = getattr(settings, "db_file", None)
+        if db_file is not None and Path(db_file).resolve() == repo_db and hasattr(settings, "model_copy"):
+            if "db" not in isolated:
+                isolated["db"] = tmp_path_factory.mktemp("kb-manager") / "claire.db"
+            settings = settings.model_copy(update={"db_path": str(isolated["db"])})
+        real_init(self, settings, writable=writable)
+
+    monkeypatch.setattr(kb_mod.KnowledgeBaseManager, "__init__", isolated_init)
+    kb_mod._default_manager = None
+    try:
+        yield
+    finally:
+        kb_mod._default_manager = None
+
+
+@pytest.fixture(autouse=True)
 def _clear_settings_cache_after_test() -> Iterator[None]:
     """A test that changes environment variables and fills the ``get_settings`` cache must not leak those settings into the next test of the same worker (monkeypatch restores the variables, but not the cache)."""
     yield

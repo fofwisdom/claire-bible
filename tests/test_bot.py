@@ -631,7 +631,7 @@ async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):
         get_settings.cache_clear()
 
 
-async def test_on_message_handles_ingest_report_error_without_unbound_local_error(monkeypatch):
+async def test_on_message_handles_ingest_report_error_without_unbound_local_error(tmp_path: Path, monkeypatch):
     """svc.ingest가 report.error를 반환할 때 has_error가 정상 바인딩되어 UnboundLocalError 없이 _settle된다."""
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
@@ -640,6 +640,7 @@ async def test_on_message_handles_ingest_report_error_without_unbound_local_erro
     from claire.telegram.bot import build_app
 
     settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
         telegram_bot_token="12345:fake_token_for_test",
     )
     app = build_app(settings)
@@ -683,7 +684,7 @@ async def test_on_message_handles_ingest_report_error_without_unbound_local_erro
     assert "❌ 적재 실패" in edited_text
 
 
-async def test_on_ingest_handles_ingest_report_error(monkeypatch):
+async def test_on_ingest_handles_ingest_report_error(tmp_path: Path, monkeypatch):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
@@ -691,6 +692,7 @@ async def test_on_ingest_handles_ingest_report_error(monkeypatch):
     from claire.telegram.bot import build_app
 
     settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
         telegram_bot_token="12345:fake_token_for_test",
     )
     app = build_app(settings)
@@ -733,13 +735,13 @@ async def test_on_ingest_handles_ingest_report_error(monkeypatch):
     assert "❌ 적재 실패" in status_msg.edit_text.call_args[0][0]
 
 
-async def test_on_support_help():
+async def test_on_support_help(tmp_path: Path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
     from claire.telegram.bot import build_app
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test")
+    settings = Settings(db_path=str(tmp_path / "claire.db"), telegram_bot_token="12345:fake_token_for_test")
     app = build_app(settings)
 
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
@@ -762,13 +764,13 @@ async def test_on_support_help():
     assert "/support bundle" in msg.reply_text.call_args[0][0]
 
 
-async def test_on_support_unknown_subcommand():
+async def test_on_support_unknown_subcommand(tmp_path: Path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, MagicMock
     from claire.core.config import Settings
     from claire.telegram.bot import build_app
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test")
+    settings = Settings(db_path=str(tmp_path / "claire.db"), telegram_bot_token="12345:fake_token_for_test")
     app = build_app(settings)
 
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
@@ -818,6 +820,7 @@ async def test_on_support_bundle_default(tmp_path, monkeypatch):
     monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
     settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
         telegram_bot_token="12345:fake_token_for_test",
     )
     app = build_app(settings)
@@ -882,7 +885,7 @@ async def test_on_support_bundle_with_days_and_target(tmp_path, monkeypatch):
 
     monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", )
+    settings = Settings(db_path=str(tmp_path / "claire.db"), telegram_bot_token="12345:fake_token_for_test")
     app = build_app(settings)
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
 
@@ -915,6 +918,7 @@ async def test_on_support_bundle_validation_error(tmp_path):
     from claire.telegram.bot import build_app
 
     settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
         telegram_bot_token="12345:fake_token_for_test",
         telemetry_retention_days=30,
     )
@@ -958,7 +962,7 @@ async def test_on_support_bundle_list_and_purge(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("claire.ops.support_bundle.purge_expired_bundles", lambda data_dir: 3)
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", )
+    settings = Settings(db_path=str(tmp_path / "claire.db"), telegram_bot_token="12345:fake_token_for_test")
     app = build_app(settings)
     on_support = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_support")
 
@@ -1019,7 +1023,7 @@ async def test_on_callback_support_bundle_button(tmp_path, monkeypatch):
 
     monkeypatch.setattr("claire.ops.support_bundle.create_support_bundle", fake_create)
 
-    settings = Settings(telegram_bot_token="12345:fake_token_for_test", )
+    settings = Settings(db_path=str(tmp_path / "claire.db"), telegram_bot_token="12345:fake_token_for_test")
     app = build_app(settings)
     on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
 
@@ -1056,6 +1060,7 @@ async def test_on_support_unallowed_user(tmp_path):
     from claire.telegram.bot import build_app
 
     settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
         telegram_bot_token="12345:fake_token_for_test",
         telegram_allowed_users="9999",
     )
@@ -1111,6 +1116,7 @@ async def test_telegram_app_error_handler(tmp_path: Path):
     assert log_file is not None
 
     settings = Settings(
+        db_path=str(tmp_path / "claire.db"),
         telegram_bot_token="12345:fake_token_for_test",
     )
     app = build_app(settings)
