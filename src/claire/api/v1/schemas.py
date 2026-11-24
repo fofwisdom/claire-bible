@@ -526,3 +526,604 @@ class GraphPathResponse(SealedModel):
     relations: list[GraphPathRelationItem] = Field(default_factory=list)
     reason: str | None = None
     hops_tried: int | None = None
+
+
+class AccountRefSummary(SealedModel):
+    """Public account reference without private internals."""
+
+    account: str
+    display_name: str
+
+
+class ContributionRemoteInfo(SealedModel):
+    """Remote origin metadata for a federated contribution."""
+
+    document: str
+    knowledge_base: str | None = None
+    credit: str | None = None
+
+
+class ContributionOriginRemovedInfo(SealedModel):
+    """Origin removal notice attached to a contribution."""
+
+    at: float
+    reason: str | None = None
+    waiting: bool
+
+
+class ContributionRevisionSummary(SealedModel):
+    """Revision history entry of a contribution."""
+
+    document_id: str
+    state: str
+    created_at: float
+
+
+class ContributionOfferSummary(SealedModel):
+    """Federation offer details for a remote contribution."""
+
+    actor: str | None = None
+    server: str
+    with_grant: bool
+    grant_valid: bool
+
+
+class ContributionReputationSummary(SealedModel):
+    """Contributor reputation level and approval rate."""
+
+    level: str
+    approval_rate: float | None = None
+
+
+class ContributionSummary(SealedModel):
+    """Canonical representation of one contribution to a shared KB."""
+
+    number: str
+    document_id: str | None = None
+    title: str | None = None
+    origin: str
+    state: str
+    contributor: AccountRefSummary | None = None
+    approved: bool
+    approved_at: float | None = None
+    updates_stopped: bool
+    contributed_at: float
+    revised_at: float | None = None
+    remote: ContributionRemoteInfo | None = None
+    origin_removed: ContributionOriginRemovedInfo | None = None
+    reason: str | None = None
+    revisions: list[ContributionRevisionSummary] | None = None
+    offer: ContributionOfferSummary | None = None
+    contributor_reputation: ContributionReputationSummary | None = None
+    review_help: dict[str, Any] | None = None
+
+
+class ContributionListResponse(SealedModel):
+    """Paginated response for `GET /api/v1/kbs/{kb}/contributions`."""
+
+    items: list[ContributionSummary]
+    next_cursor: str | None
+    total: int
+
+
+class CreateContributionRequest(InputModel):
+    """Request body for `POST /api/v1/kbs/{kb}/contributions`."""
+
+    document_id: str = Field(min_length=1, max_length=128)
+
+
+class ReviewContributionRequest(InputModel):
+    """Request body for `PATCH /api/v1/kbs/{kb}/contributions/{number}`."""
+
+    action: Literal["approve", "reject", "hide", "unhide", "stop_updates", "restart_updates"]
+    reason: str = ""
+
+
+class RemoveContributionRequest(InputModel):
+    """Request body for `POST /api/v1/kbs/{kb}/contributions/{number}/remove`."""
+
+    reason: str = ""
+
+
+class ContributionDetailResponse(SealedModel):
+    """Response for contribution mutations."""
+
+    contribution: ContributionSummary | None = None
+
+
+class WithdrawContributionResponse(SealedModel):
+    """Response for `DELETE /api/v1/kbs/{kb}/contributions/{number}`."""
+
+    withdrawn: bool
+    contribution_blocked: bool
+
+
+class RemoveContributionResponse(SealedModel):
+    """Response for `POST /api/v1/kbs/{kb}/contributions/{number}/remove`."""
+
+    removed: bool
+
+
+class MemberSummary(SealedModel):
+    """Shared KB membership entry."""
+
+    number: str
+    account: str
+    display_name: str
+    role: str
+    state: str
+    requested_at: float
+    decided_at: float | None = None
+    username: str | None = None
+
+
+class MemberListResponse(SealedModel):
+    """Paginated response for `GET /api/v1/kbs/{kb}/members`."""
+
+    items: list[MemberSummary]
+    next_cursor: str | None
+    total: int
+
+
+class JoinMemberResponse(SealedModel):
+    """Response for `POST /api/v1/kbs/{kb}/members`."""
+
+    created: bool
+    membership: MemberSummary
+
+
+class LeaveMemberResponse(SealedModel):
+    """Response for `DELETE /api/v1/kbs/{kb}/members`."""
+
+    left: bool
+
+
+class UpdateMemberRequest(InputModel):
+    """Request body for `PATCH /api/v1/kbs/{kb}/members/{account}`."""
+
+    action: Literal["approve", "ban", "remove"] | None = None
+    role: Literal["member", "collaborator"] | None = None
+    reason: str = ""
+
+
+class UpdateMemberResponse(SealedModel):
+    """Response for `PATCH /api/v1/kbs/{kb}/members/{account}`."""
+
+    member: MemberSummary | None = None
+
+
+class ExtractionSpecResponse(SealedModel):
+    """Response for `GET /api/v1/extraction/spec`."""
+
+    schema_version: str
+    prompt_version: str
+    prompt_template: str
+    prompts: dict[str, Any]
+    json_schema: dict[str, Any]
+    ontology: dict[str, Any]
+    framing_rules: dict[str, Any]
+    summary_rules: dict[str, Any]
+    asciidoc_rules: dict[str, Any]
+    model_rules: dict[str, Any]
+    embedding_policy: dict[str, Any]
+
+
+class ExtractionStageRequest(InputModel):
+    """JSON request body for `POST /api/v1/extraction/stage`."""
+
+    url_or_text: str | None = None
+    url: str | None = None
+    text: str | None = None
+    content_base64: str | None = None
+    filename: str | None = None
+    document_id: str | None = None
+    title: str | None = None
+    source_type: str | None = None
+    full_content: bool = True
+    force: bool = False
+    refetch: bool = False
+
+
+class ExtractionStageResponse(SealedModel):
+    """Response for `POST /api/v1/extraction/stage`."""
+
+    ok: bool = True
+    document_id: str
+    kb_number: str | None = None
+    title: str | None = None
+    source_type: str | None = None
+    extraction_status: str
+    content_hash: str | None = None
+    raw_chars: int = 0
+    full_content: bool = True
+    staged: bool = True
+    duplicate: bool = False
+    restaged: bool = False
+    message: str | None = None
+
+
+class ExtractionSourceListItem(SealedModel):
+    """Summary entry for a staged source document."""
+
+    document_id: str
+    title: str | None = None
+    url: str | None = None
+    source_type: str | None = None
+    extraction_status: str
+    content_hash: str | None = None
+    raw_chars: int = 0
+    fetched_at: float | None = None
+    claimed_by_client_id: str | None = None
+    lease_expires_at: float | None = None
+
+
+class ExtractionSourceListResponse(SealedModel):
+    """Paginated response for `GET /api/v1/extraction/sources`."""
+
+    items: list[ExtractionSourceListItem]
+    next_cursor: str | None
+    total: int
+    status: str | None = None
+
+
+class ExtractionSourceDetailResponse(SealedModel):
+    """Response for `GET /api/v1/extraction/sources/{document_id}`."""
+
+    ok: bool = True
+    document_id: str
+    kb_number: str | None = None
+    title: str | None = None
+    url: str | None = None
+    source_type: str | None = None
+    extraction_status: str
+    content_hash: str | None = None
+    raw_chars: int = 0
+    offset: int = 0
+    returned_chars: int = 0
+    has_more: bool = False
+    next_offset: int | None = None
+    line_offset: int | None = None
+    line_limit: int | None = None
+    total_lines: int | None = None
+    returned_lines: int | None = None
+    next_line_offset: int | None = None
+    nonce: str
+    framed_content: str
+
+
+class ExtractionClaimRequest(InputModel):
+    """Request body for `POST /api/v1/extraction/sources/{document_id}/claim`."""
+
+    client_id: str | None = None
+    lease_seconds: float | int = 300.0
+    force: bool = False
+
+
+class ExtractionRenewRequest(InputModel):
+    """Request body for `POST /api/v1/extraction/sources/{document_id}/renew`."""
+
+    claim_token: str = Field(min_length=1)
+    lease_seconds: float | int = 300.0
+
+
+class ExtractionClaimResponse(SealedModel):
+    """Response for claim and renew endpoints."""
+
+    ok: bool = True
+    document_id: str
+    kb_number: str | None = None
+    claim_token: str
+    claimed_by_client_id: str | None = None
+    lease_expires_at: float
+    content_hash: str | None = None
+    expected_content_hash: str | None = None
+    extraction_status: str | None = None
+
+
+class ExtractionSubmitRequest(InputModel):
+    """Request body for `POST /api/v1/extraction/sources/{document_id}/submit`."""
+
+    claim_token: str = Field(min_length=1)
+    expected_content_hash: str | None = None
+    content_hash: str | None = None
+    dry_run: bool = False
+    payload: dict[str, Any]
+
+
+class ExtractionSubmitResponse(SealedModel):
+    """Response for `POST /api/v1/extraction/sources/{document_id}/submit`."""
+
+    ok: bool
+    dry_run: bool = False
+    committed: bool = False
+    document_id: str
+    kb_number: str | None = None
+    extraction_status: str | None = None
+    extraction_origin: str | None = None
+    client_id: str | None = None
+    oauth_client_id: str | None = None
+    model: str | None = None
+    schema_version: str | None = None
+    expected_content_hash: str | None = None
+    summary: str | None = None
+    entities_count: int | None = None
+    relations_count: int | None = None
+    detail_chars: int | None = None
+    entities_created: int | None = None
+    entities_linked: int | None = None
+    relations_added: int | None = None
+    proposals_logged: int | None = None
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class FederationFollowerCount(SealedModel):
+    """Follower counter summary."""
+
+    total: int
+
+
+class FederationStatusResponse(SealedModel):
+    """Response for `GET /api/v1/federation/status`."""
+
+    handle: str | None = None
+    actor_id: str | None = None
+    is_actor: bool
+    actor_state: Literal["active", "account_not_active", "no_username"]
+    discoverable: bool
+    followers: FederationFollowerCount
+    pending_tasks: int
+
+
+class FederationPublishRequest(InputModel):
+    """Request body for `POST /api/v1/federation/publish`."""
+
+    kb: str = "personal"
+    document_id: str = Field(min_length=1, max_length=128)
+
+
+class FederationObjectSummary(SealedModel):
+    """Published ActivityPub object metadata."""
+
+    id: str
+    url: str
+    published_at: float
+    updated_at: float | None = None
+
+
+class FederationTaskSummary(SealedModel):
+    """Outbox delivery task descriptor."""
+
+    id: int
+    kind: str
+
+
+class FederationPublishResponse(SealedModel):
+    """Response for `POST /api/v1/federation/publish`."""
+
+    object: FederationObjectSummary
+    task: FederationTaskSummary
+    created: bool
+
+
+class FederationRetractRequest(InputModel):
+    """Request body for `POST /api/v1/federation/retract`."""
+
+    object_id: str = Field(min_length=1)
+
+
+class FederationRetractResponse(SealedModel):
+    """Response for `POST /api/v1/federation/retract`."""
+
+    retracted: bool
+    object_id: str
+    task: FederationTaskSummary
+
+
+class FeedSummary(SealedModel):
+    """Feed subscription entry."""
+
+    id: int
+    url: str
+    site_url: str | None = None
+    title: str
+    folder: str
+    format: str | None = None
+    websub_hub: str | None = None
+    last_polled_at: float | None = None
+    last_success_at: float | None = None
+    next_poll_at: float | None = None
+    last_status: str | None = None
+    last_error: str | None = None
+    failure_count: int = 0
+    created_at: float
+    items: int | None = None
+    unread: int | None = None
+
+
+class FeedListResponse(SealedModel):
+    """Paginated response for `GET /api/v1/feeds`."""
+
+    items: list[FeedSummary]
+    next_cursor: str | None
+    total: int
+    folders: list[str]
+    limit_per_account: int
+
+
+class CreateFeedRequest(InputModel):
+    """Request body for `POST /api/v1/feeds`."""
+
+    url: str = Field(min_length=1)
+    title: str = ""
+    folder: str = ""
+
+
+class FeedDetailResponse(SealedModel):
+    """Response for `POST /api/v1/feeds`."""
+
+    feed: FeedSummary
+    created: bool
+
+
+class DeleteFeedRequest(InputModel):
+    """Request body for `DELETE /api/v1/feeds`."""
+
+    feed_id: int = Field(gt=0)
+
+
+class DeleteFeedResponse(SealedModel):
+    """Response for `DELETE /api/v1/feeds`."""
+
+    removed: bool
+    feed_id: int
+    items_removed: int
+
+
+class FeedItemDocumentRef(SealedModel):
+    """Document reference attached to a feed item."""
+
+    kb_number: str | None = None
+    document_id: str
+
+
+class FeedItemSummary(SealedModel):
+    """Feed reader item entry."""
+
+    id: int
+    feed_id: int
+    feed_title: str | None = None
+    feed_folder: str | None = None
+    url: str | None = None
+    title: str | None = None
+    author: str | None = None
+    summary: str | None = None
+    categories: list[str] = Field(default_factory=list)
+    published_at: float | None = None
+    modified_at: float | None = None
+    fetched_at: float | None = None
+    unread: bool
+    starred: bool
+    text: str
+    content: str | None = None
+    linked: FeedItemDocumentRef | None = None
+    timeline_item_id: str | None = None
+
+
+class FeedItemListResponse(SealedModel):
+    """Paginated response for `GET /api/v1/feeds/items`."""
+
+    items: list[FeedItemSummary]
+    next_cursor: str | None
+
+
+class UpdateFeedItemsRequest(InputModel):
+    """Request body for `PATCH /api/v1/feeds/items`."""
+
+    item_ids: list[int] | None = None
+    feed_id: int | None = None
+    unread: bool | None = None
+    starred: bool | None = None
+
+
+class UpdateFeedItemsResponse(SealedModel):
+    """Response for `PATCH /api/v1/feeds/items`."""
+
+    changed: int
+
+
+class FeedItemIngestRequest(InputModel):
+    """Request body for `POST /api/v1/feeds/items/{item_id}/ingest`."""
+
+    extraction_mode: Literal["provider", "client"]
+
+
+class FeedItemIngestResponse(SealedModel):
+    """Response for `POST /api/v1/feeds/items/{item_id}/ingest`."""
+
+    report: IngestResponse
+    linked: FeedItemDocumentRef | None = None
+
+
+class OAuthGrantSummary(SealedModel):
+    """Active OAuth 2.1 grant entry."""
+
+    grant_id: str
+    client_id: str
+    client_name: str
+    redirect_uris: list[str]
+    scope: str
+    granted_scope: str
+    created_at: float
+    expires_at: float
+    last_used_at: float | None = None
+    revoked_at: float | None = None
+
+
+class OAuthGrantListResponse(SealedModel):
+    """Paginated response for `GET /api/v1/me/oauth/grants`."""
+
+    items: list[OAuthGrantSummary]
+    next_cursor: str | None
+    total: int
+
+
+class RevokeOAuthGrantsRequest(InputModel):
+    """Request body for `DELETE /api/v1/me/oauth/grants`."""
+
+    grant_id: str | None = None
+    client_id: str | None = None
+    revoke_all: bool = False
+
+
+class RevokeOAuthGrantsResponse(SealedModel):
+    """Response for `DELETE /api/v1/me/oauth/grants`."""
+
+    revoked: int
+
+
+class SupportBundleSummary(SealedModel):
+    """Diagnostic support bundle metadata."""
+
+    bundle_id: str
+    scope: Literal["account", "server"]
+    link: str | None = None
+    days_covered: int | None = None
+    target_kind: str | None = None
+    target_link: str | None = None
+    target_resolution_status: str | None = None
+    size_bytes: int | None = None
+    created_at: str | None = None
+    expires_at: str | float | None = None
+
+
+class SupportBundleListResponse(SealedModel):
+    """Paginated response for `GET /api/v1/support/bundles`."""
+
+    items: list[SupportBundleSummary]
+    next_cursor: str | None
+    total: int
+    max_active: int
+    scopes: list[Literal["account", "server"]]
+
+
+class CreateSupportBundleRequest(InputModel):
+    """Request body for `POST /api/v1/support/bundles`."""
+
+    scope: Literal["account", "server"]
+    days: int = 1
+    target: str | None = None
+
+
+class SupportBundleDetailResponse(SealedModel):
+    """Response for `POST /api/v1/support/bundles`."""
+
+    bundle: SupportBundleSummary
+
+
+class DeleteSupportBundleResponse(SealedModel):
+    """Response for `DELETE /api/v1/support/bundles/{bundle_id}`."""
+
+    bundle_id: str
+    deleted: bool
+

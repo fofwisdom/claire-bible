@@ -42,6 +42,10 @@ TAG_DESCRIPTIONS: dict[str, str] = {
     "Knowledge Bases": "Knowledge base discovery, metadata, lifecycle, and themes.",
     "Documents & Ingest": "Document listing, details, raw/Markdown export, curation, and personal KB ingestion.",
     "Graph & Search": "Canonical entity/relation graph queries, neighborhood expansion, shortest path, and search.",
+    "Shared KB Collaboration": "Direct contributions, review actions, and membership management for shared knowledge bases.",
+    "Client Extraction": "Zero-LLM personal KB staging, lease claims, and verified extraction submission.",
+    "Federation & Feeds": "ActivityPub publishing/retraction and personal feed subscriptions and ingestion.",
+    "Account & Support": "Account OAuth 2.1 grant management and diagnostic support bundles.",
 }
 
 _SECURITY_SCHEMES: dict[str, Any] = {
