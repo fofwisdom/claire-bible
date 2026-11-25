@@ -34,7 +34,7 @@ def build_context(conn: sqlite3.Connection, node_id: str | None = None,
             summ = dbm.latest_extraction_summary(conn, doc_id, kb_id=kb_id) or ""
             detail = dbm.get_document_detail(conn, doc_id, kb_id=kb_id) or ""
             parts.append(f"읽고 있던 문서: {row['title'] or '(제목 없음)'}\n"
-                         f"요약: {summ}\n{detail[:2000]}")
+                         f"초록: {summ}\n{detail[:2000]}")
             focus = focus or (row["title"] or "")
     return "\n\n".join(parts), focus
 

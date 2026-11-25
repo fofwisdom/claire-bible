@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 # v6: 테이블 및 매트릭스 데이터 누락 방지 및 본문 글자 수 계산 제외 규칙 적용.
 # v7: 복합 문서의 자막·Presentation 구성요소별 최소 예산 보장.
 # v8: executive summary 지침 강화 (단순 서문/도입부 요약 및 메타 소개문 금지, 본문 전체 핵심 실체·결론 압축).
-PROMPT_VERSION = "extract-v8"
+# v9: summary의 한국어 이름을 초록으로 바꿈 (owner, 2026-11-25).
+PROMPT_VERSION = "extract-v9"
 DEFAULT_EXTRACTION_TEMPLATE = "default"
 # 프레젠테이션 저작 프롬프트 버전
 PRESENTATION_PROMPT_VERSION = "pres-v2"
@@ -37,7 +38,7 @@ personal knowledge base about AI/software tools and research.
 Rules:
 - LANGUAGE & STYLE: write `summary`, every `observations` item, and `key_claims` in Korean
   (한국어) using formal/declarative written style (문어체 / 서술체: e.g. '~한다', '~이다', '~함' without conversational honorifics like '~합니다', '~해요'), REGARDLESS of the source document's language. Keep proper nouns, product/tool/model names, org names, and technical terms in their original form — do NOT transliterate (e.g. "OpenSkill", "arXiv", "LLM agent" stay as-is). Entity `name` and `aliases` stay in their canonical original form (usually the original language).
-- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다) providing a comprehensive executive summary (핵심 요약) in pure plain text ONLY (평문).
+- summary: 1-3 factual sentences in Korean written style (문어체: ~한다/~이다) providing a comprehensive executive summary (초록) in pure plain text ONLY (평문).
   * Scope: You MUST summarize the entire document across its core problem, specific technical solution/architecture/mechanisms, and key outcomes/conclusions.
   * NO Preface/Prologue: NEVER write an introductory preface (서문/머리말), teaser, or outline of what the document will discuss. Do NOT merely summarize the opening paragraphs, motivation, or background.
   * NO Meta-phrasing: NEVER use introductory meta-phrases such as '이 글은/본 문서는 ~를 다룬다', '~에 대해 소개한다', '~의 배경을 살펴본다', or '~를 설명한다'. Write direct, substantive factual statements of what was built, how it works, and what was achieved.
@@ -627,7 +628,7 @@ def render_detail_instructions_adoc(
 
     return (
         "아래 원문을 한국어 **AsciiDoc(ADOC)**으로 '편하게 읽을 수 있는 지식 문서'로 재구성하라. "
-        "단순 1~2문장 요약이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
+        "단순 1~2문장 초록이 아니라, 독자가 원문을 직접 읽지 않아도 핵심 내용·배경 "
         f"맥락·중요한 세부까지 충분히 파악할 수 있도록 여러 단락({length_hint})으로 "
         "풀어 써라.\n\n"
         + merge_hint
@@ -800,7 +801,7 @@ def compose_presentation_prompt_adoc(
         "제공된 기술 문서(AsciiDoc)의 핵심 통찰을 바탕으로, 청중을 사로잡을 **Asciidoctor reveal.js 전용 프레젠테이션 슬라이드 덱**을 직접 집필하라.\n\n"
         f"[원문 정보]\n"
         f"- 문서 제목: {title}\n"
-        f"- 핵심 요약: {summary or '(없음)'}\n"
+        f"- 초록: {summary or '(없음)'}\n"
         f"{focus_section}"
         f"{images_section}"
         "[★ 프레젠테이션 저작 핵심 원칙 (Presenti.ai 가이드라인 반영)]\n\n"

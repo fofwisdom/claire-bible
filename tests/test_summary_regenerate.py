@@ -206,13 +206,13 @@ def test_summary_prompt_plain_text_definition():
     )
     from claire.extract.provider import ExtractionResult
 
-    assert PROMPT_VERSION == "extract-v8"
+    assert PROMPT_VERSION == "extract-v9"
 
     sys = extract_system_prompt("{ontology}")
     assert "plain text" in sys.lower() or "평문" in sys
     assert "asciidoc" in sys.lower()
     assert "[NOTE]" in sys or "|===" in sys
-    assert "executive summary" in sys.lower() or "핵심 요약" in sys
+    assert "executive summary" in sys.lower() and "(초록)" in sys
     assert "preface" in sys.lower() or "서문" in sys
 
     fb = extract_fallback_prompt(sys, "sample doc")

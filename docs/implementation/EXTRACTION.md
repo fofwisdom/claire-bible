@@ -32,7 +32,7 @@ The stored text budget (fetch time), the prompt budget of `doc_to_prompt` (extra
 
 ### 2.2 Output language and style
 
-The extraction prompt (`_SYS` in `src/claire/extract/prompts.py`, `PROMPT_VERSION = "extract-v8"`) tells the model to write `summary`, `observations`, and `key_claims` in Korean written style, for all source languages. Entity names and aliases stay in their original form. The prompt asks for English or original-language aliases of localized proper nouns. The preferred languages do not change this output language. [code]
+The extraction prompt (`_SYS` in `src/claire/extract/prompts.py`, `PROMPT_VERSION = "extract-v9"`) tells the model to write `summary`, `observations`, and `key_claims` in Korean written style, for all source languages. Since `extract-v9` the prompt gives the Korean name of `summary` as 초록 (owner decision 2026-11-25; the code name stays `summary`). Entity names and aliases stay in their original form. The prompt asks for English or original-language aliases of localized proper nouns. The preferred languages do not change this output language. [code]
 
 The AsciiDoc detail prompt (`render_detail_prompt_adoc`) has rule 13: it does not write detail for a section that the cut made incomplete. [code]
 

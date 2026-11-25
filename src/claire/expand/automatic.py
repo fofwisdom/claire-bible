@@ -61,7 +61,7 @@ def build_parent_context(conn: sqlite3.Connection, doc: Document, kb_id: int | N
     detail = dbm.get_document_detail(conn, doc.id, kb_id=kb_id) or ""
     parts = [f"제목: {doc.title or '(제목 없음)'}"]
     if summary:
-        parts.append(f"요약: {summary}")
+        parts.append(f"초록: {summary}")
     if detail:
         parts.append(detail[:2000])
     elif doc.raw_text:

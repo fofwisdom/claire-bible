@@ -11,9 +11,9 @@
 ```text
 [원문 (Raw Content)] : 외부에서 수집된 미가공 원본 텍스트 (Layer 2 아티팩트 보관)
   │
-  ├── [문서 (Document)] : 메타데이터, 원문, 요약, 상세, 엔티티를 포괄하는 최상위 지식 단위
+  ├── [문서 (Document)] : 메타데이터, 원문, 초록, 상세, 엔티티를 포괄하는 최상위 지식 단위
   │     │
-  │     ├── [요약 (Summary)] : 1~3문장 순수 평문 에그제큐티브 서머리 (검색·카드·호버용)
+  │     ├── [초록 (Summary)] : 1~3문장 순수 평문 에그제큐티브 서머리 (검색·카드·호버용)
   │     │
   │     └── [상세 (Detail)] : 독자가 원문 없이도 맥락을 이해하도록 재구성한 다단락 가독 본문
   │
@@ -35,22 +35,23 @@
   - **취급 원칙**: 시스템이나 온톨로지 추출 엔진이 교차 검증하지 않은 미가공 원천 정보이므로, 정본 지식으로 취급하거나 문서 본문에 임의로 주입하지 않는다.
 
 ### 1.2. 문서 (Document / `doc_id`, `documents`)
-- **정의**: 고유 식별자(`doc_id`), 원본 출처(URL), 시스템 적재 메타데이터(`docmeta`), 원문, 요약, 상세, 온톨로지 추출 결과를 총괄하는 최상위 지식 자산 단위.
+- **정의**: 고유 식별자(`doc_id`), 원본 출처(URL), 시스템 적재 메타데이터(`docmeta`), 원문, 초록, 상세, 온톨로지 추출 결과를 총괄하는 최상위 지식 자산 단위.
 - **저장소**: 단일 SQLite `documents` 테이블 (Schema v14, `kb_id` 파티셔닝).
 - **식별 체계**: `doc_<hash>` 또는 `doc_<uuid>` 형태의 유일한 식별자.
 - **적재 메타데이터 (Document Ingestion Metadata / `docmeta` / `Document.meta`)**:
   - **정의**: 파이프라인이 원문을 수집·가공·적재(Ingestion & Processing)할 때 기록한 시스템 처리 및 실행 이력(Provenance: `focus`, `pdf_parser_used`, `pdf_parser_fallback`, `raw_truncated`, `stt` 등).
   - **경계 원칙**: `docmeta`는 외부 미가공 메타데이터(`rawmeta`)가 아니며, 원 저작물의 서지 정보(저자, 발행기관 등)는 `docmeta`에 혼입하지 않고 오직 온톨로지 지식 그래프의 전유물로 환원하여 관리한다.
 
-### 1.3. 요약 (Summary / `documents.summary`, `ExtractionResult.summary`)
+### 1.3. 초록 (Summary / `documents.summary`, `ExtractionResult.summary`)
+- **옛 이름**: 2026-11-25 전에는 "요약"이라고 불렀다(소유자 결정). 문서의 이 항목을 "요약"이라고 쓰지 않는다. 검색 답변의 요약(`/search`, AI 지식 요약), 내용 경고의 요약, 화면이나 정책의 요약은 다른 개념이며 "요약"으로 남는다. 영어 이름과 코드 식별자는 `summary`이다. 카탈로그와 프롬프트는 바뀌었고(`extract-v9`), 다른 문서의 본문에는 옛 이름이 남아 있다.
 - **정의**: LLM이 원문의 핵심 명제, 주장, 결론을 간결하게 압축하여 추출한 에그제큐티브 서머리(Executive Summary).
 - **작성 규칙**:
   - **순수 평문(Plain Text)**: AsciiDoc이나 마크다운 서식(`==`, `**`, `[NOTE]`, 표 등)이 일체 배제되어야 한다.
   - **분량 및 문체**: 1~3문장 분량의 명확한 한국어 서술체 문어체(`~한다`, `~이다`).
-- **주요 용도**: 하이브리드 검색 인덱싱, 그래프 뷰 노드 호버 툴팁, 좌측 문서 목록 카드, 텔레그램 알림 요약.
+- **주요 용도**: 하이브리드 검색 인덱싱, 그래프 뷰 노드 호버 툴팁, 좌측 문서 목록 카드, 텔레그램 알림.
 - **무결성 가드레일 (`SummaryQualityGuard`)**:
   - 빈 문자열, `[mock]` 접두사, 본문 앞부분 단순 200자 슬라이싱 대체(Silent Mock Fallback)는 엄격히 결손으로 간주한다.
-  - 검증 실패 시 해당 문서는 불완전(`partial=1`) 상태로 격리되며 자동 재요약 큐(`refresh_queue`)로 회수된다.
+  - 검증 실패 시 해당 문서는 불완전(`partial=1`) 상태로 격리되며 자동 초록 재생성 큐(`refresh_queue`)로 회수된다.
 
 ### 1.4. 상세 (Detail: Rendered Detail, Compiled HTML, Detail View)
 '상세'는 사용 맥락(데이터 모델, 렌더링 파이프라인, 사용자 인터페이스)에 따라 다음 세 가지 의미로 엄밀히 구분된다.
@@ -63,7 +64,7 @@
 2. **사전 컴파일 상세 (Compiled Detail HTML / `documents.detail_html`)**:
    - **정의**: 클라이언트의 실시간 파싱 부하를 없애고 일관된 뷰를 즉각 렌더링하기 위해, `documents.detail` 텍스트를 AOT(Ahead-of-Time) 방식으로 사전 컴파일한 안전한 HTML 코드.
 3. **상세 조회 뷰 (Detail View / `GET /document`, UI 우측 `#panel`)**:
-   - **정의**: 웹 API 및 UI 화면 관점에서, 특정 문서의 원본 출처 및 적재 메타데이터(`docmeta`), 요약(`summary`), 가독 본문(`detail`), 그리고 연결된 지식 노드(`nodes`)를 종합하여 제공하는 응답 및 뷰 패널. (서지 정보는 온톨로지 지식 노드를 통해 탐색됨)
+   - **정의**: 웹 API 및 UI 화면 관점에서, 특정 문서의 원본 출처 및 적재 메타데이터(`docmeta`), 초록(`summary`), 가독 본문(`detail`), 그리고 연결된 지식 노드(`nodes`)를 종합하여 제공하는 응답 및 뷰 패널. (서지 정보는 온톨로지 지식 노드를 통해 탐색됨)
 
 ### 1.5. 엔티티 (Entity) 및 노드 (Node)
 - **엔티티 (Entity / `entities` 테이블)**:
@@ -146,7 +147,7 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 원본 부가속성 | **원문 메타데이터** | Raw Metadata (`rawmeta`) | 외부 원본 메타데이터 (비영속/미검증) | PDF/HTTP 헤더 미가공 메타 |
 | 지식 단위 | **문서** | Document | `Document`, `doc_id` | `documents` 테이블 |
 | 적재 이력 | **적재 메타데이터** | Document Metadata (`docmeta`) | `Document.meta`, `doc.meta` | `documents.meta` (JSON) |
-| 핵심 압축 | **요약** | Summary | `ExtractionResult.summary` | `documents.summary` (plain text) |
+| 핵심 압축 | **초록** | Summary | `ExtractionResult.summary` | `documents.summary` (plain text) |
 | 가독 본문 | **상세 (가독 본문)** | Rendered Detail | `render_detail`, `doc.detail` | `documents.detail` (AsciiDoc, [DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md)) |
 | 컴파일 본문 | **사전 컴파일 상세** | Compiled HTML | `detail_html` | `documents.detail_html` |
 | 상세 패널 | **상세 뷰** | Detail View | `document_detail_route` | `GET /document?id=...` |

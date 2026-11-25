@@ -220,17 +220,17 @@ class IngestReport:
         is_summary_failed = not self.summary_rendered
 
         if is_stt_failed and is_summary_failed and is_detail_failed:
-            head = "⚠️ 부분 적재 (STT 전사, 요약 및 본문 생성 실패)"
+            head = "⚠️ 부분 적재 (STT 전사, 초록 및 본문 생성 실패)"
         elif is_stt_failed and is_summary_failed:
-            head = "⚠️ 부분 적재 (STT 전사 및 요약 생성 실패)"
+            head = "⚠️ 부분 적재 (STT 전사 및 초록 생성 실패)"
         elif is_stt_failed and is_detail_failed:
             head = "⚠️ 부분 적재 (STT 전사 및 본문 생성 실패)"
         elif is_summary_failed and is_detail_failed:
-            head = "⚠️ 부분 적재 (요약 및 본문 생성 실패)"
+            head = "⚠️ 부분 적재 (초록 및 본문 생성 실패)"
         elif is_stt_failed:
             head = "⚠️ 부분 적재 (STT 전사 실패)"
         elif is_summary_failed:
-            head = "⚠️ 부분 적재 (요약 생성 실패)"
+            head = "⚠️ 부분 적재 (초록 생성 실패)"
         elif is_detail_failed:
             head = "⚠️ 부분 적재 (본문 가독 상세 생성 실패)"
         elif self.pdf_parser_fallback:
@@ -271,10 +271,10 @@ class IngestReport:
             err_detail = f" (오류: {self.stt_error})" if self.stt_error else ""
             parts.append(f"🎙️ 오디오 STT 전사 실패: 음성 자막이 추출되지 못했습니다.{err_detail}")
         if is_summary_failed:
-            parts.append("📝 핵심 요약(summary)이 생성되지 못했습니다. 봇에서 요약 재생성을 요청할 수 있습니다.")
+            parts.append("📝 초록(summary)이 생성되지 못했습니다. 봇에서 초록 재생성을 요청할 수 있습니다.")
         if is_detail_failed:
             err_detail = f" (오류: {self.detail_error})" if self.detail_error else ""
-            parts.append(f"📄 본문 가독 상세(detail)가 생성되지 못했습니다 (요약 및 지식 그래프만 보존됨).{err_detail} 봇에서 재생성을 요청할 수 있습니다.")
+            parts.append(f"📄 본문 가독 상세(detail)가 생성되지 못했습니다 (초록 및 지식 그래프만 보존됨).{err_detail} 봇에서 재생성을 요청할 수 있습니다.")
         if self.presentation_pdfs:
             presentation_details = [f"{self.presentation_pdfs}개"]
             if self.presentation_pdf_chars:
@@ -316,7 +316,7 @@ class IngestReport:
         if self.partial and not is_stt_failed:
             parts.append("⚠️ 부분 처리(partial)")
         if not is_summary_failed:
-            parts.append(f"요약: {self.summary[:300]}")
+            parts.append(f"초록: {self.summary[:300]}")
         cross_note = f" (횡단 {self.cross_relations_added})" if self.cross_relations_added else ""
         parts.append(
             f"엔티티 신규 {self.entities_created} · 기존 {self.entities_linked} · "
@@ -1407,9 +1407,9 @@ def _extract_resolve_store_impl(
 
     if on_progress:
         pname = getattr(provider, "name", "?")
-        on_progress("LLM 요약 및 엔티티/관계 구조화 추출", f"provider={pname}, effort={eff}")
+        on_progress("LLM 초록 및 엔티티/관계 구조화 추출", f"provider={pname}, effort={eff}")
     eff_badge = f" ({eff})" if eff else ""
-    emit_progress(f"LLM 요약 및 엔티티/관계 구조화 추출{eff_badge}")
+    emit_progress(f"LLM 초록 및 엔티티/관계 구조화 추출{eff_badge}")
 
     extract_started = time.perf_counter()
     try:
@@ -1439,7 +1439,7 @@ def _extract_resolve_store_impl(
             sum_effort = _effective_provider_effort(provider, sum_spec[2] or eff, slot="summarize")
     if separate_summarize:
         if on_progress:
-            on_progress("LLM 요약 별도 생성", f"provider={sum_spec[0]}, model={sum_spec[1]}")
+            on_progress("LLM 초록 별도 생성", f"provider={sum_spec[0]}, model={sum_spec[1]}")
         sum_started = time.perf_counter()
         try:
             if _accepts_kwarg(provider.summarize_document, "effort"):
@@ -1462,7 +1462,7 @@ def _extract_resolve_store_impl(
     report.summary = result.summary
     if not (result.summary and result.summary.strip()):
         report.summary_rendered = False
-        report.summary_error = "요약 추출 실패 또는 빈 요약"
+        report.summary_error = "초록 추출 실패 또는 빈 초록"
     else:
         report.summary_rendered = True
 
@@ -1768,7 +1768,7 @@ def _extract_resolve_store_impl(
                     entity_b_observations=cand.observations[:5],
                     entity_b_aliases=cand.aliases[:5],
                     similarity_score=score,
-                    context=f"문서: {doc.title or doc.id}\n요약: {report.summary[:300]}",
+                    context=f"문서: {doc.title or doc.id}\n초록: {report.summary[:300]}",
                 )
                 ctx_mgr = bind_fn(lineage) if (has_provider_lineage and callable(bind_fn)) else contextlib.nullcontext()
                 with ctx_mgr:

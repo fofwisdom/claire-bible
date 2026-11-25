@@ -1118,14 +1118,14 @@ class IngestService:
                                 new_raw = _json.dumps(data, ensure_ascii=False)
                                 conn.execute("UPDATE extractions SET raw_response=? WHERE id=?", (new_raw, ext["id"]))
                                 conn.commit()
-                                step_cb("요약 정규화 및 저장 완료")
+                                step_cb("초록 정규화 및 저장 완료")
                                 out["filled"] += 1
                                 continue
                         out["already_had"] += 1
                         continue
 
                     # summary 가 없으면 LLM 추출 시도 (임의 조작 텍스트 금지)
-                    step_cb("요약 추출 및 보강 중")
+                    step_cb("초록 추출 및 보강 중")
                     summary = dbm.latest_extraction_summary(conn, did, kb_id=self.kb_id)
                     if not summary or not summary.strip():
                         if doc and self.provider and getattr(self.provider, "name", "") not in ("fallback", "mock"):

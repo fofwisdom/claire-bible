@@ -503,13 +503,13 @@ async def test_settle_status_behavior():
     await _settle_status(
         st_summ,
         FakeMsg(),
-        "⚠️ 부분 적재 (요약 생성 실패)\n타이틀: DocTitle",
+        "⚠️ 부분 적재 (초록 생성 실패)\n타이틀: DocTitle",
         [],
         is_summary_failed=True,
         retry_doc_id="doc_123",
     )
     assert st_summ.deleted is False
-    assert "요약 생성 실패" in st_summ.edited_text
+    assert "초록 생성 실패" in st_summ.edited_text
     assert st_summ.markup is not None
     assert st_summ.markup.inline_keyboard[0][0].callback_data == "rg:summ:doc_123"
 
@@ -518,7 +518,7 @@ async def test_settle_status_behavior():
     await _settle_status(
         st_both,
         FakeMsg(),
-        "⚠️ 부분 적재 (요약 및 본문 생성 실패)\n타이틀: DocTitle",
+        "⚠️ 부분 적재 (초록 및 본문 생성 실패)\n타이틀: DocTitle",
         [],
         is_summary_failed=True,
         is_detail_failed=True,
@@ -558,9 +558,9 @@ def test_ingest_report_telegram_summary_summary_failure():
         summary_error="LLM extraction returned empty summary",
     )
     summary = report.telegram_summary()
-    assert "⚠️ 부분 적재 (요약 생성 실패)" in summary
-    assert "핵심 요약(summary)이 생성되지 못했습니다" in summary
-    assert "봇에서 요약 재생성을 요청할 수 있습니다" in summary
+    assert "⚠️ 부분 적재 (초록 생성 실패)" in summary
+    assert "초록(summary)이 생성되지 못했습니다" in summary
+    assert "봇에서 초록 재생성을 요청할 수 있습니다" in summary
 
 
 async def test_settle_status_reader_button(tmp_path: Path, monkeypatch):

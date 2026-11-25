@@ -723,7 +723,7 @@ class ProviderManager:
                 "selectable": True,
                 "locked_reason": None,
                 "features": {"extract": False, "research": False, "embedding": False, "stt_vlm": False},
-                "advisory": "가상 테스트 프로바이더입니다. 실제 AI 추출·요약·임베딩을 수행하지 않습니다.",
+                "advisory": "가상 테스트 프로바이더입니다. 실제 AI 추출·초록·임베딩을 수행하지 않습니다.",
             },
         }
 

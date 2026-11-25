@@ -620,7 +620,7 @@ def synthesis_context(
                     continue
                 summ = dbm.latest_extraction_summary(conn, did, kb_id=kb_id)
                 if summ:
-                    parts.append(f"출처요약: {summ}")
+                    parts.append(f"출처 초록: {summ}")
         blocks.append("\n".join(parts))
     return "\n\n".join(blocks), names
 
