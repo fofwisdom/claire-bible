@@ -2233,10 +2233,10 @@ test.describe('node detail panel and node request order', () => {
     await expect(first.locator('.srcbody a')).toHaveCount(0);
     await expect(first.locator('.srcread')).toHaveAttribute('aria-label', '본문 보기');
 
-    // More than one row can be open. A document with no summary and no detail shows 요약 없음 and has no reader button.
+    // More than one row can be open. A document with no summary and no detail shows 초록 없음 and has no reader button.
     const second = srcRows.nth(1);
     await second.locator('.srctitle').click();
-    await expect(second.locator('.srcsum')).toHaveText('요약 없음');
+    await expect(second.locator('.srcsum')).toHaveText('초록 없음');
     await expect(second.locator('.srcread')).toHaveCount(0);
     await expect(second.locator('.srcbody .srcopen')).toHaveCount(0);
     await expect(panel.locator('.srcbody:visible')).toHaveCount(2);
@@ -2577,7 +2577,7 @@ test.describe('document context panel (HW-3)', () => {
     await expect(tabPanel).toHaveAttribute('aria-labelledby', 'ctx-tab-source');
     await expect(tabPanel).toContainText('원문');
     await expect(tabPanel).toContainText('모델 생성물');
-    await expect(tabPanel).toContainText('요약');
+    await expect(tabPanel).toContainText('초록');
     await expect(tabPanel).toContainText('있음');
 
     await page.keyboard.press('Home');
@@ -3368,7 +3368,7 @@ test.describe('command palette (HW-7)', () => {
     // Documents: the filter is below the list switch. "/" in the field is text, not the shortcut.
     const q = page.locator('#docs #q');
     await expect(q).toBeVisible();
-    await expect(q).toHaveAttribute('placeholder', /제목·요약/);
+    await expect(q).toHaveAttribute('placeholder', /제목·초록/);
     await q.fill('테스트 문서 1');
     await expect(page.locator('#doclist .docitem').first()).toContainText('테스트 문서 1');
     await q.press('/');
