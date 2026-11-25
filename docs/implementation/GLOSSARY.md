@@ -16,6 +16,7 @@
   │     ├── [초록 (Summary)] : 1~3문장 순수 평문 에그제큐티브 서머리 (검색·카드·호버용)
   │     │
   │     └── [상세 (Detail)] : 독자가 원문 없이도 맥락을 이해하도록 재구성한 다단락 가독 본문
+  │           └── [정리본 (Rendition)] : 정리본 템플릿(기본·간결·학술) 하나로 만든 상세 하나 (설계 확정, §1.13)
   │
   └── [온톨로지 (Ontology)]
         ├── [엔티티 (Entity)] / [노드 (Node)] : 개념, 인물, 기술 등의 지식 실체 및 그래프 정점
@@ -59,7 +60,8 @@
 1. **가독 상세 본문 (Rendered Detail / `documents.detail`)**:
    - **정의**: 사용자가 긴 원문을 직접 읽지 않아도 문서의 핵심 맥락, 배경, 세부 논리를 완전하게 파악할 수 있도록 LLM이 가독성 높게 문어체로 재구성한 본문.
    - **분량 및 형식**: 단순 요약이 아닌 여러 단락(A4 1~4장 분량)으로 구성되며, 마크다운(`md`) 또는 AsciiDoc(`adoc`) 포맷으로 영속화된다.
-   - **핵심 특징**: 원문에 포함된 비교표/벤치마크 테이블 보존, 핵심 용어 강조, 코드 블록 유지.
+   - **핵심 특징**: 지금의 본문 프롬프트(`render_detail_instructions_adoc`)는 원문에 포함된 비교표/벤치마크 테이블을 보존하고, 핵심 용어를 강조하고, 코드 블록을 유지한다. 이 문안은 정리본 템플릿 `academic`(학술)과 같다. 정리본 적재(설계 단계 E3)부터 대표 정리본(템플릿 `standard`, 기본)은 원문 표를 쓰지 않고 핵심 수치만 문장으로 쓰며, 원문 표는 학술 정리본이 보존한다(§1.13).
+   - **화면 이름**: 코드와 저장소에서 "상세"는 저장된 본문(`documents.detail`)의 이름이다. 정리본 적재(E3)부터 화면의 본문 절 이름은 "정리본"이다. 정리본 템플릿의 이름으로 "상세"는 쓰지 않는다: 본문 자체가 상세이기 때문이다(소유자 결정 2026-11-25).
    - **절단 섹션 작성 배제 원칙**: 원문이 수집 과정에서 절단된 경우, 잘려나간 불완전한 문단이나 조항에 대한 환각(Hallucination) 생성을 방지하기 위해 온전히 보존된 섹션까지만 상세 본문으로 작성한다.
 2. **사전 컴파일 상세 (Compiled Detail HTML / `documents.detail_html`)**:
    - **정의**: 클라이언트의 실시간 파싱 부하를 없애고 일관된 뷰를 즉각 렌더링하기 위해, `documents.detail` 텍스트를 AOT(Ahead-of-Time) 방식으로 사전 컴파일한 안전한 HTML 코드.
@@ -121,6 +123,40 @@
 - **서버 기본 언어**: 관리자가 `/admin/server`에서 고르는 언어 목록(`server_settings.default_languages`). 자기 목록이 없는 계정과 계정이 없는 작업이 쓴다. 고르지 않을 수 있다.
 - **쓰지 않는 이름**: "인터페이스 언어 설정"(계정 화면의 설정 이름으로), "프로젝트 광역 선호 언어". 로그인하지 않은 방문자의 화면 언어(`CLAIRE_LANG`)는 "방문자 화면 언어"라고 쓴다.
 
+### 1.13. 정리본 (Rendition)과 정리본 템플릿 (Rendition Template)
+- 설계: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) (소유자 결정 2026-11-25). **상태**: 정리본 템플릿의 문안만 구현되었다(`src/claire/extract/rendition_templates.py`, [EXTRACTION.md](EXTRACTION.md) §2.2). 나머지는 설계 확정이며 아직 구현되지 않았다. 아래 정의는 용어 계약이며 구현(E3 이후)은 이 이름을 쓴다.
+- **정리본 (Rendition)**: 문서의 가독 본문(상세) 하나를 정리본 템플릿 하나로 만든 것. 문서 하나는 템플릿마다 정리본을 하나까지, 모두 세 개까지 가진다. 같은 템플릿의 정리본을 다른 이용자, 다른 모델, 다른 서버가 따로 만들 수 있다. 초록, 엔티티, 관계는 문서에 속하고 정리본에 속하지 않는다.
+  - 쓰지 않는 이름: "에디션"(옛 설계 이름), "판", "버전", "리비전"(리비전은 시간에 따른 변경이고 정리본은 나란히 있는 본문이다).
+- **정리본 템플릿 (Rendition Template)**: 본문 프롬프트의 고정 지시문. 코드가 정하며 계정은 만들 수 없다. 템플릿마다 식별자와 버전이 있다.
+
+  | 식별자 | 이름 | 내용 |
+  | :--- | :--- | :--- |
+  | `standard` | **기본** | 지금의 본문 프롬프트에서 두 가지를 바꾼 것: 원문 표를 쓰지 않고 핵심 수치는 문장으로 쓴다, 수식은 대표 공식만 쓴다. 대표 정리본이 이 템플릿을 쓴다. |
+  | `concise` | **간결** | A4 1장 안팎의 짧은 본문. 섹션 순서는 핵심, 내용, 결과와 수치, 한계이다. 원문 표를 쓰지 않는다. |
+  | `academic` | **학술** | 지금의 본문 프롬프트와 같은 문안(표와 수식 모두). 소유자가 나중에 고친다. |
+
+  - 쓰지 않는 이름: 템플릿 이름으로 "상세"(본문 자체가 상세), "학문 특화"와 "수학 제외"(옛 이름), 단독 "프롬프트", "초점"(`focus`는 봉인된 데이터), 자리표시자 값 `default`(`prompt_template`).
+- **대표 정리본 (Primary Rendition)**: 문서의 기본(`standard`) 정리본. 적재할 때마다 만들어지고 바뀌지 않는다. 그 ActivityPub 객체는 문서 객체다: 다른 서버에서는 제목, 초록, 고유 주소 링크로 된 게시물로 보이고, 본문은 Claire 서버에만 있다.
+  - 쓰지 않는 이름: "기본 정리본"(기본은 템플릿 이름이다).
+- **출처 식별자 (Source Identifier)**: 문서 출처의 정규화된 식별자. DOI, arXiv 주소, 정규 URL의 순서로 정한다. URL 없는 파일은 출처 식별자가 없다.
+- **정리본 묶음 (Rendition Set)**: 같은 출처 식별자를 가진, 발행된 정리본 전체(이 서버와 다른 Claire 서버)와 읽는 이 자신의 정리본. 선택기는 묶음을 출처별(이 문서, 같은 출처 · 이 서버, 같은 출처 · 다른 서버)로 나누고, 그 안에서 기본, 간결, 학술 순서로, 같은 템플릿은 최신순으로 보인다.
+- **+1 (Plus One)**: Claire 서버의 계정이 정리본 하나에 주는 표시: "같은 출처의 정리본 가운데 이 정리본을 추천한다". Claire 서버끼리만 주고받는다(활동 `claire:PlusOne`). 한 계정은 정리본 하나에 한 번 주고, 자기 정리본에는 주지 못하며, 언제든 거둘 수 있다. 점수에서 한 서버의 +1은 1,000개까지만 센다(지금 한 서버 단위가 받을 수 있는 계정 수의 추정). +1은 정렬에 쓰지 않는다.
+  - 쓰지 않는 이름: 이 뜻으로 "좋아요", 별도 이름으로 "추천", "투표".
+- **좋아요 (Like)**: 게시물에 대한 ActivityPub `Like`. 원격 게시물, 자기 노트, 발행한 문서(그 객체는 대표 정리본의 객체)에 준다. 연합우주의 모든 서버가 보낼 수 있다. +1과 다르다.
+- **의견 (Opinion)**: 이 서버의 발행 객체에 달린 답글 글타래(답글의 답글 포함)에 있는, 모든 서버의 공개 게시물. 유효한 승인 증표가 있는 인용 게시물도 의견이다. 고유 주소 화면의 `의견` 탭이 보여 준다.
+  - 쓰지 않는 이름: "댓글"(페이지의 기능 이름), "스레드"(글타래를 쓴다).
+- **채우기 (Fill)**: 계정이 원격 액터를 팔로우한 뒤, 그 액터의 고정 글(`featured`)과 최근 글(`outbox` 첫 페이지)을 한 번 읽어 오는 것. 채운 글은 홈 흐름에 넣지 않고 그 액터의 보기에 "팔로우 전 글"로 보인다.
+  - 쓰지 않는 이름: 화면에서 "백필".
+- **출처 표기 (Citation)**: 문서나 정리본의 서지 참조. 기계가 읽는 `cite-as`와 citation 메타데이터이며, 화면의 복사 기능은 없다.
+  - 쓰지 않는 이름: 이 뜻으로 "인용"(인용은 FEP-044f의 인용 게시물이다).
+
+### 1.14. 발행 (Publication)과 게시 (Post)
+- 설계: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) §5.9. **상태**: 설계 확정, 미구현(단계 E0). 지금 화면의 단계 이름은 아직 "게시"이고, 계정 홈의 노트 대화상자는 "발행"을 쓴다.
+- **발행 (Publication / Publish)**: 공개 개인 지식 베이스의 문서를 팔로워에게 ActivityPub 객체로 내보내고, 그 정리본을 Claire 서버에 내주는 동작. 흐름 "교류 · 적재 · 발행"의 3단계다. 코드 식별자는 이미 `publish`다.
+  - 쓰지 않는 이름: 이 동작에 "게시".
+- **게시 (Post)**: 노트를 보내는 동작. 게시물(Post)은 타임라인 항목의 이름으로 남는다(§1.11). 영어 화면에서 노트를 보내는 동작은 "Post"다.
+  - 쓰지 않는 이름: 노트에 "발행".
+
 ## 2. 보안, 권한 및 인증 세션 용어 (Security & Auth)
 
 HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용어이다.
@@ -150,6 +186,10 @@ HTTP API 및 시스템 접근 제어에 적용되는 역할과 자격 증명 용
 | 핵심 압축 | **초록** | Summary | `ExtractionResult.summary` | `documents.summary` (plain text) |
 | 가독 본문 | **상세 (가독 본문)** | Rendered Detail | `render_detail`, `doc.detail` | `documents.detail` (AsciiDoc, [DOCUMENT_FORMAT.md](DOCUMENT_FORMAT.md)) |
 | 컴파일 본문 | **사전 컴파일 상세** | Compiled HTML | `detail_html` | `documents.detail_html` |
+| 템플릿 하나로 만든 본문 | **정리본** | Rendition | `RenditionTemplate`, `rendition_template()` (`src/claire/extract/rendition_templates.py`) | 설계 확정, 미구현: `document_renditions`, `claire:renditions` (§1.13) |
+| 본문 지시문 | **정리본 템플릿** | Rendition Template | `RENDITION_TEMPLATES`: `standard` 기본, `concise` 간결, `academic` 학술 | 설계: `claire:template`, `claire:templateVersion` |
+| 문서의 기본 정리본 | **대표 정리본** | Primary Rendition | — (설계) | 설계: `documents.detail*`가 그 본문, 문서 객체가 그 ActivityPub 객체 |
+| 정리본 추천 표시 | **+1** | Plus One | — (설계) | 설계: 활동 `claire:PlusOne`, `rendition_plus_ones`, `claire:plusOnes` |
 | 상세 패널 | **상세 뷰** | Detail View | `document_detail_route` | `GET /document?id=...` |
 | 기본 개요 | **홈 화면** | Home View | `renderHome()`, `enterHome()` | `body[data-center-view="home"]`, `#homewrap` |
 | 우측 문맥 | **문맥 패널** | Context Panel | `hasContext()`, `isContextOpen()`, `syncWorkspaceLayout()` | `aside#detailpane`, 선택이 있을 때만 열린다 (`body.ctx-closed`, `claireContextOpen`) |

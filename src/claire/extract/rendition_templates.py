@@ -3,7 +3,7 @@
 A rendition template is a fixed instruction set for the body prompt of a rendition (정리본). The code defines the set. An account cannot make a template.
 
 - ``standard`` (기본): a copy of the current body prompt without source tables and with the representative formulas only (owner decision O17, 2026-11-25). Not "상세", because the body itself is 상세. The 대표 정리본 of each document uses it.
-- ``concise`` (간결): a copy of the current body prompt, changed for a short body.
+- ``concise`` (간결): a copy of the current body prompt, changed for a short body without tables of the source (owner decision O18).
 - ``academic`` (학술): an exact copy of the current body prompt (owner decisions O2, O11, and O17, 2026-11-25). The owner changes its text later.
 
 No ingest path selects a template yet: until phase E3, the ingest uses the current prompt ``prompts.render_detail_instructions_adoc``, which has the text of ``academic``. Phase E3 connects this module to ``ensure_document_detail`` and to the task of the agent client. A change of the text of a template increments its version from its first use.
@@ -97,7 +97,7 @@ def _standard_instructions(*, images: list[dict] | None, merged: bool, scale: in
 
 
 def _concise_instructions(*, images: list[dict] | None, merged: bool, scale: int) -> str:
-    """The concise rendition: a copy of the standard instructions with a short scope, a fixed section order, and the common rules."""
+    """The concise rendition: a copy of the standard instructions with a short scope, a fixed section order, no tables of the source (owner decision O18), and the common rules."""
     if merged:
         length_hint = f"대략 A4 {scale}~{2 * scale}장 이내"
         merge_hint = (
@@ -145,9 +145,9 @@ def _concise_instructions(*, images: list[dict] | None, merged: bool, scale: int
         "   - 단순 비디오 채널/호스팅 플랫폼/업로더 계정명은 출처로 인용하지 않는다.\n"
         "6. 코드 및 설정: 핵심을 보여 주는 몇 줄만 `[source,언어]` 블록으로 남기고, 긴 코드는 그 동작을 한 문장으로 설명하라.\n"
         "7. 주석 블록: `[NOTE]`·`[IMPORTANT]` 블록은 쓰지 않는 것을 원칙으로 하고, 배경 전제나 필수 제약조건이 꼭 필요할 때만 한 곳 이내로 쓴다.\n"
-        "8. 표: 결론이나 비교 결과를 담은 표는 `|===` 테이블로 보존하고, 그 표의 데이터와 수치는 생략하거나 바꾸지 마라. "
-        "결론과 무관한 보조 표는 핵심 수치만 문장으로 옮겨도 된다. "
-        "테이블 내에 들어있는 미디어(이미지·아이콘·뱃지 등)는 제거·생략을 허용한다.\n"
+        "8. 원문 테이블 미사용: 원문의 표를 본문에 옮기지 마라. `|===` 테이블을 쓰지 않는다. "
+        "결론이나 비교 결과를 담은 표가 원문에 있으면, 결론에 필요한 핵심 수치만 골라 `== 결과와 수치` 섹션에 문장이나 `* ` 불릿으로 서술하라. "
+        "옮긴 수치는 반올림하거나 바꾸지 말고 단위와 조건을 함께 적어라.\n"
         "9. 가독성 및 강조: 중요한 용어는 `*굵게*` 표시하고, 꼭 기억해야 할 한 구절만 `#형광#`(#으로 감쌈)으로 강조하라.\n"
         "10. 고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라"
         '(음차/번역 금지: 예 "arXiv", "LLM agent").\n'

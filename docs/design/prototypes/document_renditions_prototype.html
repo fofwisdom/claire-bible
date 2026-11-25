@@ -314,7 +314,7 @@ const BODY_STANDARD = `
 const BODY_CONCISE = `
 <h2>핵심</h2><ul><li>Raft는 리더 선출, 로그 복제, 안전성을 분리한 합의 알고리즘이다.</li><li>과반의 표를 얻은 후보가 리더가 된다.</li><li>과반이 저장한 로그 항목은 커밋된다.</li></ul>
 <h2>내용</h2><p>팔로워는 무작위 선거 제한 시간 <span class="stem">T_e</span>가 지나면 후보가 되어 임기를 올리고 투표를 요청한다. 리더는 <code>AppendEntries</code>로 항목을 복제한다.</p>
-<h2>결과와 수치</h2><table><tr><th>구성</th><th>지연 중앙값</th><th>처리량</th></tr><tr><td>3대</td><td>4.1 ms</td><td>21k op/s</td></tr><tr><td>5대</td><td>5.3 ms</td><td>18k op/s</td></tr></table>
+<h2>결과와 수치</h2><ul><li>지연 중앙값: 3대 구성 4.1 ms, 5대 구성 5.3 ms.</li><li>처리량: 3대 구성 21k op/s, 5대 구성 18k op/s.</li></ul>
 <h2>한계</h2><p>긴 네트워크 분할에서 가용성이 떨어진다.</p>`;
 const REMOTE_BODY = `<!doctype html><meta charset="utf-8"><style>body{font:15px/1.7 system-ui,"Noto Sans KR",sans-serif;color:#1f2328;margin:16px 20px}h2{font-size:1.15em;border-bottom:1px solid #d0d7de}code{background:#eaeef2;padding:0 4px;border-radius:4px}</style>
 <h2>개요</h2><p>Raft는 이해 가능성을 설계 목표로 둔 합의 알고리즘이다. (다른 서버 lab.example의 이용자 @bob이 같은 출처를 기본 템플릿으로 적재한 정리본)</p>
@@ -330,7 +330,7 @@ const EDITIONS = [
 ];
 
 const OPINIONS = [
-  { id: "o1", name: "Lee Hana", handle: "@hana@mastodon.example", time: "2시간 전", text: "선거 제한 시간을 무작위로 두는 이유가 간결 정리본에서 더 잘 보이네요. 표 수치는 원 논문과 같습니다.", replies: [
+  { id: "o1", name: "Lee Hana", handle: "@hana@mastodon.example", time: "2시간 전", text: "선거 제한 시간을 무작위로 두는 이유가 간결 정리본에서 더 잘 보이네요. 수치는 원 논문과 같습니다.", replies: [
     { id: "o2", name: "mina", handle: "@mina (이 서버 · 문서 소유자)", local: true, time: "1시간 전", text: "맞습니다. 수치는 바꾸지 않는 것이 간결 템플릿의 규칙입니다.", replies: [
       { id: "o3", name: "Bob", handle: "@bob@lab.example", time: "48분 전", text: "lab.example에 같은 출처의 기본 정리본이 있습니다: https://lab.example/silvercord/abcd", isNew: true, replies: [
         { id: "o4", name: "Sora", handle: "@sora@notes.example", time: "30분 전", text: "분할 상황의 가용성 부분은 두 정리본 모두 원문 표현을 따릅니다.", replies: [
@@ -434,7 +434,7 @@ function renderEdition() {
     + `<code>${e.version}</code><span>${e.who}${e.server ? "@" + e.server : ""}</span><span>${e.updated} 갱신</span>`
     + (e.primary ? `<span class="pill">대표 정리본 · 문서 객체</span>` : "")
     + (e.remote ? `<span class="pill pill-remote">${icon("remote")} 다른 서버</span>` : `<span class="pill">이 서버</span>`)
-    + (e.template === "academic" ? `<span class="pill">표 · 수식 모두</span>` : "") + (e.template === "standard" ? `<span class="pill">원문 표 없음 · 대표 공식만</span>` : "");
+    + (e.template === "academic" ? `<span class="pill">표 · 수식 모두</span>` : "") + (e.template === "standard" ? `<span class="pill">원문 표 없음 · 대표 공식만</span>` : "") + (e.template === "concise" ? `<span class="pill">원문 표 없음</span>` : "");
   const banner = $("[data-remote-banner]");
   const reader = $("#reader");
   scopedTransition(reader, () => {

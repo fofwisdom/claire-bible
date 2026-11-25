@@ -1,7 +1,7 @@
 # Renditions of Published Documents, +1 Between Claire Servers, Opinions from Other Servers, and ActivityPub Publication (`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN`)
 
 - **Document Identifier**: `DESIGN-DOC-RENDITIONS-20261125`
-- **Status**: Proposal, revision 9. Implemented: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7, O9 to O17, and O19 are given (Section 11); O18 is open. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
+- **Status**: Proposal, revision 10. Implemented: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O19 are given (Section 11); O20 is open. The glossary has the terms of Section 4 since Rev. 10 ([`GLOSSARY.md`](../implementation/GLOSSARY.md) Sections 1.4, 1.13, 1.14), with their state. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
 - **Date**: 2026-11-25
 - **Base commit**: `8e6b0723`
 - **Visual prototype**: [`prototypes/document_renditions_prototype.html`](prototypes/document_renditions_prototype.html) (Silvercord view: rendition picker, +1, remote rendition, `의견` tab with likes, mobile; mock data)
@@ -15,6 +15,7 @@
   - Rev. 7 (2026-11-25): the template "상세" became "기본" with the identifier `standard` (O14: the body itself is 상세). The rendition of the first ingest is now 대표 정리본, so that "기본" names only the template.
   - Rev. 8 (2026-11-25): the picker does not order by +1; it orders by template (기본, 간결, 학술) (O16). The limit of one server in the +1 score is the estimated number of accounts that one Claire server can serve now: 1,000 (O15, Section 5.12 rule 9). 대표 정리본 accepted (O14). Review of the template model for the owner (Section 5.2 rules 8 and 9).
   - Rev. 9 (2026-11-25): the 대표 정리본 is always the rendition of the template 기본 (owner: "대표 정리본은 간결 정리본일 수 없습니다"); each ingest makes it. O17: 학술 stays an exact copy of the current prompt, and the template 기본 changes: no tables of the source, representative formulas only. Open: O18 (tables in 간결).
+  - Rev. 10 (2026-11-25): owner confirmed the explanation of Rev. 9 and asked for the glossary revision: GLOSSARY 1.4 (상세, tables), 1.13 (정리본 terms), 1.14 (발행, 게시). O18: `concise` uses no tables of the source (implemented in the template module). Open: O20 (formulas in 간결).
 - **Related**: [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD10, RD21), [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) (vocabulary, known servers, inbox journal), [`PERMALINK_UNIFICATION_DESIGN.md`](PERMALINK_UNIFICATION_DESIGN.md), [`SILVERCORD_RENDERING_DESIGN.md`](SILVERCORD_RENDERING_DESIGN.md) (the `의견` tab, SR5, SD8), [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (reputation, CT18), [`FEDERATION.md`](../implementation/FEDERATION.md), [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md), [`PERMALINKS.md`](../implementation/PERMALINKS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`GLOSSARY.md`](../implementation/GLOSSARY.md)
 
 ## 1. Owner request (2026-11-25)
@@ -81,6 +82,11 @@ Owner answers to revision 8 (2026-11-25):
 > 3. 그렇군요.
 >
 > O17: 학술 템플릿은 그대로 두고, 기본 템플릿을 고칩니다. '원문 테이블 미사용', '수식은 대표 공식만 사용'.
+
+Owner answers to revision 9 (2026-11-25):
+
+> * 예. 설명이 맞습니다. 용어집 개편하세요.
+> * O18: 권장안
 
 Questions and the answers of this design:
 
@@ -187,7 +193,7 @@ The texts are in `src/claire/extract/rendition_templates.py` (owner decisions O2
 | Identifier | Korean name | Version | Text |
 | :--- | :--- | :--- | :--- |
 | `standard` | 기본 | `standard-v1` | A copy of the current prompt with two changes (O17): rule 7 "원문 테이블 미사용" (no `\|===` table; the key numbers of a source table go into sentences or bullets, with units and conditions, not rounded); rule 10 "수식은 대표 공식만" (only the formulas that define the main result or method, usually 1 to 3, as block formulas; derivations and other symbols in words). The other rules stay. Not "상세": the body itself is 상세 (O14). |
-| `concise` | 간결 | `concise-v1` | A copy of the current prompt, written again for a short body: about one A4 page (merged: `scale` to `2 × scale` pages); the section order `== 핵심` (3 to 5 one-sentence claims), `== 내용`, `== 결과와 수치`, `== 한계`, each only when the source has it; less background, repetition, and examples; numbers, conditions, definitions, and names stay exactly; at most one `[quote]`, one note block, two figures; tables that carry a result stay; no text that the source does not have, also to fill space. The common rules stay: AsciiDoc only, written style, quote rules, names in their original form, formulas, truncated sections, no author line. |
+| `concise` | 간결 | `concise-v1` | A copy of the current prompt, written again for a short body: about one A4 page (merged: `scale` to `2 × scale` pages); the section order `== 핵심` (3 to 5 one-sentence claims), `== 내용`, `== 결과와 수치`, `== 한계`, each only when the source has it; less background, repetition, and examples; numbers, conditions, definitions, and names stay exactly; at most one `[quote]`, one note block, two figures; no tables of the source: the key numbers of a result table go into `== 결과와 수치` as sentences or bullets, with units and conditions (O18); no text that the source does not have, also to fill space. The common rules stay: AsciiDoc only, written style, quote rules, names in their original form, formulas, truncated sections, no author line. |
 | `academic` | 학술 | `academic-v1` | An exact copy of the current prompt, with all tables and all formulas (O17: it stays). The owner changes it later. |
 
 Rules:
@@ -201,8 +207,9 @@ Rules:
 7. The body of `standard` and `academic` often starts with `== 개요`, because rule 14 of the current prompt names it as an example. That heading is a part of the body, not the 초록 (Rev. 5 question).
 8. **Template, document, and set** (review for O16). A template tells how the body is written; it does not tell who wrote it or where. One document (one account, one source) has at most one rendition for each template, thus at most three. A rendition set (all accounts and servers with the same source) can have many renditions of the same template. A user of another server or another model can make a rendition with the same template (the owner's reading, Rev. 8). Since Rev. 9 the 대표 정리본 is always the rendition of the template 기본.
 9. **No two templates with the same text** (O17). The owner kept `academic` and changed `standard`, so the three texts differ, and the ingest form offers all three. The test `tests/test_rendition_templates.py` checks that no two templates build the same instructions.
-10. **The current ingest until E3.** No ingest path uses the templates yet. The ingest uses the current prompt `render_detail_instructions_adoc`, which has the text of `academic`, so bodies keep their tables and formulas until phase E3. From E3, each ingest makes the 대표 정리본 with `standard` (no tables of the source). The table data stays in the raw text and in the graph; the rendition `academic` keeps the tables. At E3, the statements about tables in the body (GLOSSARY 1.4, "원문에 포함된 비교표/벤치마크 테이블 보존") change to "in the template `academic`".
-11. **Tables in 간결** (open, O18). Now `concise` keeps a table that carries a result (its rule 8), but `standard` has no tables. Thus the short rendition can have tables that the standard one does not have. Recommendation: `concise` also uses no tables of the source and gives the key numbers in sentences, as `standard` does.
+10. **The current ingest until E3.** No ingest path uses the templates yet. The ingest uses the current prompt `render_detail_instructions_adoc`, which has the text of `academic`, so bodies keep their tables and formulas until phase E3. From E3, each ingest makes the 대표 정리본 with `standard` (no tables of the source). The table data stays in the raw text and in the graph; the rendition `academic` keeps the tables. GLOSSARY 1.4 says this since Rev. 10.
+11. **Tables in 간결** (O18). `concise` uses no tables of the source, as `standard` (owner: "권장안"). Only `academic` keeps the tables.
+12. **Formulas in 간결** (open, O20). `concise` still keeps all formulas of the source (its rule 11, from the copy of the current prompt), but `standard` keeps only the representative formulas. Thus the short rendition can have more formulas than the standard one, as it had more tables before O18. Recommendation: `concise` also keeps only the representative formulas.
 
 ### 5.3 ED3: Creation of renditions and the source identifier
 
@@ -640,6 +647,7 @@ Tests (global rules: unit tests only for module interfaces, input and output, an
 | O15 | Limit of one server in the +1 score | The number of accounts that one Claire server can serve now, estimated by the agent: 1,000 (Section 5.12 rule 9). |
 | O16 | Order of the picker | Not by score. By template: 기본, 간결, 학술 (Section 5.10 rule 10). |
 | O17 | 학술 and 기본 with the same text | 학술 stays an exact copy of the current prompt. 기본 changes: "원문 테이블 미사용", "수식은 대표 공식만 사용" (Section 5.2). Implemented in the template module. |
+| O18 | Tables in the template 간결 | No tables of the source, as in 기본 (Section 5.2 rule 11). Implemented in the template module. |
 | O19 | Which rendition is the 대표 정리본 | Always the rendition 기본 (owner: "대표 정리본은 간결 정리본일 수 없습니다"). |
 
 Open:
@@ -647,7 +655,7 @@ Open:
 | # | Question | State |
 | :--- | :--- | :--- |
 | O8 | Reputation of a publisher | **On hold** (2026-11-25). The score between renditions is +1 (Section 5.12). Likes and +1 do not feed the reputation of an account until a decision. |
-| O18 | Tables in the template 간결 | Recommendation: no tables of the source, as in 기본 (Section 5.2 rule 11). |
+| O20 | Formulas in the template 간결 | Recommendation: only the representative formulas, as in 기본 (Section 5.2 rule 12). |
 
 ---
 
