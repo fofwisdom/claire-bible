@@ -72,13 +72,14 @@ def test_syndication_e2e_workflow(syndication_e2e_env) -> None:
         r_prefs_anon = client.get("/syndication/preferences", follow_redirects=False)
         assert r_prefs_anon.status_code in (401, 403, 404)
         assert "location" not in r_prefs_anon.headers
-        r_prefs = client.get("/syndication/preferences?tab=accounts", headers=owner, follow_redirects=False)
+        r_prefs = client.get("/syndication/preferences?tab=feeds", headers=owner, follow_redirects=False)
         assert r_prefs.status_code == 302
-        assert r_prefs.headers["location"] == "/settings/connections"
+        assert r_prefs.headers["location"] == "/settings/feeds"
         r_console = client.get(r_prefs.headers["location"], headers=owner)
         assert r_console.status_code == 200
-        assert "Connected server accounts" in r_console.text
-        assert 'href="/syndication' in r_console.text
+        assert 'id="pref-feeds-tbody"' in r_console.text
+        # The tab of the retired connected-account model has no target now.
+        assert client.get("/syndication/preferences?tab=accounts", headers=owner, follow_redirects=False).status_code == 404
 
         r_robots = client.get("/robots.txt")
         assert r_robots.status_code == 200

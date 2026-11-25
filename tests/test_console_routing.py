@@ -53,11 +53,9 @@ ALL_SETTINGS_SECTION_PATHS: tuple[str, ...] = (
     "/account/providers",
     "/settings/kb",
     "/settings/reader",
-    "/settings/connections",
     "/settings/feeds",
     "/settings/tags",
     "/settings/rules",
-    "/settings/outbound",
     "/settings/opml",
     "/account/mcp",
     "/account/webmcp",
@@ -302,7 +300,7 @@ def test_sidebar_groups_put_the_account_pages_before_the_knowledge_base_pages(co
     assert groups["workspace"] == ["/account/profile", "/account/security", "/account/invites", "/account/federation", "/account/telegram", "/account/notifications", "/account/backups"]
     assert groups["support"] == ["/support/bundles", "/support/pipeline"]
     assert groups["ai"] == ["/account/providers", "/account/mcp", "/account/webmcp"]
-    assert groups["kb"] == ["/settings/kb"] and groups["syndication"][0] == "/settings/reader" and len(groups["syndication"]) == 7
+    assert groups["kb"] == ["/settings/kb"] and groups["syndication"][0] == "/settings/reader" and len(groups["syndication"]) == 5
     assert 'data-active-area="account"' in html and 'data-nav-section="providers" aria-current="page"' in html
 
 

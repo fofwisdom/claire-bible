@@ -115,7 +115,7 @@
 | `GET` | `/settings/themes` | `owner` | 호환 308: 관리자는 `/moderation/themes` (검증한 `?kb=` 유지), 그 외 owner 계정은 `/settings/kb` | 404 owner 아님, 404 잘못된 `?kb=` |
 | `GET` | `/settings/kb/manage` | `owner` | 호환 308 → `/moderation/kb` (검증한 `?kb=` 유지) | 404 owner 아님, 404 잘못된 `?kb=` |
 | `GET` | `/settings/kb/{kb_number}` | `owner` | 호환 308 → `/moderation/kb/{kb_number}` (검증한 `?kb=` 유지) | 404 owner 아님, 404 개인 KB·없는 번호·잘못된 `?kb=` |
-| `GET` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?kb=` |
+| `GET` | `/settings/{reader,feeds,tags,rules,opml}` | `owner` | 200 HTML (테마별 섹션) | 404 owner 아님, 404 잘못된 `?kb=` |
 | `GET` | `/syndication/preferences` | `owner` (`_system`) | 302 `/settings/*`·`/account/{mcp,webmcp}` 또는 관리자의 `idp`·`userdb` 탭은 `/admin/idp`·`/admin/accounts` (ACCOUNTS.md §5.10 표) | 404 owner 아님, 404 잘못된 `?kb=`, 404 빈·모르는 `?tab=` |
 
 - **[코드]** `?kb=`는 호출자 계정의 테마여야 한다. 빈 값, 없는 테마, 다른 계정의 테마는 404이고 기본 테마로 바꾸지 않는다(C1).

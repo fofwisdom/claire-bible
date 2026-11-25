@@ -38,11 +38,9 @@ def _section_path(slug: str) -> str:
 
 SECTION_PANEL_IDS: dict[str, str] = {
     "reader": "panel-reader",
-    "connections": "panel-accounts",
     "feeds": "panel-feeds",
     "tags": "panel-tags",
     "rules": "panel-rules",
-    "outbound": "panel-outbound",
     "opml": "panel-opml",
     "mcp": "panel-mcp",
     "webmcp": "panel-webmcp",
@@ -179,20 +177,13 @@ def test_ported_panels_preserve_control_ids_and_capability_metadata(env):
         assert f'id="{control}"' in reader, control
     assert '<option value="list">List — one line for each row</option>' in reader
 
-    connections = get("connections")
-    assert "Baseline of the ActivityPub client functions: Mastodon 5.0 or later." in connections
-    assert "Client functions of the Mastodon 5.0 baseline" in connections
-    assert 'id="pref-accounts-tbody"' in connections
-    assert f'href="/syndication?tab=client&amp;kb={env.alice_def.number}"' in connections
-    assert f"/@{MEMBER_USERNAME}/syndication" not in connections
+    # The sections of the retired connected-account model are gone (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.9).
+    for retired in ("connections", "outbound"):
+        assert env.client.get(f"/settings/{retired}", headers=env.alice_owner, follow_redirects=False).status_code == 404, retired
 
     feeds = get("feeds")
     for control in ("pref-feeds-tbody", "pref-add-feed-form", "new-feed-proto", "new-feed-via", "new-feed-interval"):
         assert f'id="{control}"' in feeds, control
-
-    outbound = get("outbound")
-    for control in ("pref-peer-listed", "pref-peer-quote", "pref-peer-import", "pref-peer-license", "pref-rss-pubmode", "pref-quote-template"):
-        assert f'id="{control}"' in outbound, control
 
     mcp = get("mcp")
     for control in ("pref-mcp-endpoint", "pref-mcp-theme-example", "pref-mcp-snippet-cli", "pref-mcp-snippet-json", "pref-mcp-tools-tbody", "pref-mcp-proposed-tbody", "pref-mcp-write", "pref-mcp-toolslist"):
@@ -249,9 +240,8 @@ def test_single_mode_never_emits_admin_username_on_group_2_3_sections(env):
         assert SECRET_ADMIN_USERNAME not in resp.text, slug
         assert "/@" not in resp.text, slug
         assert all(SECRET_ADMIN_USERNAME not in v for v in resp.headers.values()), slug
-    connections = env.client.get("/settings/connections", headers=env.admin_owner).text
-    admin_ref = _bootstrap(connections)["syndication"]["theme_ref"]
-    assert f'href="/syndication?tab=client&amp;kb={admin_ref}"' in connections
+    feeds = env.client.get("/settings/feeds", headers=env.admin_owner).text
+    assert _bootstrap(feeds)["syndication"]["theme_ref"]
 
 
 def test_build_syndication_section_interface(env, tmp_path: Path):

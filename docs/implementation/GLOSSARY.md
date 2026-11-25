@@ -152,7 +152,7 @@
   - 쓰지 않는 이름: 이 뜻으로 "인용"(인용은 FEP-044f의 인용 게시물이다).
 
 ### 1.14. 발행 (Publication)과 게시 (Post)
-- 설계: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) §5.9. **상태**: 설계 확정, 미구현(단계 E0). 지금 화면의 단계 이름은 아직 "게시"이고, 계정 홈의 노트 대화상자는 "발행"을 쓴다.
+- 설계: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) §5.9. **상태**: 구현됨(단계 E0, 2026-11-26): 카탈로그 값과 노트 대화상자의 키(`home.note_dlg.post*`).
 - **발행 (Publication / Publish)**: 공개 개인 지식 베이스의 문서를 팔로워에게 ActivityPub 객체로 내보내고, 그 정리본을 Claire 서버에 내주는 동작. 흐름 "교류 · 적재 · 발행"의 3단계다. 코드 식별자는 이미 `publish`다.
   - 쓰지 않는 이름: 이 동작에 "게시".
 - **게시 (Post)**: 노트를 보내는 동작. 게시물(Post)은 타임라인 항목의 이름으로 남는다(§1.11). 영어 화면에서 노트를 보내는 동작은 "Post"다.

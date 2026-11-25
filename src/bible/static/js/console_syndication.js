@@ -1,4 +1,4 @@
-/* Claire Settings Console controller for /settings/{reader,connections,feeds,tags,rules,outbound,opml} and /account/{mcp,webmcp}.
+/* Claire Settings Console controller for /settings/{reader,feeds,tags,rules,opml} and /account/{mcp,webmcp}.
  *
  * Ported from the legacy syndication_preferences.html panels (design P3-b). Each page holds one panel.
  * State is isolated per account and per theme: localStorage key "claire_synd_prefs_v2:<claire-storage-key>:t<theme ref>".
@@ -104,11 +104,10 @@
       includeCanonicalShareLink: true,
       quoteTemplate: "📌 {{title}} — {{url}} {{hashtags}}"
     },
-    peerSharePolicy: { listed: true, allowQuote: true, allowImport: true, license: "" },
     mcpPolicy: { writeScope: "none", proposedTools: {} },
     webmcpPolicy: { enabled: true, registration: "imperative", confirm: "write", showAgentActivity: true }
   };
-  var NESTED = ["tagPolicy", "outboundPolicy", "peerSharePolicy", "mcpPolicy", "webmcpPolicy"];
+  var NESTED = ["tagPolicy", "outboundPolicy", "mcpPolicy", "webmcpPolicy"];
 
   function mergePrefs(parsed) {
     var merged = Object.assign(clone(DEFAULT_PREFS), parsed || {});
@@ -285,39 +284,6 @@
     onChange("pref-auto-read", function (el) { prefs.autoMarkReadOnOpen = el.checked; savePrefs(); });
   }
 
-  /* ── connections (#panel-accounts) ──────────────────────────────────────────────── */
-
-  function renderAccounts() {
-    var accounts = getThemeAccounts();
-    byId("pref-accounts-tbody").innerHTML = accounts.length ? accounts.map(function (a) {
-      var missing = a.missingFeatures || [];
-      return "<tr>"
-        + '<td><span class="pref-pill ' + protoPillClass(a.proto) + '">' + protoLabel(a.proto) + "</span></td>"
-        + "<td><strong>" + escapeHtml(a.server) + '</strong><br/><span style="color:var(--muted);font-size:11.5px">' + escapeHtml(a.software) + (a.serverVersion ? " " + escapeHtml(a.serverVersion) : "") + "</span>"
-        + (missing.length ? '<br/><span style="color:#9a6700;font-size:11px" title="' + escapeHtml(missing.join(", ")) + '">기준 기능 ' + missing.length + "개 미제공 → 비활성</span>" : "") + "</td>"
-        + '<td><code class="pref-mono">' + escapeHtml(a.handle) + "</code></td>"
-        + "<td>" + escapeHtml(a.auth) + "</td>"
-        + '<td><code class="pref-mono" style="white-space:normal">' + escapeHtml(a.scopes.join(" ")) + "</code></td>"
-        + "<td>" + (a.canPublish ? '<span style="color:var(--accent2);font-weight:700">● 허용</span>' : '<span style="color:var(--muted)">읽기 전용</span>') + "</td>"
-        + "<td>" + (a.removable
-          ? '<button type="button" class="pref-btn" data-remove-account="' + escapeHtml(a.id) + '" title="' + (a.proto === "ap" ? "POST /oauth/revoke 로 토큰 폐기 후 연결 해제" : "AT 세션·토큰 폐기 후 연결 해제") + '">연결 해제</button>'
-          : '<span style="color:var(--muted);font-size:11.5px">프로토타입 시드</span>') + "</td>"
-        + "</tr>";
-    }).join("") : '<tr><td colspan="7" style="color:var(--muted)">이 테마에 연결된 서버 계정이 없습니다.</td></tr>';
-  }
-
-  function initConnections() {
-    renderAccounts();
-    byId("panel-accounts").addEventListener("click", function (e) {
-      var btn = e.target.closest("[data-remove-account]");
-      if (!btn) return;
-      var id = btn.getAttribute("data-remove-account");
-      custom.extraAccounts = (custom.extraAccounts || []).filter(function (a) { return a.id !== id; });
-      if (persist()) showToast("연결 계정을 해제했습니다 (서버 토큰 폐기 시뮬레이션)");
-      renderAccounts();
-    });
-  }
-
   /* ── feeds ──────────────────────────────────────────────────────────────────────── */
 
   function refreshViaSelect() {
@@ -431,39 +397,6 @@
       if (persist()) showToast("오거나이즈 규칙 상태가 저장되었습니다");
       renderRules();
     });
-  }
-
-  /* ── outbound (incl. peerSharePolicy) ───────────────────────────────────────────── */
-
-  function renderOutbound() {
-    byId("pref-rss-pubmode").value = prefs.outboundPolicy.rssDefaultMode;
-    byId("pref-ap-pubmode").value = prefs.outboundPolicy.apDefaultMode;
-    byId("pref-at-pubmode").value = prefs.outboundPolicy.atDefaultMode;
-    byId("pref-include-sharelink").checked = !!prefs.outboundPolicy.includeCanonicalShareLink;
-    byId("pref-quote-template").value = prefs.outboundPolicy.quoteTemplate;
-    byId("pref-peer-listed").checked = !!prefs.peerSharePolicy.listed;
-    byId("pref-peer-quote").checked = !!prefs.peerSharePolicy.allowQuote;
-    byId("pref-peer-import").checked = !!prefs.peerSharePolicy.allowImport;
-    byId("pref-peer-license").value = prefs.peerSharePolicy.license || "";
-    ["pref-peer-quote", "pref-peer-import", "pref-peer-license"].forEach(function (id) { byId(id).disabled = !prefs.peerSharePolicy.listed; });
-    var pub = getThemeAccounts().filter(function (a) { return a.canPublish; });
-    byId("pref-actor-handle").textContent = pub.length ? pub.map(function (a) { return a.handle; }).join("\n") : "(발행 가능 계정 없음)";
-    byId("pref-actor-desc").textContent = pub.length
-      ? "아래 연결 계정의 서버 API 로 부스트·인용 발행 및 적재 본문 발행이 수행됩니다."
-      : "발행 권한이 있는 연결 계정이 없습니다. 수집 및 내부 적재만 허용되며 외부 발행은 차단됩니다.";
-  }
-
-  function initOutbound() {
-    renderOutbound();
-    onChange("pref-rss-pubmode", function (el) { prefs.outboundPolicy.rssDefaultMode = el.value; savePrefs(); });
-    onChange("pref-ap-pubmode", function (el) { prefs.outboundPolicy.apDefaultMode = el.value; savePrefs(); });
-    onChange("pref-at-pubmode", function (el) { prefs.outboundPolicy.atDefaultMode = el.value; savePrefs(); });
-    onChange("pref-include-sharelink", function (el) { prefs.outboundPolicy.includeCanonicalShareLink = el.checked; savePrefs(); });
-    onChange("pref-quote-template", function (el) { prefs.outboundPolicy.quoteTemplate = el.value; savePrefs(); });
-    [["pref-peer-listed", "listed"], ["pref-peer-quote", "allowQuote"], ["pref-peer-import", "allowImport"]].forEach(function (pair) {
-      onChange(pair[0], function (el) { prefs.peerSharePolicy[pair[1]] = el.checked; savePrefs(); renderOutbound(); });
-    });
-    onChange("pref-peer-license", function (el) { prefs.peerSharePolicy.license = el.value; savePrefs(); });
   }
 
   /* ── opml ───────────────────────────────────────────────────────────────────────── */
@@ -961,11 +894,9 @@
 
   var INIT = {
     reader: initReader,
-    connections: initConnections,
     feeds: initFeeds,
     tags: initTags,
     rules: initRules,
-    outbound: initOutbound,
     opml: initOpml,
     mcp: initMcp,
     webmcp: initWebMcp

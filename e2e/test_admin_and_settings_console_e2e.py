@@ -47,7 +47,7 @@ MODERATION_ADMIN_SECTIONS: tuple[tuple[str, str], ...] = (("kb", "/moderation/ov
 # The owner sections as (slug, path): the account pages are in /account/*, the knowledge base pages are in /settings/*.
 OWNER_SECTIONS: tuple[tuple[str, str], ...] = (
     *((slug, f"/account/{slug}") for slug in ("profile", "security", "invites", "federation", "providers", "mcp", "webmcp")),
-    *((slug, f"/settings/{slug}") for slug in ("kb", "reader", "connections", "feeds", "tags", "rules", "outbound", "opml")),
+    *((slug, f"/settings/{slug}") for slug in ("kb", "reader", "feeds", "tags", "rules", "opml")),
 )
 MEMBER_OWNER_SECTIONS: tuple[tuple[str, str], ...] = OWNER_SECTIONS
 ADMIN_PROBE_PATHS: tuple[str, ...] = ("/admin", *(f"/admin/{slug}" for slug in ADMIN_SECTIONS), "/admin/tokens", "/admin/kb", "/admin/themes", "/moderation/oversight", "/moderation/themes", "/api/admin/mcp/telemetry")
@@ -510,11 +510,9 @@ def test_legacy_syndication_preferences_redirects_for_admin(console_e2e, mode: s
     expected = {
         "": "/settings/reader",
         "?tab=reader": "/settings/reader",
-        "?tab=accounts": "/settings/connections",
         "?tab=feeds": "/settings/feeds",
         "?tab=tags": "/settings/tags",
         "?tab=rules": "/settings/rules",
-        "?tab=outbound": "/settings/outbound",
         "?tab=opml": "/settings/opml",
         "?tab=mcp": "/account/mcp",
         "?tab=webmcp": "/account/webmcp",

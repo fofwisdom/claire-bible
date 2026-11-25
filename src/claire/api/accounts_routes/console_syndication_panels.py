@@ -28,11 +28,11 @@ DEFAULT_AGENT_MARKETPLACE_REPO = "fofwisdom/claire-agents"
 _MARKETPLACE_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 SYNDICATION_SECTION_SLUGS: frozenset[str] = frozenset(
-    {"reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp"}
+    {"reader", "feeds", "tags", "rules", "opml", "mcp", "webmcp"}
 )
 
 # 사이드바 링크 순서와 같다. JS가 테마 선택을 바꿀 때 이 슬러그의 링크(``data-nav-section``)에만 ``?kb=``를 갱신한다.
-THEME_SCOPED_NAV_SLUGS: tuple[str, ...] = ("reader", "connections", "feeds", "tags", "rules", "outbound", "opml", "mcp", "webmcp")
+THEME_SCOPED_NAV_SLUGS: tuple[str, ...] = ("reader", "feeds", "tags", "rules", "opml", "mcp", "webmcp")
 
 PARTIALS_DIR = TEMPLATES_DIR / "partials" / "settings_syndication"
 CONSOLE_SYNDICATION_SCRIPT_HTML = '<script src="/static/js/console_syndication.js" defer></script>'

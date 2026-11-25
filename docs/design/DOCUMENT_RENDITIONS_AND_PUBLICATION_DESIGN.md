@@ -1,7 +1,7 @@
 # Renditions of Published Documents, +1 Between Claire Servers, Opinions from Other Servers, and ActivityPub Publication (`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN`)
 
 - **Document Identifier**: `DESIGN-DOC-RENDITIONS-20261125`
-- **Status**: Proposal, revision 11. Implemented: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O20 are given (Section 11). The glossary has the terms of Section 4 since Rev. 10 ([`GLOSSARY.md`](../implementation/GLOSSARY.md) Sections 1.4, 1.13, 1.14), with their state. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
+- **Status**: Proposal, revision 11. Phases done: E0. Implemented before the phases: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O20 are given (Section 11). The glossary has the terms of Section 4 since Rev. 10 ([`GLOSSARY.md`](../implementation/GLOSSARY.md) Sections 1.4, 1.13, 1.14), with their state. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
 - **Date**: 2026-11-25
 - **Base commit**: `8e6b0723`
 - **Visual prototype**: [`prototypes/document_renditions_prototype.html`](prototypes/document_renditions_prototype.html) (Silvercord view: rendition picker, +1, remote rendition, `의견` tab with likes, mobile; mock data)
@@ -599,7 +599,7 @@ Intent: an account that follows a remote actor sees some posts of that actor at 
 
 | Phase | Content | Depends on | Size |
 | :--- | :--- | :--- | :--- |
-| E0 | Terms (Section 5.9): catalog values and keys, removal of the retired sections, glossary, design documents. | — | S |
+| E0 | **Done (2026-11-26).** Terms (Section 5.9): catalog values and keys, removal of the retired sections, glossary, design documents. | — | S |
 | E1 | Quotes always permitted for documents (Section 5.7, quotes 1 to 4) and the migration. | — | S |
 | E2 | Citation metadata, `fediverse:creator`, `attributionDomains` (Section 5.7, citation). | — | S |
 | E3 | Templates and local renditions: ingest selection, "정리본 추가", `document_renditions`, the placeholder `prompt_template` (Section 5.2 rule 6), rendition sub-paths, the section "정리본", and the picker of local renditions (Sections 5.1 to 5.3, 5.8, 5.10). The template texts exist. | — | M |

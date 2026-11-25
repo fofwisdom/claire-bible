@@ -506,7 +506,7 @@
         };
         if (cwEl && cwEl.value.trim()) payload.summary = cwEl.value.trim();
         if (submitBtn) submitBtn.disabled = true;
-        if (msgEl) msgEl.textContent = tr("home.note_dlg.publishing");
+        if (msgEl) msgEl.textContent = tr("home.note_dlg.posting");
         fetch("/api/federation/notes", {
           method: "POST",
           credentials: "same-origin",
@@ -524,7 +524,7 @@
               if (msgEl) msgEl.textContent = (res.body && res.body.error) || tr("home.note_dlg.error");
               return;
             }
-            if (msgEl) msgEl.textContent = tr("home.note_dlg.published");
+            if (msgEl) msgEl.textContent = tr("home.note_dlg.posted");
             noteForm.reset();
             closeTopLayer(document.getElementById("modal-home-note"));
             state.loadedKey = "";

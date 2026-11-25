@@ -70,8 +70,11 @@ def test_syndication_and_preferences_routes_io_interface(syndication_env) -> Non
         assert 'id="headlines-container"' in res_public.text
         # Entry links point straight to the root-mounted /settings/* console (D1, P4).
         assert "/syndication/preferences" not in res_public.text
-        for path in ("/settings/reader", "/settings/connections", "/settings/tags", "/settings/outbound"):
+        for path in ("/settings/reader", "/settings/tags"):
             assert f'data-settings-path="{path}"' in res_public.text, path
+        # The sections of the retired connected-account model are gone (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.9).
+        for path in ("/settings/connections", "/settings/outbound"):
+            assert path not in res_public.text, path
         assert 'name="claire-storage-key" content="a' in res_public.text
         assert "claireSyndicationPrefs_v2" not in res_public.text
         assert 'PREFS_SLOT_PREFIX: "claire_synd_prefs_v2:"' in res_public.text
@@ -125,11 +128,9 @@ def test_old_prototype_route_is_removed(syndication_env) -> None:
 LEGACY_TAB_TABLE = [
     (None, "/settings/reader", "/settings/reader"),
     ("reader", "/settings/reader", "/settings/reader"),
-    ("accounts", "/settings/connections", "/settings/connections"),
     ("feeds", "/settings/feeds", "/settings/feeds"),
     ("tags", "/settings/tags", "/settings/tags"),
     ("rules", "/settings/rules", "/settings/rules"),
-    ("outbound", "/settings/outbound", "/settings/outbound"),
     ("opml", "/settings/opml", "/settings/opml"),
     ("mcp", "/account/mcp", "/account/mcp"),
     ("webmcp", "/account/webmcp", "/account/webmcp"),

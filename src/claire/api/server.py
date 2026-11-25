@@ -142,11 +142,9 @@ _PROGRESS_QUEUE_SIZE = 64
 # D4: 옛 /syndication/preferences?tab= → /settings/*, /account/* 대응표 (설계 §2.2). 지식 베이스별 화면이라 ?kb=를 넘긴다.
 _LEGACY_PREFS_SETTINGS_TABS = {
     "reader": "/settings/reader",
-    "accounts": "/settings/connections",
     "feeds": "/settings/feeds",
     "tags": "/settings/tags",
     "rules": "/settings/rules",
-    "outbound": "/settings/outbound",
     "opml": "/settings/opml",
     "mcp": "/account/mcp",
     "webmcp": "/account/webmcp",

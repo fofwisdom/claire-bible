@@ -149,7 +149,7 @@ def test_e2e_syndication_single_mode(p6_env):
         res_prefs = client.get("/syndication/preferences", headers=headers, follow_redirects=False)
         assert res_prefs.status_code == 302
         assert res_prefs.headers["location"] == "/settings/reader"
-        for tab, target in (("idp", "/admin/idp"), ("userdb", "/admin/accounts"), ("accounts", "/settings/connections")):
+        for tab, target in (("idp", "/admin/idp"), ("userdb", "/admin/accounts"), ("feeds", "/settings/feeds")):
             res_tab = client.get(f"/syndication/preferences?tab={tab}", headers=headers, follow_redirects=False)
             assert res_tab.status_code == 302, tab
             assert res_tab.headers["location"] == target, tab
@@ -248,11 +248,9 @@ def test_e2e_syndication_network_mode_isolation(p6_env):
         for tab, target in (
             (None, "/settings/reader"),
             ("reader", "/settings/reader"),
-            ("accounts", "/settings/connections"),
             ("feeds", "/settings/feeds"),
             ("tags", "/settings/tags"),
             ("rules", "/settings/rules"),
-            ("outbound", "/settings/outbound"),
             ("opml", "/settings/opml"),
             ("mcp", "/account/mcp"),
             ("webmcp", "/account/webmcp"),

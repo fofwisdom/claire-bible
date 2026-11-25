@@ -1085,7 +1085,7 @@ All routes are for the owner of the account, in both server modes. An item of an
 
 ### 19.3 View
 
-- The page `/syndication` has a stage bar for the owner: 1 interaction (교류), 2 ingestion (적재), 3 publication (게시), each with its counts. Stage 1 shows the client view (`#panel-client`); stages 2 and 3 show the knowledge base view (`#panel-kb`). The two views are in one page. `?stage=collect|ingest|publish` selects the stage; without it the page opens stage 2.
+- The page `/syndication` has a stage bar for the owner: 1 interaction (교류), 2 ingestion (적재), 3 publication (발행), each with its counts. Stage 1 shows the client view (`#panel-client`); stages 2 and 3 show the knowledge base view (`#panel-kb`). The two views are in one page. `?stage=collect|ingest|publish` selects the stage; without it the page opens stage 2.
 - Client view: streams (home, unread, mentions, starred), follows (follow a handle or an address, unfollow), the list, and the reader with the thread. A post with a content warning shows the summary first, and its frame loads after a click. The list reads again each 30 seconds while the tab is visible, and when the tab becomes visible again (RD18).
 - Actions of an item: star, read or unread, "take into knowledge base" (the ingest dialog with the themes of the owner), and, for an item with a document, "open document" and "publish" (the dispatch dialog of FP3-5 for that document).
 - Stage 3 has the filter all, not published, and published. The published documents come from `GET /api/federation/objects`.

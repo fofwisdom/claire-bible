@@ -293,14 +293,6 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         theme_scoped=True,
     ),
     ConsoleSectionSpec(
-        slug="connections",
-        path="/settings/connections",
-        area="settings",
-        group_id="syndication",
-        icon="plug",
-        theme_scoped=True,
-    ),
-    ConsoleSectionSpec(
         slug="feeds",
         path="/settings/feeds",
         area="settings",
@@ -322,14 +314,6 @@ SETTINGS_GROUP_2_SPECS: tuple[ConsoleSectionSpec, ...] = (
         area="settings",
         group_id="syndication",
         icon="bolt",
-        theme_scoped=True,
-    ),
-    ConsoleSectionSpec(
-        slug="outbound",
-        path="/settings/outbound",
-        area="settings",
-        group_id="syndication",
-        icon="repeat",
         theme_scoped=True,
     ),
     ConsoleSectionSpec(

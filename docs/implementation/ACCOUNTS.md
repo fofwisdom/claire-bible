@@ -38,7 +38,7 @@
 | `src/bible/static/js/console_invites.js` | `/account/invites` 화면 컨트롤러(초대 발급, 목록/더 보기, 가입 링크 복사 및 fallback, 즉시 폐기). `/admin/*` 링크·`console_admin.js`·`console.js.admin.*` 없음 | `/api/invites` 호출 |
 | `src/bible/static/js/console_admin.js` | `/admin/*` 및 `/moderation/{oversight,themes}` 화면 컨트롤러와 단계 인증 모달. 관리자 섹션 응답에만 싣는다 | `/api/admin/*`, `/api/auth/reauth` 호출 |
 | `src/bible/static/js/console_kb.js` | `/settings/kb` 및 `/moderation/kb`·`/moderation/kb/{kb_number}` 화면 컨트롤러 | `/kb*`, `/submissions*`, `/api/auto-rule*`, `/api/reputation`, `/api/mutual-collaborations*` 호출 |
-| `src/bible/static/js/console_syndication.js` | `/settings/{reader,connections,feeds,tags,rules,outbound,opml}`와 `/account/{mcp,webmcp}` 화면 | localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>` |
+| `src/bible/static/js/console_syndication.js` | `/settings/{reader,feeds,tags,rules,opml}`와 `/account/{mcp,webmcp}` 화면 | localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>` |
 | `src/bible/static/js/manage_panels.js` | 콘솔(`/admin/*`, `/account/*`, `/settings/*`, `/moderation/*`)이 쓰는 관리 패널. 루트 `/`에는 싣지 않는다 | `window.ClaireManagePanels`(`renderProviderManager`, `renderLimitManager`, `renderThemeManager`) |
 
 ## 2. 계정 모델과 상태
@@ -380,7 +380,7 @@
 | `/settings/kb/manage` | — (호환 308) | 호환 308 → `/moderation/kb` (검증한 `?kb=` 유지) |
 | `/settings/kb/{kb_number}` | — (호환 308) | 호환 308 → `/moderation/kb/{kb_number}` (공유 KB 번호만 허용, 개인 KB·없는 번호는 404, 검증한 `?kb=` 유지) |
 | `/settings/themes` | — (호환 308) | 폐지된 경로. 관리자는 308 `/moderation/themes`(검증한 `?kb=` 유지), 그 외 owner 계정은 308 `/settings/kb` |
-| `/settings/{reader,connections,feeds,tags,rules,outbound,opml}` | `syndication` 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
+| `/settings/{reader,feeds,tags,rules,opml}` | `syndication` 신디케이션 · 리더 (테마별) | 신디케이션 설정. 옛 `/syndication/preferences` 탭 |
 
 - **D3 관리자 리디렉트**: 관리자가 `/account/tokens`를 요청하면 `?kb=`를 검증한 뒤 302 `/admin/tokens`(검증한 `?kb=` 유지)로 보낸다. 사이드바도 이 항목을 `/admin/*` 그룹에만 한 번 보인다(멤버는 `/account/tokens`를 그대로 받는다). 폐지된 `/settings/themes`는 308로 응답하며 관리자는 `/moderation/themes`(검증한 `?kb=` 유지), 그 외 owner 계정은 `/settings/kb`로 간다.
 - **`?kb=` 검증 (C1)**: 모든 `/admin/*`·`/account/*`·`/settings/*`·`/moderation/*` 화면과 세 색인 경로(`/admin`, `/settings`, `/moderation`) 및 `?kb=`를 다시 붙이는 308 호환 리디렉트는 `?kb=`가 있으면 `KnowledgeBaseManager.get_kb_by_reference(번호)`와 계정 검사로 검증한다. 빈 값, 없는 테마, 다른 계정 테마는 404이고 기본 테마로 바꾸지 않는다. 단, 중재 경로(`/moderation`, `/moderation/*`)에서는 유효한 공유 지식 베이스 번호도 허용한다(`/moderation?kb=<공유KB>`는 `/moderation/kb/{number}`로 302 리디렉트, `/moderation/kb?kb=<공유KB>`는 해당 공유 KB를 부트스트랩). 쿼리가 없으면 호출자의 기본 테마를 쓴다. 테마 선택 상자 `#console-theme-select`는 `/settings/*` 신디케이션 섹션과 `/account/mcp`·`/account/webmcp`에만 나온다. 모르는 섹션 경로는 404다.
@@ -408,8 +408,8 @@
 | `?tab=` | 관리자 | 그 밖의 owner |
 | :--- | :--- | :--- |
 | 없음, `reader` | `/settings/reader` | `/settings/reader` |
-| `accounts` | `/settings/connections` | `/settings/connections` |
-| `feeds`, `tags`, `rules`, `outbound`, `opml` | `/settings/<같은 이름>` | `/settings/<같은 이름>` |
+| `feeds`, `tags`, `rules`, `opml` | `/settings/<같은 이름>` | `/settings/<같은 이름>` |
+| `accounts`, `outbound` | 404 | 404 (연결 계정 모델의 화면 `/settings/connections`, `/settings/outbound`는 2026-11-26에 없앴다) |
 | `mcp`, `webmcp` | `/account/<같은 이름>` | `/account/<같은 이름>` |
 | `idp` | `/admin/idp` | `/account/profile` |
 | `userdb` | `/admin/accounts` | `/account/profile` |
@@ -501,7 +501,7 @@
 - **[코드] 발행 주체 귀속**: `POST /api/syndication/dispatch`(`_system("write")`)는 호출자의 `Principal.account_id`를 판별하여 `syndication_dispatches.dispatched_by_account_id`에 영구 기록한다(단일 모드는 관리자 1). 기존 `dispatched_by_user_id` 열은 하위 호환을 위해 보존된다.
 - **[코드] 연결 계정 테이블 제거**: 쓰이지 않던 `syndication_accounts`(토큰 암호화 함수 포함), `syndication_targets`, `syndication_items`는 `claire.db` v20에서 제거했다([SCHEMA_VERSIONING.md](SCHEMA_VERSIONING.md) "v20" 절).
 - **[코드] 계정 격리**: 타 계정 소유의 테마에는 권한 없이 발행할 수 없다.
-- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,connections,feeds,tags,rules,outbound,opml}`와 `/account/{mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/account/profile`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?kb=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
+- **[코드] 설정 화면 이전**: 옛 `/syndication/preferences` 화면(`syndication_preferences.html`)은 지웠다. 리더 설정 패널은 `/settings/{reader,feeds,tags,rules,opml}`와 `/account/{mcp,webmcp}`(§5.9)로, `panel-idp`·`panel-userdb`는 관리자에게 `/admin/idp`·`/admin/accounts`, 멤버에게 `/account/profile`로 옮겼다. `/syndication` 화면의 설정 링크(`data-settings-path`)는 `/settings/*`를 가리키고 `?kb=<참조>`를 붙인다. 리더는 콘솔과 같은 localStorage 키 `claire_synd_prefs_v2:<storage-key>:t<테마 참조>`를 쓰고, 옛 키 `claireSyndicationPrefs_v2`는 읽지도 옮기지도 않는다(C1).
 - **[코드] 본문 렌더링 보안 (K10, S1)**: 연합 게시물 및 수집 본문은 XSS 위험을 방지하기 위해 DOMPurify 살균 및 safe parsing을 거쳐 안전하게 렌더링된다.
 
 ## 12. 테스트
