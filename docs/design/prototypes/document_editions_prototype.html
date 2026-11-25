@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Claire Bible — 에디션 · 좋아요 · 의견 시각 프로토타입 (DOCUMENT_EDITIONS_AND_PUBLICATION_DESIGN)</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --bar-bg: #f6f8fa; --border: #d0d7de; --panel-bg: #f6f8fa;
+  --accent: #0969da; --chip-bg: #eaeef2; --hover: #eef1f4; --active: #ddf4ff; --card-bg: #ffffff;
+  --sec-bg: #eaeef2; --warn: #9a6700; --warn-bg: #fff8c5; --danger: #cf222e; --danger-bg: #ffebe9;
+  --remote: #8250df; --remote-bg: #fbefff; --proto: #7c3aed; --proto-bg: #f5f3ff; --ok: #1a7f37; --ok-bg: #dafbe1;
+  --like: #cf222e;
+}
+[data-theme="dark"] {
+  --bg: #0e1116; --fg: #d7dbe0; --muted: #8b949e; --bar-bg: #161b22; --border: #2a2f37; --panel-bg: #10151c;
+  --accent: #58a6ff; --chip-bg: #1f2937; --hover: #161b22; --active: #1f2937; --card-bg: #161b22;
+  --sec-bg: #30363d; --warn: #d29922; --warn-bg: #332300; --danger: #f85149; --danger-bg: #38161a;
+  --remote: #c297ff; --remote-bg: #2a193f; --proto: #a78bfa; --proto-bg: #241c3d; --ok: #7ee787; --ok-bg: #0d351d;
+  --like: #f85149;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: var(--panel-bg); color: var(--fg); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif; word-break: keep-all; overflow-wrap: break-word; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.vh { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.lineicon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; border: 1px solid var(--border); background: var(--chip-bg); color: var(--muted); }
+.pill-proto { background: var(--proto-bg); color: var(--proto); border-color: color-mix(in srgb, var(--proto) 35%, transparent); font-weight: 700; }
+.pill-remote { background: var(--remote-bg); color: var(--remote); border-color: color-mix(in srgb, var(--remote) 35%, transparent); }
+.pill-ok { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+
+/* Prototype control bar (not part of the product) */
+.proto-bar { position: sticky; top: 0; z-index: 50; background: #1f2328; color: #f0f6fc; border-bottom: 1px solid #30363d; padding: 8px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 12.5px; }
+.proto-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.proto-group-label { font-weight: 700; color: #8b949e; margin-right: 2px; }
+.proto-bar button { background: #2d333b; border: 1px solid #444c56; color: #cdd9e5; border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; min-height: 28px; }
+.proto-bar button[aria-pressed="true"] { background: #0969da; border-color: #388bfd; color: #fff; font-weight: 600; }
+.proto-status { background: var(--bar-bg); border-bottom: 1px solid var(--border); padding: 6px 16px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.proto-status code { background: var(--chip-bg); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; color: var(--fg); }
+.stage { padding: 14px; display: flex; justify-content: center; }
+.device { width: 100%; max-width: 1180px; min-height: 760px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.08); display: flex; flex-direction: column; overflow-x: clip; }
+.device.is-mobile { max-width: 390px; border-radius: 22px; border-width: 2px; }
+
+/* Silvercord header (as in SILVERCORD_RENDERING_DESIGN SD5) */
+.sc-bar { position: sticky; top: 0; z-index: 20; min-height: 48px; background: var(--bar-bg); border-bottom: 1px solid var(--border); padding: 0 12px; display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 8px; }
+.device.is-mobile .sc-bar { min-height: 44px; grid-template-columns: minmax(0,1fr) auto; }
+.sc-brand { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13.5px; }
+.sc-start { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sc-end { display: flex; justify-content: flex-end; gap: 6px; }
+.device.is-mobile .sc-center, .device.is-mobile .sc-end .desk-only { display: none; }
+.sc-btn { display: inline-flex; align-items: center; gap: 5px; min-block-size: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.sc-btn:hover { background: var(--hover); }
+.tablist { display: inline-flex; gap: 2px; height: 48px; }
+.tab { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 0 12px; border: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; min-block-size: 44px; }
+.tab[aria-selected="true"] { color: var(--accent); }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; inset: auto 0 0; border-block-end: 3px solid var(--accent); }
+.tab .count { background: var(--chip-bg); color: var(--fg); border-radius: 999px; padding: 0 6px; font-size: 11px; line-height: 18px; }
+.bottom-bar { display: none; position: sticky; bottom: 0; z-index: 20; background: var(--bar-bg); border-top: 1px solid var(--border); padding: 4px 10px max(6px, env(safe-area-inset-bottom)); align-items: center; gap: 8px; }
+.device.is-mobile .bottom-bar { display: flex; }
+.bottom-bar .tablist { flex: 1; height: 46px; display: grid; grid-template-columns: 1fr 1fr; }
+.bottom-bar .tab[aria-selected="true"]::after { inset: 0 0 auto; }
+
+/* Reading column */
+.col { max-width: 780px; margin: 0 auto; padding: 22px 40px 64px 22px; }
+.device.is-mobile .col { padding: 16px 18px 40px 16px; }
+.doc-title { font-size: 24px; line-height: 1.3; margin: 4px 0 6px; }
+.device.is-mobile .doc-title { font-size: 20px; }
+.docmeta { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.docmeta a { color: var(--accent); text-decoration: none; }
+
+/* Edition bar (ED10 rules 1 and 2) */
+.ed-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-bg); }
+.ed-label { font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.ed-select, .ed-select::picker(select) { appearance: base-select; }
+.ed-select { min-inline-size: 280px; max-inline-size: 100%; border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); padding: 4px 8px; min-block-size: 36px; cursor: pointer; }
+.device.is-mobile .ed-select { flex: 1 1 100%; min-inline-size: 0; }
+.ed-select::picker(select) { border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg); padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.18); max-block-size: 70dvh; }
+.ed-select optgroup { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.ed-select optgroup legend { padding: 6px 8px 2px; }
+.ed-select option { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; font-size: 13px; color: var(--fg); font-weight: 400; }
+.ed-select option:hover { background: var(--hover); }
+.ed-select option:checked { background: var(--active); box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
+.ed-select selectedcontent { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ed-select selectedcontent .opt-meta { display: none; }
+.opt-tpl { display: inline-flex; align-items: center; min-inline-size: 64px; justify-content: center; padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 700; border: 1px solid var(--border); }
+.tpl-detailed { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.tpl-concise { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.tpl-academic { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.opt-who { font-weight: 600; }
+.opt-meta { margin-inline-start: auto; color: var(--muted); font-size: 12px; white-space: nowrap; padding-inline-start: 10px; }
+.opt-flag { font-size: 11px; color: var(--muted); }
+.ed-actions { display: inline-flex; align-items: center; gap: 6px; margin-inline-start: auto; }
+.device.is-mobile .ed-actions { margin-inline-start: 0; flex: 1 1 100%; justify-content: space-between; }
+.like-btn { display: inline-flex; align-items: center; gap: 6px; min-block-size: 36px; min-inline-size: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--card-bg); font-size: 13px; font-weight: 600; cursor: pointer; }
+.like-btn[aria-pressed="true"] { color: var(--like); border-color: color-mix(in srgb, var(--like) 45%, var(--border)); background: color-mix(in srgb, var(--like) 8%, var(--card-bg)); }
+.like-btn[aria-pressed="true"] .lineicon { fill: currentColor; }
+.like-static { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.like-static a { color: var(--accent); font-size: 12.5px; }
+.copy { position: relative; display: inline-flex; }
+.copy-btn { display: inline-flex; align-items: center; gap: 5px; min-block-size: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.copy-btn[data-copied] { color: var(--ok); border-color: var(--ok); }
+.copy-tip { position: absolute; inset-block-end: calc(100% + 6px); inset-inline-end: 0; background: var(--fg); color: var(--bg); font-size: 11.5px; padding: 2px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s; }
+.copy-tip:not(:empty) { opacity: 1; }
+.ed-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
+.ed-info code { font-size: 11.5px; background: var(--chip-bg); padding: 0 5px; border-radius: 4px; color: var(--fg); }
+.add-ed { position: relative; }
+.add-menu { position: absolute; inset-block-start: calc(100% + 4px); inset-inline-end: 0; z-index: 30; min-inline-size: 250px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 6px; }
+.add-menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; inline-size: 100%; text-align: start; border: 0; background: transparent; padding: 7px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.add-menu button:hover { background: var(--hover); }
+.add-menu small { color: var(--muted); font-size: 11.5px; }
+
+/* Remote edition banner and frame (ED8 rule 4) */
+.remote-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 12px; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--remote) 35%, var(--border)); border-inline-start: 4px solid var(--remote); border-radius: 8px; background: var(--remote-bg); font-size: 12.5px; }
+.remote-banner a { color: var(--accent); }
+.remote-frame { display: block; inline-size: 100%; block-size: 420px; border: 1px solid var(--border); border-radius: 8px; margin-top: 10px; background: #fff; }
+
+/* Body */
+.body { margin-top: 16px; line-height: 1.75; font-size: 15.5px; }
+.body h2 { font-size: 1.2em; margin: 1.3em 0 .45em; border-bottom: 1px solid var(--border); padding-bottom: .2em; }
+.body p { margin: .65em 0; }
+.body ul { margin: .5em 0; padding-inline-start: 1.4em; }
+.body .stem { font-family: "D2Coding", ui-monospace, Menlo, monospace; font-size: .92em; background: var(--chip-bg); padding: 0 4px; border-radius: 4px; }
+.body table { border-collapse: collapse; font-size: 13.5px; margin: .8em 0; }
+.body th, .body td { border: 1px solid var(--border); padding: 4px 10px; }
+.body section.later { content-visibility: auto; contain-intrinsic-size: auto 420px; }
+.reader { view-transition-name: none; }
+
+/* Opinions (ED11 D) */
+.op-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.op-head h2 { margin: 0; font-size: 17px; }
+.op-counts { display: flex; flex-wrap: wrap; gap: 6px; margin-inline-start: auto; }
+.op-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-bg); font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
+.op-state progress { inline-size: 120px; }
+.op-state.is-error { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); background: var(--danger-bg); color: var(--fg); }
+.op-reply-box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+.op-reply-box code { font-size: 11.5px; background: var(--chip-bg); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.op-tree, .op-tree ol { list-style: none; margin: 0; padding: 0; }
+.op-tree ol { margin-inline-start: 18px; padding-inline-start: 12px; border-inline-start: 2px solid var(--border); }
+.device.is-mobile .op-tree ol { margin-inline-start: 6px; padding-inline-start: 8px; }
+.op-tree li { margin: 8px 0; }
+.op-tree > li.group-later { content-visibility: auto; contain-intrinsic-size: auto 220px; }
+.op { border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); padding: 10px 12px; }
+.op.is-new { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); box-shadow: inset 3px 0 0 var(--accent); }
+.op.is-hidden { opacity: .6; border-style: dashed; }
+.op-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 12px; color: var(--muted); }
+.op-author { font-weight: 700; color: var(--fg); }
+.op-meta a { color: var(--muted); }
+.op-text { margin: 6px 0 4px; font-size: 14px; line-height: 1.6; white-space: pre-line; }
+.op-text a { color: var(--accent); overflow-wrap: anywhere; }
+.op details { margin: 6px 0; font-size: 13.5px; }
+.op summary { cursor: pointer; color: var(--warn); font-weight: 600; }
+.op-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+.op-act { display: inline-flex; align-items: center; gap: 4px; min-block-size: 30px; min-inline-size: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; font-size: 12px; color: var(--muted); cursor: pointer; }
+.op-act:hover { background: var(--hover); border-color: var(--border); }
+.op-act[aria-pressed="true"] { color: var(--like); }
+.op-act[aria-pressed="true"].boost { color: var(--ok); }
+.op-act.hide-btn { margin-inline-start: auto; }
+.op-more { font-size: 12.5px; }
+.op-more a { color: var(--accent); }
+.op-quotes { margin-top: 18px; }
+.op-quotes h3 { font-size: 14px; margin: 0 0 6px; display: flex; align-items: center; gap: 6px; }
+.op-note { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+.op-empty { padding: 18px; border: 1px dashed var(--border); border-radius: 8px; text-align: center; color: var(--muted); font-size: 13.5px; }
+dialog.frame-dlg { inline-size: min(680px, 94vw); border: 1px solid var(--border); border-radius: 12px; padding: 0; background: var(--card-bg); color: var(--fg); }
+dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
+.frame-dlg header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 700; }
+.frame-dlg iframe { display: block; inline-size: 100%; block-size: 360px; border: 0; background: #fff; }
+.proto-note { margin: 20px 0 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--proto) 35%, var(--border)); border-inline-start: 4px solid var(--proto); border-radius: 8px; background: var(--proto-bg); font-size: 12.5px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="proto-bar" role="toolbar" aria-label="프로토타입 제어 (제품 화면이 아님)">
+  <div class="proto-group" data-group="role"><span class="proto-group-label">접속자</span>
+    <button type="button" data-role="anon" aria-pressed="false">비로그인</button>
+    <button type="button" data-role="signed" aria-pressed="true">로그인 이용자 (다른 계정)</button>
+    <button type="button" data-role="owner" aria-pressed="false">문서 소유자</button>
+  </div>
+  <div class="proto-group" data-group="viewport"><span class="proto-group-label">화면</span>
+    <button type="button" data-viewport="desktop" aria-pressed="true">데스크톱</button>
+    <button type="button" data-viewport="mobile" aria-pressed="false">모바일 390px</button>
+  </div>
+  <div class="proto-group" data-group="theme"><span class="proto-group-label">테마</span>
+    <button type="button" data-theme-set="light" aria-pressed="true">라이트</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">다크</button>
+  </div>
+  <div class="proto-group" data-group="fetch"><span class="proto-group-label">의견 가져오기</span>
+    <button type="button" data-fetch="running" aria-pressed="false">진행 중</button>
+    <button type="button" data-fetch="finished" aria-pressed="true">완료 (새 의견 2)</button>
+    <button type="button" data-fetch="empty" aria-pressed="false">의견 없음</button>
+    <button type="button" data-fetch="error" aria-pressed="false">오류</button>
+  </div>
+</div>
+<div class="proto-status">
+  <span><span class="pill pill-proto">시각 프로토타입 · 미구현 · 예시 데이터</span></span>
+  <span>주소: <code id="st-path">/silvercord/7mq2k9x4hz3d8n5p</code></span>
+  <span>요청: <code id="st-api">GET /silvercord/7mq2k9x4hz3d8n5p/editions</code></span>
+</div>
+
+<div class="stage">
+<div class="device" id="device">
+  <header class="sc-bar">
+    <div class="sc-start">
+      <span class="sc-brand"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.5C6.5 3.5 4.5 3.3 2.5 3.5V12c2-.2 4 0 5.5 1 1.5-1 3.5-1.2 5.5-1V3.5c-2-.2-4 0-5.5 1zM8 4.5V13"/></svg>Claire Bible</span>
+      <span class="pill">@mina 개인 지식 베이스</span>
+    </div>
+    <div class="sc-center">
+      <div class="tablist" role="tablist" aria-label="문서 보기 전환" data-tablist>
+        <button type="button" class="tab" role="tab" data-tab="doc" aria-selected="true">본문</button>
+        <button type="button" class="tab" role="tab" data-tab="opinions" aria-selected="false" tabindex="-1">의견 <span class="count" data-op-count>11</span></button>
+      </div>
+    </div>
+    <div class="sc-end">
+      <button type="button" class="sc-btn desk-only" aria-expanded="false" title="기존 기능 (SILVERCORD 설계)"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/></svg>문서 그래프</button>
+    </div>
+  </header>
+
+  <main class="col">
+    <h1 class="doc-title">Raft 합의 알고리즘: 리더 선출과 로그 복제</h1>
+    <p class="docmeta">
+      <a href="#" onclick="return false">원문: arxiv.org/abs/2411.01234</a>
+      <span>요약은 문서 하나에 하나 · 에디션이 바꾸는 것은 본문뿐</span>
+    </p>
+
+    <!-- 본문 panel -->
+    <section id="panel-doc" role="tabpanel" aria-label="본문">
+      <div class="ed-bar">
+        <label class="ed-label" for="ed-select">에디션</label>
+        <select id="ed-select" name="edition" class="ed-select">
+          <button type="button"><selectedcontent></selectedcontent></button>
+        </select>
+        <div class="ed-actions" data-ed-actions></div>
+      </div>
+      <p class="ed-info" data-ed-info></p>
+      <div data-remote-banner></div>
+      <div class="reader" id="reader"></div>
+    </section>
+
+    <!-- 의견 panel -->
+    <section id="panel-opinions" role="tabpanel" aria-label="의견" hidden>
+      <div class="op-head">
+        <h2>의견</h2>
+        <span class="pill" data-op-target>대상: 상세 (기본 에디션)</span>
+        <div class="op-counts" data-op-counts></div>
+      </div>
+      <div class="op-state" data-op-state></div>
+      <div class="op-reply-box" data-op-reply></div>
+      <div data-op-body></div>
+    </section>
+
+    <p class="proto-note">
+      이 프로토타입은 동작하지 않는 시안입니다. 로컬 에디션 전환은 실제로는 <code>/silvercord/{token}/editions/{template}</code>으로의 페이지 이동(교차 문서 전환)이고,
+      다른 서버의 에디션은 같은 페이지의 샌드박스 프레임에 열립니다. 의견 본문은 페이지에 텍스트로만 두고, 서식 있는 본문과 첨부는 요청할 때 샌드박스 프레임으로 엽니다.
+      좋아요 수는 보여 주기만 하고 정렬에 쓰지 않습니다(O8 보류).
+    </p>
+  </main>
+
+  <nav class="bottom-bar" aria-label="문서 보기 전환">
+    <div class="tablist" role="tablist" aria-label="문서 보기 전환" data-tablist>
+      <button type="button" class="tab" role="tab" data-tab="doc" aria-selected="true">본문</button>
+      <button type="button" class="tab" role="tab" data-tab="opinions" aria-selected="false" tabindex="-1">의견 <span class="count" data-op-count>11</span></button>
+    </div>
+    <button type="button" class="sc-btn" aria-expanded="false" title="기존 기능">그래프</button>
+  </nav>
+</div>
+</div>
+
+<dialog class="frame-dlg" id="frame-dlg" closedby="any" aria-labelledby="frame-dlg-title">
+  <header><span id="frame-dlg-title">서식 있는 본문</span><button type="button" class="sc-btn" data-close-dlg>닫기</button></header>
+  <iframe id="frame-dlg-frame" sandbox="allow-popups allow-popups-to-escape-sandbox" title="다른 서버 의견의 서식 있는 본문"></iframe>
+</dialog>
+
+<script>
+"use strict";
+const TOKEN = "7mq2k9x4hz3d8n5p";
+const ICON = {
+  heart: '<path d="M8 13.5S2.5 10.2 2.5 6.2A2.9 2.9 0 0 1 8 4.8a2.9 2.9 0 0 1 5.5 1.4C13.5 10.2 8 13.5 8 13.5z"/>',
+  copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-.5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5"/>',
+  check: '<path d="m3 8.5 3 3 7-7"/>',
+  plus: '<path d="M8 3v10M3 8h10"/>',
+  reply: '<path d="M6.5 4 2.5 8l4 4M2.5 8H10a3.5 3.5 0 0 1 3.5 3.5v1"/>',
+  boost: '<path d="M4 6.5V5a1.5 1.5 0 0 1 1.5-1.5H12M10 1.5l2 2-2 2M12 9.5V11a1.5 1.5 0 0 1-1.5 1.5H4M6 14.5l-2-2 2-2"/>',
+  quote: '<path d="M3 9.5h3v3H3zM3 9.5C3 6.5 4 5 6 4.5M10 9.5h3v3h-3zM10 9.5c0-3 1-4.5 3-5"/>',
+  hide: '<path d="M2 8s2.2-4 6-4c1.1 0 2.1.3 2.9.8M14 8s-2.2 4-6 4c-1.1 0-2.1-.3-2.9-.8M3 13 13 3"/>',
+  external: '<path d="M9.5 2.5h4v4M13.5 2.5 7 9M6.5 4H3.5A1 1 0 0 0 2.5 5v7.5a1 1 0 0 0 1 1H11a1 1 0 0 0 1-1v-3"/>',
+  refresh: '<path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/>',
+  remote: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.8 1.6 1.8 9.4 0 11M8 2.5c-1.8 1.6-1.8 9.4 0 11"/>'
+};
+const icon = (name) => `<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true">${ICON[name]}</svg>`;
+const TEMPLATE_LABEL = { detailed: "상세", concise: "간결", academic: "학문 특화" };
+
+const BODY_DETAILED = `
+<h2>개요</h2><p><b>Raft</b>는 복제 로그를 관리하는 합의 알고리즘이다. 이해하기 쉬운 구조를 목표로 리더 선출, 로그 복제, 안전성을 분리해 설명한다.</p>
+<h2>리더 선출</h2><p>각 서버는 팔로워로 시작하고, 선거 제한 시간 <span class="stem">T_e</span> 안에 리더의 신호를 받지 못하면 후보가 되어 임기 <span class="stem">term = term + 1</span>로 투표를 요청한다. 과반 <span class="stem">⌊n/2⌋ + 1</span>의 표를 얻은 후보가 리더가 된다.</p>
+<ul><li>제한 시간은 무작위로 정해 동시 출마를 줄인다.</li><li>한 임기에 한 서버는 한 표만 던진다.</li></ul>
+<section class="later"><h2>로그 복제</h2><p>리더는 클라이언트 요청을 로그 항목으로 추가하고 <code>AppendEntries</code>로 팔로워에 복제한다. 과반이 저장하면 항목은 커밋된다.</p>
+<table><tr><th>구성</th><th>지연 중앙값</th><th>처리량</th></tr><tr><td>3대</td><td>4.1 ms</td><td>21k op/s</td></tr><tr><td>5대</td><td>5.3 ms</td><td>18k op/s</td></tr></table></section>
+<section class="later"><h2>안전성</h2><p>선거 제한 규칙은 커밋된 항목을 가진 서버만 리더가 되도록 한다. 로그 일치 속성은 같은 인덱스와 임기를 가진 두 항목이 같은 명령을 담음을 보장한다.</p></section>
+<section class="later"><h2>한계</h2><p>원문은 네트워크 분할이 길어질 때의 가용성 저하를 한계로 밝힌다.</p></section>`;
+const BODY_CONCISE = `
+<h2>핵심</h2><ul><li>Raft는 리더 선출, 로그 복제, 안전성을 분리한 합의 알고리즘이다.</li><li>과반의 표를 얻은 후보가 리더가 된다.</li><li>과반이 저장한 로그 항목은 커밋된다.</li></ul>
+<h2>내용</h2><p>팔로워는 무작위 선거 제한 시간 <span class="stem">T_e</span>가 지나면 후보가 되어 임기를 올리고 투표를 요청한다. 리더는 <code>AppendEntries</code>로 항목을 복제한다.</p>
+<h2>결과와 수치</h2><table><tr><th>구성</th><th>지연 중앙값</th><th>처리량</th></tr><tr><td>3대</td><td>4.1 ms</td><td>21k op/s</td></tr><tr><td>5대</td><td>5.3 ms</td><td>18k op/s</td></tr></table>
+<h2>한계</h2><p>긴 네트워크 분할에서 가용성이 떨어진다.</p>`;
+const REMOTE_BODY = `<!doctype html><meta charset="utf-8"><style>body{font:15px/1.7 system-ui,"Noto Sans KR",sans-serif;color:#1f2328;margin:16px 20px}h2{font-size:1.15em;border-bottom:1px solid #d0d7de}code{background:#eaeef2;padding:0 4px;border-radius:4px}</style>
+<h2>개요</h2><p>Raft는 이해 가능성을 설계 목표로 둔 합의 알고리즘이다. (다른 서버 lab.example의 이용자 @bob이 같은 출처를 상세 템플릿으로 적재한 에디션)</p>
+<h2>리더 선출</h2><p>팔로워는 하트비트를 받지 못하면 후보가 되어 RequestVote를 보낸다.</p><p><a href="https://lab.example/silvercord/abcd">원 서버의 고유 주소</a></p>`;
+
+const EDITIONS = [
+  { key: "d-detailed", group: "이 문서", template: "detailed", version: "detailed-v1", who: "@mina", server: null, likes: 12, liked: false, updated: "11월 20일", primary: true, path: `/silvercord/${TOKEN}`, body: BODY_DETAILED },
+  { key: "d-concise", group: "이 문서", template: "concise", version: "concise-v1", who: "@mina", server: null, likes: 4, liked: false, updated: "11월 24일", path: `/silvercord/${TOKEN}/editions/concise`, body: BODY_CONCISE },
+  { key: "s-academic", group: "같은 출처 · 이 서버", template: "academic", version: "academic-v1", who: "@jun", server: null, likes: 2, liked: false, updated: "11월 23일", path: "/silvercord/p3n8x2k5m9q4t7wa/editions/academic", body: BODY_DETAILED },
+  { key: "r-detailed", group: "같은 출처 · 다른 서버", template: "detailed", version: "detailed-v1", who: "@bob", server: "lab.example", likes: 31, liked: true, updated: "11월 18일", remote: true, origin: "https://lab.example/silvercord/abcd" },
+  { key: "r-concise", group: "같은 출처 · 다른 서버", template: "concise", version: "concise-v1", who: "@sora", server: "notes.example", likes: 7, liked: false, updated: "11월 22일", remote: true, origin: "https://notes.example/silvercord/wxyz" }
+];
+
+const OPINIONS = [
+  { id: "o1", name: "Lee Hana", handle: "@hana@mastodon.example", time: "2시간 전", text: "선거 제한 시간을 무작위로 두는 이유가 간결 에디션에서 더 잘 보이네요. 표 수치는 원 논문과 같습니다.", replies: [
+    { id: "o2", name: "mina", handle: "@mina (이 서버 · 문서 소유자)", local: true, time: "1시간 전", text: "맞습니다. 수치는 바꾸지 않는 것이 간결 템플릿의 규칙입니다.", replies: [
+      { id: "o3", name: "Bob", handle: "@bob@lab.example", time: "48분 전", text: "lab.example에 같은 출처의 상세 에디션이 있습니다: https://lab.example/silvercord/abcd", isNew: true, replies: [
+        { id: "o4", name: "Sora", handle: "@sora@notes.example", time: "30분 전", text: "분할 상황의 가용성 부분은 두 에디션 모두 원문 표현을 따릅니다.", replies: [
+          { id: "o5", name: "Kim", handle: "@kim@social.example", time: "10분 전", text: "(깊이 5 이하는 원 서버에서 이어 읽기)", replies: [] }
+        ], moreOnOrigin: 2 }
+      ] }
+    ] }
+  ] },
+  { id: "o6", name: "Park", handle: "@park@misskey.example", time: "3시간 전", cw: "스포일러가 아닌 긴 비평", text: "요약과 상세의 차이가 크지 않은 문서는 간결 에디션이 더 유용합니다.\n다만 안전성 절이 짧아진 점은 아쉽습니다.", attachment: true, replies: [] },
+  { id: "o7", name: "spam-bot", handle: "@deals@spam.example", time: "4시간 전", text: "(숨긴 의견: 문서 소유자만 봄)", hidden: true, replies: [] },
+  { id: "o8", name: "Choi", handle: "@choi@mastodon.example", time: "5시간 전", text: "로그 일치 속성 설명이 명확합니다.", isNew: true, replies: [], later: true },
+  { id: "o9", name: "Yuna", handle: "@yuna@gts.example", time: "6시간 전", text: "학문 특화 에디션은 아직 상세와 같은 문안인가요?", replies: [
+    { id: "o10", name: "jun", handle: "@jun (이 서버)", local: true, time: "5시간 전", text: "네, 지금은 같은 문안입니다.", replies: [] }
+  ], later: true }
+];
+const QUOTES = [
+  { id: "q1", name: "Dev Notes", handle: "@devnotes@hachyderm.example", time: "어제", text: "합의 알고리즘 입문으로 좋은 정리. 인용 승인 증표는 자동으로 왔다." },
+  { id: "q2", name: "Seo", handle: "@seo@mastodon.example", time: "2일 전", text: "간결 에디션을 강의 자료로 씁니다." }
+];
+
+const state = { role: "signed", viewport: "desktop", theme: "light", fetch: "finished", tab: "doc", edition: "d-detailed", addOpen: false };
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const device = $("#device");
+const select = $("#ed-select");
+const scopedTransition = (el, update) => {
+  if (el && "startViewTransition" in Element.prototype) { const t = el.startViewTransition(update); t.ready.catch(() => {}); }
+  else update();
+};
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === false || v == null) continue;
+    if (k === "class") node.className = v; else if (k === "html") node.innerHTML = v; else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children) if (c != null) node.append(c);
+  return node;
+}
+
+/* Edition picker: order until O8 = opened, primary, template order, updated. Likes are shown, not sorted. */
+function buildPicker() {
+  for (const n of $$("optgroup, option", select)) n.remove();
+  const groups = {};
+  for (const e of EDITIONS) (groups[e.group] ||= []).push(e);
+  for (const [label, list] of Object.entries(groups)) {
+    const og = el("optgroup", { label });
+    for (const e of list) {
+      const opt = el("option", { value: e.key });
+      opt.innerHTML = `<span class="opt-tpl tpl-${e.template}">${TEMPLATE_LABEL[e.template]}</span><span class="vh">.</span>`
+        + `<span class="opt-who">${e.who}${e.server ? "@" + e.server : ""}</span><span class="vh">.</span>`
+        + (e.primary ? ` <span class="opt-flag">기본 에디션</span><span class="vh">.</span>` : "")
+        + `<span class="opt-meta">좋아요 ${e.likes}<span class="vh">.</span> · ${e.updated}</span>`;
+      if (e.key === state.edition) opt.selected = true;
+      og.append(opt);
+    }
+    select.append(og);
+  }
+}
+
+function current() { return EDITIONS.find((e) => e.key === state.edition); }
+
+function renderEditionActions() {
+  const e = current();
+  const box = $("[data-ed-actions]");
+  box.replaceChildren();
+  if (state.role === "anon") {
+    box.append(el("span", { class: "like-static", html: `${icon("heart")} 좋아요 ${e.likes} <a href="#" onclick="return false">로그인하여 좋아요</a>` }));
+  } else if (state.role === "owner" && !e.remote && e.who === "@mina") {
+    box.append(el("span", { class: "like-static", title: "자기 에디션에는 좋아요를 줄 수 없습니다", html: `${icon("heart")} 좋아요 ${e.likes}` }));
+  } else {
+    const btn = el("button", { type: "button", class: "like-btn", "aria-pressed": String(e.liked), html: `${icon("heart")} <span>좋아요 ${e.likes}</span>` });
+    btn.addEventListener("click", () => { e.liked = !e.liked; e.likes += e.liked ? 1 : -1; renderEditionActions(); buildPicker(); setApi(`${e.liked ? "POST" : "DELETE"} (Like / Undo(Like) → ${e.remote ? e.server : "이 서버"})`); });
+    box.append(btn);
+  }
+  const copyWrap = el("span", { class: "copy" });
+  const copyBtn = el("button", { type: "button", class: "copy-btn", "aria-label": "이 에디션의 출처 표기 복사", html: `${icon("copy")}<span>출처 표기</span>` });
+  const tip = el("span", { class: "copy-tip", role: "status" });
+  copyBtn.addEventListener("click", () => copyCitation(copyBtn, tip));
+  copyWrap.append(copyBtn, tip);
+  box.append(copyWrap);
+  if (state.role === "owner") {
+    const wrap = el("span", { class: "add-ed" });
+    const addBtn = el("button", { type: "button", class: "copy-btn", "aria-expanded": String(state.addOpen), "aria-controls": "add-menu", html: `${icon("plus")}<span>에디션 추가</span>` });
+    addBtn.addEventListener("click", () => { state.addOpen = !state.addOpen; renderEditionActions(); });
+    wrap.append(addBtn);
+    if (state.addOpen) {
+      const menu = el("div", { class: "add-menu", id: "add-menu" });
+      const b = el("button", { type: "button", html: `<span>학문 특화 에디션 만들기</span><small>저장된 원문으로 만듭니다 · 모델 호출 1회 · 다시 가져오지 않음</small>` });
+      b.addEventListener("click", () => { state.addOpen = false; renderEditionActions(); setApi("POST {namespace}/documents/{id}/editions {template: academic}"); });
+      menu.append(b);
+      wrap.append(menu);
+    }
+    box.append(wrap);
+  }
+}
+
+const copyTimers = new WeakMap();
+let lastMessage = "";
+async function copyCitation(button, tip) {
+  const e = current();
+  const text = `${e.who}${e.server ? "@" + e.server : "@claire.example"}. "Raft 합의 알고리즘: 리더 선출과 로그 복제" (${TEMPLATE_LABEL[e.template]} 에디션, ${e.version}). Claire Bible, 2026-11-25. ${e.remote ? e.origin : "https://claire.example" + e.path}`;
+  let ok = true;
+  try { await navigator.clipboard.writeText(text); } catch { ok = false; }
+  clearTimeout(copyTimers.get(button));
+  button.removeAttribute("data-copied");
+  let message = ok ? "복사했습니다" : "복사하지 못했습니다";
+  if (message === lastMessage) message += " ";
+  lastMessage = message;
+  tip.textContent = "";
+  if (ok) button.setAttribute("data-copied", "");
+  requestAnimationFrame(() => { tip.textContent = message; });
+  copyTimers.set(button, setTimeout(() => { button.removeAttribute("data-copied"); tip.textContent = ""; }, 2000));
+}
+
+function renderEdition() {
+  const e = current();
+  const info = $("[data-ed-info]");
+  info.innerHTML = `<span class="opt-tpl tpl-${e.template}">${TEMPLATE_LABEL[e.template]}</span>`
+    + `<code>${e.version}</code><span>${e.who}${e.server ? "@" + e.server : ""}</span><span>${e.updated} 갱신</span>`
+    + (e.primary ? `<span class="pill">기본 에디션 · 문서 객체</span>` : "")
+    + (e.remote ? `<span class="pill pill-remote">${icon("remote")} 다른 서버</span>` : `<span class="pill">이 서버</span>`)
+    + (e.template === "academic" ? `<span class="pill">지금은 상세와 같은 문안</span>` : "");
+  const banner = $("[data-remote-banner]");
+  const reader = $("#reader");
+  scopedTransition(reader, () => {
+    banner.replaceChildren();
+    reader.replaceChildren();
+    if (e.remote) {
+      banner.append(el("div", { class: "remote-banner", html: `${icon("remote")}<span><b>${e.server}</b>의 이용자 ${e.who}가 같은 출처로 만든 에디션입니다. 이 서버에 캐시된 사본을 보여 줍니다.</span><a href="${e.origin}" onclick="return false">${icon("external")} 원 서버에서 열기</a>` }));
+      const frame = el("iframe", { class: "remote-frame", sandbox: "allow-popups allow-popups-to-escape-sandbox", title: `다른 서버의 에디션 본문: ${TEMPLATE_LABEL[e.template]}, ${e.who}@${e.server}`, loading: "lazy" });
+      frame.srcdoc = REMOTE_BODY;
+      reader.append(frame);
+    } else {
+      reader.append(el("div", { class: "body", html: e.body }));
+    }
+  });
+  $("#st-path").textContent = e.remote ? `/silvercord/${TOKEN}?edition=${e.key}` : e.path;
+  setApi(e.remote ? `GET ${e.origin.replace("/silvercord/", "/ap/objects/")}/body (서명한 서버 액터 · 캐시 24시간)` : (e.primary ? `GET /silvercord/${TOKEN}` : `GET ${e.path} (페이지 이동)`));
+  $("[data-op-target]").textContent = `대상: ${TEMPLATE_LABEL[e.template]}${e.primary ? " (기본 에디션)" : ""} · ${e.who}${e.server ? "@" + e.server : ""}`;
+  renderEditionActions();
+}
+
+function setApi(text) { $("#st-api").textContent = text; }
+
+/* Opinions */
+function countOpinions(list) { return list.reduce((n, o) => n + (o.hidden && state.role !== "owner" ? 0 : 1) + countOpinions(o.replies || []), 0); }
+
+function opinionNode(o, depth) {
+  if (o.hidden && state.role !== "owner") return null;
+  const li = el("li", { class: o.later ? "group-later" : null });
+  const art = el("article", { class: `op${o.isNew && state.fetch === "finished" ? " is-new" : ""}${o.hidden ? " is-hidden" : ""}`, "aria-label": `${o.name}의 의견` });
+  const meta = el("div", { class: "op-meta" });
+  meta.append(el("span", { class: "op-author" }, o.name), el("span", {}, o.handle));
+  if (!o.local) meta.append(el("span", { class: "pill pill-remote", html: `${icon("remote")} 다른 서버` }));
+  const timeLink = el("a", { href: "#", onclick: "return false" }, el("time", {}, o.time));
+  meta.append(timeLink);
+  if (o.isNew && state.fetch === "finished") meta.append(el("span", { class: "pill pill-ok" }, "새 의견"));
+  if (o.hidden) meta.append(el("span", { class: "pill" }, "숨김 · 이 페이지와 replies 컬렉션에서 빠짐"));
+  art.append(meta);
+  const textNode = el("p", { class: "op-text" });
+  for (const part of o.text.split(/(https?:\/\/\S+)/)) {
+    if (/^https?:\/\//.test(part)) textNode.append(el("a", { href: part, rel: "nofollow noopener noreferrer", target: "_blank" }, part));
+    else textNode.append(document.createTextNode(part));
+  }
+  if (o.cw) { const d = el("details"); d.append(el("summary", {}, `내용 경고: ${o.cw}`), textNode); art.append(d); } else art.append(textNode);
+  const actions = el("div", { class: "op-actions" });
+  if (o.attachment) {
+    const fb = el("button", { type: "button", class: "op-act", html: `${icon("external")} 서식과 첨부 보기` });
+    fb.addEventListener("click", () => openFrame(o));
+    actions.append(fb);
+  }
+  if (state.role !== "anon") {
+    actions.append(el("button", { type: "button", class: "op-act", html: `${icon("reply")} 답글` }));
+    const like = el("button", { type: "button", class: "op-act", "aria-pressed": "false", html: `${icon("heart")} 좋아요` });
+    like.addEventListener("click", () => like.setAttribute("aria-pressed", like.getAttribute("aria-pressed") === "true" ? "false" : "true"));
+    const boost = el("button", { type: "button", class: "op-act boost", "aria-pressed": "false", html: `${icon("boost")} 부스트` });
+    boost.addEventListener("click", () => boost.setAttribute("aria-pressed", boost.getAttribute("aria-pressed") === "true" ? "false" : "true"));
+    actions.append(like, boost, el("button", { type: "button", class: "op-act", html: `${icon("quote")} 인용` }));
+  }
+  if (state.role === "owner") actions.append(el("button", { type: "button", class: "op-act hide-btn", html: `${icon("hide")} ${o.hidden ? "다시 보이기" : "숨기기"}` }));
+  if (actions.childElementCount) art.append(actions);
+  li.append(art);
+  const kids = (o.replies || []).map((r) => (depth < 4 ? opinionNode(r, depth + 1) : null)).filter(Boolean);
+  const deeper = depth >= 4 ? (o.replies || []).length : 0;
+  if (kids.length || o.moreOnOrigin || deeper) {
+    const ol = el("ol");
+    kids.forEach((k) => ol.append(k));
+    const more = (o.moreOnOrigin || 0) + deeper;
+    if (more) ol.append(el("li", { class: "op-more", html: `<a href="#" onclick="return false">${icon("external")} 원 서버에서 계속 (${more}개 더)</a>` }));
+    li.append(ol);
+  }
+  return li;
+}
+
+function openFrame(o) {
+  const dlg = $("#frame-dlg");
+  $("#frame-dlg-frame").srcdoc = `<!doctype html><meta charset="utf-8"><style>body{font:15px/1.6 system-ui,"Noto Sans KR",sans-serif;margin:14px 18px;color:#1f2328}</style><p><b>${o.name}</b> ${o.handle}</p><p>${o.text.replace(/\n/g, "<br>")}</p><p style="color:#656d76">[첨부 이미지: 미디어 프록시를 거친 주소만 표시]</p>`;
+  dlg.showModal();
+}
+
+let opLive = "";
+function renderOpinions() {
+  const visible = countOpinions(OPINIONS);
+  for (const c of $$("[data-op-count]")) c.textContent = state.fetch === "empty" ? "0" : String(visible + QUOTES.length);
+  const counts = $("[data-op-counts]");
+  counts.replaceChildren();
+  if (state.fetch !== "empty") for (const t of [`답글 ${visible}`, `인용 ${QUOTES.length}`, `좋아요 ${current().likes}`, "부스트 3"]) counts.append(el("span", { class: "pill" }, t));
+  const st = $("[data-op-state]");
+  st.className = "op-state";
+  st.replaceChildren();
+  if (state.fetch === "running") {
+    st.append(el("progress", { "aria-label": "다른 서버의 의견을 가져오는 중" }), el("span", {}, "다른 서버의 의견을 가져오는 중입니다. replies 컬렉션을 따라 내려갑니다 (최대 1000개 · 15분마다 한 번)."));
+    setApi(`GET /silvercord/${TOKEN}/opinions → refresh {id: "r7", status: "running", retry: 3}`);
+  } else if (state.fetch === "finished") {
+    st.append(el("span", { html: `${icon("check")} 방금 가져왔습니다 · 새 의견 2개` }), el("span", {}, "다음 가져오기: 15분 뒤"));
+    setApi(`GET /silvercord/${TOKEN}/opinions?refresh=r7 → {status: "finished", result_count: 2}`);
+  } else if (state.fetch === "error") {
+    st.classList.add("is-error");
+    st.append(el("span", { role: "alert" }, "의견을 가져오지 못했습니다. 이 서버에 이미 있는 의견만 보입니다."));
+    const retry = el("button", { type: "button", class: "sc-btn", html: `${icon("refresh")} 다시 시도` });
+    st.append(retry);
+    setApi(`GET /silvercord/${TOKEN}/opinions → refresh {status: "finished", error: "fetch_failed"}`);
+  } else {
+    st.append(el("span", {}, "다른 서버에서도 의견을 찾지 못했습니다."));
+    setApi(`GET /silvercord/${TOKEN}/opinions → {opinions: [], refresh: {status: "finished", result_count: 0}}`);
+  }
+  const live = document.getElementById("op-live");
+  const msg = state.fetch === "finished" ? "새 의견 2개를 더했습니다" : "";
+  if (msg && msg !== opLive) requestAnimationFrame(() => { live.textContent = msg; });
+  opLive = msg;
+  const reply = $("[data-op-reply]");
+  reply.replaceChildren();
+  const objectId = "https://claire.example/ap/objects/1001";
+  if (state.role === "anon") {
+    reply.append(el("span", {}, "로그인하면 이 서버 계정으로 답글을 씁니다. 다른 서버 계정으로 답글하려면 그 서버의 검색창에 이 주소를 붙여 넣으세요:"), el("code", { id: "obj-id" }, objectId));
+    const w = el("span", { class: "copy" });
+    const b = el("button", { type: "button", class: "copy-btn", "aria-label": "답글용 객체 주소 복사", html: icon("copy") });
+    const tip = el("span", { class: "copy-tip", role: "status" });
+    b.addEventListener("click", async () => { let ok = true; try { await navigator.clipboard.writeText(objectId); } catch { ok = false; } tip.textContent = ok ? "복사했습니다" : "복사하지 못했습니다"; setTimeout(() => { tip.textContent = ""; }, 2000); });
+    w.append(b, tip);
+    reply.append(w);
+  } else {
+    reply.append(el("button", { type: "button", class: "sc-btn", html: `${icon("reply")} 이 에디션에 답글` }), el("span", { class: "op-note" }, "답글은 연합 클라이언트의 작성 창으로 열립니다 (inReplyTo = 이 에디션 객체)."));
+  }
+  const body = $("[data-op-body]");
+  body.replaceChildren();
+  if (state.fetch === "empty") {
+    body.append(el("div", { class: "op-empty" }, "아직 의견이 없습니다. 연합우주의 다른 서버에서도 이 에디션에 답글을 달 수 있습니다."));
+    return;
+  }
+  const tree = el("ol", { class: "op-tree", "aria-label": "의견 글타래" });
+  for (const o of OPINIONS) { const n = opinionNode(o, 1); if (n) tree.append(n); }
+  body.append(tree);
+  const q = el("section", { class: "op-quotes", "aria-label": "인용" });
+  q.append(el("h3", { html: `${icon("quote")} 인용 ${QUOTES.length}` }), el("p", { class: "op-note" }, "문서와 에디션의 인용은 항상 허용되며 승인 증표가 자동으로 발급됩니다."));
+  const ql = el("ol", { class: "op-tree" });
+  for (const x of QUOTES) ql.append(opinionNode({ ...x, replies: [] }, 1));
+  q.append(ql);
+  body.append(q);
+}
+
+/* Tabs (as in SILVERCORD SD7, simplified) */
+function setTab(tab) {
+  state.tab = tab;
+  for (const t of $$(".tab")) { const on = t.dataset.tab === tab; t.setAttribute("aria-selected", String(on)); t.tabIndex = on ? 0 : -1; }
+  $("#panel-doc").hidden = tab !== "doc";
+  $("#panel-opinions").hidden = tab !== "opinions";
+  if (tab === "opinions") renderOpinions(); else renderEdition();
+}
+for (const list of $$("[data-tablist]")) {
+  list.addEventListener("click", (ev) => { const t = ev.target.closest(".tab"); if (t) setTab(t.dataset.tab); });
+  list.addEventListener("keydown", (ev) => {
+    const tabs = $$(".tab", list); const i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    let j = null;
+    if (ev.key === "ArrowRight") j = (i + 1) % tabs.length; else if (ev.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length; else if (ev.key === "Home") j = 0; else if (ev.key === "End") j = tabs.length - 1;
+    if (j != null) { ev.preventDefault(); setTab(tabs[j].dataset.tab); tabs[j].focus(); }
+  });
+}
+
+select.addEventListener("change", () => { state.edition = select.value; state.addOpen = false; renderEdition(); });
+$("[data-close-dlg]").addEventListener("click", () => $("#frame-dlg").close());
+
+/* Prototype controls */
+for (const b of $$(".proto-bar button")) b.addEventListener("click", () => {
+  const g = b.closest("[data-group]").dataset.group;
+  for (const x of $$("button", b.parentElement)) x.setAttribute("aria-pressed", String(x === b));
+  if (g === "role") { state.role = b.dataset.role; state.addOpen = false; }
+  if (g === "viewport") { state.viewport = b.dataset.viewport; device.classList.toggle("is-mobile", state.viewport === "mobile"); }
+  if (g === "theme") { state.theme = b.dataset.themeSet; document.documentElement.dataset.theme = state.theme; }
+  if (g === "fetch") { state.fetch = b.dataset.fetch; if (state.tab !== "opinions") setTab("opinions"); }
+  buildPicker();
+  setTab(state.tab);
+});
+
+const liveRegion = el("div", { id: "op-live", class: "vh", "aria-live": "polite" });
+document.body.append(liveRegion);
+buildPicker();
+setTab("doc");
+</script>
+</body>
+</html>
