@@ -10,6 +10,7 @@
   - Rev. 2 (2026-11-25): owner answers to O1 to O7. Template `no_math` became `academic` (학문 특화). +1 is the ActivityPub `Like` as it is, and the delivered document object is the primary edition. New: opinions from other servers (Section 5.11), with the structure of Mastodon.
   - Rev. 3 (2026-11-25): O8 on hold (two kinds of reputation, Section 5.6 rules 6 and 7). O9: A, the idea is in [`TIMELINE_BACKFILL_IDEAS.md`](../ideas/TIMELINE_BACKFILL_IDEAS.md). Frontend coverage (Section 9.1).
   - Rev. 4 (2026-11-25): visual prototype of the Silvercord view (owner: "옙"). Interface decisions from the prototype: Section 5.10 rules 9 to 12, Section 5.11 D rules 2 and 7.
+  - Rev. 5 (2026-11-25): owner review of the prototype. No citation copy (the link copy exists). No message about the quote policy on the page. The summary section stays above the edition bar (Section 5.10 rule 9). Open: the term for 에디션 (O10) and the label of `academic` (O11).
 - **Related**: [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD10, RD21), [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) (vocabulary, known servers), [`PERMALINK_UNIFICATION_DESIGN.md`](PERMALINK_UNIFICATION_DESIGN.md), [`SILVERCORD_RENDERING_DESIGN.md`](SILVERCORD_RENDERING_DESIGN.md) (the `의견` tab, SR5, SD8), [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (reputation, CT18), [`FEDERATION.md`](../implementation/FEDERATION.md), [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md), [`PERMALINKS.md`](../implementation/PERMALINKS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`GLOSSARY.md`](../implementation/GLOSSARY.md)
 
 ## 1. Owner request (2026-11-25)
@@ -116,7 +117,7 @@ Sources are in Section 13. **[code: Mastodon]** marks a fact read in the Mastodo
 | **의견** | Opinion | A public post on any server that is in the reply tree of a published object of this server (a reply, or a reply to a reply), or a quote post of it with a valid stamp. The `의견` tab of the Silvercord view shows them. | "댓글" (a comment is a function of a page; an opinion is a federated post), "스레드" (use 글타래) |
 | **발행** | Publication / Publish | The action that makes a document of a public personal knowledge base an ActivityPub object for followers and makes its editions available to Claire servers. Stage 3 of the flow 교류 · 적재 · 발행. | 게시 for this action |
 | **게시** | Post | The action that sends a note. 게시물 (Post) stays the name of an item in the timeline. | 발행 for a note |
-| **출처 표기** | Citation | The bibliographic reference to a document or an edition: `cite-as`, citation metadata, the copy action. | 인용 for this meaning (인용 is the quote of FEP-044f) |
+| **출처 표기** | Citation | The bibliographic reference to a document or an edition for machines: `cite-as` and citation metadata. The page has no copy action for it (Rev. 5). | 인용 for this meaning (인용 is the quote of FEP-044f) |
 
 The glossary uses "에디션" already in the same-entity rule ("버전·에디션·제품과 회사"), where it is a word about products in the world. "Shopify Editions" in the graph engine design is a product name. Neither is a Claire data concept, thus the new term has no collision (O1: A, 2026-11-25).
 
@@ -280,8 +281,7 @@ Citation (출처 표기) of the Silvercord view:
 1. `<link rel="cite-as" href="{permalink of the item}">` (RFC 8574). An edition page cites its edition address; the page of the primary edition cites the document address.
 2. `citation_title`, `citation_author` (the account), `citation_publication_date`, `citation_public_url`, and `citation_language` meta elements.
 3. JSON-LD of schema.org: `Article` with `isBasedOn` (the source URL), `exampleOfWork` (the source identifier as `CreativeWork`), `version` (the template identifier and version), `author`, `datePublished`, `dateModified`. Mastodon 5.0 adds schema.org markup to its pages too (R5).
-4. The action "출처 표기 복사" gives a plain text reference with the title, the account, the server, the date, the template, and the permalink.
-5. `<meta name="fediverse:creator" content="@{username}@{host}">`, and `attributionDomains` with the host of the server in the actor document (R10).
+4. `<meta name="fediverse:creator" content="@{username}@{host}">`, and `attributionDomains` with the host of the server in the actor document (R10).
 
 ### 5.8 ED8: Silvercord paths (answer to Q5)
 
@@ -322,7 +322,7 @@ No HTTP route and no JSON field changes its name.
 
 ### 5.10 ED10: Reader interface (modern web guidance)
 
-The design uses the guides of the `modern-web-guidance` tool (version `2026_10_12-dacb5911`): `rich-media-picker`, `cross-document-transitions`, `scoped-component-transitions`, `improve-next-page-load-performance`, `defer-rendering-heavy-content`, and for Rev. 4 `copy-button` and `accessibility` (live regions, `<progress>` for waiting states, `iframe` titles, target sizes).
+The design uses the guides of the `modern-web-guidance` tool (version `2026_10_12-dacb5911`): `rich-media-picker`, `cross-document-transitions`, `scoped-component-transitions`, `improve-next-page-load-performance`, `defer-rendering-heavy-content`, and for Rev. 4 `accessibility` (live regions, `<progress>` for waiting states, `iframe` titles, target sizes). The `copy-button` guide of Rev. 4 has no use after Rev. 5.
 
 1. **Edition picker.** A native `<select>` with a visible `<label>` ("에디션"), with `appearance: base-select` and rich `<option>` content: template name, account, server, likes, date. The text of each option must make sense alone, because Firefox shows a plain list ("간결. @bob@b.example. 좋아요 12."). Use visually hidden full stops for that. Put no button or link inside an option. The selected option must be visible in the open list. Support: Chrome and Edge 135, Safari 27; Firefox shows the native list.
 2. **Like control.** A `<button aria-pressed="true|false">` next to the edition heading, outside the picker, with the line icon `heart` of the prototype (SD8) and the count in its visible text. An anonymous visitor sees the count and a sign-in link, not a dead button.
@@ -332,9 +332,9 @@ The design uses the guides of the `modern-web-guidance` tool (version `2026_10_1
 6. **Long bodies and long opinion trees.** `content-visibility: auto` with `contain-intrinsic-size: auto 800px` on body sections and opinion groups below the first screen, never on the first screen. Test keyboard navigation through these sections.
 7. **Mathematics.** `academic` and the other templates keep formulas; no template is a display fallback for formulas.
 8. Each new text uses catalog keys in English and Korean from the start.
-9. **Place of the edition controls.** The edition bar (label, picker, like control, "출처 표기" copy, and for the owner "에디션 추가") is in the reading column under the title, on desktop and on mobile. On mobile the picker takes the full width and the other controls go to a second line. The bottom bar keeps only `본문` / `의견` and the graph button (SD5). Reason: the bottom bar switches views; the edition bar belongs to the body that it changes.
+9. **Place of the edition controls.** The page keeps the order of the current view: title, metadata, the section "요약" (one for each document; it does not change with the edition), then the section of the body. The edition bar (label, picker, like control, and for the owner "에디션 추가") is the first element of the section of the body, on desktop and on mobile. The body of `detailed` and `academic` often starts with `== 개요`, because rule 14 of the current prompt names it as an example; that heading is a part of the body, not the summary. On mobile the picker takes the full width and the other controls go to a second line. The bottom bar keeps only `본문` / `의견` and the graph button (SD5). Reason: the bottom bar switches views; the edition bar belongs to the body that it changes.
 10. **Groups in the picker.** The options are in three `<optgroup>` groups by origin: "이 문서", "같은 출처 · 이 서버", "같은 출처 · 다른 서버". The order of Section 5.6 rule 6 applies inside each group. Each option shows the template, the account, "기본 에디션" for the primary edition, the likes, and the date. A line under the bar shows the template, its version, the account, the date, and the origin of the selected edition.
-11. **Citation copy.** A button with visible text "출처 표기" and the accessible name "이 에디션의 출처 표기 복사", with a `role="status"` bubble next to it (not inside it) for "복사했습니다" or "복사하지 못했습니다". The bubble is shown with `opacity`, cleared after 2 seconds, and the button is never disabled (guide `copy-button`).
+11. **No copy button for a citation or for the address** (owner, Rev. 5). The address of the page is the address of the edition (Section 5.8), and the link copy of the workspace reader and of the timeline exists ([`PERMALINKS.md`](../implementation/PERMALINKS.md) Section 5). The page shows no message about the quote policy.
 12. **Own edition.** The author sees the like count of an own edition as text, not as a control (Section 5.6 rule 4).
 
 ### 5.11 ED11: Opinions from other servers (answer to Q7)
@@ -376,7 +376,7 @@ Intent: the `의견` tab of a published object shows the public conversation abo
 6. A document of a private knowledge base with link access is not published; its tab keeps the notice that it is not federated (SILVERCORD design access matrix).
 7. **Indexing.** The page loads the opinions only when the reader opens the `의견` tab (as the graph panel loads its data on the first open), the JSON route has `X-Robots-Tag: noindex`, and the opinions container has `data-nosnippet`. The posts of other people are not indexed under this server.
 8. **State of a fetch.** While a fetch runs, the tab shows a `<progress>` element with a text, not a live region. When it ends, one polite live region of the page says the number of new opinions once, and the new opinions have a mark "새 의견" until the next visit. A failure shows a `role="alert"` text, the opinions that the server has, and "다시 시도"; it never shows invented data (PRINCIPLES C2).
-9. **Reply from another server.** An anonymous visitor sees the object ID of the edition with a copy button and a text: paste it into the search of another server to reply from there. A signed-in actor gets "이 에디션에 답글", which opens the compose dialog of the federation client with `inReplyTo` set.
+9. **Reply from another server.** An anonymous visitor sees a text: to reply from an account of another server, paste the address of this page into the search of that server. The page address is enough: for a request that accepts only ActivityPub, the permalink gives 303 to the object ID ([`PERMALINKS.md`](../implementation/PERMALINKS.md) Section 3 rule 7). A signed-in actor gets "이 에디션에 답글", which opens the compose dialog of the federation client with `inReplyTo` set.
 10. **Depth.** The page shows 4 levels. Deeper replies are a link "원 서버에서 계속 (N개 더)".
 
 **E. Scheduled refresh (from FediFetcher, R16).** Once a day, the server fetches the opinions of its own published objects that got a delivered reply, a like, or a quote request in the last 7 days, with the limits of rule B5 and at most 200 objects in one run. Reason: Mastodon fetches only when a person opens a post; this refresh keeps the tab current also before the next visit. The fetches of other posts (home timeline, bookmarks) stay with the thread fetch of the client (fact 8): FediFetcher's scan of all timelines is not taken.
@@ -455,7 +455,7 @@ The design has backend and frontend parts. The backend parts (wire forms, data, 
 
 | Surface | In this design | Not yet designed |
 | :--- | :--- | :--- |
-| Silvercord view (`share.html`) | Prototype (Rev. 4). Edition bar and picker groups, like control, citation copy, edition switch, remote edition frame, prefetch, long bodies (5.10); `의견` tab: tree, text and frame, counts, actions, hide, fetch states, reply from another server (5.11 D); citation metadata (5.7); sub-paths (5.8) | Measurement with real data; the graph panel stays as in the Silvercord design |
+| Silvercord view (`share.html`) | Prototype (Rev. 5). Summary section, edition bar and picker groups, like control, edition switch, remote edition frame, prefetch, long bodies (5.10); `의견` tab: tree, text and frame, counts, actions, hide, fetch states, reply from another server (5.11 D); citation metadata (5.7); sub-paths (5.8) | Measurement with real data; the graph panel stays as in the Silvercord design |
 | Ingest (`/ingest`, Telegram bot, CLI, MCP) | Template selection for each request, "에디션 추가" in the document menu (5.3) | Form layout; the bot and CLI syntax; the cost display before a run |
 | `/syndication` knowledge base view (stage 3) | Term changes (5.9); removal of the quote policy dialog of documents (5.7) | Editions and opinion counts in the list of published documents; the publish dialog with the editions that go out |
 | Workspace reader and context panel | — | Edition switch inside the workspace |
@@ -499,6 +499,8 @@ Open:
 | # | Question | Options | Recommendation |
 | :--- | :--- | :--- | :--- |
 | O8 | Likes as a reputation signal | **On hold** (2026-11-25). There are two kinds of reputation: of the publisher and between published editions. The plan has a gap, and a separate score can be necessary. Section 5.6 rules 6 and 7 apply until a decision. | — |
+| O10 | Term for 에디션 (owner, Rev. 5: "의미가 너무 큰 듯") | A: 정리본 (English `rendition`): one organized body of a source by one account and one template; it fits "상세 정리본", "다른 이용자의 정리본". B: 풀이: natural, but it suggests the solution of a problem. C: 판본: exact for variants of a text, but formal and as large as 에디션. Keep 에디션: no change. A rename changes this design, the vocabulary terms (`claire:renditions`, …), `document_editions`, and `src/claire/extract/edition_templates.py`; nothing of it is in production. | A. With A, the section label of the body on the page becomes 정리본, and the label "상세" stays only for the template (now the section label and the template label are both "상세"). |
+| O11 | One-word label of `academic` (now 학문 특화) | A: 학술 (also in the existing text "학술 논문 PDF", the same meaning). B: 연구. C: 심화 (in-depth; not only academic). The identifier `academic` does not change. | A |
 
 ---
 

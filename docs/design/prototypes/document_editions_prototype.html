@@ -72,6 +72,8 @@ button, input, select { font: inherit; color: inherit; }
 .docmeta a { color: var(--accent); text-decoration: none; }
 
 /* Edition bar (ED10 rules 1 and 2) */
+.sec { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--accent); margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.summary { margin: 0 0 6px; font-size: 15px; line-height: 1.7; }
 .ed-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-bg); }
 .ed-label { font-size: 12.5px; font-weight: 700; color: var(--muted); }
 .ed-select, .ed-select::picker(select) { appearance: base-select; }
@@ -99,11 +101,7 @@ button, input, select { font: inherit; color: inherit; }
 .like-btn[aria-pressed="true"] .lineicon { fill: currentColor; }
 .like-static { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .like-static a { color: var(--accent); font-size: 12.5px; }
-.copy { position: relative; display: inline-flex; }
-.copy-btn { display: inline-flex; align-items: center; gap: 5px; min-block-size: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); font-size: 12.5px; font-weight: 600; cursor: pointer; }
-.copy-btn[data-copied] { color: var(--ok); border-color: var(--ok); }
-.copy-tip { position: absolute; inset-block-end: calc(100% + 6px); inset-inline-end: 0; background: var(--fg); color: var(--bg); font-size: 11.5px; padding: 2px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s; }
-.copy-tip:not(:empty) { opacity: 1; }
+.ed-btn { display: inline-flex; align-items: center; gap: 5px; min-block-size: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-bg); font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .ed-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 2px 0; font-size: 12px; color: var(--muted); }
 .ed-info code { font-size: 11.5px; background: var(--chip-bg); padding: 0 5px; border-radius: 4px; color: var(--fg); }
 .add-ed { position: relative; }
@@ -223,11 +221,13 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
     <h1 class="doc-title">Raft 합의 알고리즘: 리더 선출과 로그 복제</h1>
     <p class="docmeta">
       <a href="#" onclick="return false">원문: arxiv.org/abs/2411.01234</a>
-      <span>요약은 문서 하나에 하나 · 에디션이 바꾸는 것은 본문뿐</span>
     </p>
 
     <!-- 본문 panel -->
     <section id="panel-doc" role="tabpanel" aria-label="본문">
+      <div class="sec">요약</div>
+      <p class="summary">Raft는 리더 선출, 로그 복제, 안전성을 분리해 이해하기 쉽게 만든 복제 로그 합의 알고리즘이다. 과반의 표를 얻은 후보가 리더가 되고, 과반이 저장한 로그 항목이 커밋된다.</p>
+      <div class="sec">상세</div>
       <div class="ed-bar">
         <label class="ed-label" for="ed-select">에디션</label>
         <select id="ed-select" name="edition" class="ed-select">
@@ -255,7 +255,7 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
     <p class="proto-note">
       이 프로토타입은 동작하지 않는 시안입니다. 로컬 에디션 전환은 실제로는 <code>/silvercord/{token}/editions/{template}</code>으로의 페이지 이동(교차 문서 전환)이고,
       다른 서버의 에디션은 같은 페이지의 샌드박스 프레임에 열립니다. 의견 본문은 페이지에 텍스트로만 두고, 서식 있는 본문과 첨부는 요청할 때 샌드박스 프레임으로 엽니다.
-      좋아요 수는 보여 주기만 하고 정렬에 쓰지 않습니다(O8 보류).
+      좋아요 수는 보여 주기만 하고 정렬에 쓰지 않습니다(O8 보류). 요약은 문서마다 하나이고 에디션을 바꿔도 바뀌지 않습니다.
     </p>
   </main>
 
@@ -279,7 +279,6 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
 const TOKEN = "7mq2k9x4hz3d8n5p";
 const ICON = {
   heart: '<path d="M8 13.5S2.5 10.2 2.5 6.2A2.9 2.9 0 0 1 8 4.8a2.9 2.9 0 0 1 5.5 1.4C13.5 10.2 8 13.5 8 13.5z"/>',
-  copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M3.5 10.5h-.5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h6.5a1 1 0 0 1 1 1v.5"/>',
   check: '<path d="m3 8.5 3 3 7-7"/>',
   plus: '<path d="M8 3v10M3 8h10"/>',
   reply: '<path d="M6.5 4 2.5 8l4 4M2.5 8H10a3.5 3.5 0 0 1 3.5 3.5v1"/>',
@@ -336,7 +335,7 @@ const OPINIONS = [
   ], later: true }
 ];
 const QUOTES = [
-  { id: "q1", name: "Dev Notes", handle: "@devnotes@hachyderm.example", time: "어제", text: "합의 알고리즘 입문으로 좋은 정리. 인용 승인 증표는 자동으로 왔다." },
+  { id: "q1", name: "Dev Notes", handle: "@devnotes@hachyderm.example", time: "어제", text: "합의 알고리즘 입문으로 좋은 정리." },
   { id: "q2", name: "Seo", handle: "@seo@mastodon.example", time: "2일 전", text: "간결 에디션을 강의 자료로 씁니다." }
 ];
 
@@ -395,15 +394,9 @@ function renderEditionActions() {
     btn.addEventListener("click", () => { e.liked = !e.liked; e.likes += e.liked ? 1 : -1; renderEditionActions(); buildPicker(); setApi(`${e.liked ? "POST" : "DELETE"} (Like / Undo(Like) → ${e.remote ? e.server : "이 서버"})`); });
     box.append(btn);
   }
-  const copyWrap = el("span", { class: "copy" });
-  const copyBtn = el("button", { type: "button", class: "copy-btn", "aria-label": "이 에디션의 출처 표기 복사", html: `${icon("copy")}<span>출처 표기</span>` });
-  const tip = el("span", { class: "copy-tip", role: "status" });
-  copyBtn.addEventListener("click", () => copyCitation(copyBtn, tip));
-  copyWrap.append(copyBtn, tip);
-  box.append(copyWrap);
   if (state.role === "owner") {
     const wrap = el("span", { class: "add-ed" });
-    const addBtn = el("button", { type: "button", class: "copy-btn", "aria-expanded": String(state.addOpen), "aria-controls": "add-menu", html: `${icon("plus")}<span>에디션 추가</span>` });
+    const addBtn = el("button", { type: "button", class: "ed-btn", "aria-expanded": String(state.addOpen), "aria-controls": "add-menu", html: `${icon("plus")}<span>에디션 추가</span>` });
     addBtn.addEventListener("click", () => { state.addOpen = !state.addOpen; renderEditionActions(); });
     wrap.append(addBtn);
     if (state.addOpen) {
@@ -415,24 +408,6 @@ function renderEditionActions() {
     }
     box.append(wrap);
   }
-}
-
-const copyTimers = new WeakMap();
-let lastMessage = "";
-async function copyCitation(button, tip) {
-  const e = current();
-  const text = `${e.who}${e.server ? "@" + e.server : "@claire.example"}. "Raft 합의 알고리즘: 리더 선출과 로그 복제" (${TEMPLATE_LABEL[e.template]} 에디션, ${e.version}). Claire Bible, 2026-11-25. ${e.remote ? e.origin : "https://claire.example" + e.path}`;
-  let ok = true;
-  try { await navigator.clipboard.writeText(text); } catch { ok = false; }
-  clearTimeout(copyTimers.get(button));
-  button.removeAttribute("data-copied");
-  let message = ok ? "복사했습니다" : "복사하지 못했습니다";
-  if (message === lastMessage) message += " ";
-  lastMessage = message;
-  tip.textContent = "";
-  if (ok) button.setAttribute("data-copied", "");
-  requestAnimationFrame(() => { tip.textContent = message; });
-  copyTimers.set(button, setTimeout(() => { button.removeAttribute("data-copied"); tip.textContent = ""; }, 2000));
 }
 
 function renderEdition() {
@@ -553,15 +528,8 @@ function renderOpinions() {
   opLive = msg;
   const reply = $("[data-op-reply]");
   reply.replaceChildren();
-  const objectId = "https://claire.example/ap/objects/1001";
   if (state.role === "anon") {
-    reply.append(el("span", {}, "로그인하면 이 서버 계정으로 답글을 씁니다. 다른 서버 계정으로 답글하려면 그 서버의 검색창에 이 주소를 붙여 넣으세요:"), el("code", { id: "obj-id" }, objectId));
-    const w = el("span", { class: "copy" });
-    const b = el("button", { type: "button", class: "copy-btn", "aria-label": "답글용 객체 주소 복사", html: icon("copy") });
-    const tip = el("span", { class: "copy-tip", role: "status" });
-    b.addEventListener("click", async () => { let ok = true; try { await navigator.clipboard.writeText(objectId); } catch { ok = false; } tip.textContent = ok ? "복사했습니다" : "복사하지 못했습니다"; setTimeout(() => { tip.textContent = ""; }, 2000); });
-    w.append(b, tip);
-    reply.append(w);
+    reply.append(el("span", {}, "로그인하면 이 서버 계정으로 답글을 씁니다. 다른 서버 계정으로 답글하려면 이 페이지 주소를 그 서버의 검색창에 붙여 넣으세요."));
   } else {
     reply.append(el("button", { type: "button", class: "sc-btn", html: `${icon("reply")} 이 에디션에 답글` }), el("span", { class: "op-note" }, "답글은 연합 클라이언트의 작성 창으로 열립니다 (inReplyTo = 이 에디션 객체)."));
   }
@@ -575,7 +543,7 @@ function renderOpinions() {
   for (const o of OPINIONS) { const n = opinionNode(o, 1); if (n) tree.append(n); }
   body.append(tree);
   const q = el("section", { class: "op-quotes", "aria-label": "인용" });
-  q.append(el("h3", { html: `${icon("quote")} 인용 ${QUOTES.length}` }), el("p", { class: "op-note" }, "문서와 에디션의 인용은 항상 허용되며 승인 증표가 자동으로 발급됩니다."));
+  q.append(el("h3", { html: `${icon("quote")} 인용 ${QUOTES.length}` }));
   const ql = el("ol", { class: "op-tree" });
   for (const x of QUOTES) ql.append(opinionNode({ ...x, replies: [] }, 1));
   q.append(ql);
