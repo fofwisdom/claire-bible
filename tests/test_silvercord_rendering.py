@@ -120,6 +120,19 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
         "link_only": False,
     }
     assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/50123"/>' in r_anon.text
+    # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7, phase E2): the preferred address, the account as the author, the time of the publication, and the actor of the account for the byline of a link preview.
+    host = origin.split("://", 1)[1]
+    for tag in (
+        f'<link rel="cite-as" href="{origin}/silvercord/{tok_doc1}"/>',
+        '<meta name="citation_title" content="Doc 1"/>',
+        '<meta name="citation_author" content="Alice In Wonderland"/>',
+        '<meta name="citation_publication_date" content="1970/01/01"/>',
+        f'<meta name="citation_public_url" content="{origin}/silvercord/{tok_doc1}"/>',
+        '<meta name="citation_language" content="ko"/>',
+        f'<meta name="fediverse:creator" content="@alice@{host}"/>',
+    ):
+        assert tag in r_anon.text, tag
+    assert '"isBasedOn": {"@type": "CreativeWork", "url": "http://example.com/1"}' in r_anon.text
     ap_redir = test_client.get(f"/silvercord/{tok_doc1}", headers={"Accept": "application/activity+json"})
     assert ap_redir.status_code == 303 and ap_redir.headers["location"] == "/ap/objects/50123"
 
@@ -180,6 +193,9 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
         assert r_link.headers["x-robots-tag"] == "noindex, nofollow"
         assert '<meta name="robots" content="noindex, nofollow"/>' in r_link.text
         assert "ent_alpha" not in r_link.text and "ent_beta" not in r_link.text
+        # A page that search engines must not index has the preferred address only: no citation elements and no actor.
+        assert f'<link rel="cite-as" href="{origin}/silvercord/{tok_doc1}"/>' in r_link.text
+        assert 'name="citation_' not in r_link.text and "fediverse:creator" not in r_link.text
         link_data = _extract_docdata(r_link.text)
         assert "nodes" not in link_data
         assert link_data["silvercord"] == {

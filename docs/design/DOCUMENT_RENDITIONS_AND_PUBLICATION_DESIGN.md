@@ -1,7 +1,7 @@
 # Renditions of Published Documents, +1 Between Claire Servers, Opinions from Other Servers, and ActivityPub Publication (`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN`)
 
 - **Document Identifier**: `DESIGN-DOC-RENDITIONS-20261125`
-- **Status**: Proposal, revision 11. Phases done: E0, E1. Implemented before the phases: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O20 are given (Section 11). The glossary has the terms of Section 4 since Rev. 10 ([`GLOSSARY.md`](../implementation/GLOSSARY.md) Sections 1.4, 1.13, 1.14), with their state. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
+- **Status**: Proposal, revision 11. Phases done: E0, E1, E2. Implemented before the phases: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O20 are given (Section 11). The glossary has the terms of Section 4 since Rev. 10 ([`GLOSSARY.md`](../implementation/GLOSSARY.md) Sections 1.4, 1.13, 1.14), with their state. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
 - **Date**: 2026-11-25
 - **Base commit**: `8e6b0723`
 - **Visual prototype**: [`prototypes/document_renditions_prototype.html`](prototypes/document_renditions_prototype.html) (Silvercord view: rendition picker, +1, remote rendition, `의견` tab with likes, mobile; mock data)
@@ -362,7 +362,7 @@ Citation (출처 표기) of the Silvercord view, for machines only (Rev. 5):
 1. `<link rel="cite-as" href="{permalink of the item}">` (RFC 8574). A rendition page cites its rendition address; the page of the primary rendition cites the document address.
 2. `citation_title`, `citation_author` (the account), `citation_publication_date`, `citation_public_url`, and `citation_language` meta elements.
 3. JSON-LD of schema.org: `Article` with `isBasedOn` (the source URL), `exampleOfWork` (the source identifier as `CreativeWork`), `version` (the template identifier and version), `author`, `datePublished`, `dateModified`. Mastodon 5.0 adds schema.org markup to its pages too (R5).
-4. `<meta name="fediverse:creator" content="@{username}@{host}">`, and `attributionDomains` with the host of the server in the actor document (R10).
+4. `<meta name="fediverse:creator" content="@{username}@{host}">`, and `attributionDomains` with the host of the server in the actor document (R10). **State (2026-11-26):** the meta element is implemented (phase E2). `attributionDomains` is not: the vocabulary of Fedify 2.4.6 has no such property of `Person`, and the property must be in the actor document and in each `Update(Person)` that the sidecar sends (Mastodon stores the list from each of them), so a change of the served document alone gives a state that changes with each update. It is phase E2b: check the next Fedify release for the property, else add it to the two serialized forms in the sidecar. Until then Mastodon shows no byline.
 
 ### 5.8 ED8: Silvercord paths (answer to Q5)
 
@@ -601,7 +601,8 @@ Intent: an account that follows a remote actor sees some posts of that actor at 
 | :--- | :--- | :--- | :--- |
 | E0 | **Done (2026-11-26).** Terms (Section 5.9): catalog values and keys, removal of the retired sections, glossary, design documents. | — | S |
 | E1 | **Done (2026-11-26, claire.db v49, contract 1.18).** Quotes always permitted for documents (Section 5.7, quotes 1 to 4) and the migration. | — | S |
-| E2 | Citation metadata, `fediverse:creator`, `attributionDomains` (Section 5.7, citation). | — | S |
+| E2 | **Done (2026-11-26).** Citation metadata and `fediverse:creator` (Section 5.7, citation). | — | S |
+| E2b | `attributionDomains` in the actor document and in `Update(Person)` (Section 5.7, citation rule 4). | Fedify support, or a change of the two serialized forms in the sidecar | S |
 | E3 | Templates and local renditions: ingest selection, "정리본 추가", `document_renditions`, the placeholder `prompt_template` (Section 5.2 rule 6), rendition sub-paths, the section "정리본", and the picker of local renditions (Sections 5.1 to 5.3, 5.8, 5.10). The template texts exist. | — | M |
 | E4 | Vocabulary `v2`, rendition objects, `claire:renditions`, body path (Section 5.5). | E3 | M |
 | E5 | Source index, remote rendition cache, exact delete list, remote renditions in the picker and in the sandbox frame (Section 5.4). | E4 | M |

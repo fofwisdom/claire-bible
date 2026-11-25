@@ -268,6 +268,10 @@ def render_open_graph_tags(doc: dict, base_url: str = "", share_token: str = "",
             pass
     if node_tags:
         json_ld["keywords"] = node_tags
+    # The source of the document: this page is a text that Claire made from it (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7).
+    source_url = str((doc or {}).get("url") or "").strip()
+    if source_url.lower().startswith(("http://", "https://")):
+        json_ld["isBasedOn"] = {"@type": "CreativeWork", "url": source_url}
     json_ld_str = _json.dumps(json_ld, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
     tags.append(f'<script type="application/ld+json">{json_ld_str}</script>')
 

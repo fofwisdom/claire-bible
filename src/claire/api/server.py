@@ -89,6 +89,7 @@ from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, Know
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
 from .accounts_routes.common import same_origin
 from . import public_kb_routes
+from .citation_tags import render_citation_tags
 from .host_router import LegacyHost
 from . import collections
 from .namespace import SqliteNamespaceDirectory, _public_origin, kb_base_path, namespace_link, request_namespace
@@ -6162,18 +6163,17 @@ def create_app(
         if not is_member and not readable_kb and not found.link_access:
             return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
 
-        def _object_id() -> int | None:
-            # The public ID of the published object of the document, while its knowledge base is public.
-            if not kb.is_public:
-                return None
+        def _publication() -> tuple[int | None, float | None, str, str]:
+            # The published object of the document while its knowledge base is public (its public ID and the time of the publication), and the account of a personal knowledge base (USERNAME, display name) for the citation tags.
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
-                row = conn.execute("SELECT public_id FROM federation_objects WHERE kb_id=? AND document_id=?", (kb.id, found.target)).fetchone()
-                return None if row is None else int(row[0])
+                row = conn.execute("SELECT public_id, published_at FROM federation_objects WHERE kb_id=? AND document_id=?", (kb.id, found.target)).fetchone() if kb.is_public else None
+                account = conn.execute("SELECT username, display_name FROM accounts WHERE id=? AND status='active'", (kb.account_id,)).fetchone() if (kb.is_personal and kb.account_id is not None) else None
+                return (None if row is None else int(row[0]), None if row is None else float(row[1]), str((account[0] if account else "") or ""), str((account[1] if account else "") or ""))
             finally:
                 conn.close()
 
-        object_id = await asyncio.to_thread(_object_id) if (is_member or readable_kb) else None
+        object_id, published_at, owner_username, owner_name = await asyncio.to_thread(_publication) if (is_member or readable_kb) else (None, None, "", "")
         if object_id is not None and _wants_activitypub_only(request):
             # An ActivityPub client at the permalink goes to the object ID (design U11).
             return RedirectResponse(f"/ap/objects/{object_id}", status_code=303, headers={"Vary": "Accept"})
@@ -6199,6 +6199,18 @@ def create_app(
             headers["Cache-Control"] = "private, no-store"
         if object_id is not None:
             page = page.replace("</head>", f'<link rel="alternate" type="application/activity+json" href="{html.escape(base_url, quote=True)}/ap/objects/{object_id}"/></head>', 1)
+        # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7). The author is the account of a personal knowledge base; the date is the publication, else the ingest. The text of a document is Korean (EXTRACTION.md Section 2.2).
+        cited_at = published_at if published_at is not None else document.get("fetched_at")
+        citation = render_citation_tags(
+            permalink_url=f"{base_url}{permalinks.permalink_path(found.token)}",
+            title=str(document.get("title") or ""),
+            author_name=owner_name or (f"@{owner_username}" if owner_username else ""),
+            publication_date=datetime.fromtimestamp(float(cited_at), tz=timezone.utc).strftime("%Y/%m/%d") if cited_at else "",
+            language="ko",
+            creator_handle=f"@{owner_username}@{urlsplit(base_url).netloc}" if (object_id is not None and owner_username) else "",
+            indexable=readable_kb,
+        )
+        page = page.replace("</head>", citation + "</head>", 1)
         if not readable_kb:
             # Only link access or private membership makes the document readable: search engines must not get the address (U9).
             page = page.replace('<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"/>', '<meta name="robots" content="noindex, nofollow"/>')
