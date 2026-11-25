@@ -1,12 +1,13 @@
 # Editions of Published Documents, Opinions from Other Servers, and ActivityPub Publication (`DOCUMENT_EDITIONS_AND_PUBLICATION_DESIGN`)
 
 - **Document Identifier**: `DESIGN-DOC-EDITIONS-20261125`
-- **Status**: Proposal, revision 2. Implemented: only the texts of the three edition templates (`src/claire/extract/edition_templates.py`, test `tests/test_edition_templates.py`); no ingest path uses them yet (phase E3). Owner decisions O1 to O7 are given (2026-11-25, Section 11). Open: O8 and O9.
+- **Status**: Proposal, revision 3. Implemented: only the texts of the three edition templates (`src/claire/extract/edition_templates.py`, test `tests/test_edition_templates.py`); no ingest path uses them yet (phase E3). Owner decisions O1 to O7 and O9 are given (2026-11-25, Section 11). O8 is on hold. The frontend part is rules without a visual prototype (Section 9.1).
 - **Date**: 2026-11-25
 - **Base commit**: `8e6b0723`
 - **Revisions**:
   - Rev. 1 (2026-11-25): first proposal, questions Q1 to Q6, decisions O1 to O7 asked.
   - Rev. 2 (2026-11-25): owner answers to O1 to O7. Template `no_math` became `academic` (학문 특화). +1 is the ActivityPub `Like` as it is, and the delivered document object is the primary edition. New: opinions from other servers (Section 5.11), with the structure of Mastodon.
+  - Rev. 3 (2026-11-25): O8 on hold (two kinds of reputation, Section 5.6 rules 6 and 7). O9: A, the idea is in [`TIMELINE_BACKFILL_IDEAS.md`](../ideas/TIMELINE_BACKFILL_IDEAS.md). Frontend coverage (Section 9.1).
 - **Related**: [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD10, RD21), [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) (vocabulary, known servers), [`PERMALINK_UNIFICATION_DESIGN.md`](PERMALINK_UNIFICATION_DESIGN.md), [`SILVERCORD_RENDERING_DESIGN.md`](SILVERCORD_RENDERING_DESIGN.md) (the `의견` tab, SR5, SD8), [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (reputation, CT18), [`FEDERATION.md`](../implementation/FEDERATION.md), [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md), [`PERMALINKS.md`](../implementation/PERMALINKS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`GLOSSARY.md`](../implementation/GLOSSARY.md)
 
 ## 1. Owner request (2026-11-25)
@@ -32,6 +33,13 @@ Owner answers to revision 1 (2026-11-25):
 > * O6: 권장안
 > * O7: 권장안
 > * 기타: ActivityPub 자체 기능 개선도 함께 들어가야합니다. 다른 서버의 의견을 끌어오는 기능입니다. https://github.com/nanos/FediFetcher 와 유사합니다. 최신 Mastodon이 업데이트하는 명세 파악 가능하다면 해당 구조를 우선합니다.
+
+Owner answers to revision 2 (2026-11-25):
+
+> * O8: 평판에도 종류가 있습니다. 발행자의 평판과 발행 에디션 간 평판입니다. 구상에 구멍이 있네요. 다시 별도의 점수제가 필요할 수 있으니, 보류합니다.
+> * O9: 권장안
+>
+> 현재 설계는 백앤드 한정인가요? 프런트엔드를 포함하나요?
 
 Questions and the answers of this design:
 
@@ -249,8 +257,8 @@ Reasons:
 3. A like inside one server makes the same row and sends nothing.
 4. The author cannot like an own edition; the origin ignores such a `Like`.
 5. Anonymous visitors see the counts. The control needs an account that is a federation actor (every active account with a USERNAME, GD5 and GD8).
-6. Order in the picker: the opened edition first, then the others by likes (high first), then by `updated` (new first).
-7. **Reputation (owner remark of O5).** The likes that the published objects of an account get from other accounts are data that the reputation can read: `federation_object_reactions` has the object, the actor, and the time. A signal needs the controls that the approval rate has: count distinct actors, give one domain at most one third of the weight, use the window `reputation_window_days`, ignore likes from accounts of the same server as the author when they are many. The formula and the thresholds are O8. The reputation still controls the exchange only (fact 16).
+6. Order in the picker, until O8: the opened edition first, then the primary edition, then the template order of Section 5.2 (`detailed`, `concise`, `academic`), then `updated` (new first). The picker shows the like count of each edition, but the count does not change the order. Reason: an order by likes is already a score between editions, and that score is on hold (rule 7).
+7. **Reputation: on hold (O8).** The owner separates two kinds: the reputation of a publisher (an account) and the reputation between published editions. Likes alone do not cover both, and a separate score can be necessary. Until a decision, likes are data only: `federation_object_reactions` keeps the object, the actor, and the time, and no reputation and no order reads them. The reputation of fact 16 does not change.
 8. Domain blocks and the rate limit of interactions apply to inbound `Like`.
 
 ### 5.7 ED7: Quotes always permitted, and citation (answer to Q6)
@@ -431,6 +439,21 @@ Intent: the `의견` tab of a published object shows the public conversation abo
 
 E0, E1, E2, E3, and E6 do not depend on each other.
 
+### 9.1 Frontend coverage
+
+The design has backend and frontend parts. The backend parts (wire forms, data, sidecar tasks, limits) are complete for implementation. The frontend parts are rules; there is no visual prototype yet. Each other design of a page in this project starts from a prototype in `docs/design/prototypes/` (for example the Silvercord design), so a prototype comes before the frontend work of E3, E5, and E7.
+
+| Surface | In this design | Not yet designed |
+| :--- | :--- | :--- |
+| Silvercord view (`share.html`) | Edition picker, like control, edition switch, prefetch, long bodies (5.10); `의견` tab: tree, sandbox frame, counts, actions, hide (5.11 D); citation metadata and the copy action (5.7); edition and opinion sub-paths (5.8) | Visual prototype; place of the picker and the like control in the mobile bottom bar (SD5); empty, loading, and error states; the refresh indicator of opinions |
+| Ingest (`/ingest`, Telegram bot, CLI, MCP) | Template selection for each request, "에디션 추가" in the document menu (5.3) | Form layout; the bot and CLI syntax; the cost display before a run |
+| `/syndication` knowledge base view (stage 3) | Term changes (5.9); removal of the quote policy dialog of documents (5.7) | Editions and opinion counts in the list of published documents; the publish dialog with the editions that go out |
+| Workspace reader and context panel | — | Edition switch inside the workspace |
+| Account home timeline | — | A document post with its editions |
+| Console | Removal of `/settings/connections` and `/settings/outbound` (5.9) | — |
+| Notifications | — | A new opinion or a like as a notification kind |
+| Catalog | The rule "keys in English and Korean from the start" (5.2, 5.10) | The list of keys |
+
 Tests (global rules: unit tests only for module interfaces, input and output, and calls to external libraries; at least one E2E test for each new feature):
 
 - E2E: an edition switch in the picker and a like on a Silvercord page; the `의견` tab with fetched opinions (Playwright through `scripts/e2e.sh`); the vocabulary fixtures of `v2`; a DrFed scenario for the edition object, the body path with a signed server actor, the `replies` collection, and an inbound `Like`; two development servers for the source index and the opinion fetch (acceptance path as KA1 to KA5).
@@ -459,13 +482,13 @@ Tests (global rules: unit tests only for module interfaces, input and output, an
 | O5 | Favourites and the mark of editions | The ActivityPub `Like` as it is. The likes can feed the reputation (Section 5.6 rule 7). |
 | O6 | Change of the primary edition | Recommendation: always the first edition in phase E3. |
 | O7 | English word for a note | Recommendation: "Post". |
+| O9 | Fill the timeline with recent posts of a newly followed actor (the profile function of FediFetcher, R16) | A: not in this design. The idea is in [`TIMELINE_BACKFILL_IDEAS.md`](../ideas/TIMELINE_BACKFILL_IDEAS.md). |
 
 Open:
 
 | # | Question | Options | Recommendation |
 | :--- | :--- | :--- | :--- |
-| O8 | Likes as a reputation signal | A: a third signal with the controls of Section 5.6 rule 7, formula and thresholds after a measurement of real likes. B: likes only on the page, not in the reputation. | A, after measurement: the current thresholds are not calibrated either (fact 16) |
-| O9 | Fill the timeline with recent posts of a newly followed actor (the profile function of FediFetcher, R16) | A: not in this design (an idea in `docs/ideas/`). B: a later phase of this design. | A: it is not about opinions |
+| O8 | Likes as a reputation signal | **On hold** (2026-11-25). There are two kinds of reputation: of the publisher and between published editions. The plan has a gap, and a separate score can be necessary. Section 5.6 rules 6 and 7 apply until a decision. | — |
 
 ---
 
