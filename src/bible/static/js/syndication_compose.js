@@ -20,7 +20,7 @@
 
   const AVAILABLE = cfg.authScope === "owner";
   const KNOWN_ERRORS = ["not_actor", "empty_content", "content_too_long", "summary_too_long", "too_many_mentions", "too_many_tags", "invalid_language", "invalid_mention", "blocked_domain", "item_not_found", "note_not_found", "own_item", "invalid_quote_policy"];
-  const QUOTE_ERRORS = ["quote_not_found", "invalid_state", "object_not_found"];
+  const QUOTE_ERRORS = ["quote_not_found", "invalid_state", "object_not_found", "quote_always_permitted"];
   const QUOTE_STATES = ["pending", "approved", "refused", "revoked"];
   // mode: "new", "reply", "quote", or "edit". item: the item of a reply, of a quote, or of an edit.
   const S = { mode: "new", item: null, busy: false };
@@ -104,7 +104,10 @@
   function requestHtml(entry, approved) {
     const object = entry.object || {};
     const text = object.kind === "gone" ? tr("synd.quote.object_gone") : object.text || "";
-    const buttons = approved
+    // A quote of a published document cannot be refused or revoked (always quotable).
+    const buttons = object.kind === "document"
+      ? ""
+      : approved
       ? `<button type="button" class="tt-btn synd-mini" data-quote-decide="${esc(entry.id)}" data-quote-decision="revoked">${ic("block")} ${esc(tr("synd.quote.action.revoke"))}</button>`
       : `<button type="button" class="tt-btn synd-mini tt-btn-pri" data-quote-decide="${esc(entry.id)}" data-quote-decision="approved">${ic("check-circle")} ${esc(tr("synd.quote.action.approve"))}</button><button type="button" class="tt-btn synd-mini" data-quote-decide="${esc(entry.id)}" data-quote-decision="refused">${ic("close")} ${esc(tr("synd.quote.action.refuse"))}</button>`;
     return `<div class="synd-quote-request" data-quote-request="${esc(entry.id)}" data-quote-state="${esc(entry.state)}">

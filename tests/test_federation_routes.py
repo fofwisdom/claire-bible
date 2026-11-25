@@ -760,7 +760,7 @@ def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_ren
     assert (second["name"], second["url"]) == ("Second", None)
     # RD21: the object has the summary (here the title, because the document has no extraction) and the share link, never the body. The second document has no share, so it has no link.
     assert second["content"] == "<p>Second</p>" and "body" not in second["content"]
-    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at", "quote_policy"}
+    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at"}
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,7 @@ from claire.api import federation_note_routes, federation_quote_routes
 from claire.store import client_db
 from claire.store import db as dbm
 from claire.store import federation_notes as notes_store
+from claire.store import federation_quotes as quotes_store
 from tests.test_federation_routes import FP49Q_FIXTURES, _isolate, fixture, internal  # noqa: F401  (pytest fixtures)
 
 ORIGIN = "https://claire.example.com"
@@ -163,24 +164,41 @@ def test_version_5_file_gets_the_quote_schema_and_keeps_its_rows(tmp_path: Path,
             conn.close()
 
 
-def test_version_23_file_gets_the_quote_policy_of_published_documents(tmp_path: Path, monkeypatch) -> None:
+def test_version_49_drops_the_document_quote_policy_and_approves_document_requests(tmp_path: Path) -> None:
+    """``claire.db`` version 49 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7): a file of version 48 has the column ``quote_policy`` and requests that wait or were refused."""
     path = tmp_path / "claire.db"
-    with monkeypatch.context() as m:
-        m.setattr(dbm, "SCHEMA_VERSION", 23)
-        m.setattr(dbm, "_migrate_v24_object_quote_policy", lambda conn: None)
-        conn = dbm.connect(path)
-        dbm.init_db(conn)
-        conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'physics', 0, 1, 1, 1, 1, 516412345678901234)")
-        conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at) VALUES (801, 1, 11, 'doc-a', 1, 1, 1)")
-        conn.commit()
-        assert "quote_policy" not in {r[1] for r in conn.execute("PRAGMA table_info(federation_objects)")}
-        conn.close()
+    conn = dbm.connect(path)
+    dbm.init_db(conn)
+    conn.execute("ALTER TABLE federation_objects ADD COLUMN quote_policy TEXT NOT NULL DEFAULT 'manual' CHECK (quote_policy IN ('public', 'followers', 'manual', 'nobody'))")
+    conn.execute("INSERT INTO knowledge_bases (id, seq, label, is_personal, is_public, created_at, updated_at, account_id, number) VALUES (11, 11, 'physics', 0, 1, 1, 1, 1, 516412345678901234)")
+    for public_id, document, policy in ((801, "doc-a", "manual"), (802, "doc-b", "public"), (803, "doc-c", "nobody")):
+        conn.execute("INSERT INTO federation_objects (public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at, quote_policy) VALUES (?, 1, 11, ?, 1, 1, 1, ?)", (public_id, document, policy))
+    conn.commit()
+    conn.close()
+    client = client_db.connect_client_db(client_db.client_db_path(path))
+    rows = {}
+    # 801 and 803 are published documents; 990 is not (an own note has its number in ``client.db``).
+    for name, object_id, state in (("waits", 801, "pending"), ("refused", 803, "refused"), ("revoked", 801, "revoked"), ("approved", 802, "approved"), ("note", 990, "pending")):
+        rows[name] = quotes_store.add_authorization(client, account_id=1, object_public_id=object_id, quoting_object_iri=f"https://remote.example/notes/{name}", quoting_actor_iri="https://remote.example/users/bob", request_iri=f"https://remote.example/requests/{name}", state=state, now=5.0).id
+    client.execute("DELETE FROM federation_client_outbox")
+    client.commit()
+    client.close()
     for _ in range(2):
         conn = dbm.connect(path)
         try:
             dbm.init_db(conn)
-            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
-            # The default of a published document is manual (design Section 5.4 rule 6).
-            assert conn.execute("SELECT quote_policy FROM federation_objects WHERE public_id=801").fetchone()[0] == "manual"
+            conn.commit()
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION == 49
+            assert "quote_policy" not in {r[1] for r in conn.execute("PRAGMA table_info(federation_objects)")}
+            # Each object whose policy was not ``public`` sends ``Update`` one time.
+            assert [tuple(r) for r in conn.execute("SELECT kind, object_public_id, status FROM federation_outbox ORDER BY object_public_id")] == [("update", 801, "pending"), ("update", 803, "pending")]
         finally:
+            conn.close()
+        client = client_db.connect_client_db(client_db.client_db_path(path))
+        try:
+            states = {name: quotes_store.get_authorization(client, row_id).state for name, row_id in rows.items()}
+            assert states == {"waits": "approved", "refused": "approved", "revoked": "revoked", "approved": "approved", "note": "pending"}
+            assert sorted((r[0], r[1]) for r in client.execute("SELECT kind, ref_id FROM federation_client_outbox")) == sorted([("quote_authorize", rows["waits"]), ("quote_authorize", rows["refused"])])
+        finally:
+            client.close()
             conn.close()

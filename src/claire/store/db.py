@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 48
+SCHEMA_VERSION = 49
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -879,7 +879,6 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v21_account_feeds(conn)
     _migrate_v22_move_feed_tables(conn)
     _migrate_v23_object_content_digest(conn)
-    _migrate_v24_object_quote_policy(conn)
     _migrate_v26_account_entity_language(conn)
     _migrate_v28_shared_kb_schema(conn)
     _migrate_v31_contribution_remote_columns(conn)
@@ -905,6 +904,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v46_preferred_languages(conn)
     _migrate_v47_lab_runs(conn)
     _migrate_v48_anonymous_readonly(conn)
+    _migrate_v49_document_quotes_always_permitted(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -2280,10 +2280,36 @@ def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
 
 
-def _migrate_v24_object_quote_policy(conn: sqlite3.Connection) -> None:
-    """v24 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6, unit FP4-9Q): ``federation_objects.quote_policy`` is the quote policy of a published document (FEP-044f ``canQuote``). The default is ``manual``: an object from before this version gets it. The column is in this file so that a change of the policy and its ``update`` task are in one transaction. Idempotent (A3)."""
-    if _table_exists(conn, "federation_objects") and "quote_policy" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
-        conn.execute("ALTER TABLE federation_objects ADD COLUMN quote_policy TEXT NOT NULL DEFAULT 'manual' CHECK (quote_policy IN ('public', 'followers', 'manual', 'nobody'))")
+def _migrate_v49_document_quotes_always_permitted(conn: sqlite3.Connection) -> None:
+    """v49 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7): a published document is always quotable, so ``federation_objects.quote_policy`` of v24 has no function and the step drops it. Idempotent; it runs at each start and does its work only while the column exists.
+
+    Before the drop: each object whose policy was not ``public`` gets an ``update`` task, so that the followers get the object with the new ``canQuote``; and each quote request for a published document that waits or was refused becomes ``approved`` in ``client.db`` with its ``quote_authorize`` task. A revoked authorization stays revoked. When ``claire.db`` has no file, there is no ``client.db`` and no request to change.
+    """
+    if not _table_exists(conn, "federation_objects") or "quote_policy" not in _table_columns(conn, "federation_objects"):
+        return
+    now = time.time()
+    changed = conn.execute("SELECT public_id, account_id FROM federation_objects WHERE quote_policy != 'public'").fetchall()
+    for public_id, account_id in changed:
+        conn.execute("UPDATE federation_objects SET updated_at=? WHERE public_id=?", (now, public_id))
+        conn.execute("INSERT INTO federation_outbox (account_id, kind, object_public_id, status, created_at) VALUES (?, 'update', ?, 'pending', ?)", (account_id, public_id, now))
+    object_ids = [int(row[0]) for row in conn.execute("SELECT public_id FROM federation_objects").fetchall()]
+    main = _main_file(conn)
+    if object_ids and main is not None:
+        from . import federation_quotes
+        from .client_db import client_db_path, connect_client_db
+
+        client = connect_client_db(client_db_path(main))
+        try:
+            for start in range(0, len(object_ids), 500):
+                part = object_ids[start : start + 500]
+                marks = ",".join("?" for _ in part)
+                rows = client.execute(f"SELECT id FROM federation_quote_authorizations WHERE state IN ('pending', 'refused') AND object_public_id IN ({marks})", part).fetchall()
+                for (authorization_id,) in rows:
+                    federation_quotes.set_authorization_state(client, int(authorization_id), "approved", now=now)
+            client.commit()
+        finally:
+            client.close()
+    conn.execute("ALTER TABLE federation_objects DROP COLUMN quote_policy")
 
 
 # v25: the name of ``server_settings`` before version 25. Only ``_migrate_v25_server_settings`` uses it.

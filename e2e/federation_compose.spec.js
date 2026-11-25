@@ -155,8 +155,8 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     const evil = 'https://remote.example/users/<img src=x onerror="window.__pwned = 1">';
     const quotes = {
       requests: [{ id: '31', state: 'pending', object: { id: '900', url: 'http://127.0.0.1:8766/ap/objects/900', kind: 'note', text: 'My <b>note</b>' }, quoting_object: 'https://remote.example/notes/31', quoting_actor: evil, authorization: null, created_at: NOW, updated_at: NOW },
-        { id: '33', state: 'pending', object: { id: '901', url: 'http://127.0.0.1:8766/ap/objects/901', kind: 'document', text: 'A document' }, quoting_object: 'javascript:alert(1)', quoting_actor: 'https://remote.example/users/dan', authorization: null, created_at: NOW, updated_at: NOW }],
-      authorizations: [{ id: '32', state: 'approved', object: { id: '900', url: 'http://127.0.0.1:8766/ap/objects/900', kind: 'gone', text: '' }, quoting_object: 'https://remote.example/notes/32', quoting_actor: 'https://remote.example/users/carol', authorization: 'http://127.0.0.1:8766/ap/quote-authorizations/32', created_at: NOW, updated_at: NOW }],
+        { id: '33', state: 'pending', object: { id: '901', url: 'http://127.0.0.1:8766/ap/objects/901', kind: 'note', text: 'A second note' }, quoting_object: 'javascript:alert(1)', quoting_actor: 'https://remote.example/users/dan', authorization: null, created_at: NOW, updated_at: NOW }],
+      authorizations: [{ id: '32', state: 'approved', object: { id: '900', url: 'http://127.0.0.1:8766/ap/objects/900', kind: 'gone', text: '' }, quoting_object: 'https://remote.example/notes/32', quoting_actor: 'https://remote.example/users/carol', authorization: 'http://127.0.0.1:8766/ap/quote-authorizations/32', created_at: NOW, updated_at: NOW }, { id: '34', state: 'approved', object: { id: '950', url: 'http://127.0.0.1:8766/ap/objects/950', kind: 'document', text: 'A document', kb_id: 1, document_id: 'doc-1' }, quoting_object: 'https://remote.example/notes/34', quoting_actor: 'https://remote.example/users/erin', authorization: 'http://127.0.0.1:8766/ap/quote-authorizations/34', created_at: NOW, updated_at: NOW }],
     };
     const published = { items: [] };
     await page.route('**/api/federation/timeline?**', route => route.fulfill(json({ items, next_max_id: null, counts })));
@@ -186,10 +186,6 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
       return route.fulfill(json({ quote: Object.assign({}, entry, { state }) }));
     });
     await page.route('**/api/federation/objects?**', route => route.fulfill(json({ total: published.items.length, items: published.items, next_max_id: null })));
-    await page.route('**/api/federation/objects/*', route => {
-      sent.push({ method: 'PATCH', path: '/objects/' + route.request().url().split('/').pop(), body: route.request().postDataJSON() });
-      return route.fulfill(json({ object: { id: '950', quote_policy: route.request().postDataJSON().quote_policy } }));
-    });
     await page.route('**/render/remote/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><html><body><p>Body</p></body></html>' }));
     await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 0, limit: 1000, items: [], next_max_id: null })));
     await page.route('**/api/federation/status', route => route.fulfill(json({ handle: me.handle, actor_id: me.iri, is_actor: true, actor_state: 'active', discoverable: true, followers: { total: 0 }, pending_tasks: 0 })));
@@ -253,7 +249,7 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     await expect(folder).toBeVisible();
     await expect(page.locator('#client-quotes-count')).toHaveText('2');
     const requests = page.locator('#client-quotes .synd-quote-request');
-    await expect(requests).toHaveCount(3);
+    await expect(requests).toHaveCount(4);
     await expect(requests.nth(0)).toContainText('<img src=x onerror=');
     await expect(requests.nth(0)).toContainText('My <b>note</b>');
     await expect(page.locator('#client-quotes img, #client-quotes b')).toHaveCount(0);
@@ -263,6 +259,9 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     await expect(requests.nth(0).locator('[data-quote-decision="approved"] svg, [data-quote-decision="refused"] svg')).toHaveCount(2);
     await expect(requests.nth(2)).toContainText('(없어진 글)');
     await expect(requests.nth(2).locator('[data-quote-decision]')).toHaveText(['철회']);
+    // A quote of a published document is always permitted: its row has no control to refuse or revoke.
+    await expect(requests.nth(3)).toContainText('A document');
+    await expect(requests.nth(3).locator('[data-quote-decision]')).toHaveCount(0);
 
     // Approve, refuse, and revoke send the decision of the owner.
     await requests.nth(0).locator('[data-quote-decision="approved"]').click();
@@ -272,35 +271,26 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     await expect(page.locator('#client-quotes-count')).toHaveText('');
     await page.locator('[data-quote-request="32"] [data-quote-decision="revoked"]').click();
     await expect(page.locator('[data-quote-request="32"]')).toHaveCount(0);
-    await expect(page.locator('#client-quotes .synd-quote-request')).toHaveCount(1);
+    await expect(page.locator('#client-quotes .synd-quote-request')).toHaveCount(2);
     expect(sent.slice(-3)).toEqual([
       { method: 'PATCH', path: '/quotes/31', body: { state: 'approved' } },
       { method: 'PATCH', path: '/quotes/33', body: { state: 'refused' } },
       { method: 'PATCH', path: '/quotes/32', body: { state: 'revoked' } },
     ]);
 
-    // Quote policy of a published document: a command of the context menu of the knowledge base view, for a published document only.
+    // A published document has no quote policy: the context menu of the knowledge base view has no such command, and the row shows the number of quotes.
     await page.locator('[data-stage-btn="ingest"]').click();
     const row = page.locator('#headlines-container [data-row-id]').first();
     await expect(row).toBeVisible();
-    await row.click({ button: 'right' });
-    await expect(page.locator('#pop-doc-context')).toBeVisible();
-    await expect(page.locator('#menu-doc-quote-policy')).toBeHidden();
-    await page.keyboard.press('Escape');
     const key = await page.evaluate(() => { const theme = window.ClaireSyndication.curTheme(); return { kb_id: theme.id, document_id: document.querySelector('#headlines-container [data-row-id]').getAttribute('data-row-id') }; });
-    published.items = [Object.assign({ id: '950', published_at: NOW, updated_at: NOW, likes: 0, announces: 0, quotes: 2, quote_policy: 'manual' }, key)];
+    published.items = [Object.assign({ id: '950', published_at: NOW, updated_at: NOW, likes: 0, announces: 0, quotes: 2 }, key)];
     await page.goto('/syndication?stage=ingest', { waitUntil: 'domcontentloaded' });
     const publishedRow = page.locator(`#headlines-container [data-row-id="${key.document_id}"]`);
     await expect(publishedRow.locator('[data-reactions]')).toContainText('인용 2');
     await publishedRow.click({ button: 'right' });
-    await expect(page.locator('#menu-doc-quote-policy')).toBeVisible();
-    await page.locator('#menu-doc-quote-policy').click();
-    await expect(page.locator('#modal-quote-policy')).toHaveAttribute('open', '');
-    await expect(page.locator('#quote-policy-value')).toHaveValue('manual');
-    await page.locator('#quote-policy-value').selectOption('followers');
-    await page.locator('#btn-quote-policy').click();
-    await expect(page.locator('#modal-quote-policy')).not.toHaveAttribute('open', '');
-    expect(sent.at(-1)).toEqual({ method: 'PATCH', path: '/objects/950', body: { quote_policy: 'followers' } });
+    await expect(page.locator('#pop-doc-context')).toBeVisible();
+    await expect(page.locator('#menu-doc-quote-policy, #modal-quote-policy')).toHaveCount(0);
+    await page.keyboard.press('Escape');
 
     expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
     expect(pageErrors).toEqual([]);

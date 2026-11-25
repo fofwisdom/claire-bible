@@ -794,8 +794,8 @@ export class Sidecar {
       updated: instant(record.updated_at),
       to: PUBLIC_COLLECTION,
       cc: ctx.getFollowersUri(record.actor_public_id),
-      // The quote policy of the document (unit FP4-9Q).
-      interactionPolicy: quoteInteractionPolicy(ctx, record.actor_public_id, record.quote_policy),
+      // A published document is always quotable (contract 1.18): automatic approval for the public collection.
+      interactionPolicy: quoteInteractionPolicy(ctx, record.actor_public_id, "public"),
     });
   }
 

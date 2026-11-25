@@ -42,7 +42,7 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        # Outbound interactions (FP4-9)
        "/api/federation/notes", "/api/federation/notes/{note_id}", "/api/federation/timeline/{item_id}/favourite", "/api/federation/timeline/{item_id}/boost",
        # Quotes (FP4-9Q)
-       "/api/federation/quotes", "/api/federation/quotes/{quote_id}", "/api/federation/objects/{object_id}",
+       "/api/federation/quotes", "/api/federation/quotes/{quote_id}",
        # Account feeds (FP4-F1, FP4-F2)
        "/api/feeds", "/api/feeds/poll", "/api/feeds/opml", "/api/feeds/items",
        # Feed view (FP4-F3)

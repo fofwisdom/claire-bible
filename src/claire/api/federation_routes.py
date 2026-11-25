@@ -81,7 +81,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.17"
+CONTRACT_VERSION = "1.18"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -514,8 +514,6 @@ class ObjectRecord(_Sealed):
     url: str | None
     published_at: float
     updated_at: float
-    # Contract 1.7 (unit FP4-9Q): the quote policy of the document. The sidecar makes ``canQuote`` of the interaction policy from it (RT9).
-    quote_policy: Literal["public", "followers", "manual", "nobody"]
 
 
 class OutboxItem(_Sealed):
@@ -1490,7 +1488,6 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 url=share_url,
                 published_at=obj.published_at,
                 updated_at=obj.updated_at,
-                quote_policy=obj.quote_policy,
             )
         finally:
             store.conn.close()

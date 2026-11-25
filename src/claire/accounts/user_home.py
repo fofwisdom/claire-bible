@@ -191,7 +191,7 @@ def build_user_home_timeline(
                     "language": None,
                     "tags": [],
                     "in_reply_to": None,
-                    "quote_policy": raw_obj.quote_policy,
+                    "quote_policy": federation_store.DOCUMENT_QUOTE_POLICY,
                     "quote": None,
                     "likes": 0,
                     "announces": 0,

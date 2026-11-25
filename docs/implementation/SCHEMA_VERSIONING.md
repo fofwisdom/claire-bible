@@ -24,7 +24,7 @@ v13은 사용자 기능을 더하지 않은 version이다. v9의 테이블, 컬�
 | 21 | 직전 version (아래 "v21" 절) | 계정 피드 구독(`feed_subscriptions`)과 피드 항목(`feed_items`) |
 | 22 | 직전 version (아래 "v22" 절) | 피드 테이블을 `client.db`로 이동 |
 | 23 | 직전 version (아래 "v23" 절) | `federation_objects.content_digest` |
-| 24 | 직전 version (아래 "v24" 절) | `federation_objects.quote_policy` |
+| 24 | 직전 version (아래 "v24" 절) | `federation_objects.quote_policy` (v49에서 제거) |
 | 25 | 직전 version (아래 "v25" 절) | `instance_settings`를 `server_settings`로 이름 변경 |
 | 26 | 직전 version (아래 "v26" 절) | 계정 엔티티 언어(`accounts.entity_language`) |
 | 27 | 직전 version (아래 "v27" 절) | 테마를 지식 베이스로 이름 변경(`knowledge_bases`, `kb_id`, `is_personal`) |
@@ -449,3 +449,12 @@ Design: [`LEGACY_ENV_AND_MANUAL_TOKEN_RETIREMENT_DESIGN.md`](../design/LEGACY_EN
 
 - **[code]** `_migrate_v48_anonymous_readonly` (runs once per DB via marker `server_settings.anonymous_readonly_v48`, idempotent): reads `CLAIRE_ANONYMOUS_READONLY` from process environment and `.env`/`.env.dev` (precedence: process env > `.env.dev` > `.env`). When `"0"`, updates personal KBs (`UPDATE knowledge_bases SET is_public = 0, visibility_epoch = visibility_epoch + 1 WHERE is_personal = 1 AND is_public != 0`) while keeping shared KBs (`is_personal = 0`) public (`is_public = 1`) with a warning if present, and comments out active `CLAIRE_ANONYMOUS_READONLY=` lines in writable `.env`/`.env.dev` files (else logs a deprecation warning). When `"1"` or absent, leaves KB rows unchanged and comments out the variable.
 - **[test]** `tests/test_schema_v48.py`.
+
+## v49 (a published document is always quotable)
+
+Basis: phase E1 of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.7 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 49. `_migrate_v49_document_quotes_always_permitted` (`src/claire/store/db.py`) runs at each start and does its work only while `federation_objects.quote_policy` exists. The step of v24 that added the column does not exist now.
+- **[code]** Before the drop: each object whose policy was not `public` gets `updated_at` of the run and one `update` task in `federation_outbox`, so that the followers get the object with the new `canQuote`. Each row of `federation_quote_authorizations` in `client.db` that is `pending` or `refused` and whose `object_public_id` is a published document becomes `approved` with its `quote_authorize` task. A `revoked` row and a request for a note do not change. Then the step drops the column.
+- **[code]** `store.federation.DOCUMENT_QUOTE_POLICY` (`public`) is the policy of each published document. The policy is not data.
+- **[test]** `tests/test_federation_quotes.py` (`test_version_49_drops_the_document_quote_policy_and_approves_document_requests`).

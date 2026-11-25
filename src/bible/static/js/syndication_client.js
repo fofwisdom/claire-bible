@@ -164,7 +164,7 @@
       result.data.items.forEach((item) => {
         keys.add(`${item.kb_id}:${item.document_id}`);
         reactions[`${item.kb_id}:${item.document_id}`] = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })}`;
-        objects[`${item.kb_id}:${item.document_id}`] = { id: item.id, quote_policy: item.quote_policy };
+        objects[`${item.kb_id}:${item.document_id}`] = { id: item.id };
       });
       maxId = result.data.next_max_id;
       if (!maxId) break;
@@ -591,38 +591,6 @@
     }
   });
 
-  // Quote policy of a published document (design Section 5.4 rule 6, FP4-9Q): a command of the context menu of the knowledge base view.
-  function publishedObject(docId) {
-    const theme = bridge.curTheme();
-    return (theme && docId && C.publishedObjects && C.publishedObjects[`${theme.id}:${docId}`]) || null;
-  }
-
-  function openQuotePolicy(docId) {
-    const object = publishedObject(docId);
-    const dialog = $("modal-quote-policy");
-    if (!object || !dialog) return;
-    const theme = bridge.curTheme();
-    const doc = ((theme && theme.documents) || []).find((d) => String(d.id) === String(docId));
-    C.quotePolicyDoc = docId;
-    $("quote-policy-doc").textContent = doc ? doc.title || "" : "";
-    $("quote-policy-value").value = object.quote_policy || "manual";
-    $("quote-policy-msg").textContent = "";
-    dialog.showModal();
-  }
-
-  async function submitQuotePolicy() {
-    const object = publishedObject(C.quotePolicyDoc);
-    if (!object) return;
-    const value = $("quote-policy-value").value;
-    const result = await api("PATCH", `/api/federation/objects/${encodeURIComponent(object.id)}`, { quote_policy: value });
-    if (!result.ok) { $("quote-policy-msg").textContent = errorText(result); return; }
-    object.quote_policy = value;
-    $("modal-quote-policy").close();
-    bridge.ticker(tr("synd.quote.policy_saved"));
-  }
-
-  if ($("form-quote-policy")) $("form-quote-policy").addEventListener("submit", (e) => { e.preventDefault(); submitQuotePolicy(); });
-
   // Context menu (right click) of one document of the knowledge base view. The commands are those of the article menu in syndication_live.js.
   // The popover is "manual": the pointer release of the same right click would close an "auto" popover at once. This file closes it on a press outside, on Escape, and after a command.
   const contextMenu = $("pop-doc-context");
@@ -632,9 +600,6 @@
     if (!row || !contextMenu || typeof contextMenu.showPopover !== "function") return;
     e.preventDefault();
     bridge.state.activeArticleMenuDocId = row.getAttribute("data-row-id") || row.getAttribute("data-card-id");
-    // The quote policy is a command of a published document of the owner only (FP4-9Q).
-    const policyItem = $("menu-doc-quote-policy");
-    if (policyItem) policyItem.hidden = !publishedObject(bridge.state.activeArticleMenuDocId);
     closeContextMenu();
     contextMenu.showPopover();
     const box = contextMenu.getBoundingClientRect();
@@ -647,7 +612,6 @@
     document.addEventListener("pointerdown", (e) => { if (!contextMenu.contains(e.target)) closeContextMenu(); });
     window.addEventListener("blur", closeContextMenu);
     contextMenu.addEventListener("click", (e) => {
-      if (e.target.closest("[data-doc-quote-policy]")) { closeContextMenu(); openQuotePolicy(bridge.state.activeArticleMenuDocId); return; }
       if (e.target.closest("[data-art-cmd]")) closeContextMenu();
     });
     contextMenu.addEventListener("keydown", (e) => {

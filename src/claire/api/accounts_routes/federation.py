@@ -834,7 +834,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 client.close()
             return {
                 "total": total,
-                "items": [{"id": str(row.public_id), "kb_id": row.kb_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id], "quote_policy": row.quote_policy} for row in rows],
+                "items": [{"id": str(row.public_id), "kb_id": row.kb_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id]} for row in rows],
                 "next_max_id": str(rows[-1].public_id) if len(rows) == query.limit else None,
             }
 

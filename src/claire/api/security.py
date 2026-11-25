@@ -730,7 +730,6 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/federation/quotes"): _any("owner", "none"),
     ("HEAD", "/api/federation/quotes"): _any("owner", "none"),
     ("PATCH", "/api/federation/quotes/{quote_id}"): _any("owner", "none"),
-    ("PATCH", "/api/federation/objects/{object_id}"): _any("owner", "none"),
     ("GET", "/render/remote/{item_id}"): _any("owner", "none"),
     ("HEAD", "/render/remote/{item_id}"): _any("owner", "none"),
     # Both modes (unit FP4-F3): the body of a feed item has media too, and feeds work in single mode (RD15).

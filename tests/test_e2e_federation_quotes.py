@@ -265,43 +265,34 @@ def test_e2e_quote_requests_for_own_objects_follow_the_quote_policy(env):
     assert ask(YURI, 79)["reason"] == "blocked_domain"
 
 
-def test_e2e_quote_policy_of_a_published_document(env):
+def test_e2e_a_published_document_is_always_quotable(env):
+    """DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7: no quote policy, an approval for each request, and no refusal or revocation by the owner."""
     c, sc = env.client, env.sidecar
-
-    def outbox() -> list[tuple]:
-        conn = dbm.connect_existing(env.settings.db_file, readonly=True)
-        try:
-            return [tuple(r) for r in conn.execute("SELECT kind, object_public_id, status FROM federation_outbox ORDER BY id")]
-        finally:
-            conn.close()
-
-    # The default of a published document is ``manual``: a request waits for the owner.
     [item] = c.request("GET", OBJECTS, session=env.alpha_session).json()["items"]
-    assert (item["quote_policy"], item["quotes"]) == ("manual", 0)
-    assert sc.call("GET", f"/objects/{OBJECT_ID}").json()["quote_policy"] == "manual"
-    assert _quote_event(env, "QuoteRequest", STRANGER, OBJECT, instrument=f"{STRANGER}/notes/1")["state"] == "pending"
-    [request] = c.request("GET", QUOTES, session=env.alpha_session).json()["requests"]
-    assert (request["object"]["kind"], request["object"]["text"], request["object"]["document_id"]) == ("document", "Published", "doc-published")
-    assert _tasks(env) == []
+    assert "quote_policy" not in item and item["quotes"] == 0
+    assert "quote_policy" not in sc.call("GET", f"/objects/{OBJECT_ID}").json()
 
-    # A change of the policy and its ``update`` task are in one transaction of claire.db. The same value a second time makes no task.
-    for _ in range(2):
-        res = c.request("PATCH", f"{OBJECTS}/{OBJECT_ID}", session=env.alpha_session, json={"quote_policy": "public"})
-        assert res.status_code == 200 and res.json()["object"] == {"id": str(OBJECT_ID), "kb_id": 11, "document_id": "doc-published", "quote_policy": "public"}, res.text
-    assert outbox() == [("update", OBJECT_ID, "pending")]
-    assert sc.call("GET", f"/objects/{OBJECT_ID}").json()["quote_policy"] == "public"
-    assert _quote_event(env, "QuoteRequest", YURI, OBJECT, instrument=f"{YURI}/notes/1")["state"] == "approved"
+    # A request of an actor that the owner does not know is approved at once, with the task of the ``Accept`` and the stamp.
+    assert _quote_event(env, "QuoteRequest", STRANGER, OBJECT, instrument=f"{STRANGER}/notes/1")["state"] == "approved"
     [task] = _tasks(env)
     assert (task["kind"], task["object_iri"]) == ("quote_authorize", OBJECT)
+    listed = c.request("GET", QUOTES, session=env.alpha_session).json()
+    assert listed["requests"] == [] and listed["counts"] == {"pending": 0, "approved": 1}
+    [authorization] = listed["authorizations"]
+    assert (authorization["object"]["kind"], authorization["object"]["text"], authorization["object"]["document_id"]) == ("document", "Published", "doc-published")
     assert c.request("GET", OBJECTS, session=env.alpha_session).json()["items"][0]["quotes"] == 1
 
-    # Refusals: an object of another account, a value outside the set, and an object that is not public now.
-    assert c.request("PATCH", f"{OBJECTS}/{OBJECT_ID}", session=env.beta_session, json={"quote_policy": "nobody"}).json() == {"error": "object_not_found"}
-    assert c.request("PATCH", f"{OBJECTS}/{OBJECT_ID}", session=env.alpha_session, json={"quote_policy": "all"}).json() == {"error": "invalid_quote_policy"}
+    # The owner cannot refuse or revoke a quote of a published document, and the object has no policy route.
+    for state in ("revoked", "refused"):
+        res = c.request("PATCH", f"{QUOTES}/{authorization['id']}", session=env.alpha_session, json={"state": state})
+        assert res.status_code == 409 and res.json() == {"error": "quote_always_permitted"}, res.text
+    assert c.request("PATCH", f"{OBJECTS}/{OBJECT_ID}", session=env.alpha_session, json={"quote_policy": "nobody"}).status_code in (404, 405)
+    assert sc.call("GET", f"/quote-authorizations/{authorization['id']}").status_code == 200
+
+    # An object that is not public now takes no request, and its authorization has no public form.
     _db(env.settings, lambda conn: conn.execute("UPDATE knowledge_bases SET is_public=0 WHERE id=11"))
     assert _quote_event(env, "QuoteRequest", YURI, OBJECT, instrument=f"{YURI}/notes/2")["reason"] == "no_object"
-    # The authorization of an object that is not public now has no public form.
-    assert sc.call("GET", f"/quote-authorizations/{task['ref_id']}").status_code == 404
+    assert sc.call("GET", f"/quote-authorizations/{authorization['id']}").status_code == 404
 
 
 def test_e2e_quote_policy_works_with_private_profile_for_both_documents_and_notes(env):
@@ -314,12 +305,10 @@ def test_e2e_quote_policy_works_with_private_profile_for_both_documents_and_note
 
     _db(env.settings, lambda conn: conn.execute("UPDATE accounts SET profile_public=0 WHERE id=?", (env.alpha,)))
 
-    # A QuoteRequest and owner approval on a published KB document work while profile_public=0 (as long as the KB is public).
-    assert _quote_event(env, "QuoteRequest", STRANGER, OBJECT, instrument=f"{STRANGER}/notes/10")["state"] == "pending"
+    # A QuoteRequest on a published KB document is approved at once while profile_public=0 (as long as the KB is public).
+    assert _quote_event(env, "QuoteRequest", STRANGER, OBJECT, instrument=f"{STRANGER}/notes/10")["state"] == "approved"
     listed = c.request("GET", QUOTES, session=env.alpha_session).json()
-    doc_req_id = listed["requests"][0]["id"]
-    approved_doc = c.request("PATCH", f"{QUOTES}/{doc_req_id}", session=env.alpha_session, json={"state": "approved"})
-    assert approved_doc.status_code == 200 and approved_doc.json()["quote"]["state"] == "approved"
+    doc_req_id = listed["authorizations"][0]["id"]
     [doc_auth_task] = _tasks(env)
     assert (doc_auth_task["kind"], doc_auth_task["ref_id"]) == ("quote_authorize", doc_req_id)
     _ack(env, doc_auth_task)

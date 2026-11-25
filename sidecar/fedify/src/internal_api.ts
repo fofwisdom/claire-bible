@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.17";
+export const CONTRACT_VERSION = "1.18";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -315,8 +315,6 @@ export interface ObjectRecord {
   url: string | null;
   published_at: number;
   updated_at: number;
-  // Contract 1.7 (unit FP4-9Q): the quote policy of the document. canQuote of the interaction policy comes from it (RT9).
-  quote_policy: QuotePolicy;
 }
 
 // The quote policy of an own object (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6).
@@ -603,7 +601,7 @@ const outboxTasksShape = sealed({
 });
 const ackShape = sealed({ id: int, status: oneOf("pending", "handed_off", "rejected") });
 const quotePolicy = oneOf("public", "followers", "manual", "nobody");
-const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num, quote_policy: quotePolicy });
+const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num });
 const goneShape = sealed({ error: oneOf("gone"), gone_at: num });
 const actorOutboxShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, published_at: num, updated_at: num })), next_max_id: nullable(str) });
 const clientTasksShape = sealed({

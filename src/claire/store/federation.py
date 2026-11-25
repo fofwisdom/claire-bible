@@ -47,7 +47,7 @@ __all__ = [
     "list_objects",
     "publish_document",
     "retract_object",
-    "set_object_quote_policy",
+    "DOCUMENT_QUOTE_POLICY",
     "domain_blocks_etag",
     "get_follower",
     "get_tombstone",
@@ -299,7 +299,9 @@ OutboxKind = Literal["create", "update", "delete", "update_actor", "delete_actor
 OutboxStatus = Literal["pending", "handed_off", "rejected"]
 
 _OBJECTS_TABLE = "federation_objects"
-_OBJECT_COLUMNS = "public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at, quote_policy"
+_OBJECT_COLUMNS = "public_id, account_id, kb_id, document_id, published_by_account_id, published_at, updated_at"
+# A published document is always quotable (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7, ``claire.db`` version 49): the policy is not data.
+DOCUMENT_QUOTE_POLICY = "public"
 _TASK_COLUMNS = "id, account_id, kind, object_public_id, status, lease_until, error_code, created_at, handed_off_at"
 
 
@@ -312,8 +314,6 @@ class FederationObject:
     published_by_account_id: int
     published_at: float
     updated_at: float
-    # The quote policy of the document (FEP-044f ``canQuote``, FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6, ``claire.db`` version 24).
-    quote_policy: str = "manual"
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,8 +330,8 @@ class OutboxTask:
 
 
 def _object(row: sqlite3.Row | tuple) -> FederationObject:
-    public_id, account_id, kb_id, document_id, published_by, published_at, updated_at, quote_policy = tuple(row)
-    return FederationObject(int(public_id), int(account_id), int(kb_id), str(document_id), int(published_by), float(published_at), float(updated_at), str(quote_policy))
+    public_id, account_id, kb_id, document_id, published_by, published_at, updated_at = tuple(row)
+    return FederationObject(int(public_id), int(account_id), int(kb_id), str(document_id), int(published_by), float(published_at), float(updated_at))
 
 
 def _task(row: sqlite3.Row | tuple) -> OutboxTask:
@@ -419,15 +419,6 @@ def sync_object_content(conn: sqlite3.Connection, *, kb_id: int, document_id: st
         return None
     conn.execute(f"UPDATE {_OBJECTS_TABLE} SET content_digest=?, updated_at=? WHERE public_id=?", (digest, obj.updated_at if stored is None else now, obj.public_id))
     if stored is None:
-        return None
-    return add_outbox_task(conn, account_id=obj.account_id, kind="update", object_public_id=obj.public_id, now=now)
-
-
-def set_object_quote_policy(conn: sqlite3.Connection, obj: FederationObject, policy: str, *, now: float) -> OutboxTask | None:
-    """Set the quote policy of a published document (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6). A change makes an ``update`` task, so that the followers get the object with the new ``canQuote``; the two changes are in one transaction of the caller. Return the task, or ``None`` when the value is the same."""
-    if policy not in ("public", "followers", "manual", "nobody"):
-        raise ValueError(f"unknown quote policy: {policy!r}")
-    if conn.execute(f"UPDATE {_OBJECTS_TABLE} SET quote_policy=?, updated_at=? WHERE public_id=? AND quote_policy!=?", (policy, now, obj.public_id, policy)).rowcount != 1:
         return None
     return add_outbox_task(conn, account_id=obj.account_id, kind="update", object_public_id=obj.public_id, now=now)
 

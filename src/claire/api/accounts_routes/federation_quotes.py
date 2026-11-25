@@ -4,7 +4,7 @@ For the owner of the account, in both server modes (KNOWLEDGE_FEDERATION_DESIGN.
 
 - ``GET /api/federation/quotes``: the requests of remote actors to quote an own object: those that wait for the owner (``requests``) and the approved ones (``authorizations``).
 - ``PATCH /api/federation/quotes/{quote_id}``: the decision of the owner. ``approved`` or ``refused`` for a request that waits, ``revoked`` for an approved one. The sidecar sends ``Accept`` with the ``QuoteAuthorization``, ``Reject``, or ``Delete`` of the authorization.
-- ``PATCH /api/federation/objects/{object_id}``: the quote policy of a published document. A change sends ``Update`` of the object.
+- A published document is always quotable (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7): it has no quote policy, and the owner cannot refuse or revoke a quote of it (409 ``quote_always_permitted``).
 
 The quote policy of an own note is a field of ``/api/federation/notes`` (``federation_notes``).
 
@@ -21,7 +21,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from ...core import ids
 from ...store import accounts as accounts_store
 from ...store import federation as federation_store
 from ...store import federation_notes as notes_store
@@ -32,7 +31,6 @@ from .common import AccountsContext, json_error, not_found, open_client_db, open
 from .console_federation_panels import actor_state
 
 FEDERATION_QUOTES_API_PATH = "/api/federation/quotes"
-FEDERATION_OBJECTS_API_PATH = "/api/federation/objects"
 _NO_STORE = {"Cache-Control": "no-store"}
 # The largest number of requests of each group in one answer.
 QUOTES_LIST_MAX = 100
@@ -122,6 +120,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 # A request of another account gives the same answer as no request.
                 if row is None or row.account_id != account_id:
                     return 404, {"error": "quote_not_found"}
+                # A quote of a published document cannot be refused or revoked.
+                if body["state"] in ("refused", "revoked") and federation_store.get_object(conn, row.object_public_id) is not None:
+                    return 409, {"error": "quote_always_permitted"}
                 # The state and the task of the answer are in one transaction.
                 changed = quotes_store.set_authorization_state(client, row.id, body["state"], now=time.time())
                 if changed is None:
@@ -134,36 +135,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
 
         return await _run(_execute)
 
-    async def object_patch(request: Request) -> Response:
-        account_id = _owner_account_id(request)
-        if account_id is None:
-            return not_found()
-        body = await read_json_body(request)
-        if set(body) != {"quote_policy"}:
-            return json_error(400, "invalid_request", fields=["quote_policy"])
-        if body["quote_policy"] not in quotes_store.QUOTE_POLICIES:
-            return json_error(400, "invalid_quote_policy")
-
-        def _execute() -> tuple[int, dict[str, Any]] | None:
-            conn = open_db(ctx)
-            try:
-                try:
-                    obj = federation_store.get_object(conn, ids.parse_public_id(request.path_params["object_id"]))
-                except ValueError:
-                    obj = None
-                if obj is None or obj.account_id != account_id:
-                    return 404, {"error": "object_not_found"}
-                # The policy and the ``update`` task are in one transaction of claire.db (Section 5.4 rule 6). The task of an account that is not an actor waits.
-                federation_store.set_object_quote_policy(conn, obj, body["quote_policy"], now=time.time())
-                conn.commit()
-                return 200, {"object": {"id": str(obj.public_id), "kb_id": obj.kb_id, "document_id": obj.document_id, "quote_policy": body["quote_policy"]}}
-            finally:
-                conn.close()
-
-        return await _run(_execute)
-
     return [
         Route(FEDERATION_QUOTES_API_PATH, quotes_get, methods=["GET"]),
         Route(FEDERATION_QUOTES_API_PATH + "/{quote_id}", quotes_patch, methods=["PATCH"]),
-        Route(FEDERATION_OBJECTS_API_PATH + "/{object_id}", object_patch, methods=["PATCH"]),
     ]

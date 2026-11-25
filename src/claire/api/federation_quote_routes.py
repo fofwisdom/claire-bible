@@ -94,7 +94,7 @@ def quoted_object(conn: Any, client: Any, public_id: int, *, actor_ids: list[int
         document = dbm.get_document_row(conn, obj.document_id, kb_id=obj.kb_id)
         if obj.account_id not in actor_ids or theme is None or not theme["is_public"] or document is None or document["hidden"]:
             return None
-        return obj.account_id, obj.quote_policy
+        return obj.account_id, federation_store.DOCUMENT_QUOTE_POLICY
     note = notes_store.get_note(client, public_id)
     if note is None or note.deleted_at is not None or note.account_id not in actor_ids:
         return None

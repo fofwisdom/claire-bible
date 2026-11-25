@@ -184,10 +184,9 @@
 |---|---|---|---|
 | `GET` | `/api/federation/quotes` | 200 `{"requests": [...], "authorizations": [...], "counts": {"pending", "approved"}}`. `requests`는 소유자의 결정을 기다리는 인용 요청, `authorizations`는 승인한 요청이다. 각각 최신 100개까지. 요청 키: `id`, `state`, `object`(`id`, `url`, `kind`, `text`), `quoting_object`, `quoting_actor`, `authorization`, `created_at`, `updated_at` | 404 |
 | `PATCH` | `/api/federation/quotes/{quote_id}` | 본문 `{"state"}`: `approved`·`refused`(기다리는 요청), `revoked`(승인한 요청). 200 `{"quote"}`. 사이드카가 `Accept`(`QuoteAuthorization` 포함), `Reject`, 또는 승인의 `Delete`를 보낸다 | 400 `invalid_request`, 404 `quote_not_found`, 409 `invalid_state`(`state`), 409 `not_actor` |
-| `PATCH` | `/api/federation/objects/{object_id}` | 본문 `{"quote_policy"}`: `public`·`followers`·`manual`·`nobody`. 200 `{"object": {"id", "kb_id", "document_id", "quote_policy"}}`. 값이 바뀌면 객체의 `Update`를 보낸다 | 400 `invalid_request`, 400 `invalid_quote_policy`, 404 `object_not_found` |
 
 - 타임라인 항목(`GET /api/federation/timeline`, `GET /api/federation/timeline/{item_id}`)에는 `quote` 키가 있다: `null`, 또는 `{"iri", "item_id", "state"}`. `state`는 자기 노트의 인용 상태(`pending`, `approved`, `refused`, `revoked`)이고, 원격 게시물이면 `null`이다.
-- `note`에는 `quote_policy`, `quotes`(승인한 인용 수), `quote`(`{"iri", "state"}` 또는 `null`)가 있다. `GET /api/federation/objects`의 항목에는 `quote_policy`와 `quotes`가 있다.
+- `note`에는 `quote_policy`, `quotes`(승인한 인용 수), `quote`(`{"iri", "state"}` 또는 `null`)가 있다. `GET /api/federation/objects`의 항목에는 `quotes`가 있다. 발행한 문서는 항상 인용할 수 있어 인용 정책이 없고(설계 [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) §5.7), `PATCH /api/federation/quotes/{quote_id}`로 문서의 인용을 `refused`나 `revoked`로 바꾸면 409 `quote_always_permitted`이다.
 - 승인의 공개 경로 `GET /ap/quote-authorizations/{id}`는 사이드카가 응답한다([FEDERATION.md](FEDERATION.md) §26.1). 철회한 승인은 410이다.
 
 ## 공유 지식 베이스 경로와 생성 (CT-1)

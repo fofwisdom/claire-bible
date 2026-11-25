@@ -513,7 +513,6 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         # Quotes (FP4-9Q)
         *((m, "/api/federation/quotes") for m in ("GET", "HEAD")),
         ("PATCH", "/api/federation/quotes/{quote_id}"),
-        ("PATCH", "/api/federation/objects/{object_id}"),
         # 유저 단위 기능 (텔레그램 봇·서포트 번들·데이터 번들·백업)
         *((method, "/api/me/telegram") for method in ("GET", "HEAD", "PUT", "PATCH", "DELETE")),
         # Notifications and Web Push of the account (PWA_NOTIFICATION_DESIGN.md PN5)

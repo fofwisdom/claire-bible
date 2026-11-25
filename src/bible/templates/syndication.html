@@ -77,7 +77,6 @@
     <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="export-md"><span data-i18n="synd.kb.menu.export_md">Markdown export</span></button>
     <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="dispatch"><span data-i18n="synd.kb.menu.publish">Publish or dispatch…</span></button>
     <button type="button" class="tt-pop-item" role="menuitem" data-art-cmd="toggle-star"><span data-i18n="synd.kb.menu.toggle_star">Toggle star</span></button>
-    <button type="button" class="tt-pop-item" role="menuitem" id="menu-doc-quote-policy" data-doc-quote-policy hidden><span data-i18n="synd.quote.menu_policy">Quote policy…</span></button>
   </div>
 
   <main class="tt-app-main">
@@ -239,31 +238,6 @@
       <div class="synd-dialog-foot">
         <button type="button" data-close-dialog="modal-note-compose" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
         <button type="submit" id="btn-note-compose" class="tt-btn tt-btn-pri" data-i18n="synd.compose.submit">Publish</button>
-      </div>
-    </form>
-  </dialog>
-
-  <!-- Quote policy of a published document (design Section 5.4 rule 6, FP4-9Q). -->
-  <dialog id="modal-quote-policy" closedby="any" aria-labelledby="modal-quote-policy-title" class="synd-dialog">
-    <form id="form-quote-policy" class="synd-dialog-form">
-      <div class="synd-dialog-head">
-        <h2 id="modal-quote-policy-title" data-i18n="synd.quote.policy_title">Quote policy of the published document</h2>
-        <button type="button" data-close-dialog="modal-quote-policy" class="tt-btn" data-i18n-aria-label="common.action.cancel"><span data-icon="close"></span></button>
-      </div>
-      <p id="quote-policy-doc" class="synd-note"></p>
-      <div>
-        <label for="quote-policy-value" data-i18n="synd.quote.policy_doc_label">Who can quote this document</label>
-        <select id="quote-policy-value" class="tt-search">
-          <option value="public" data-i18n="synd.quote.policy.public">All (automatic approval)</option>
-          <option value="followers" data-i18n="synd.quote.policy.followers">Followers only</option>
-          <option value="manual" data-i18n="synd.quote.policy.manual">I approve each request</option>
-          <option value="nobody" data-i18n="synd.quote.policy.nobody">Nobody</option>
-        </select>
-      </div>
-      <div id="quote-policy-msg" class="synd-note" role="status"></div>
-      <div class="synd-dialog-foot">
-        <button type="button" data-close-dialog="modal-quote-policy" class="tt-btn" data-i18n="common.action.cancel">Cancel</button>
-        <button type="submit" id="btn-quote-policy" class="tt-btn tt-btn-pri" data-i18n="synd.quote.policy_save">Save</button>
       </div>
     </form>
   </dialog>
