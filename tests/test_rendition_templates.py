@@ -1,15 +1,26 @@
 """Interface of the rendition template set (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.2).
 
-The body render and the agent client task (phase E3) read the templates through this interface.
+The body render and the agent client task (phase E3) read the templates through this interface. The structure: core rules (공통 원칙), fixed rules that no template replaces, traits (특성), and the changes of each template.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from claire.extract.rendition_templates import RENDITION_TEMPLATE_IDS, UnknownRenditionTemplate, rendition_template
+from claire.extract.prompts import render_detail_instructions_adoc
+from claire.extract.rendition_templates import (
+    BASE_TEMPLATE,
+    CORE_RULES,
+    DEFAULT_FIRST_SECTION,
+    FIXED_RULES,
+    RENDITION_TEMPLATE_IDS,
+    RenditionTemplate,
+    UnknownRenditionTemplate,
+    rendition_template,
+)
 
 IMAGES = [{"url": "https://example.org/figure.png", "alt": "figure", "caption": "caption"}]
+CASES = [(None, False, 1), (IMAGES, False, 1), (None, True, 2), (IMAGES, True, 2)]
 
 
 def test_the_set_has_the_three_owner_templates_with_versions() -> None:
@@ -25,19 +36,40 @@ def test_an_unknown_identifier_has_no_default() -> None:
         rendition_template("default")
 
 
-@pytest.mark.parametrize(("merged", "scale"), [(False, 1), (True, 2)])
-def test_no_two_templates_build_the_same_instructions(merged: bool, scale: int) -> None:
-    built = {template_id: rendition_template(template_id).build_instructions(images=IMAGES, merged=merged, scale=scale) for template_id in RENDITION_TEMPLATE_IDS}
-    assert len(set(built.values())) == len(built)
+@pytest.mark.parametrize(("images", "merged", "scale"), CASES)
+def test_the_core_rules_build_the_current_body_prompt(images: list[dict] | None, merged: bool, scale: int) -> None:
+    assert BASE_TEMPLATE.build_instructions(images=images, merged=merged, scale=scale) == render_detail_instructions_adoc(images=images, merged=merged, scale=scale)
 
 
 @pytest.mark.parametrize("template_id", RENDITION_TEMPLATE_IDS)
-def test_each_template_keeps_the_common_body_rules(template_id: str) -> None:
-    built = rendition_template(template_id).build_instructions(images=IMAGES, merged=False, scale=1)
-    assert "AsciiDoc" in built
-    assert "Markdown 혼용 절대 금지" in built
-    assert "절단 섹션 상세 작성 배제" in built
-    assert "저자 라인 표기 절대 금지" in built
+def test_each_template_keeps_the_fixed_core_rules(template_id: str) -> None:
+    template = rendition_template(template_id)
+    built = template.build_instructions(images=IMAGES, merged=False, scale=1)
+    for slot in FIXED_RULES:
+        assert CORE_RULES[slot].replace("<<FIRST_SECTION>>", template.first_section) in built, slot
     assert "https://example.org/figure.png" in built
-    without_images = rendition_template(template_id).build_instructions(images=None, merged=False, scale=1)
-    assert "https://example.org/figure.png" not in without_images
+    assert "https://example.org/figure.png" not in template.build_instructions(images=None, merged=False, scale=1)
+
+
+@pytest.mark.parametrize(("images", "merged", "scale"), CASES)
+def test_no_two_templates_build_the_same_instructions(images: list[dict] | None, merged: bool, scale: int) -> None:
+    built = {template_id: rendition_template(template_id).build_instructions(images=images, merged=merged, scale=scale) for template_id in RENDITION_TEMPLATE_IDS}
+    assert len(set(built.values())) == len(built)
+
+
+def test_a_template_cannot_replace_or_omit_a_fixed_rule() -> None:
+    with pytest.raises(ValueError):
+        RenditionTemplate(id="x", version="x-v1", intro=lambda merged, scale: "", replace={"asciidoc": "other"})
+    with pytest.raises(ValueError):
+        RenditionTemplate(id="x", version="x-v1", intro=lambda merged, scale: "", omit=frozenset({"truncation"}))
+    with pytest.raises(ValueError):
+        RenditionTemplate(id="x", version="x-v1", intro=lambda merged, scale: "", append={"no_such_slot": "text"})
+
+
+def test_rules_are_numbered_in_order_without_gaps() -> None:
+    concise = rendition_template("concise")
+    built = concise.build_instructions(images=None, merged=False, scale=1)
+    for number in range(1, len(concise.rules()) + 1):
+        assert f"\n{number}. " in built
+    assert f"\n{len(concise.rules()) + 1}. " not in built
+    assert DEFAULT_FIRST_SECTION not in built
