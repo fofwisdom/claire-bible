@@ -255,7 +255,7 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
     <p class="proto-note">
       이 프로토타입은 동작하지 않는 시안입니다. 로컬 정리본 전환은 실제로는 <code>/silvercord/{token}/renditions/{template}</code>으로의 페이지 이동(교차 문서 전환)이고,
       다른 서버의 정리본은 같은 페이지의 샌드박스 프레임에 열립니다. 의견 본문은 페이지에 텍스트로만 두고, 서식 있는 본문과 첨부는 요청할 때 샌드박스 프레임으로 엽니다.
-      +1은 Claire 서버끼리만 주고받는 정리본 단위 표시이며, 선택기는 각 묶음 안에서 +1 점수 순으로 정렬합니다(한 서버의 +1은 10개까지만 셈). 좋아요는 게시물(대표 정리본)의 ActivityPub 좋아요로 의견 탭에 있습니다.
+      +1은 Claire 서버끼리만 주고받는 정리본 단위 표시입니다(점수에서 한 서버의 +1은 1,000개까지만 셈). 선택기는 각 묶음 안에서 기본 → 간결 → 학술 순이고, 같은 템플릿은 최신순입니다. +1은 정렬에 쓰지 않습니다. 좋아요는 게시물(대표 정리본)의 ActivityPub 좋아요로 의견 탭에 있습니다.
       초록은 문서마다 하나이고 정리본을 바꿔도 바뀌지 않습니다.
     </p>
   </main>
@@ -312,11 +312,11 @@ const REMOTE_BODY = `<!doctype html><meta charset="utf-8"><style>body{font:15px/
 <h2>리더 선출</h2><p>팔로워는 하트비트를 받지 못하면 후보가 되어 RequestVote를 보낸다.</p><p><a href="https://lab.example/silvercord/abcd">원 서버의 고유 주소</a></p>`;
 
 const EDITIONS = [
-  { key: "d-standard", group: "이 문서", template: "standard", version: "standard-v1", who: "@mina", server: null, plus: 12, score: 12, plused: false, postLikes: 21, updated: "11월 20일", primary: true, path: `/silvercord/${TOKEN}`, body: BODY_DETAILED },
-  { key: "d-concise", group: "이 문서", template: "concise", version: "concise-v1", who: "@mina", server: null, plus: 4, score: 4, plused: false, updated: "11월 24일", path: `/silvercord/${TOKEN}/renditions/concise`, body: BODY_CONCISE },
-  { key: "s-academic", group: "같은 출처 · 이 서버", template: "academic", version: "academic-v1", who: "@jun", server: null, plus: 2, score: 2, plused: false, primary: true, postLikes: 3, updated: "11월 23일", path: "/silvercord/p3n8x2k5m9q4t7wa", body: BODY_DETAILED },
-  { key: "r-concise", group: "같은 출처 · 다른 서버", template: "concise", version: "concise-v1", who: "@sora", server: "notes.example", plus: 7, score: 7, plused: false, updated: "11월 22일", remote: true, origin: "https://notes.example/silvercord/wxyz/renditions/concise" },
-  { key: "r-standard", group: "같은 출처 · 다른 서버", template: "standard", version: "standard-v1", who: "@bob", server: "lab.example", plus: 31, score: 14, plused: true, primary: true, postLikes: 40, updated: "11월 18일", remote: true, origin: "https://lab.example/silvercord/abcd" }
+  { key: "d-standard", updatedAt: 20, group: "이 문서", template: "standard", version: "standard-v1", who: "@mina", server: null, plus: 12, plused: false, postLikes: 21, updated: "11월 20일", primary: true, path: `/silvercord/${TOKEN}`, body: BODY_DETAILED },
+  { key: "d-concise", updatedAt: 24, group: "이 문서", template: "concise", version: "concise-v1", who: "@mina", server: null, plus: 4, plused: false, updated: "11월 24일", path: `/silvercord/${TOKEN}/renditions/concise`, body: BODY_CONCISE },
+  { key: "s-academic", updatedAt: 23, group: "같은 출처 · 이 서버", template: "academic", version: "academic-v1", who: "@jun", server: null, plus: 2, plused: false, primary: true, postLikes: 3, updated: "11월 23일", path: "/silvercord/p3n8x2k5m9q4t7wa", body: BODY_DETAILED },
+  { key: "r-concise", updatedAt: 22, group: "같은 출처 · 다른 서버", template: "concise", version: "concise-v1", who: "@sora", server: "notes.example", plus: 7, plused: false, updated: "11월 22일", remote: true, origin: "https://notes.example/silvercord/wxyz/renditions/concise" },
+  { key: "r-standard", updatedAt: 18, group: "같은 출처 · 다른 서버", template: "standard", version: "standard-v1", who: "@bob", server: "lab.example", plus: 31, plused: true, primary: true, postLikes: 40, updated: "11월 18일", remote: true, origin: "https://lab.example/silvercord/abcd" }
 ];
 
 const OPINIONS = [
@@ -361,13 +361,11 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-/* Rendition picker (ED10 rule 10, ED12 rule 8): inside each group, opened first, then +1 score, primary, template order. */
+/* Rendition picker (ED10 rule 10, O16): inside each group, template order 기본, 간결, 학술; the same template newest first. +1 does not change the order. */
 function orderInGroup(list) {
   return list.slice().sort((a, b) =>
-    (b.key === state.edition) - (a.key === state.edition)
-    || b.score - a.score
-    || (b.primary ? 1 : 0) - (a.primary ? 1 : 0)
-    || TEMPLATE_ORDER.indexOf(a.template) - TEMPLATE_ORDER.indexOf(b.template));
+    TEMPLATE_ORDER.indexOf(a.template) - TEMPLATE_ORDER.indexOf(b.template)
+    || b.updatedAt - a.updatedAt);
 }
 function buildPicker() {
   for (const n of $$("optgroup, option", select)) n.remove();
@@ -400,7 +398,7 @@ function renderEditionActions() {
     box.append(el("span", { class: "like-static", title: "자기 정리본에는 +1을 줄 수 없습니다", html: `<b>+1</b> ${e.plus}` }));
   } else {
     const btn = el("button", { type: "button", class: "like-btn", "aria-pressed": String(e.plused), title: "같은 출처의 정리본 가운데 이 정리본을 추천합니다 (Claire 서버끼리만)", html: `<b>+1</b> <span>${e.plus}</span>` });
-    btn.addEventListener("click", () => { e.plused = !e.plused; e.plus += e.plused ? 1 : -1; e.score += e.plused ? 1 : -1; renderEditionActions(); buildPicker(); setApi(`${e.plused ? "claire:PlusOne" : "Undo(claire:PlusOne)"} → ${e.remote ? e.server : "이 서버"} (Claire 서버끼리만)`); });
+    btn.addEventListener("click", () => { e.plused = !e.plused; e.plus += e.plused ? 1 : -1; renderEditionActions(); buildPicker(); setApi(`${e.plused ? "claire:PlusOne" : "Undo(claire:PlusOne)"} → ${e.remote ? e.server : "이 서버"} (Claire 서버끼리만)`); });
     box.append(btn);
   }
   if (state.role === "owner") {

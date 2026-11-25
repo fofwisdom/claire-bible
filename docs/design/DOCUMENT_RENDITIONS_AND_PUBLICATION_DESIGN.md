@@ -1,7 +1,7 @@
 # Renditions of Published Documents, +1 Between Claire Servers, Opinions from Other Servers, and ActivityPub Publication (`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN`)
 
 - **Document Identifier**: `DESIGN-DOC-RENDITIONS-20261125`
-- **Status**: Proposal, revision 7. Implemented: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O14 are given (Section 11). O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
+- **Status**: Proposal, revision 8. Implemented: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O16 are given (Section 11). O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
 - **Date**: 2026-11-25
 - **Base commit**: `8e6b0723`
 - **Visual prototype**: [`prototypes/document_renditions_prototype.html`](prototypes/document_renditions_prototype.html) (Silvercord view: rendition picker, +1, remote rendition, `의견` tab with likes, mobile; mock data)
@@ -13,6 +13,7 @@
   - Rev. 5 (2026-11-25): owner review of the prototype. No citation copy, no message about the quote policy, the summary section above the rendition bar. Questions O10 (term) and O11 (label).
   - Rev. 6 (2026-11-25): 에디션 → 정리본 (English "rendition") in all layers (O10); label 학술 (O11); 요약 → 초록 in prompts and texts (O12, implemented); +1 is a mark of a rendition that only Claire servers exchange, separate from the `Like` (Section 5.12); the fill of a timeline after a follow is in this design (O9 revised, Section 5.13; the idea document is removed).
   - Rev. 7 (2026-11-25): the template "상세" became "기본" with the identifier `standard` (O14: the body itself is 상세). The rendition of the first ingest is now 대표 정리본, so that "기본" names only the template.
+  - Rev. 8 (2026-11-25): the picker does not order by +1; it orders by template (기본, 간결, 학술) (O16). The limit of one server in the +1 score is the estimated number of accounts that one Claire server can serve now: 1,000 (O15, Section 5.12 rule 9). 대표 정리본 accepted (O14). Review of the template model for the owner (Section 5.2 rules 8 and 9).
 - **Related**: [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD10, RD21), [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) (vocabulary, known servers, inbox journal), [`PERMALINK_UNIFICATION_DESIGN.md`](PERMALINK_UNIFICATION_DESIGN.md), [`SILVERCORD_RENDERING_DESIGN.md`](SILVERCORD_RENDERING_DESIGN.md) (the `의견` tab, SR5, SD8), [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (reputation, CT18), [`FEDERATION.md`](../implementation/FEDERATION.md), [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md), [`PERMALINKS.md`](../implementation/PERMALINKS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`GLOSSARY.md`](../implementation/GLOSSARY.md)
 
 ## 1. Owner request (2026-11-25)
@@ -65,6 +66,12 @@ Owner answers to revision 5 (2026-11-25):
 Owner message during revision 6 (2026-11-25):
 
 > 정리본 '상세'는 상세의 상세가 되니 '기본'으로 변경하여 혼란을 줄이죠.
+
+Owner answers to revision 7 (2026-11-25):
+
+> * +1 점수 상한: 서버 이용자 수에 다른 클레어바이블 서버의 이용자 수가 상한이므로 일단 클레어바이블 서버가 현재 수용 가능한 성능 단위 유저 수를 임의로 추정하여 정해주세요.
+> * 선택기 정렬: 점수 순 정렬하지 않습니다. 기본/간결/학술 순 정렬합니다. 제가 템플릿을 제대로 인식했는지 검토 바랍니다.
+> * 용어: 수용합니다.
 
 Questions and the answers of this design:
 
@@ -183,6 +190,8 @@ Rules:
 5. The agent client gets the template text from the server in the claimed task. The client does not hold template texts. The server validates the body as now (`_validate_asciidoc_detail`).
 6. Phase E3 replaces the placeholder of fact 3: `prompt_template` carries the rendition template identifier, and the value `"default"` and `DEFAULT_EXTRACTION_TEMPLATE` go away at once (no external consumers; the agent client template `agent_clients/common/agents/extractor.md.tmpl` changes in the same commit).
 7. The body of `standard` and `academic` often starts with `== 개요`, because rule 14 of the current prompt names it as an example. That heading is a part of the body, not the 초록 (Rev. 5 question).
+8. **Template, document, and set** (review for O16). A template tells how the body is written; it does not tell who wrote it or where. One document (one account, one source) has at most one rendition for each template, thus at most three. A rendition set (all accounts and servers with the same source) can have many renditions of the same template. The template "기본" and the 대표 정리본 are different things: the 대표 정리본 is the rendition of the first ingest, with the template that the account selected then (it can be `concise`).
+9. **A template with the same text as another template** (proposal, O17). Now the text of `academic` is the same as the text of `standard`. An `academic` rendition costs a model call and gives a body like the `standard` rendition. Proposal: the ingest form and "정리본 추가" do not offer a template whose instruction text is the same as the text of another template; the code compares the built instructions. When the owner changes the text of `academic`, it is offered without other work.
 
 ### 5.3 ED3: Creation of renditions and the source identifier
 
@@ -365,7 +374,7 @@ The design uses the guides of the `modern-web-guidance` tool (version `2026_10_1
 7. **Mathematics.** `academic` and the other templates keep formulas; no template is a display fallback for formulas.
 8. Each new text uses catalog keys in English and Korean from the start.
 9. **Place of the rendition controls.** The page keeps the order of the current view: title, metadata, the section "초록" (one for each document; it does not change with the rendition), then the section "정리본". The rendition bar (label, picker, +1 control, and for the owner "정리본 추가") is the first element of the section "정리본", on desktop and on mobile. On mobile the picker takes the full width and the other controls go to a second line. The bottom bar keeps only `본문` / `의견` and the graph button (SD5). Reason: the bottom bar switches views; the rendition bar belongs to the body that it changes.
-10. **Groups and order in the picker.** The options are in three `<optgroup>` groups by origin: "이 문서", "같은 출처 · 이 서버", "같은 출처 · 다른 서버". Inside each group, the order is Section 5.12 rule 8. Each option shows the template, the account, "대표 정리본" for the primary rendition, the +1 count, and the date. A line under the bar shows the template, its version, the account, the date, and the origin of the selected rendition.
+10. **Groups and order in the picker.** The options are in three `<optgroup>` groups by origin: "이 문서", "같은 출처 · 이 서버", "같은 출처 · 다른 서버". Inside each group, the order is the template order 기본, 간결, 학술 (`standard`, `concise`, `academic`), and for the same template the newest `updated` first (O16). The +1 count does not change the order. Each option shows the template, the account, "대표 정리본" for the primary rendition, the +1 count, and the date. A line under the bar shows the template, its version, the account, the date, and the origin of the selected rendition.
 11. **No copy button for a citation or for the address** (owner, Rev. 5). The address of the page is the address of the rendition (Section 5.8), and the link copy of the workspace reader and of the timeline exists ([`PERMALINKS.md`](../implementation/PERMALINKS.md) Section 5).
 
 ### 5.11 ED11: Opinions from other servers (answer to Q7)
@@ -444,10 +453,20 @@ Intent: the owner request "다른 이용자가 적재한 다른 정리본을 골
 6. **Only between Claire servers.** The sender sends a `claire:PlusOne` only to the origin of a rendition object that it read as a rendition (an object with `claire:template`, Section 5.5). That origin is a Claire server by construction; no other server gets a +1. The receiver applies a `claire:PlusOne` only when `object` is an own published rendition; each other object is refused (`not_a_rendition`). The inbox journal of KF1 records each +1 and each `Undo` (fact 10), so a failure can be replayed.
 7. **Count.** The origin stores one row for each actor and rendition and publishes the counts in `claire:plusOnes` (Section 5.5 example): `totalItems` (all marks), `claire:servers` (the number of distinct servers of the actors), and `claire:score`. The collection has no items, as the `likes` of Mastodon (R13): who gave +1 is not public.
 
-**Score and order.**
+**Score.**
 
-8. **Order in the picker** (Section 5.10 rule 10, inside each group): the opened rendition first; then by `claire:score`, high first; then the primary rendition; then the template order (`standard`, `concise`, `academic`); then `updated`, new first.
-9. **Score.** `claire:score` is the number of marks, but the marks of one server count at most 10. Reason: the accounts of one server are cheap to make; with the limit, one server cannot put its rendition on top alone, and many servers with few marks count more than one server with many. The limit is a constant in the code and in the vocabulary page (no admin setting).
+8. **No order by score** (O16). The picker orders by template (Section 5.10 rule 10). The score is the "+1 점수" that the page shows for each rendition.
+9. **Score and its limit for one server** (O15). `claire:score` is the number of marks, but the marks of the accounts of one server count at most `PLUS_ONE_SERVER_LIMIT` = 1,000. The owner rule: the marks of one server cannot be more than the accounts of that server, so the limit is the number of accounts that one Claire server can serve now. The value is an estimate (table below), a constant in the code and in the vocabulary page (no admin setting), and it changes after a measurement (Section 10 item 8). With this limit an honest server is never cut, and a server that makes accounts only for +1 counts at most as much as one full server.
+
+| Item | Value | Source |
+| :--- | :--- | :--- |
+| Process and database | One API process; one `claire.db` for all knowledge bases with WAL; one writer at a time; `busy_timeout` 5 seconds | [code] `src/claire/store/db.py`, `docker-compose.yml` |
+| Limits of one account (default tier) | 20 ingests in one day, 5,000 documents, 2,048 MB, 1 concurrent job with an own key | [code] `ServerTier` in `src/claire/accounts/provider_policy.py` |
+| Write time of one ingest in `claire.db` | about 1 second (entity resolution, relations, extraction log) | **[unverified]** estimate; the model calls are outside the database |
+| Load of 1,000 accounts at the full daily limit | 20,000 ingests in one day, about 20,000 seconds of writes: 23 % of the day on average, near 100 % in a peak hour at 4 times the average | Calculation from the three rows above |
+| Storage of 1,000 accounts at the full limit | about 2 TB | Calculation; normal use is much less |
+
+   The estimate: at 1,000 accounts, the single writer reaches its limit in a peak hour when all accounts use their full daily limit. Thus 1,000 accounts is the size of one server unit now. More accounts need a second process for writes or a second database, which is a different architecture.
 10. **Trust.** The origin computes the counts of its own renditions, and a reader server cannot check them (the collection has no items). A reader server shows the counts of an origin as they are and gives no weight to an origin on its domain block list. The own marks of the accounts of the reader server are exact on that server. This limit is accepted: the counts are a help for the choice, not a guarantee.
 11. **Freshness.** A reader server reads the counts with the rendition metadata (cache of Section 5.4 rule 4, revalidation with `ETag`) and shows its own new mark at once.
 
@@ -511,7 +530,9 @@ Intent: an account that follows a remote actor sees some posts of that actor at 
 | The `Like` as the +1 (Rev. 2) | Owner, Rev. 6: +1 is a separate mark that only Claire servers exchange. A `Like` of a post from Mastodon (for the 초록) is not a choice between renditions. |
 | A `Like` with an added Claire type as the +1 | Software that reads the base type `Like` would count it as a like. |
 | One +1 for each account and rendition set (a single choice) | Section 5.12 rule 2: approval voting. |
-| A +1 count without the limit for one server | Section 5.12 rule 9: cheap accounts of one server would decide the order. |
+| A +1 count without the limit for one server | Section 5.12 rule 9: accounts that one server makes only for +1 would decide the score. |
+| An order of the picker by +1 score | Owner, O16: the order is by template. |
+| A limit of 10 marks for one server (Rev. 6) | Owner, O15: the limit is the number of accounts of one server unit, not a small number. |
 | A public list of the accounts that gave +1 | Not necessary for the order; it shows the reading choices of people. |
 | A scan of all timelines on a schedule (FediFetcher) | Mastodon chose the fetch on open (R12, R16); a scan multiplies requests to other servers. Claire refreshes only its own objects with new activity (Section 5.11 E). |
 | Filled posts at the top of the home stream | The timeline orders by storage (fact 17); old posts would look new (Section 5.13 rule 6). |
@@ -584,6 +605,7 @@ Tests (global rules: unit tests only for module interfaces, input and output, an
 5. `@fedify/backfill` 2.4.6: pages of `replies` and `context` collections (R15).
 6. Chrome: use of a prefetched answer with `Cache-Control: private, no-store` (Section 5.10 rule 5).
 7. The `outbox` of GoToSocial, Misskey, and Akkoma without and with a signature (Section 5.13 rule 4).
+8. The write time of one ingest in `claire.db` on the production host, and the number of accounts at which a peak hour fills the writer. The result replaces the estimate 1,000 of `PLUS_ONE_SERVER_LIMIT` (Section 5.12 rule 9).
 
 ---
 
@@ -603,13 +625,16 @@ Tests (global rules: unit tests only for module interfaces, input and output, an
 | O11 | Label of `academic` | 학술. |
 | O12 | 요약 → 초록 | The Korean prompts and texts call the document summary 초록. Implemented in commit `0dc44a6d`. |
 | O13 | +1 | A mark of a rendition that only Claire servers exchange (Section 5.12). |
-| O14 | Label of the current prompt as a template | 기본, identifier `standard` (not 상세: the body itself is 상세). The first rendition is 대표 정리본. |
+| O14 | Label of the current prompt as a template; term of the first rendition | 기본, identifier `standard` (not 상세: the body itself is 상세). The first rendition is 대표 정리본 (accepted in Rev. 8). |
+| O15 | Limit of one server in the +1 score | The number of accounts that one Claire server can serve now, estimated by the agent: 1,000 (Section 5.12 rule 9). |
+| O16 | Order of the picker | Not by score. By template: 기본, 간결, 학술 (Section 5.10 rule 10). |
 
 Open:
 
 | # | Question | State |
 | :--- | :--- | :--- |
 | O8 | Reputation of a publisher | **On hold** (2026-11-25). The score between renditions is +1 (Section 5.12). Likes and +1 do not feed the reputation of an account until a decision. |
+| O17 | Offer `academic` while its text is the same as `standard` | Recommendation: do not offer it until the owner changes its text (Section 5.2 rule 9). |
 
 ---
 
