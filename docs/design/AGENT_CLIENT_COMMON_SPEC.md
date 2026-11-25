@@ -1,10 +1,11 @@
-# Agent Client Common Specification (`claire` Plugin, `v0.4.4`)
+# Agent Client Common Specification (`claire` Plugin, `v0.0.14`)
 
 - **Document Identifier**: `SPEC-AGENT-CLIENT-COMMON-20261122`
-- **Status**: Active Specification (`fofwisdom/claire-agents` `v0.4.4`) -> Implemented behavior in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Section 3.4, [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md) Section 9, [`GLOSSARY.md`](../implementation/GLOSSARY.md), and [`INGESTION.md`](../implementation/INGESTION.md)
-- **Date**: 2026-11-22
+- **Status**: Active Specification (`fofwisdom/claire-agents` `v0.0.14`) -> Implemented behavior in [`API_AND_MCP_GUIDE.md`](../implementation/API_AND_MCP_GUIDE.md) Section 3.4, [`EXTERNAL_ACCESS.md`](../implementation/EXTERNAL_ACCESS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md) Section 9, [`GLOSSARY.md`](../implementation/GLOSSARY.md), and [`INGESTION.md`](../implementation/INGESTION.md)
+- **Date**: 2026-11-22 (updated 2026-11-25 for `v0.0.14` unified `claire` + subcommand UX, ChatGPT/Codex target, and revision-only `0.0.<n>` versioning)
 - **Related Documents**:
   - [`CLAUDE_AGENT_CLIENT_DESIGN.md`](CLAUDE_AGENT_CLIENT_DESIGN.md) (empirical lessons `T1`–`T19` and owner decisions `CD1`–`CD4`)
+  - [`CHATGPT_AGENT_CLIENT_DESIGN.md`](CHATGPT_AGENT_CLIENT_DESIGN.md) (Codex + ChatGPT web/desktop two-surface design, `v0.0.14`)
   - [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) (`AED1`–`AED11`, `AED3-rev`, 4-layer defense in Section 5.4)
   - [`MCP_SUPPORT.md`](MCP_SUPPORT.md) (17-tool `<domain>_<action>` server `"claire"`, Option A global registration)
   - [`PRINCIPLES.md`](../PRINCIPLES.md) (`A1`–`A4`, `B1`–`B4`, `C1`–`C5`, `G1`)
@@ -26,16 +27,19 @@ Starting in `v0.4.0`, every `agent_client` target renders from shared templates 
 
 ---
 
-## 2. Core UX Invariant: Two User-Facing Skills Only
+## 2. Core UX Invariant: Unified `claire` + Three Subcommands (`v0.0.14`+)
 
-Every Claire Bible client plugin MUST expose **only two** logical user-facing skills, formatted according to the harness adapter's `skill_naming` rule:
+Versioning policy (owner decision, 2026-11-25): agent client bundles use revision-only versions (`0.0.<n>`, starting at `0.0.14` matching the `agent_clients/` commit count) and increment only the final integer on each update (`scripts/build_agent_marketplace.py` enforces `^0\.0\.[1-9]\d*$` and exact parity between `marketplace.toml` and every `client.toml`).
 
-| Logical Skill | `hyphen_prefix` (Antigravity) | `plugin_colon` (Claude) | Purpose |
+Every Claire Bible client plugin exposes the **unified `claire` workflow with three logical subcommands**, formatted according to the harness adapter's `skill_naming` rule:
+
+| Logical Subcommand | `single_router` (Antigravity / Codex) | `plugin_colon` (Claude) | Purpose |
 | :--- | :--- | :--- | :--- |
-| `claire:ingest` | `claire-ingest` | `/claire:ingest` | Stage and extract a URL, local file, text note, or pending `extraction_status='pending'` queue |
-| `claire:query` | `claire-query` | `/claire:query` | Search and traverse KBs (`kb_list` + scoped read tools) and perform user-confirmed `contrib_submit` |
+| `claire:ingest` | `claire ingest` / `$claire ingest` | `/claire:ingest` | Stage and extract a URL, local file, text note, pending `extraction_status='pending'` queue, or re-fetch from URL (`refetch=True`) |
+| `claire:regenerate` | `claire regenerate` / `$claire regenerate` | `/claire:regenerate` | Re-extract an existing personal KB document from stored `raw_text` (`force=True`, `refetch=False`) |
+| `claire:query` | `claire query` / `$claire query` | `/claire:query` | Search and traverse KBs (`kb_list` + scoped read tools) and perform user-confirmed `contrib_submit` |
 
-**Hard Rule**: A client plugin MUST NOT expose a separate user-facing `extract` skill. Pending-queue extraction is Flow D inside `claire:ingest`.
+**Hard Rule**: A client plugin MUST NOT expose a separate user-facing `extract` skill. Pending-queue extraction stays inside `ingest`, while re-extraction from stored `raw_text` lives under `regenerate`. Under `"single_router"`, Antigravity and Codex ship a single unified `skills/claire/SKILL.md` (`name: claire`) routing `ingest`, `regenerate`, and `query` to preserve `claire <subcommand>` / `$claire <subcommand>` syntax across harnesses.
 
 ### 2.1 Four Ingest Flows Inside `claire:ingest`
 
@@ -77,7 +81,7 @@ Each target lives under `agent_clients/clients/<target>/` and declares its harne
 
 | Field | Allowed Values | Meaning |
 | :--- | :--- | :--- |
-| `skill_naming` | `"hyphen_prefix"` \| `"plugin_colon"` | `"hyphen_prefix"` writes `skills/<plugin>-<skill>/SKILL.md` (`claire-ingest`, `claire-query`). `"plugin_colon"` writes `skills/<skill>/SKILL.md`, invoked as `/<plugin>:<skill>` (`/claire:ingest`, `/claire:query`). |
+| `skill_naming` | `"single_router"` \| `"plugin_colon"` \| `"hyphen_prefix"` | `"single_router"` renders one unified `skills/<plugin>/SKILL.md` (`claire ingest`, `claire regenerate`, `claire query` on Antigravity; `$claire ingest`, `$claire regenerate`, `$claire query` on Codex). `"plugin_colon"` writes `skills/<skill>/SKILL.md`, invoked as `/<plugin>:<skill>` (`/claire:ingest`, `/claire:regenerate`, `/claire:query`). `"hyphen_prefix"` writes `skills/<plugin>-<skill>/SKILL.md`. |
 | `agent_naming` | `"hyphen_prefix"` \| `"plugin_colon"` | `"hyphen_prefix"` writes `agents/<plugin>-extractor.md` (`claire-extractor`). `"plugin_colon"` writes `agents/extractor.md`, referenced as `<plugin>:extractor` (`claire:extractor`, lesson `T7`). |
 | `tool_prefix` | `""` \| `"mcp__claire__"` | Prefix prepended to bare MCP tool names in frontmatter and instructions (`""` for Antigravity, `"mcp__claire__"` for Claude Option A global server `"claire"`, lessons `T5`, `T6`, `T11`). |
 | `handoff_mode` | `"direct_subagent"` \| `"forked_internal_skill"` | `"direct_subagent"` instructs the top-level skill to hand `document_id` directly to the extractor subagent. `"forked_internal_skill"` routes the handoff through a hidden forked internal runner skill (`Skill(<plugin>:<internal_runner_skill>)`, lessons `T7`, `T19`). |
@@ -99,15 +103,15 @@ For Antigravity (`target = "antigravity"`), the harness UI silently drops any `s
 
 ### 3.3 How First-Party Harnesses Implement the Same Spec
 
-Both first-party targets consume the exact same `agent_clients/common/` skill, agent, and runner templates without per-client template forks:
+All three first-party targets consume the exact same `agent_clients/common/` skill, agent, and runner templates without per-client template forks:
 
-| Aspect | Antigravity (`antigravity`) | Claude (`claude`) |
-| :--- | :--- | :--- |
-| **User Skills (2)** | `skills/claire-ingest/SKILL.md`, `skills/claire-query/SKILL.md` | `skills/ingest/SKILL.md`, `skills/query/SKILL.md` (`/claire:ingest`, `/claire:query`) |
-| **Extractor Subagent** | `agents/claire-extractor.md` (`subagent: true`, `mainAgent: false`, `tools: [send_message]`, `inheritMcp: true`, restricted to the 8 Claire MCP tools) | `agents/extractor.md` (`claire:extractor`, 8 `mcp__claire__*` tools, `model: inherit`) |
-| **Ingest Handoff** | `direct_subagent`: `claire-ingest` passes `document_id` directly to `claire-extractor` | `forked_internal_skill`: `ingest` calls `Skill(claire:extract-runner)` with `document_id`; `skills/extract-runner/SKILL.md` sets `user-invocable: false`, `context: fork`, `agent: claire:extractor`, and `allowed-tools` so MCP calls run without permission prompts (`T19`) |
-| **Layer 1 Guard** | `guard_mode = "rules"` (`rules/AGENTS.md`) | `guard_mode = "claude_pre_tool_use_hook"` (`hooks/hooks.json` fail-closed `PreToolUse` command matching `^mcp__.*__extract_read$`, allowing only `"agent_type" *: *"claire:extractor"`, exiting `2` with block message pointing to `/claire:ingest` or `claire:extractor`, `CD1`) |
-| **Starter Prompts** | 3 bilingual `suggestedPrompts` in `plugin.json` | Slash menu shows only `/claire:ingest` and `/claire:query` (`extract-runner` hidden via `user-invocable: false`) |
+| Aspect | Antigravity (`antigravity`) | Claude (`claude`) | Codex / ChatGPT (`codex`) |
+| :--- | :--- | :--- | :--- |
+| **User Skills** | `skills/claire/SKILL.md` (`claire ingest`, `claire regenerate`, `claire query`) | `skills/{ingest,regenerate,query}/SKILL.md` (`/claire:ingest`, `/claire:regenerate`, `/claire:query`) | `skills/claire/SKILL.md` (`$claire ingest`, `$claire regenerate`, `$claire query`) |
+| **Extractor Subagent** | `agents/claire-extractor.md` (`subagent: true`, `mainAgent: false`, `tools: [send_message]`, `inheritMcp: true`, restricted to the 8 Claire MCP tools) | `agents/extractor.md` (`claire:extractor`, 8 `mcp__claire__*` tools, `model: inherit`) | `agents/claire-extractor.md` + `agents/claire-extractor.toml` (`sandbox_mode = "read-only"`, `model` omitted to inherit parent model) |
+| **Ingest / Regenerate Handoff** | `direct_subagent`: `claire` invokes `claire-extractor` with `Model: "inherit"` and passes `document_id` plus the active LLM model ID (resolved from session context or the latest `PLANNER_RESPONSE` `"model"` entry in `transcript.jsonl`) | `forked_internal_skill`: `ingest` and `regenerate` call `Skill(claire:extract-runner)` with `<document_id> model=<active_model_id>`; `skills/extract-runner/SKILL.md` sets `user-invocable: false`, `context: fork`, `agent: claire:extractor` (`model: inherit`), and `allowed-tools` so MCP calls run without permission prompts (`T19`) and preserves `payload.model` | `direct_subagent`: `claire` invokes `claire-extractor` inheriting the parent session model (`model` unset in TOML) and passes `document_id` plus the active LLM model ID when known |
+| **Layer 1 Guard** | `guard_mode = "rules"` (`rules/AGENTS.md`) | `guard_mode = "claude_pre_tool_use_hook"` (`hooks/hooks.json` fail-closed `PreToolUse` command matching `^mcp__.*__extract_read$`, allowing only `"agent_type" *: *"claire:extractor"`, exiting `2` with block message pointing to `/claire:ingest` or `claire:extractor`, `CD1`) | `guard_mode = "rules"` (`rules/AGENTS.md`) + `sandbox_mode = "read-only"` in `agents/claire-extractor.toml` (and `readonly` OAuth scope on ChatGPT web/desktop connectors) |
+| **Manifest & Catalog** | `plugin.json` with 3 bilingual `suggestedPrompts` | `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` | `.codex-plugin/plugin.json` + `.agents/plugins/marketplace.json` |
 
 ---
 

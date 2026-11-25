@@ -14,7 +14,7 @@ import sqlite3
 import string
 import time
 import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,6 +52,13 @@ class AccountsContext:
     data_dir: Path | None = None
     # 계정 기능(번들·백업)이 앱 설정(공개 URL·테마 관리자)을 쓴다. 테스트 대역은 None일 수 있다.
     settings: Any = None
+    settings_getter: Callable[[], Any] | None = None
+
+    def current_settings(self) -> Any:
+        """Return the active runtime settings when a live getter is bound."""
+        if self.settings_getter is not None:
+            return self.settings_getter()
+        return self.settings
 
     @property
     def client_db_file(self) -> Path:
@@ -81,7 +88,12 @@ def server_hosts(settings: Any, config: security.WebRuntimeConfig) -> tuple[str,
     return tuple(h for h in hosts if h)
 
 
-def build_context(settings: Any, config: security.WebRuntimeConfig) -> AccountsContext:
+def build_context(
+    settings: Any,
+    config: security.WebRuntimeConfig,
+    *,
+    settings_getter: Callable[[], Any] | None = None,
+) -> AccountsContext:
     data_dir = Path(getattr(settings, "data_dir"))
     return AccountsContext(
         db_file=Path(settings.db_file),
@@ -90,6 +102,7 @@ def build_context(settings: Any, config: security.WebRuntimeConfig) -> AccountsC
         server_reserved=server_reserved_labels(server_hosts(settings, config)),
         data_dir=data_dir,
         settings=settings,
+        settings_getter=settings_getter,
     )
 
 

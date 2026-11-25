@@ -1,6 +1,6 @@
 # Claire Bible Plugin for Antigravity (`{{PLUGIN_NAME}}` v{{VERSION}})
 
-Provides isolated client extraction (`{{EXTRACTOR_REF}}`), unified ingest & pending queue extraction (`{{INGEST_SKILL}}`), and knowledge graph query (`{{QUERY_SKILL}}`) skills wired to your global `claire` OAuth 2.1 MCP server (`claire-antigravity-v{{VERSION}}.zip`). Zero tokens or server secrets are stored in this plugin.
+Provides isolated client extraction (`{{EXTRACTOR_REF}}`) and the unified `{{PLUGIN_NAME}}` skill (`{{INGEST_CMD}}`, `{{REGENERATE_CMD}}`, `{{QUERY_CMD}}`) wired to your global `claire` OAuth 2.1 MCP server (`claire-antigravity-v{{VERSION}}.zip`). Zero tokens or server secrets are stored in this plugin.
 
 ## 1. Global `claire` MCP Server Setup & Sign In (OAuth 2.1)
 
@@ -9,20 +9,23 @@ This plugin works together with a standalone **`claire`** MCP entry in `~/.gemin
 1. Use Claire **`/account/mcp`** **Antigravity quick setup prompt** (installs `claire-antigravity-v{{VERSION}}.zip` into `~/.gemini/config/plugins/claire`), OR download `mcp_config.json` from **`/account/mcp`** and place/merge `"claire": {"url": "https://<your-claire-server>/mcp"}` inside `~/.gemini/config/mcp_config.json`.
 2. In Antigravity, open **`Customizations -> Installed -> MCP Servers -> claire`** and complete the browser OAuth 2.1 login approving both `readonly` and `write` scopes.
 
-## 2. Starter Workflows & Skills
+## 2. Starter Workflows & Unified `{{PLUGIN_NAME}}` Skill
 
-This plugin exposes two user-facing skills:
+This plugin exposes one unified skill (`skills/{{PLUGIN_NAME}}/SKILL.md`) with three subcommands:
 
-- **Unified Ingest & Queue Extraction (`{{INGEST_SKILL}}`)**:
+- **`{{INGEST_CMD}}`**:
   - **URL / File / Note Ingest**: Paste a URL, a local file (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML), or a text note to save and extract it into your personal KB in one step.
-  - **Pending Queue Drain**: Run `{{INGEST_SKILL}}` with no URL, file, or note (or ask to process waiting/queued items) to drain `pending` items staged from the Web UI, Telegram, or feeds through the isolated `{{EXTRACTOR_REF}}` (`{{EXTRACTOR_PATH}}`) subagent.
+  - **Pending Queue Drain**: Run `{{INGEST_CMD}}` with no URL, file, or note (or ask to process waiting/queued items) to drain `pending` items staged from the Web UI, Telegram, or feeds through the isolated `{{EXTRACTOR_REF}}` (`{{EXTRACTOR_PATH}}`) subagent.
   - Examples:
-    - URL ingest: `"Save and extract https://example.com/article into Claire Bible"`
-    - File or note ingest: `"Stage and extract ./notes/spec.pdf into Claire Bible"`
-    - Pending queue drain: `"Process my pending Claire Bible items"`
-- **Knowledge Graph Query & Contribution (`{{QUERY_SKILL}}`)**:
+    - URL ingest: `"{{INGEST_CMD}} https://example.com/article"`
+    - File or note ingest: `"{{INGEST_CMD}} ./notes/spec.pdf"`
+    - Pending queue drain: `"{{INGEST_CMD}}"`
+- **`{{REGENERATE_CMD}}`**:
+  - Re-extract an existing personal KB document from its stored `raw_text` without re-fetching its source URL (`extract_stage(document_id=..., force=True)`).
+  - Example: `"{{REGENERATE_CMD}} <document_id or title>"`
+- **`{{QUERY_CMD}}`**:
   - Discover accessible KBs (`kb_list`), search entities and relations (`entity_search`, `graph_neighbors`), inspect documents, or contribute to shared KBs (`contrib_submit`) only after explicit confirmation.
-  - Example: `"Search my Claire Bible knowledge graph for Fedify"`
+  - Example: `"{{QUERY_CMD}} Fedify"`
 
 ## 3. First-Run Permission Prompts (`Allow using this MCP tool?`)
 

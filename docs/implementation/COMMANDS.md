@@ -309,7 +309,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
 | 명령 | 호스트 실행 (`./cb-manuscript app`) | 로컬 가상환경 (`uv run claire`) | 설명 |
 | :--- | :--- | :--- | :--- |
 | `reprocess` | `./cb-manuscript app reprocess [<target>] [-c {all,summary,detail,graph,format}] [-s {all,missing,corrupted,tables}] [--apply] [--json]` | `uv run claire reprocess [...]` | **[통합 재처리]** 요약, 상세, 그래프, 포맷 등 파생 데이터 일괄 갱신 엔진 |
-| `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table) 포함 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
+| `regenerate` | `./cb-manuscript app regenerate [<target>] [--tables] [--model <name>] [--exclude-model <name>] [--since <ts>] [--all-themes] [--summary] [--detail] [--all] [--apply] [--force] [--effort <level>]` | `uv run claire regenerate [...]` | 특정 문서 또는 표(Table)·모델·기간 조건 문서 컴포넌트(요약/상세/그래프) 선택적 LLM 재생성 (기본: dry-run, 실행: `--apply`) |
 | `summary-regenerate`| `./cb-manuscript app summary-regenerate [<target>] [--tables] [--apply] [--force] [--effort <level>]` | `uv run claire summary-regenerate [...]` | `reprocess -c summary`의 단축 Alias |
 | `format-migrate` | `./cb-manuscript app format-migrate [--format adoc] [--apply] [--yes] [--json]` | `uv run claire format-migrate [...]` | 문서 렌더링 포맷 진단 및 일괄 변환 (기본: dry-run, 실행: `--apply`) |
 | `format-status` | `./cb-manuscript app format-status [--format adoc] [--json]` | `uv run claire format-status [...]` | 문서 detail이 AsciiDoc인지, 아닌지, 누락인지 통계 출력. `--format`은 `adoc`만 받는다 |
@@ -344,6 +344,7 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   ./cb-manuscript app regenerate --corrupted --summary           # 오염된 요약 일괄 스캔
   ./cb-manuscript app regenerate --tables --all                  # 표 포함 문서 일괄 진단 (Dry-run)
   ./cb-manuscript app regenerate --tables --all --apply          # 표 포함 문서 요약/상세/그래프 일괄 재생성
+  ./cb-manuscript app regenerate --all-themes --model gemini-4-hydrogen-medium --since 2026-11-25T13:53:44+09:00 --all # 특정 모델/시점 이후 전체 개인 KB 감사 (Dry-run)
   ./cb-manuscript app regenerate <target> --all --apply          # 특정 문서 전체 재생성
   ```
 * **옵션**:
@@ -357,6 +358,10 @@ FTS5 전문 검색과 벡터 임베딩 코사인 유사도를 결합한 하이�
   * `--all`: 요약, 상세, 그래프 전체 동시 재생성.
   * `--corrupted`: AsciiDoc/마크업 문법 잔존으로 오염된 요약을 가진 문서를 전체 DB에서 자동 탐지.
   * `--tables`, `--has-tables`: 마크다운(`|...|`), AsciiDoc(`|===`), HTML(`<table>`) 표가 포함된 문서를 전체 DB에서 자동 탐지하여 일괄 대상으로 지정.
+  * `--model <name>`: 최신 추출 또는 `model_lineage` 기록에 지정된 모델명이 포함된 문서만 대상으로 필터링.
+  * `--exclude-model <name>`: 지정된 모델명과 다른 모델로 추출되었거나 `model_lineage`가 혼재된 문서만 대상으로 필터링.
+  * `--since <ts>`: 지정된 시각(ISO-8601 또는 Unix epoch 초) 이후에 추출·수집된 문서만 대상으로 필터링.
+  * `--all-themes`: 모든 개인 지식베이스(공유 지식베이스 제외)를 순회하며 일괄 감사 및 재생성 (`-t/--theme` 미지정 시).
   * `--refetch`: 환경변수(`CLAIRE_RAW_CHAR_BUDGET`)의 수집 길이 제한을 적용하여 원본 URL에서 최신 문서 재스크랩 후 재생성.
   * `--refetch-full`: 환경변수 길이 제한 없이 원본 URL에서 원문 전체 길이를 수집 후 재생성.
   * `--apply`: 실제 LLM 호출 및 DB 덮어쓰기 실행 (미지정 시 기본 dry-run).

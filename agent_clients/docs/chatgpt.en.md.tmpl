@@ -1,0 +1,142 @@
+# ChatGPT (Codex) Installation & Setup Guide (English)
+
+[한국어 가이드](./chatgpt.ko.md) · [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest)
+
+One pasted prompt in **Codex (app or CLI)** installs the Claire Bible skills and isolated extractor agent and connects your standalone `claire` MCP server. In **ChatGPT web and desktop**, a read-only custom MCP connector lets you safely search your knowledge graph.
+
+---
+
+## Where Does It Work?
+
+| ChatGPT / Codex surface | What you can do | Where to start |
+| :--- | :--- | :--- |
+| **Codex app**, **Codex CLI** in a terminal | Save, isolated extract, regenerate, and search (`$claire ingest`, `$claire regenerate`, `$claire query`) | Steps 1 to 2 below |
+| **ChatGPT web**, **ChatGPT desktop** normal chat | Search (read) only (custom MCP connector, `readonly`) | [Read-only connection](#readonly-connector) at the end |
+
+---
+
+## Before You Start (1 Minute)
+
+1. Sign in to your **Claire Bible web page**. (Extraction mode is chosen per ingest request, so no global mode switch is needed.)
+2. Keep **MCP Settings** (`/account/mcp`) open. You copy the **ChatGPT (Codex) quick setup prompt** from this page.
+
+---
+
+## Step 1: Install and Connect via Quick Setup Prompt
+
+1. On the Claire Bible **`/account/mcp`** page, in the **Official Agent Marketplace (GitHub)** card, click **Copy** next to **`ChatGPT (Codex) quick setup prompt`**.
+   - To start from GitHub, copy this prompt and replace only `<your-claire-server>` with your server address:
+   ```text
+   Set up Claire Bible for Codex on this computer.
+   1) Download claire-codex-v{{VERSION}}.zip and SHA256SUMS from the latest GitHub Release of
+      https://github.com/{{MARKETPLACE_REPO}}, verify the checksum, install skills/claire into
+      ~/.codex/skills/claire, install agents/claire-extractor.toml into
+      ~/.codex/agents/claire-extractor.toml, and append rules/AGENTS.md into ~/.codex/AGENTS.md
+      without overwriting existing settings.
+   2) Run: codex mcp add claire --url "https://<your-claire-server>/mcp"
+   3) Run: codex mcp login claire
+   Skip any step already completed, stop and tell me if the codex command is not found,
+   and tell me to restart Codex when finished.
+   ```
+2. Open a new conversation in the **Codex app** or **Codex CLI**, paste the prompt, and send it.
+   - *Permission to run commands*: when Codex asks to install files or run `codex mcp add` / `codex mcp login`, allow it.
+3. **Claire Bible sign-in (OAuth 2.1)**: `codex mcp login claire` opens your browser. Sign in to Claire Bible and approve the **`readonly`** and **`write`** scopes.
+4. Quit and restart the Codex app or CLI.
+
+---
+
+## Step 2: Make Sure It Works
+
+1. Open a new Codex conversation and run `/mcp` to verify that `claire` is connected.
+2. Send this prompt to check your knowledge bases:
+   ```text
+   $claire query Show the list of my knowledge bases
+   ```
+3. When the answer lists your knowledge base names and document counts, setup is complete.
+
+---
+
+## Three Subcommands Ready to Use (`v{{VERSION}}`)
+
+You only need the unified **`$claire`** skill with three subcommands: **`$claire ingest`**, **`$claire regenerate`**, and **`$claire query`**.
+
+- **`$claire ingest`** (`URL, local file, note, or pending queue`):
+  - Stages a web address, local document file (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML), or text note on your server and delegates extraction to the isolated `claire-extractor` subagent (`sandbox_mode = "read-only"`).
+  - When called with no URL/file/note (or asked to process waiting items), checks `extract_queue` and drains `pending` items staged from the Web UI, Telegram, or feeds.
+- **`$claire regenerate`** (`re-extract from stored raw text`):
+  - Re-extracts an existing personal KB document from its stored `raw_text` without re-fetching its source URL.
+- **`$claire query`** (`knowledge graph search and contribution`):
+  - Searches entities, relations, and documents in your personal and shared knowledge bases.
+
+Examples (URL ingest, file ingest, pending queue drain, regenerate from stored text, graph query):
+
+```text
+$claire ingest https://example.com/article
+$claire ingest ./notes/spec.pdf
+$claire ingest
+$claire regenerate doc_12345678
+$claire query Find documents about Fedify
+```
+
+### Safety Controls (`AED9`)
+
+- Only the **isolated extraction agent** (`claire-extractor`, `~/.codex/agents/claire-extractor.toml`, `sandbox_mode = "read-only"`) calls `extract_read`.
+- The main Codex thread never reads raw staged text and passes only `document_id` to `claire-extractor`.
+- Untrusted source text is wrapped inside `<untrusted_source_document nonce="...">` and treated strictly as inert data.
+- Contributing a document to a shared knowledge base (`contrib_submit`) always asks for your confirmation first.
+
+---
+
+## Update or Remove the Plugin
+
+1. When a new version (`v{{VERSION}}`) is released, overwrite `~/.codex/skills/claire` and `~/.codex/agents/claire-extractor.toml` from `claire-codex-v{{VERSION}}.zip` on [GitHub Releases](https://github.com/{{MARKETPLACE_REPO}}/releases/latest). Your `claire` server URL in `~/.codex/config.toml` stays untouched.
+2. To remove it, delete `~/.codex/skills/claire` and `~/.codex/agents/claire-extractor.toml`, and run `codex mcp remove claire`.
+
+---
+
+## Troubleshooting
+
+| Symptom | Solution |
+| :--- | :--- |
+| Codex says it cannot find `claire` tools | Check `[mcp_servers.claire]` in `~/.codex/config.toml`, then run `codex mcp add claire --url "https://<your-claire-server>/mcp"` and `codex mcp login claire`. |
+| *codex command is not found* | Install the OpenAI Codex CLI or Codex app first, then run Step 1 again. |
+| You missed the browser sign-in window | Run `codex mcp login claire` again in a terminal or conversation. |
+| Sign-in succeeded, but `write` scope is missing | You cleared **Allow write access** on the approval page. Run `codex mcp login claire` again and keep it checked. |
+| Write or extraction is denied in ChatGPT web | Expected behavior. ChatGPT web and desktop chat have no isolated extractor subagent, so use `readonly` there and run ingest/extraction in Codex. |
+
+<a id="readonly-connector"></a>
+
+---
+
+## ChatGPT Web & Desktop: Read-Only Connection
+
+ChatGPT web and desktop chat have no isolated extraction subagent (`claire-extractor`), so they support **search (read) only**.
+
+1. In ChatGPT, open **Settings** -> **Connectors** (or **Apps / Advanced settings**) and turn on **Developer Mode**.
+2. Click **Create** to add a custom MCP connector:
+   - **Name**: `Claire Bible`
+   - **Server URL**: `https://<your-claire-server>/mcp`
+   - **Authentication**: `OAuth`
+3. When the Claire Bible OAuth 2.1 consent page opens, **clear `Allow write access`** and approve. (Only `readonly` is granted, so raw source reads and writes are blocked on the server.)
+4. In a new chat, select Developer Mode or the Claire Bible connector and ask, for example, *"Find documents about a topic in Claire Bible"*.
+
+For saving and extracting sources, use Codex set up with Steps 1 and 2 above.
+
+<details>
+<summary>Terminal / Manual Setup (.zip, .tar.gz, and SHA256SUMS)</summary>
+
+```bash
+curl -LO "https://github.com/{{MARKETPLACE_REPO}}/releases/latest/download/claire-codex-v{{VERSION}}.tar.gz"
+curl -LO "https://github.com/{{MARKETPLACE_REPO}}/releases/latest/download/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing
+mkdir -p ~/.codex/skills ~/.codex/agents
+tar -xzf claire-codex-v{{VERSION}}.tar.gz -C /tmp
+cp -r /tmp/claire/skills/claire ~/.codex/skills/claire
+cp /tmp/claire/agents/claire-extractor.toml ~/.codex/agents/claire-extractor.toml
+codex mcp add claire --url "https://<your-claire-server>/mcp"
+codex mcp login claire
+```
+
+- Inside a Codex session, `/mcp` shows the live connection status of `claire`.
+
+</details>

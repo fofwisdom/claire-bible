@@ -1250,7 +1250,7 @@ def _settings_entity_language_html(account: accounts_store.Account) -> str:
 
 def _current_settings(ctx: AccountsContext) -> Any:
     """The settings of the app with the current ``providers.json`` (a save on /admin/providers changes it while the app runs), or None for a test double without settings."""
-    base = ctx.settings
+    base = ctx.current_settings()
     if base is None or not hasattr(base, "model_copy"):
         return None
     from ...core.provider_manager import ProviderManager

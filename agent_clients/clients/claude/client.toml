@@ -4,10 +4,10 @@ client_id = "claude"
 target = "claude"
 name = "Claire Bible"
 agent_name = "Claude"
-version = "0.4.4"
+version = "0.0.14"
 license = "MIT"
 required_scopes = ["readonly", "write"]
-description = "Claude plugin providing /claire:ingest and /claire:query skills with isolated source extraction for your claire MCP server."
+description = "Claude plugin providing /claire:ingest, /claire:regenerate, and /claire:query skills with isolated source extraction for your claire MCP server."
 
 [adapter]
 skill_naming = "plugin_colon"

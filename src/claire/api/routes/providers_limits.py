@@ -91,7 +91,7 @@ def build_providers_limits_routes(
         try:
             updated = pm.update_config(body, server_scope=True)
             get_settings.cache_clear()
-            refreshed = get_settings()
+            refreshed = curr_settings.model_copy(update=pm.get_settings_dict())
             update_settings_fn(refreshed)
             if hasattr(request, "app") and hasattr(request.app, "state"):
                 request.app.state.settings = refreshed

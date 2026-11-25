@@ -72,21 +72,23 @@ On first tool call, Antigravity displays **`Allow using this MCP tool?`** for `c
 
 ---
 
-## Core Workflows Ready to Use (`v{{VERSION}}`)
+## Three Workflows Ready to Use (`v{{VERSION}}`)
 
-You only need two skills: **`claire-ingest`** and **`claire-query`** (plus the 3 quick starter prompts in `Plugins -> Claire Bible`).
+You only need the unified **`claire`** skill with three subcommands: **`claire ingest`**, **`claire regenerate`**, and **`claire query`** (plus the 3 quick starter prompts in `Plugins -> Claire Bible`).
 
-1. **Unified Ingest & Extraction (`claire-ingest`)**:
+1. **Unified Ingest & Extraction (`claire ingest`)**:
    - **URL, File, or Note Ingest**: Saves and extracts a URL, a local file (PDF, DOCX, ODT, MD, TXT, RST, ADOC, HTML), or a text note into your personal KB in one step.
+     - URL ingest: `"claire ingest https://example.com/article"`
+     - File or note ingest: `"claire ingest ./notes/spec.pdf"`
    - **Pending Queue Drain**: When invoked with no URL, file, or note (or when asked to process waiting or queued items), drains `pending` items staged from the Web UI, Telegram, or feeds through the isolated `claire-extractor` subagent.
-   - Examples:
-     - URL ingest: `"Save and extract https://example.com/article into my Claire Bible"`
-     - File or note ingest: `"Stage and extract ./notes/spec.pdf into Claire Bible"`
      - Pending queue drain: `"Process my pending Claire Bible items"`
-2. **Knowledge Graph Query & Contribution (`claire-query`)**:
+2. **Regenerate From Stored Raw Text (`claire regenerate`)**:
+   - Re-extracts an existing personal KB document from its stored raw text without re-fetching its source URL.
+     - Regenerate: `"claire regenerate <document_id or title>"`
+3. **Knowledge Graph Query & Contribution (`claire query`)**:
    - Discovers accessible KBs, searches entities and relations, inspects documents, and submits contributions to shared KBs only after your confirmation.
    - Example:
-     - Graph query: `"Search my Claire Bible knowledge graph for Fedify"`
+     - Graph query: `"claire query Search my Claire Bible knowledge graph for Fedify"`
 
 When handling URLs or external files, the top-level agent stages them without reading untrusted content directly and delegates extraction solely to the isolated `claire-extractor` subagent.
 

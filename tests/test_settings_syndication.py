@@ -318,19 +318,25 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
         "releases_url": "https://github.com/fofwisdom/claire-agents/releases",
         "antigravity_guide_url": "https://github.com/fofwisdom/claire-agents/blob/main/docs/antigravity.en.md",
         "claude_guide_url": "https://github.com/fofwisdom/claire-agents/blob/main/docs/claude.en.md",
+        "chatgpt_guide_url": "https://github.com/fofwisdom/claire-agents/blob/main/docs/chatgpt.en.md",
     }
     for claude_id in ("pref-mcp-claude-prompt", "pref-mcp-copy-claude-prompt", "pref-mcp-claude-guide", "pref-mcp-claude-setup", "pref-mcp-copy-claude-setup"):
         assert f'id="{claude_id}"' in en_resp.text, claude_id
+    for chatgpt_id in ("pref-mcp-chatgpt-prompt", "pref-mcp-copy-chatgpt-prompt", "pref-mcp-chatgpt-guide", "pref-mcp-chatgpt-setup", "pref-mcp-copy-chatgpt-setup"):
+        assert f'id="{chatgpt_id}"' in en_resp.text, chatgpt_id
     assert 'href="https://github.com/fofwisdom/claire-agents/blob/main/docs/claude.en.md"' in en_resp.text
+    assert 'href="https://github.com/fofwisdom/claire-agents/blob/main/docs/chatgpt.en.md"' in en_resp.text
     assert "claude plugin install claire --marketplace fofwisdom/claire-agents" in en_resp.text
     assert "claude mcp add --transport http --scope user claire" in en_resp.text
+    assert "codex mcp add claire --url" in en_resp.text
+    assert "codex mcp login claire" in en_resp.text
     assert "Marketplace management" not in en_resp.text
     assert "Remote connectors such as Gemini custom connected apps" in en_resp.text
     en_bundles_section = en_resp.text.split('id="pref-mcp-client-bundles"', 1)[1].split('id="pref-mcp-tools-tbody"', 1)[0]
-    en_without_prompt = re.sub(r'<code id="pref-mcp-antigravity-prompt"[^>]*>.*?</code>', "", en_bundles_section, flags=re.S)
+    en_without_prompt = re.sub(r'<code id="pref-mcp-(?:antigravity|chatgpt)-prompt"[^>]*>.*?</code>', "", en_bundles_section, flags=re.S)
     for jargon in ("~/.gemini/config/plugins/", "SHA256SUMS", "mcp_config.json"):
         assert jargon not in en_without_prompt, jargon
-    for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
+    for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "server-everything"):
         assert retired not in en_resp.text, retired
 
     ko_resp = env.client.get("/account/mcp", headers={**env.alice_owner, "Accept-Language": "ko"})
@@ -347,13 +353,17 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     ko_boot = _bootstrap(ko_resp.text)
     assert ko_boot["syndication"]["agent_marketplace"]["antigravity_guide_url"] == "https://github.com/fofwisdom/claire-agents/blob/main/docs/antigravity.ko.md"
     assert ko_boot["syndication"]["agent_marketplace"]["claude_guide_url"] == "https://github.com/fofwisdom/claire-agents/blob/main/docs/claude.ko.md"
+    assert ko_boot["syndication"]["agent_marketplace"]["chatgpt_guide_url"] == "https://github.com/fofwisdom/claire-agents/blob/main/docs/chatgpt.ko.md"
     assert 'id="pref-mcp-claude-prompt"' in ko_resp.text
     assert "Claude 빠른 설정 문구" in ko_resp.text
+    assert 'id="pref-mcp-chatgpt-prompt"' in ko_resp.text
+    assert "ChatGPT (Codex) 빠른 설정 문구" in ko_resp.text
+    assert 'href="https://github.com/fofwisdom/claire-agents/blob/main/docs/chatgpt.ko.md"' in ko_resp.text
     ko_bundles_section = ko_resp.text.split('id="pref-mcp-client-bundles"', 1)[1].split('id="pref-mcp-tools-tbody"', 1)[0]
-    ko_without_prompt = re.sub(r'<code id="pref-mcp-antigravity-prompt"[^>]*>.*?</code>', "", ko_bundles_section, flags=re.S)
+    ko_without_prompt = re.sub(r'<code id="pref-mcp-(?:antigravity|chatgpt)-prompt"[^>]*>.*?</code>', "", ko_bundles_section, flags=re.S)
     for jargon in ("~/.gemini/config/plugins/", "SHA256SUMS", "mcp_config.json"):
         assert jargon not in ko_without_prompt, jargon
-    for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "ChatGPT", "Codex", "server-everything"):
+    for retired in ("Claude Desktop", "Claude Code", "ClaudeDesktop", "server-everything"):
         assert retired not in ko_resp.text, retired
 
     # CLAIRE_AGENT_MARKETPLACE_REPO overrides the displayed repository safely, while invalid values fall back to default.
@@ -370,6 +380,7 @@ def test_settings_mcp_client_bundles_panel_is_localized(env, monkeypatch: pytest
     assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["repo"] == "fork-owner/fork-claire-agents"
     assert "claude plugin install claire --marketplace fork-owner/fork-claire-agents" in rendered_override.body_html
     assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["antigravity_guide_url"] == "https://github.com/fork-owner/fork-claire-agents/blob/main/docs/antigravity.en.md"
+    assert rendered_override.extra_bootstrap["syndication"]["agent_marketplace"]["chatgpt_guide_url"] == "https://github.com/fork-owner/fork-claire-agents/blob/main/docs/chatgpt.en.md"
 
     invalid_override = panels.build_syndication_section(ctx, slug="mcp", path="/account/mcp", mode="single", account=alice_acc, selected_theme=env.alice_def, owned_themes=[env.alice_def], theme_query=None, settings=SimpleNamespace(agent_marketplace_repo="javascript:alert(1)"))
     assert invalid_override.extra_bootstrap["syndication"]["agent_marketplace"]["repo"] == "fofwisdom/claire-agents"

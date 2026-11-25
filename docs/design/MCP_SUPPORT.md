@@ -6,7 +6,7 @@
 
 ## Goal
 
-External AI agent clients (for example Antigravity / `agy` via [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md)) can read the knowledge graph and the documents of Claire through one standard endpoint (and participate in explicit client-driven extraction when authorized with `write`). ChatGPT, Codex, and Claude as server providers, and the obsolete Claude Desktop stdio instructions, are retired from Claire Bible principles and design scope (`AED8`, 2026-11-20). Claude stays supported as an OAuth 2.1 `agent_client` ([`CLAUDE_AGENT_CLIENT_DESIGN.md`](CLAUDE_AGENT_CLIENT_DESIGN.md)). A user connects a client without copying and pasting manual persistent tokens over OAuth 2.1 (`AED5`).
+External AI agent clients (Antigravity / `agy`, Claude, and ChatGPT / Codex via [`AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md`](AGENT_DRIVEN_EXTRACTION_AND_EMBEDDING_DESIGN.md) and [`AGENT_CLIENT_COMMON_SPEC.md`](AGENT_CLIENT_COMMON_SPEC.md)) can read the knowledge graph and the documents of Claire through one standard endpoint (and participate in explicit client-driven extraction when authorized with `write`). Server-side `host-cli` providers (`AntigravityProvider`, `CodexProvider`) and obsolete stdio instructions remain retired (`AED8`, `AE8`), while Antigravity, Claude ([`CLAUDE_AGENT_CLIENT_DESIGN.md`](CLAUDE_AGENT_CLIENT_DESIGN.md)), and ChatGPT/Codex ([`CHATGPT_AGENT_CLIENT_DESIGN.md`](CHATGPT_AGENT_CLIENT_DESIGN.md)) are supported as OAuth 2.1 `agent_client`s. A user connects a client without copying and pasting manual persistent tokens over OAuth 2.1 (`AED5`).
 
 ## Decisions in Force
 

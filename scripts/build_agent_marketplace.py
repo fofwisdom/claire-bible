@@ -45,9 +45,9 @@ FORBIDDEN_EXTENSIONS: frozenset[str] = frozenset({
     ".ts",
 })
 
-ALLOWED_TARGETS: frozenset[str] = frozenset({"antigravity", "claude", "cursor"})
+ALLOWED_TARGETS: frozenset[str] = frozenset({"antigravity", "claude", "codex", "cursor"})
 ALLOWED_SCOPES: frozenset[str] = frozenset({"readonly", "write"})
-ALLOWED_SKILL_NAMING: frozenset[str] = frozenset({"hyphen_prefix", "plugin_colon"})
+ALLOWED_SKILL_NAMING: frozenset[str] = frozenset({"single_router", "plugin_colon", "hyphen_prefix"})
 ALLOWED_AGENT_NAMING: frozenset[str] = frozenset({"hyphen_prefix", "plugin_colon"})
 ALLOWED_HANDOFF_MODES: frozenset[str] = frozenset({"direct_subagent", "forked_internal_skill"})
 ALLOWED_GUARD_MODES: frozenset[str] = frozenset({"rules", "claude_pre_tool_use_hook"})
@@ -58,7 +58,7 @@ ALLOWED_ADAPTER_KEYS: frozenset[str] = REQUIRED_ADAPTER_KEYS | {"internal_runner
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,31}$")
-SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+([-.][0-9A-Za-z.]+)?$")
+REVISION_VERSION_RE = re.compile(r"^0\.0\.[1-9]\d*$")
 TOOL_PREFIX_RE = re.compile(r"^(?:[a-z][a-z0-9_]*__)?$")
 PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z0-9_]+)\}\}")
 TOOL_CALL_RE = re.compile(r"(?<![A-Za-z0-9_])((?:mcp__claire__)?[a-z][a-z0-9_]*)\(")
@@ -67,6 +67,7 @@ FRONTMATTER_KEY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$")
 
 EXTRACTOR_TOOLS: tuple[str, ...] = ("extract_spec", "extract_queue", "extract_claim", "extract_read", "extract_submit", "kb_list", "entity_search", "graph_neighbors")
 INGEST_SKILL_TOOLS: tuple[str, ...] = ("extract_stage", "extract_queue", "kb_list", "doc_list")
+REGENERATE_SKILL_TOOLS: tuple[str, ...] = ("extract_stage", "kb_list", "doc_list")
 QUERY_SKILL_TOOLS: tuple[str, ...] = ("kb_list", "kb_overview", "entity_search", "entity_get", "graph_neighbors", "graph_path", "graph_context", "doc_list", "doc_get")
 CLAUDE_FORBIDDEN_FRONTMATTER_KEYS: frozenset[str] = frozenset({"subagent", "mainAgent", "hooks", "mcpServers", "permissionMode", "initialPrompt"})
 CLAUDE_HOOKS_PATH = "hooks/hooks.json"
@@ -150,8 +151,8 @@ def _validate_marketplace_meta(source_dir: Path) -> dict[str, str]:
         raise BuildValidationError("marketplace.toml: repo must match owner/repo")
     owner_name = _require_non_empty_str(meta, "owner_name", context="marketplace.toml")
     version = _require_non_empty_str(meta, "version", context="marketplace.toml")
-    if not SEMVER_RE.fullmatch(version):
-        raise BuildValidationError("marketplace.toml: version must match semver")
+    if not REVISION_VERSION_RE.fullmatch(version):
+        raise BuildValidationError("marketplace.toml: version must match revision format 0.0.<n> (n >= 1)")
     description = _require_non_empty_str(meta, "description", context="marketplace.toml")
     return {"name": name, "repo": repo, "owner_name": owner_name, "version": version, "description": description}
 
@@ -236,8 +237,8 @@ def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
     name = _require_non_empty_str(raw, "name", context=ctx)
     agent_name = _require_non_empty_str(raw, "agent_name", context=ctx)
     version = _require_non_empty_str(raw, "version", context=ctx)
-    if not SEMVER_RE.fullmatch(version):
-        raise BuildValidationError(f"{ctx}: version must match semver")
+    if not REVISION_VERSION_RE.fullmatch(version):
+        raise BuildValidationError(f"{ctx}: version must match revision format 0.0.<n> (n >= 1)")
     license_name = _require_non_empty_str(raw, "license", context=ctx)
     description = _require_non_empty_str(raw, "description", context=ctx)
     scopes_raw = raw.get("required_scopes")
@@ -252,6 +253,9 @@ def _validate_client_meta(client_dir: Path) -> dict[str, Any]:
         if not isinstance(prompts_raw, list) or not (1 <= len(prompts_raw) <= 3) or not all(isinstance(p, str) and p.strip() for p in prompts_raw):
             raise BuildValidationError(f"{ctx}: suggested_prompts must be a list of 1 to 3 non-empty strings")
         suggested_prompts = [p.strip() for p in prompts_raw]
+    elif target == "codex":
+        raw_display = raw.get("display_name")
+        display_name = raw_display.strip() if isinstance(raw_display, str) and raw_display.strip() else name
     return {
         "dir": client_dir,
         "id": cid,
@@ -314,6 +318,58 @@ def _format_tool_list(tools: tuple[str, ...], tool_prefix: str = "", extra_items
     return "[" + ", ".join(items) + "]"
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Return the Markdown body after any leading YAML frontmatter block."""
+    lines = text.split("\n")
+    if lines and lines[0] == "---":
+        for idx, line in enumerate(lines[1:], start=1):
+            if line == "---":
+                return "\n".join(lines[idx + 1 :]).lstrip("\n")
+    return text
+
+
+def _demote_markdown_headings(text: str, levels: int = 1) -> str:
+    """Demote Markdown ATX headings outside fenced code blocks by `levels`."""
+    out: list[str] = []
+    in_fence = False
+    prefix = "#" * levels
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if not in_fence and re.match(r"^#{1,5}\s+\S", line):
+            out.append(f"{prefix}{line}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _render_codex_extractor_toml(extractor_agent: str, extractor_md: str) -> bytes:
+    """Render a Codex custom subagent TOML definition with read-only sandbox isolation."""
+    body = _strip_frontmatter(extractor_md).strip()
+    if '"""' in body:
+        raise BuildValidationError("codex extractor developer_instructions must not contain triple double-quotes")
+    description = (
+        "Isolated Claire Bible extraction subagent that claims staged sources, "
+        "reads nonce-framed content via Claire MCP tools only, and commits validated "
+        "extractions to the caller personal knowledge base."
+    )
+    toml_text = (
+        f"name = {json.dumps(extractor_agent)}\n"
+        f"description = {json.dumps(description)}\n"
+        'sandbox_mode = "read-only"\n'
+        'developer_instructions = """\n'
+        f"{body}\n"
+        '"""\n'
+    )
+    try:
+        tomllib.loads(toml_text)
+    except tomllib.TOMLDecodeError as exc:
+        raise BuildValidationError(f"failed to render valid codex agent TOML: {exc}") from exc
+    return _normalize_text(toml_text)
+
+
 def claude_guard_hooks(extractor_ref: str, *, ingest_command: str = "/claire:ingest") -> bytes:
     """Return the one fixed hooks file of the Claude bundle (owner decision CD1).
 
@@ -334,6 +390,7 @@ def _check_bundle_conformance(
     extractor_ref: str,
     ingest_skill: str,
     query_skill: str,
+    regenerate_skill: str | None = None,
 ) -> None:
     """Validate bundle guard mode, skill inventory, frontmatter keys, and forked runner rules."""
     guard_mode = adapter["guard_mode"]
@@ -348,7 +405,13 @@ def _check_bundle_conformance(
         if "rules/AGENTS.md" not in bundle_files:
             raise BuildValidationError(f"{plugin_rel_root}: missing rules/AGENTS.md for guard_mode == 'rules'")
 
-    expected_skills = {ingest_skill, query_skill}
+    if adapter["skill_naming"] == "single_router":
+        user_skills = {plugin_name}
+    else:
+        user_skills = {ingest_skill, query_skill}
+        if regenerate_skill:
+            user_skills.add(regenerate_skill)
+    expected_skills = set(user_skills)
     runner_skill = adapter.get("internal_runner_skill")
     if adapter["handoff_mode"] == "forked_internal_skill" and runner_skill:
         expected_skills.add(runner_skill)
@@ -417,9 +480,32 @@ def _check_bundle_conformance(
             if adapter["handoff_mode"] == "forked_internal_skill" and skill_dir_name == runner_skill:
                 if not is_forked:
                     raise BuildValidationError(f"{repo_rel}: internal runner skill must set context: fork")
-            elif skill_dir_name in (ingest_skill, query_skill):
+            elif skill_dir_name in user_skills:
                 if is_forked or keys.get("user-invocable") == "false":
                     raise BuildValidationError(f"{repo_rel}: user-facing skill must not set context: fork or user-invocable: false")
+
+    if ".codex-plugin/plugin.json" in bundle_files:
+        try:
+            codex_manifest = json.loads(bundle_files[".codex-plugin/plugin.json"].decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BuildValidationError(f"{plugin_rel_root}/.codex-plugin/plugin.json: invalid JSON: {exc}") from exc
+        if codex_manifest.get("skills") != "./skills/":
+            raise BuildValidationError(f"{plugin_rel_root}/.codex-plugin/plugin.json: skills must be './skills/'")
+        if "mcpServers" in codex_manifest:
+            raise BuildValidationError(f"{plugin_rel_root}/.codex-plugin/plugin.json: must not embed mcpServers (Option A)")
+        codex_agent_rel = f"agents/{extractor_ref}.toml"
+        if codex_agent_rel not in bundle_files:
+            raise BuildValidationError(f"{plugin_rel_root}: missing {codex_agent_rel}")
+        try:
+            agent_cfg = tomllib.loads(bundle_files[codex_agent_rel].decode("utf-8"))
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+            raise BuildValidationError(f"{plugin_rel_root}/{codex_agent_rel}: invalid TOML: {exc}") from exc
+        if agent_cfg.get("name") != extractor_ref:
+            raise BuildValidationError(f"{plugin_rel_root}/{codex_agent_rel}: name must equal {extractor_ref!r}")
+        if agent_cfg.get("sandbox_mode") != "read-only":
+            raise BuildValidationError(f"{plugin_rel_root}/{codex_agent_rel}: sandbox_mode must be 'read-only'")
+        if not str(agent_cfg.get("developer_instructions") or "").strip():
+            raise BuildValidationError(f"{plugin_rel_root}/{codex_agent_rel}: developer_instructions must not be empty")
 
 
 def _extract_mcp_tool_names(mcp_tools_file: Path) -> set[str]:
@@ -512,19 +598,21 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
     ag_client = next((c for c in clients if c["target"] == "antigravity"), clients[0])
     ag_ver = ag_client["version"]
     ag_pkg = f"{ag_client['id']}-v{ag_ver}"
+    codex_client = next((c for c in clients if c["target"] == "codex"), None)
+    codex_pkg = f"{codex_client['id']}-v{codex_client['version']}" if codex_client else f"claire-codex-v{version}"
     lines = [
         f"# {market['name']}",
         "",
         f"> Automated mirror generated from [fofwisdom/claire-bible](https://github.com/fofwisdom/claire-bible) (`agent_clients/`). Do not edit files in this repository manually; submit changes to `fofwisdom/claire-bible`.",
         "",
-        "[한국어 안내](#antigravity) · [English](#antigravity) · [Antigravity GUI 가이드 (KO)](./docs/antigravity.ko.md) · [Antigravity GUI Guide (EN)](./docs/antigravity.en.md) · [Claude 가이드 (KO)](./docs/claude.ko.md) · [Claude Guide (EN)](./docs/claude.en.md)",
+        "[한국어 안내](#antigravity) · [English](#antigravity) · [Antigravity GUI 가이드 (KO)](./docs/antigravity.ko.md) · [Antigravity GUI Guide (EN)](./docs/antigravity.en.md) · [Claude 가이드 (KO)](./docs/claude.ko.md) · [Claude Guide (EN)](./docs/claude.en.md) · [ChatGPT (Codex) 가이드 (KO)](./docs/chatgpt.ko.md) · [ChatGPT (Codex) Guide (EN)](./docs/chatgpt.en.md)",
         "",
         market["description"],
         "",
         "## Architecture: Standalone `claire` Server + `claire` Plugin",
         "",
-        "- Register your remote Claire Bible `/mcp` endpoint once as a standalone `claire` OAuth 2.1 MCP server so Antigravity exposes `claire/<tool>` and Claude exposes `mcp__claire__<tool>` without double prefixes.",
-        "- Install the **`claire`** plugin for your client to add the two user-facing skills (`claire-ingest` / `claire-query` on Antigravity; `/claire:ingest` / `/claire:query` on Claude) plus isolated extraction (`claire-extractor` / `claire:extractor`). Upgrading the plugin never overwrites your global server URL.",
+        "- Register your remote Claire Bible `/mcp` endpoint once as a standalone `claire` OAuth 2.1 MCP server so Antigravity exposes `claire/<tool>`, Claude exposes `mcp__claire__<tool>`, and Codex reads `mcp_servers.claire` without double prefixes.",
+        "- Install the **`claire`** plugin for your client to expose the unified `claire` + subcommand workflow (`claire ingest` / `claire regenerate` / `claire query` on Antigravity; `$claire ingest` / `$claire regenerate` / `$claire query` on Codex; `/claire:ingest` / `/claire:regenerate` / `/claire:query` on Claude) plus isolated extraction (`claire-extractor` / `claire:extractor`). Upgrading the plugin never overwrites your global server URL.",
         "",
         "## Supported Agents",
         "",
@@ -543,7 +631,7 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         "2. In **MCP Settings** (`/account/mcp`), copy the **Antigravity quick setup prompt** and paste it into Antigravity `+ New Conversation` (installs `~/.gemini/config/plugins/claire` and merges `mcpServers.claire` into `~/.gemini/config/mcp_config.json`).",
         "3. Open **`Customizations -> Installed -> MCP Servers -> claire`** and finish OAuth 2.1 login (`readonly`, `write`).",
         "4. On first run when `Allow using this MCP tool?` (`claire/<tool>`) prompts, pick **`3 Yes, and always allow`** -> **`Submit`**.",
-        "5. Use the 2 skills (`claire-ingest` for URLs, files, notes, or pending items; `claire-query` for graph search) or pick one of the 3 starter suggested prompts.",
+        "5. Use the unified `claire` skill (`claire ingest`, `claire regenerate`, `claire query`) or pick one of the 3 starter suggested prompts.",
         "",
         '<a id="claude"></a>',
         "## Claude (Desktop App Code Mode and Claude Code)",
@@ -552,12 +640,22 @@ def _render_top_readme(market: dict[str, str], clients: list[dict[str, Any]]) ->
         "",
         f"1. In the Claude desktop app (Code mode), open **Plugins -> Add -> Add marketplace**, enter **`{repo}`**, click **Sync**, and click **Add to this computer** next to **`claire`**.",
         "2. In Claire Bible **MCP Settings** (`/account/mcp`), copy the **Claude quick setup prompt** and paste it into a new Claude conversation. It registers your `/mcp` endpoint as the user-scope server **`claire`** and opens the OAuth 2.1 sign-in (`readonly`, `write`).",
-        "3. Start Claude again and use `/claire:ingest` (stages URLs, files, or notes and drains pending items via the isolated extractor) and `/claire:query` (searches your knowledge graph).",
+        "3. Start Claude again and use `/claire:ingest` (stages URLs, files, or notes and drains pending items via the isolated extractor), `/claire:regenerate` (re-extracts from stored raw text), and `/claire:query` (searches your knowledge graph).",
+        "",
+        '<a id="chatgpt"></a>',
+        "## ChatGPT (Codex App, Codex CLI, and ChatGPT Web/Desktop)",
+        "",
+        "- **Step-by-step guides**: [한국어 안내](./docs/chatgpt.ko.md) · [English Guide](./docs/chatgpt.en.md)",
+        f"- **GitHub Releases**: [Download `{codex_pkg}.zip`](https://github.com/{repo}/releases/latest)",
+        "",
+        "1. **Codex app / CLI (full ingest, isolated extraction, and query)**: In Claire Bible **MCP Settings** (`/account/mcp`), copy the **ChatGPT (Codex) quick setup prompt** and paste it into a new Codex conversation (installs the unified `skills/claire` skill for `$claire ingest` / `$claire regenerate` / `$claire query`, `agents/claire-extractor.toml` with `sandbox_mode = \"read-only\"`, and `rules/AGENTS.md`, runs `codex mcp add claire --url ...`, and starts `codex mcp login claire`).",
+        "2. **ChatGPT web / desktop chat (read-only search)**: Enable **Developer Mode** in ChatGPT connector settings, add `https://<your-claire-server>/mcp` with OAuth, and **clear `Allow write access`** on the Claire Bible consent screen so only `readonly` is granted.",
         "",
         "<details>",
         "<summary>CLI &amp; Advanced Verification (Terminal / SHA256SUMS)</summary>",
         "",
         f"- Claude Code CLI: `claude plugin install claire --marketplace {repo}` -> `claude mcp add --transport http --scope user claire https://<your-claire-server>/mcp` -> `claude mcp login claire`.",
+        f"- Codex CLI: download `{codex_pkg}.tar.gz` and `SHA256SUMS` from [GitHub Releases](https://github.com/{repo}/releases/latest), install `skills/claire`, `agents/claire-extractor.toml`, and `rules/AGENTS.md` under `~/.codex/`, then run `codex mcp add claire --url \"https://<your-claire-server>/mcp\"` -> `codex mcp login claire`.",
         f"- Antigravity CLI / checksum check: download `{ag_pkg}.tar.gz` and `SHA256SUMS` from [GitHub Releases](https://github.com/{repo}/releases/latest), run `sha256sum -c SHA256SUMS --ignore-missing`, extract into `~/.gemini/config/plugins/`, and add `mcpServers.claire` in `~/.gemini/config/mcp_config.json`.",
         "",
         "</details>",
@@ -577,15 +675,21 @@ def render_release_notes(market: dict[str, str], clients: list[dict[str, Any]]) 
     ag_version = ag_client["version"]
     ag_asset = f"{ag_client['id']}-v{ag_version}.zip"
     ag_tar = f"{ag_client['id']}-v{ag_version}.tar.gz"
+    codex_client = next((c for c in clients if c["target"] == "codex"), None)
+    codex_version = codex_client["version"] if codex_client else version
+    codex_id = codex_client["id"] if codex_client else "claire-codex"
+    codex_asset = f"{codex_id}-v{codex_version}.zip"
+    codex_tar = f"{codex_id}-v{codex_version}.tar.gz"
     lines = [
         f"# Claire Bible Agent Plugins v{version}",
         "",
-        f"[한국어 상세 가이드 (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.ko.md) · [English Setup Guide (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.en.md) · [Claude 가이드 (KO)](https://github.com/{repo}/blob/main/docs/claude.ko.md) · [Claude Guide (EN)](https://github.com/{repo}/blob/main/docs/claude.en.md)",
+        f"[한국어 상세 가이드 (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.ko.md) · [English Setup Guide (Antigravity)](https://github.com/{repo}/blob/main/docs/antigravity.en.md) · [Claude 가이드 (KO)](https://github.com/{repo}/blob/main/docs/claude.ko.md) · [Claude Guide (EN)](https://github.com/{repo}/blob/main/docs/claude.en.md) · [ChatGPT (Codex) 가이드 (KO)](https://github.com/{repo}/blob/main/docs/chatgpt.ko.md) · [ChatGPT (Codex) Guide (EN)](https://github.com/{repo}/blob/main/docs/chatgpt.en.md)",
         "",
-        "## Included 2-Axis User UX",
+        "## Included Unified Subcommand UX (`ingest` / `regenerate` / `query`)",
         "",
-        "- **Antigravity**: 2 skills (`claire-ingest` for URLs, files, notes, and pending queue items; `claire-query` for graph search and contribution), 3 starter suggested prompts, and the isolated `claire-extractor` subagent.",
-        "- **Claude**: 2 user-facing skills (`/claire:ingest` and `/claire:query`), hidden forked runner (`extract-runner`), isolated `claire:extractor` subagent, and `PreToolUse` `extract_read` guard hook.",
+        "- **Antigravity**: Unified `claire` skill (`claire ingest`, `claire regenerate`, `claire query`), 3 starter suggested prompts, and the isolated `claire-extractor` subagent.",
+        "- **Claude**: 3 subcommand skills (`/claire:ingest`, `/claire:regenerate`, `/claire:query`), hidden forked runner (`extract-runner`), isolated `claire:extractor` subagent, and `PreToolUse` `extract_read` guard hook.",
+        "- **ChatGPT (Codex + Web/Desktop)**: Unified `claire` skill (`$claire ingest`, `$claire regenerate`, `$claire query`), isolated `claire-extractor` (`agents/claire-extractor.toml`, `sandbox_mode = \"read-only\"`), `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and read-only (`readonly`) custom connector guide for ChatGPT web/desktop.",
         "",
         "## Which file do I need? / 어떤 파일을 내려받으면 되나요?",
         "",
@@ -593,6 +697,7 @@ def render_release_notes(market: dict[str, str], clients: list[dict[str, Any]]) 
         "| :--- | :--- | :--- |",
         f"| **Antigravity (GUI)** | Claire `/account/mcp`에서 빠른 설치 문구를 복사해 채팅창에 붙여넣거나 아래 `.zip`을 내려받아 `plugins/claire`로 설치하고 `mcp_config.json`에 `claire` 서버를 병합하세요. | **`{ag_asset}`** |",
         f"| **Claude** | 파일을 내려받을 필요가 없습니다. Claude 데스크톱 앱의 플러그인 화면에서 마켓플레이스 `{repo}`를 추가해 **`claire`** 플러그인을 설치하고, Claire `/account/mcp`의 Claude 빠른 설정 문구를 붙여넣으세요. | 없음 (No download needed) |",
+        f"| **ChatGPT (Codex)** | Claire `/account/mcp`에서 **ChatGPT (Codex) 빠른 설정 문구**를 복사해 Codex에 붙여넣거나 아래 `.zip`을 내려받아 `~/.codex/`에 설치하고 `codex mcp add claire --url ...` · `codex mcp login claire`를 실행하세요. (ChatGPT 웹/데스크톱은 `readonly` 커넥터 연결) | **`{codex_asset}`** |",
         "",
         "## Antigravity Quick Setup (3 Steps)",
         "",
@@ -606,6 +711,7 @@ def render_release_notes(market: dict[str, str], clients: list[dict[str, Any]]) 
         "```bash",
         "sha256sum -c SHA256SUMS --ignore-missing",
         f"tar -xzf {ag_tar} -C ~/.gemini/config/plugins",
+        f"tar -xzf {codex_tar} -C /tmp",
         "```",
         "",
         "*(macOS: `shasum -a 256 -c SHA256SUMS --ignore-missing`)*",
@@ -662,7 +768,9 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     common_dir = source_dir / "common"
     extractor_tmpl = (common_dir / "agents" / "extractor.md.tmpl").read_text(encoding="utf-8")
     ingest_skill_tmpl = (common_dir / "skills" / "ingest" / "SKILL.md.tmpl").read_text(encoding="utf-8")
+    regenerate_skill_tmpl = (common_dir / "skills" / "regenerate" / "SKILL.md.tmpl").read_text(encoding="utf-8")
     query_skill_tmpl = (common_dir / "skills" / "query" / "SKILL.md.tmpl").read_text(encoding="utf-8")
+    claire_router_tmpl = (common_dir / "skills" / "claire" / "SKILL.md.tmpl").read_text(encoding="utf-8")
     agents_md_tmpl = (common_dir / "rules" / "AGENTS.md.tmpl").read_text(encoding="utf-8")
     runner_tmpl_path = common_dir / "runner" / "SKILL.md.tmpl"
     runner_skill_tmpl = runner_tmpl_path.read_text(encoding="utf-8") if runner_tmpl_path.is_file() else None
@@ -677,6 +785,8 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
         if not entry.is_dir():
             continue
         meta = _validate_client_meta(entry)
+        if meta["version"] != market["version"]:
+            raise BuildValidationError(f"clients/{entry.name}/client.toml: version {meta['version']!r} must match marketplace.toml version {market['version']!r}")
         if meta["id"] in seen_ids:
             raise BuildValidationError(f"duplicate plugin id: {meta['id']!r}")
         if meta["client_id"] in seen_client_ids:
@@ -692,6 +802,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     release_files: dict[str, bytes] = {}
     manifest_plugins: list[dict[str, Any]] = []
     claude_marketplace_plugins: list[dict[str, Any]] = []
+    codex_marketplace_plugins: list[dict[str, Any]] = []
     bundle_adapters: dict[str, tuple[dict[str, Any], str, str]] = {}
 
     mcp_tmpl_path = source_dir / "templates" / "mcp_config.json.tmpl"
@@ -710,11 +821,28 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
 
         if adapter["skill_naming"] == "plugin_colon":
             ingest_skill = "ingest"
+            regenerate_skill = "regenerate"
             query_skill = "query"
+            ingest_cmd = f"/{plugin_name}:ingest"
+            regenerate_cmd = f"/{plugin_name}:regenerate"
+            query_cmd = f"/{plugin_name}:query"
             skill_ref_prefix = f"{plugin_name}:"
+        elif adapter["skill_naming"] == "single_router":
+            cmd_prefix = "$" if target == "codex" else ""
+            ingest_skill = f"{plugin_name} ingest"
+            regenerate_skill = f"{plugin_name} regenerate"
+            query_skill = f"{plugin_name} query"
+            ingest_cmd = f"{cmd_prefix}{plugin_name} ingest"
+            regenerate_cmd = f"{cmd_prefix}{plugin_name} regenerate"
+            query_cmd = f"{cmd_prefix}{plugin_name} query"
+            skill_ref_prefix = ""
         else:
             ingest_skill = f"{plugin_name}-ingest"
+            regenerate_skill = f"{plugin_name}-regenerate"
             query_skill = f"{plugin_name}-query"
+            ingest_cmd = ingest_skill
+            regenerate_cmd = regenerate_skill
+            query_cmd = query_skill
             skill_ref_prefix = ""
 
         if adapter["agent_naming"] == "plugin_colon":
@@ -734,7 +862,9 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             extractor_frontmatter = f"tools: {extractor_tools}\nmodel: inherit"
             extra_ingest_tools = (f"Skill({runner_ref})",) if adapter["handoff_mode"] == "forked_internal_skill" else ()
             ingest_allowed = _format_tool_list(INGEST_SKILL_TOOLS, tool_prefix, extra_ingest_tools)
+            regenerate_allowed = _format_tool_list(REGENERATE_SKILL_TOOLS, tool_prefix, extra_ingest_tools)
             ingest_frontmatter = f'\nargument-hint: "[url | file path | note | document_id]"\nallowed-tools: {ingest_allowed}'
+            regenerate_frontmatter = f'\nargument-hint: "<document_id | title | topic>"\nallowed-tools: {regenerate_allowed}'
             query_frontmatter = f'\nargument-hint: "<question>"\nallowed-tools: {_format_tool_list(QUERY_SKILL_TOOLS, tool_prefix)}'
         else:
             if extractor_mcp_mode == "inherit_mcp":
@@ -742,6 +872,7 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             else:
                 extractor_frontmatter = f"subagent: true\nmainAgent: false\ntools: {extractor_tools}"
             ingest_frontmatter = ""
+            regenerate_frontmatter = ""
             query_frontmatter = ""
 
         extractor_mcp_note = (
@@ -753,12 +884,29 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
         if adapter["handoff_mode"] == "forked_internal_skill":
             ingest_handoff_note = (
                 f"\n\n## Handoff to `{extractor_ref}` via `{runner_ref}`\n\n"
-                f"To hand a `document_id` to `{extractor_ref}`, call the `{runner_ref}` skill with `document_id` as its argument. "
+                f"To hand a `document_id` to `{extractor_ref}`, call the `{runner_ref}` skill with BOTH `document_id` and your exact active LLM model ID (for example `<document_id> model=<active_model_id>`); `{extractor_ref}` inherits the main session model (`model: inherit`). "
                 "Never read raw staged sources in the main conversation; that forked skill executes inside the isolated subagent where Claire MCP tools are approved. "
                 f"Call the Agent tool with subagent type `{extractor_ref}` only when `{runner_ref}` is not available."
             )
         else:
             ingest_handoff_note = ""
+
+        if target == "antigravity":
+            model_handoff_note = (
+                "\n\n## Subagent Model Inheritance & Model Name Handoff\n\n"
+                f"- Always invoke `{extractor_ref}` using `invoke_subagent` with `Model: \"inherit\"` so it runs on the exact same model as the main agent.\n"
+                f"- Before invoking `{extractor_ref}`, resolve your exact active LLM model ID to pass in `Prompt` (for example `Active LLM model: <model_id> — set payload.model to \"<model_id>\"`):\n"
+                "  1. Use the exact plain model ID if it is already present in your current session context.\n"
+                "  2. Otherwise, read the latest entry with a `\"model\"` field (for example `\"type\": \"PLANNER_RESPONSE\"`) from your own conversation transcript at `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` (`<Artifact Directory Path>/.system_generated/logs/transcript.jsonl`) and pass that exact `\"model\"` value in `Prompt`.\n"
+                "  3. Never guess or fabricate a model name; omit it only when unavailable."
+            )
+        elif target == "codex":
+            model_handoff_note = (
+                "\n\n## Subagent Model Inheritance & Model Name Handoff\n\n"
+                f"- Invoke `{extractor_ref}` inheriting the parent session's active model (keep `model` unset in `agents/{extractor_agent}.toml`) and pass your exact active LLM model ID in the handoff prompt when known from runtime/session context; never guess or fabricate a model name."
+            )
+        else:
+            model_handoff_note = ""
 
         replacements = {
             "CLIENT_ID": client["client_id"],
@@ -768,7 +916,11 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             "PLUGIN_NAME": plugin_name,
             "VERSION": client["version"],
             "INGEST_SKILL": ingest_skill,
+            "REGENERATE_SKILL": regenerate_skill,
             "QUERY_SKILL": query_skill,
+            "INGEST_CMD": ingest_cmd,
+            "REGENERATE_CMD": regenerate_cmd,
+            "QUERY_CMD": query_cmd,
             "INTERNAL_RUNNER_SKILL": runner_skill,
             "EXTRACT_QUEUE_REF": f"{tool_prefix}extract_queue",
             "EXTRACTOR_AGENT": extractor_agent,
@@ -778,8 +930,10 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             "EXTRACTOR_FRONTMATTER": extractor_frontmatter,
             "EXTRACTOR_MCP_NOTE": extractor_mcp_note,
             "INGEST_SKILL_FRONTMATTER": ingest_frontmatter,
+            "REGENERATE_SKILL_FRONTMATTER": regenerate_frontmatter,
             "QUERY_SKILL_FRONTMATTER": query_frontmatter,
             "INGEST_HANDOFF_NOTE": ingest_handoff_note,
+            "MODEL_HANDOFF_NOTE": model_handoff_note,
         }
         plugin_rel_root = f"plugins/{target}/{plugin_name}"
         bundle_adapters[f"{plugin_rel_root}/"] = (adapter, extractor_ref, extractor_path)
@@ -790,8 +944,23 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
             raise BuildValidationError(f"{client['dir']}: missing README.md.tmpl for {target} target")
         plugin_bundle_files["README.md"] = _normalize_text(_render_template(readme_tmpl_path.read_text(encoding="utf-8"), replacements))
         plugin_bundle_files[extractor_path] = _normalize_text(_render_template(extractor_tmpl, replacements))
-        plugin_bundle_files[f"skills/{ingest_skill}/SKILL.md"] = _normalize_text(_render_template(ingest_skill_tmpl, replacements))
-        plugin_bundle_files[f"skills/{query_skill}/SKILL.md"] = _normalize_text(_render_template(query_skill_tmpl, replacements))
+        rendered_ingest = _render_template(ingest_skill_tmpl, replacements)
+        rendered_regenerate = _render_template(regenerate_skill_tmpl, replacements)
+        rendered_query = _render_template(query_skill_tmpl, replacements)
+        if adapter["skill_naming"] == "single_router":
+            router_replacements = {
+                **replacements,
+                "INGEST_BODY": _demote_markdown_headings(_strip_frontmatter(rendered_ingest), 1).strip(),
+                "REGENERATE_BODY": _demote_markdown_headings(_strip_frontmatter(rendered_regenerate), 1).strip(),
+                "QUERY_BODY": _demote_markdown_headings(_strip_frontmatter(rendered_query), 1).strip(),
+            }
+            plugin_bundle_files[f"skills/{plugin_name}/SKILL.md"] = _normalize_text(
+                _render_template(claire_router_tmpl, router_replacements)
+            )
+        else:
+            plugin_bundle_files[f"skills/{ingest_skill}/SKILL.md"] = _normalize_text(rendered_ingest)
+            plugin_bundle_files[f"skills/{regenerate_skill}/SKILL.md"] = _normalize_text(rendered_regenerate)
+            plugin_bundle_files[f"skills/{query_skill}/SKILL.md"] = _normalize_text(rendered_query)
 
         if adapter["handoff_mode"] == "forked_internal_skill":
             if runner_skill_tmpl is None:
@@ -835,6 +1004,32 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
                 "suggestedPrompts": client["suggested_prompts"],
             }
             plugin_bundle_files["plugin.json"] = _json_bytes(antigravity_manifest)
+        elif target == "codex":
+            codex_manifest = {
+                "name": plugin_name,
+                "version": client["version"],
+                "description": client["description"],
+                "author": {"name": market["owner_name"]},
+                "homepage": f"https://github.com/{market['repo']}#chatgpt",
+                "repository": f"https://github.com/{market['repo']}",
+                "license": client["license"],
+                "keywords": ["claire-bible", "mcp", "knowledge-graph", "extraction"],
+                "skills": "./skills/",
+                "interface": {
+                    "displayName": client["display_name"] or client["name"],
+                },
+            }
+            plugin_bundle_files[".codex-plugin/plugin.json"] = _json_bytes(codex_manifest)
+            plugin_bundle_files[f"agents/{extractor_agent}.toml"] = _render_codex_extractor_toml(
+                extractor_agent,
+                plugin_bundle_files[extractor_path].decode("utf-8"),
+            )
+            codex_marketplace_plugins.append({
+                "name": plugin_name,
+                "source": {"source": "local", "path": f"./{plugin_rel_root}"},
+                "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                "category": "Productivity",
+            })
         else:
             raise BuildValidationError(f"unsupported build adapter for target {target!r}")
 
@@ -851,7 +1046,16 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
                 else:
                     plugin_bundle_files[rel_ov] = _normalize_text(raw_text)
 
-        _check_bundle_conformance(plugin_rel_root, plugin_name, plugin_bundle_files, adapter, extractor_ref, ingest_skill, query_skill)
+        _check_bundle_conformance(
+            plugin_rel_root,
+            plugin_name,
+            plugin_bundle_files,
+            adapter,
+            extractor_ref,
+            ingest_skill,
+            query_skill,
+            regenerate_skill=regenerate_skill,
+        )
 
         file_entries: list[dict[str, Any]] = []
         for rel_file, data in sorted(plugin_bundle_files.items()):
@@ -896,6 +1100,15 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
     repo_files[".claude-plugin/marketplace.json"] = _json_bytes(claude_marketplace)
     _check_rendered_content(".claude-plugin/marketplace.json", repo_files[".claude-plugin/marketplace.json"].decode("utf-8"))
 
+    if codex_marketplace_plugins:
+        codex_marketplace = {
+            "name": market["name"],
+            "interface": {"displayName": market["owner_name"]},
+            "plugins": codex_marketplace_plugins,
+        }
+        repo_files[".agents/plugins/marketplace.json"] = _json_bytes(codex_marketplace)
+        _check_rendered_content(".agents/plugins/marketplace.json", repo_files[".agents/plugins/marketplace.json"].decode("utf-8"))
+
     manifest_doc = {
         "name": market["name"],
         "repo": market["repo"],
@@ -916,7 +1129,14 @@ def build_marketplace(source_dir: Path, *, mcp_tools_file: Path | None = None) -
         "MARKETPLACE_REPO": market["repo"],
         "VERSION": market["version"],
     }
-    for doc_name in ("antigravity.ko.md.tmpl", "antigravity.en.md.tmpl", "claude.ko.md.tmpl", "claude.en.md.tmpl"):
+    for doc_name in (
+        "antigravity.ko.md.tmpl",
+        "antigravity.en.md.tmpl",
+        "claude.ko.md.tmpl",
+        "claude.en.md.tmpl",
+        "chatgpt.ko.md.tmpl",
+        "chatgpt.en.md.tmpl",
+    ):
         doc_path = docs_dir / doc_name
         if not doc_path.is_file():
             raise BuildValidationError(f"missing guide template: {doc_path}")

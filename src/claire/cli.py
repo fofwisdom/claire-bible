@@ -94,7 +94,7 @@ def cmd_preflight(_args) -> int:
 
 
 def get_effective_settings(args: Any, doc_target: str | None = None) -> tuple[Any, Any | None]:
-    s = get_settings()
+    s = _with_current_runtime_config(get_settings())
     theme_ref = getattr(args, "theme", None)
     if theme_ref is not None:
         from .store.knowledge_base import get_kb_manager
@@ -1606,6 +1606,7 @@ def _theme_services_for_cycle(
             str(getattr(theme_settings, "db_file", "")),
             str(getattr(theme_settings, "data_dir", "")),
             _context_fingerprint(provider_context, provider_error),
+            _providers_fingerprint(theme_settings),
             _limits_fingerprint(theme_settings),
         )
         cached = state.services.get(theme.id)
@@ -1638,6 +1639,55 @@ def _with_current_limits(settings: Any) -> Any:
 
     limits = get_ingest_limit_manager(settings.data_dir).get_settings_dict()
     return settings.model_copy(update=limits)
+
+
+def _with_current_providers(settings: Any) -> Any:
+    """Return the settings with the current values of data/providers.json when present."""
+    data_dir = getattr(settings, "data_dir", None)
+    if not data_dir:
+        return settings
+    providers_path = Path(data_dir) / "providers.json"
+    if not providers_path.is_file():
+        return settings
+    from .core.provider_manager import ProviderManager
+
+    updates = ProviderManager(data_dir=data_dir, auto_migrate=False).get_settings_dict()
+    return settings.model_copy(update=updates)
+
+
+def _with_current_runtime_config(settings: Any) -> Any:
+    """Return the settings with the current providers.json and ingest_limits.json values."""
+    current = _with_current_providers(settings)
+    data_dir = getattr(current, "data_dir", None)
+    if data_dir and (Path(data_dir) / "ingest_limits.json").is_file():
+        return _with_current_limits(current)
+    return current
+
+
+def _providers_fingerprint(theme_settings: Any) -> tuple:
+    """Return a canonical fingerprint of provider settings for worker-loop service reuse."""
+    routing = getattr(theme_settings, "feature_routing", None)
+    canonical_routing = (
+        tuple(
+            (str(slot), tuple(sorted((str(k), str(v)) for k, v in spec.items())))
+            for slot, spec in sorted(routing.items())
+            if isinstance(spec, dict)
+        )
+        if isinstance(routing, dict)
+        else ()
+    )
+    return (
+        getattr(theme_settings, "provider", None),
+        getattr(theme_settings, "gemini_model", None),
+        getattr(theme_settings, "gemini_effort", None),
+        getattr(theme_settings, "gemini_embed_model", None),
+        getattr(theme_settings, "embed_task_type", None),
+        canonical_routing,
+        getattr(theme_settings, "enable_jev", None),
+        getattr(theme_settings, "jev_model", None),
+        getattr(theme_settings, "stt_model", None),
+        getattr(theme_settings, "enable_video_transcription", None),
+    )
 
 
 def _limits_fingerprint(theme_settings: Any) -> tuple:
@@ -1732,7 +1782,7 @@ def cmd_recover_loop(args) -> int:
           f"max_attempts={args.max_attempts}). Ctrl+C stops it.", flush=True)
     while True:
         try:
-            s = _with_current_limits(s)
+            s = _with_current_runtime_config(s)
             cycle = _run_recover_cycle(s, args, state, IngestService)
             results = cycle["results"]
             if results:
@@ -1832,7 +1882,7 @@ def cmd_refresh_loop(args) -> int:
     print(f"claire refresh-loop starts (interval={args.interval}s, batch={args.batch}). Ctrl+C stops it.", flush=True)
     while True:
         try:
-            s = _with_current_limits(s)
+            s = _with_current_runtime_config(s)
             cycle = _run_refresh_cycle(s, args, state, IngestService)
             due = cycle["enqueued"]
             if due:
@@ -2112,7 +2162,7 @@ def cmd_expand_loop(args) -> int:
           "Ctrl+C stops it.", flush=True)
     while True:
         try:
-            s = _with_current_limits(s)
+            s = _with_current_runtime_config(s)
             cycle = _run_expand_cycle(s, args, state, IngestService)
             results = cycle["results"]
             if results:
@@ -2540,17 +2590,71 @@ def cmd_backfill_summary(args) -> int:
     return 0
 
 
+def _parse_since_timestamp(raw: str | None) -> float | None:
+    """Parse Unix epoch seconds or an ISO-8601 timestamp into UTC epoch seconds."""
+    if raw is None or not str(raw).strip():
+        return None
+    text = str(raw).strip()
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    from datetime import datetime
+
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    dt = datetime.fromisoformat(normalized)
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    return dt.timestamp()
+
+
+def _format_local_iso(ts: float | None) -> str:
+    """Format a Unix epoch timestamp in local ISO-8601 format."""
+    if ts is None:
+        return "-"
+    from datetime import datetime
+
+    return datetime.fromtimestamp(float(ts)).astimezone().isoformat(timespec="seconds")
+
+
 def cmd_regenerate(args) -> int:
-    """문서 파생 데이터(요약, 상세 등)를 선택적으로 재생성(기본 dry-run, --force 로 적용)."""
+    """Selectively regenerate document summary, detail, or graph components (dry-run by default; --apply writes)."""
     import json
 
     from .ingest.service import IngestService
     from .core.progress import track_batch_progress
+    from .store.knowledge_base import get_kb_manager
 
-    s, theme = get_effective_settings(args)
-    svc = IngestService(s)
-    if theme and not getattr(args, "json", False):
-        print(f"[{theme.icon} Theme to regenerate: #{theme.id} - {theme.label}]")
+    try:
+        since_ts = _parse_since_timestamp(getattr(args, "since", None))
+    except ValueError as exc:
+        print(f"[!] Invalid --since timestamp: {exc}")
+        return 1
+
+    all_themes = bool(getattr(args, "all_themes", False))
+    skipped_shared: list[Any] = []
+    if all_themes and getattr(args, "theme", None) is None:
+        base_s = _with_current_runtime_config(get_settings())
+        tm = get_kb_manager(base_s)
+        all_kbs = tm.list_kbs()
+        personal_kbs = [kb for kb in all_kbs if not getattr(kb, "is_shared", False)]
+        skipped_shared = [kb for kb in all_kbs if getattr(kb, "is_shared", False)]
+        service_entries: list[tuple[Any | None, IngestService]] = [
+            (
+                kb,
+                IngestService(
+                    tm.get_settings_for_kb(kb.id, base_s),
+                    kb_id=kb.id,
+                    account_id=getattr(kb, "account_id", None),
+                ),
+            )
+            for kb in personal_kbs
+        ]
+    else:
+        s, theme = get_effective_settings(args)
+        service_entries = [(theme, IngestService(s))]
+        if theme and not getattr(args, "json", False):
+            print(f"[{theme.icon} Theme to regenerate: #{theme.id} - {theme.label}]")
 
     target = getattr(args, "target", None)
     token = getattr(args, "token", None)
@@ -2584,16 +2688,16 @@ def cmd_regenerate(args) -> int:
     corrupted = getattr(args, "corrupted", False)
     missing_summary = getattr(args, "missing_summary", False) or getattr(args, "missing", False)
     tables = getattr(args, "tables", False) or getattr(args, "has_tables", False)
+    model_filter = getattr(args, "model", None)
+    exclude_model_filter = getattr(args, "exclude_model", None)
     refetch = getattr(args, "refetch", False)
     refetch_full = getattr(args, "refetch_full", False)
     apply = getattr(args, "apply", False)
-    force = getattr(args, "force", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
 
-    if not apply:
-        # Dry-run 진단
-        res = svc.regenerate_components(
+    def _run_service_regen(svc: IngestService, *, force_apply: bool, reporter: Any | None = None) -> dict[str, Any]:
+        return svc.regenerate_components(
             target=target,
             token=token,
             doc_id=doc_id,
@@ -2604,16 +2708,70 @@ def cmd_regenerate(args) -> int:
             corrupted_summary=corrupted,
             missing_summary=missing_summary,
             tables=tables,
+            model=model_filter,
+            exclude_model=exclude_model_filter,
+            since=since_ts,
             refetch=refetch,
             refetch_full=refetch_full,
-            force=False,
+            force=force_apply,
             effort=effort,
             format=fmt,
+            reporter=reporter,
         )
+
+    def _merge_regen_results(per_kb: list[tuple[Any | None, dict[str, Any]]], *, dry_run: bool) -> dict[str, Any]:
+        if len(per_kb) == 1 and not all_themes:
+            return per_kb[0][1]
+        merged_targets: list[dict[str, Any]] = []
+        merged_counts: dict[str, int] = {}
+        total_docs = 0
+        mismatch_total = 0
+        errors: list[str] = []
+        first_res: dict[str, Any] = per_kb[0][1] if per_kb else {}
+        for _kb, item_res in per_kb:
+            merged_targets.extend(item_res.get("targets") or [])
+            for m_name, cnt in (item_res.get("model_counts") or {}).items():
+                merged_counts[m_name] = merged_counts.get(m_name, 0) + int(cnt)
+            total_docs += int(item_res.get("total_documents") or 0)
+            mismatch_total += int(item_res.get("mismatch_count") or 0)
+            if item_res.get("error"):
+                errors.append(str(item_res["error"]))
+        sorted_counts = dict(sorted(merged_counts.items(), key=lambda kv: (-kv[1], kv[0])))
+        out: dict[str, Any] = {
+            "dry_run": dry_run,
+            "count": len(merged_targets),
+            "targets": merged_targets,
+            "provider": first_res.get("provider", "unknown"),
+            "model": first_res.get("model", "unknown"),
+            "effort": first_res.get("effort", "default"),
+            "effective_source": first_res.get("effective_source", "admin"),
+            "all_themes": True,
+            "themes_scanned": len(per_kb),
+            "skipped_shared_kbs": [kb.id for kb in skipped_shared],
+        }
+        if sorted_counts:
+            out["model_counts"] = sorted_counts
+            out["total_documents"] = total_docs
+            out["mismatch_count"] = mismatch_total
+        if not merged_targets:
+            out["error"] = errors[0] if errors else "No matching documents found."
+        return out
+
+    if not apply:
+        per_kb_dry = [(kb, _run_service_regen(svc, force_apply=False)) for kb, svc in service_entries]
+        res = _merge_regen_results(per_kb_dry, dry_run=True)
 
         if getattr(args, "json", False):
             print(json.dumps(res, ensure_ascii=False, indent=2))
             return 0
+
+        if skipped_shared:
+            print(f"[note] Skipped {len(skipped_shared)} shared knowledge base(s) (write operations require personal KB).")
+        if res.get("model_counts"):
+            summary_parts = ", ".join(f"{m}={c}" for m, c in res["model_counts"].items())
+            mismatch_note = f" (mismatch: {res['mismatch_count']})" if res.get("mismatch_count") else ""
+            print(f"• Model distribution (total={res.get('total_documents', 0)}): {summary_parts}{mismatch_note}")
+        print(f"• Execution target   : provider={res.get('provider')} model={res.get('model')} effort={res.get('effort')} source={res.get('effective_source', 'admin')}")
 
         if res.get("error"):
             print(f"[!] {res['error']}")
@@ -2626,6 +2784,17 @@ def cmd_regenerate(args) -> int:
             print(f"[{idx}] {t['title']} ({t['document_id']})")
             if t.get("canonical_url"):
                 print(f"    URL: {t['canonical_url']}")
+            if t.get("current_model") is not None or t.get("kb_id") is not None:
+                print(
+                    f"    Model: {t.get('current_model') or '(none)'} "
+                    f"(provider: {t.get('current_provider') or '-'}, "
+                    f"effort: {t.get('applied_effort') or '-'}, "
+                    f"kb: #{t.get('kb_id', 0)}, "
+                    f"source: {t.get('source') or '-'}, "
+                    f"extracted: {_format_local_iso(t.get('extraction_created_at'))})"
+                )
+            if t.get("lineage_mismatch"):
+                print(f"    [!] Model lineage mismatch: extractions.model={t.get('current_model')} vs lineage={t.get('lineage_models')}")
             if t.get("is_error_page"):
                 print("    [!] The source looks like an SSL or security error page (use --refetch or --refetch-full)")
             if t.get("summary_corrupted"):
@@ -2642,57 +2811,48 @@ def cmd_regenerate(args) -> int:
             print(f"    Planned actions: {', '.join(t['actions'])}")
         print("=" * 60)
         print("To regenerate and write to the database, add the flag --apply:")
-        tgt_hint = f"--doc-id {doc_id}" if doc_id else (target or "[target]")
+        hint_parts: list[str] = ["claire regenerate"]
+        if all_themes:
+            hint_parts.append("--all-themes")
+        if doc_id:
+            hint_parts.append(f"--doc-id {doc_id}")
+        elif target:
+            hint_parts.append(target)
+        if model_filter:
+            hint_parts.append(f"--model {model_filter}")
+        if exclude_model_filter:
+            hint_parts.append(f"--exclude-model {exclude_model_filter}")
+        if getattr(args, "since", None):
+            hint_parts.append(f"--since {args.since}")
         comp_hint = "--detail" if detail else ("--summary" if summary else ("--graph" if graph else "--all"))
-        print(f"  claire regenerate {tgt_hint} {comp_hint} --apply")
+        hint_parts.append(comp_hint)
+        hint_parts.append("--apply")
+        print("  " + " ".join(hint_parts))
         return 0
 
-    # Apply 실행: 사전 진단으로 대상 수 특정 후 실시간 진행률 추적
-    diag = svc.regenerate_components(
-        target=target,
-        token=token,
-        doc_id=doc_id,
-        summary=summary,
-        detail=detail,
-        graph=graph,
-        all_components=all_comp,
-        corrupted_summary=corrupted,
-        missing_summary=missing_summary,
-        tables=tables,
-        refetch=refetch,
-        refetch_full=refetch_full,
-        force=False,
-        effort=effort,
-        format=fmt,
-    )
+    # Apply execution: diagnose target count first, then run with progress tracking
+    per_kb_diag = [(kb, svc, _run_service_regen(svc, force_apply=False)) for kb, svc in service_entries]
+    diag = _merge_regen_results([(kb, r) for kb, _svc, r in per_kb_diag], dry_run=True)
     if diag.get("error"):
+        if getattr(args, "json", False):
+            print(json.dumps(diag, ensure_ascii=False, indent=2))
+            return 1
         print(f"[!] {diag['error']}")
         return 1
 
     total_targets = diag.get("count", 0)
+    per_kb_apply: list[tuple[Any | None, dict[str, Any]]] = []
     try:
         with track_batch_progress("Regeneration of document components", total_targets) as reporter:
-            res = svc.regenerate_components(
-                target=target,
-                token=token,
-                doc_id=doc_id,
-                summary=summary,
-                detail=detail,
-                graph=graph,
-                all_components=all_comp,
-                corrupted_summary=corrupted,
-                missing_summary=missing_summary,
-                tables=tables,
-                refetch=refetch,
-                refetch_full=refetch_full,
-                force=True,
-                effort=effort,
-                format=fmt,
-                reporter=reporter,
-            )
+            for kb, svc, item_diag in per_kb_diag:
+                if item_diag.get("count", 0) <= 0:
+                    continue
+                per_kb_apply.append((kb, _run_service_regen(svc, force_apply=True, reporter=reporter)))
             reporter.print_summary()
     except KeyboardInterrupt:
         return 130
+
+    res = _merge_regen_results(per_kb_apply, dry_run=False)
 
     if getattr(args, "json", False):
         print(json.dumps(res, ensure_ascii=False, indent=2))
@@ -2701,7 +2861,7 @@ def cmd_regenerate(args) -> int:
     print("claire: Regeneration of the document components is complete")
     print("=" * 60)
     print(f"• Documents updated: {res['count']}")
-    print(f"• Provider         : {res.get('provider')} (model: {res.get('model')}, effort: {res.get('effort')})")
+    print(f"• Provider         : {res.get('provider')} (model: {res.get('model')}, effort: {res.get('effort')}, source: {res.get('effective_source', 'admin')})")
     for idx, t in enumerate(res["targets"], 1):
         print(f"[{idx}] {t['title']} ({t['document_id']})")
         if t.get("refetched_full"):
@@ -5812,6 +5972,10 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("--dry-run", action="store_true", help="simulate inspection without modifying database (default)")
     prep.add_argument("--effort", default=None, help="LLM reasoning effort level (e.g. low, medium, high)")
     prep.add_argument("--format", choices=["adoc"], default=None, help="detail render format (adoc only, RD23)")
+    prep.add_argument("--model", default=None, help="target only documents extracted with this model")
+    prep.add_argument("--exclude-model", default=None, help="target documents whose recorded model differs from this model")
+    prep.add_argument("--since", default=None, help="target only documents extracted at or after this ISO-8601 or Unix timestamp")
+    prep.add_argument("--all-themes", action="store_true", help="scan and regenerate across all personal knowledge bases")
     prep.add_argument("--json", action="store_true", help="output result in JSON format")
     prep.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label")
     prep.set_defaults(func=cmd_reprocess)
@@ -5838,6 +6002,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="automatically scan and target all documents with missing summary in database")
     preg.add_argument("--tables", "--has-tables", action="store_true", dest="tables",
                       help="automatically scan and target all documents containing Markdown, AsciiDoc, or HTML tables")
+    preg.add_argument("--model", default=None, help="target only documents extracted with this model")
+    preg.add_argument("--exclude-model", default=None, help="target documents whose recorded model differs from this model")
+    preg.add_argument("--since", default=None, help="target only documents extracted at or after this ISO-8601 or Unix timestamp")
+    preg.add_argument("--all-themes", action="store_true", help="scan and regenerate across all personal knowledge bases")
     preg_refetch = preg.add_mutually_exclusive_group()
     preg_refetch.add_argument("--refetch", action="store_true",
                               help="re-fetch document content with raw_char_budget limit before regenerating")

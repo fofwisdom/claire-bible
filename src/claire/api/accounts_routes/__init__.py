@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,8 +56,13 @@ class AccountRoutes:
         return await setup.setup_redirect(request, self.context)
 
 
-def build_account_routes(settings: Any, config: security.WebRuntimeConfig) -> AccountRoutes:
-    ctx = build_context(settings, config)
+def build_account_routes(
+    settings: Any,
+    config: security.WebRuntimeConfig,
+    *,
+    settings_getter: Callable[[], Any] | None = None,
+) -> AccountRoutes:
+    ctx = build_context(settings, config, settings_getter=settings_getter)
     routes = (
         *setup.routes(ctx),
         *login.routes(ctx),

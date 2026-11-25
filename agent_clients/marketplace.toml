@@ -1,5 +1,5 @@
 name = "claire-agents"
 repo = "fofwisdom/claire-agents"
 owner_name = "Claire Bible"
-version = "0.4.4"
+version = "0.0.14"
 description = "Official Claire Bible agent plugins for OAuth 2.1 MCP connection, direct URL/document ingest, isolated extraction, and knowledge graph queries."

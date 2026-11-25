@@ -73,6 +73,7 @@ from .routes import (
     with_deprecation_headers,
 )
 from .v1 import build_v1_routes
+from .v1._context import V1Context
 from ..store import client_db
 from ..store import kb_collab
 from ..store import themes as themes_store
@@ -253,11 +254,17 @@ def create_app(
     prepare_client_db(s.db_file)
 
     runtime_cfg = WebRuntimeConfig.from_settings(s)
-    account_routes = build_account_routes(s, runtime_cfg)
     svc = service or IngestService(s)
     theme_mgr = KnowledgeBaseManager(s)
     service_pool = IngestServicePool(s, svc, theme_manager=theme_mgr)
     namespace_directory = SqliteNamespaceDirectory(s.db_file)
+    v1_ctx = V1Context.build(
+        s,
+        service=svc,
+        theme_manager=theme_mgr,
+        service_pool=service_pool,
+        namespace_directory=namespace_directory,
+    )
     active_expensive_jobs = 0
     active_anonymous_search_jobs = 0
 
@@ -267,6 +274,10 @@ def create_app(
     def _set_current_settings(updated: Settings) -> None:
         nonlocal s
         s = updated
+        theme_mgr.settings = updated
+        v1_ctx.settings = updated
+
+    account_routes = build_account_routes(s, runtime_cfg, settings_getter=_get_current_settings)
 
     def _kb_actor(request: Request, kb: KnowledgeBaseInfo) -> kb_access.Actor:
         """The requester for the capability matrix (design Sections 6.2 and 6.6)."""
@@ -7209,10 +7220,7 @@ def create_app(
         *build_reference_routes(runtime_cfg),
         *build_v1_routes(
             s,
-            service=svc,
-            theme_manager=theme_mgr,
-            service_pool=service_pool,
-            namespace_directory=namespace_directory,
+            context=v1_ctx,
         ),
         Route("/.well-known/oauth-protected-resource", handle_protected_resource_metadata, methods=["GET", "HEAD"]),
         Route("/.well-known/oauth-authorization-server", handle_authorization_server_metadata, methods=["GET", "HEAD"]),

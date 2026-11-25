@@ -575,6 +575,20 @@
         ].join("\n");
       }
     }
+    var chatgptPromptEl = byId("pref-mcp-chatgpt-prompt");
+    if (chatgptPromptEl) {
+      var gmp = (synd && synd.agent_marketplace) || {};
+      var gmpRepo = gmp.repo || "fofwisdom/claire-agents";
+      var chatgptTmpl = tJs("console.js.synd.mcp.chatgpt_prompt", "Set up Claire Bible for Codex on this computer. 1) Download claire-codex-v*.zip and SHA256SUMS from the latest GitHub Release of https://github.com/{repo}, verify the checksum, install skills/claire into ~/.codex/skills/claire, install agents/claire-extractor.toml into ~/.codex/agents/claire-extractor.toml, and append rules/AGENTS.md into ~/.codex/AGENTS.md without overwriting existing settings. 2) Run: codex mcp add claire --url \"{mcp_url}\" 3) Run: codex mcp login claire. Skip any step already completed, stop and tell me if the codex command is not found, and tell me to restart Codex when finished.");
+      chatgptPromptEl.textContent = chatgptTmpl.replace(/\{repo\}/g, gmpRepo).replace(/\{mcp_url\}/g, ep);
+      var chatgptSetupEl = byId("pref-mcp-chatgpt-setup");
+      if (chatgptSetupEl) {
+        chatgptSetupEl.textContent = [
+          'codex mcp add claire --url "' + ep + '"',
+          "codex mcp login claire"
+        ].join("\n");
+      }
+    }
     byId("pref-mcp-theme-example").textContent = JSON.stringify({ name: "entity_search", arguments: { kb: String(THEME_REF || "personal"), query: "..." } });
     byId("pref-mcp-write").value = prefs.mcpPolicy.writeScope === "draft" ? "draft" : "none";
     byId("pref-mcp-stats").innerHTML = [

@@ -1,0 +1,33 @@
+---
+name: {{PLUGIN_NAME}}
+description: >-
+  Unified Claire Bible skill with three subcommands: ingest (stage and extract a URL, local file, text note, or pending queue items), regenerate (re-extract an existing document from stored raw text), and query (search personal and shared knowledge graphs and submit confirmed contributions).
+---
+
+# Claire Bible (`{{PLUGIN_NAME}}`)
+
+Route every request to the matching subcommand below based on the explicit subcommand (`ingest`, `regenerate`, `query`) or the user's natural-language intent:
+
+| Subcommand | Trigger / Intent | Section |
+| :--- | :--- | :--- |
+| **`{{INGEST_CMD}}`** | Save/extract a URL, local file (`PDF`, `DOCX`, `ODT`, `MD`, `TXT`, `RST`, `ADOC`, `HTML`), or note; drain pending queue (`pending`); or re-fetch from URL (`재적재`) | [Ingest](#subcommand-ingest) |
+| **`{{REGENERATE_CMD}}`** | Re-extract an existing document from its stored `raw_text` without re-fetching (`재생성`, `재추출`) | [Regenerate](#subcommand-regenerate) |
+| **`{{QUERY_CMD}}`** | Discover KBs, search entities/relations, inspect documents, or contribute to shared KBs (`contrib_submit`) | [Query](#subcommand-query) |{{MODEL_HANDOFF_NOTE}}
+
+---
+
+<a id="subcommand-ingest"></a>
+
+{{INGEST_BODY}}
+
+---
+
+<a id="subcommand-regenerate"></a>
+
+{{REGENERATE_BODY}}
+
+---
+
+<a id="subcommand-query"></a>
+
+{{QUERY_BODY}}

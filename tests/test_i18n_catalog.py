@@ -52,7 +52,7 @@ def test_interpolation_is_safe_and_plural_keys_resolve() -> None:
 
 
 def test_catalogs_exclude_retired_client_names() -> None:
-    retired = ("claude desktop", "claude code", "claudedesktop", "chatgpt", "codex", "server-everything", "server-fetch")
+    retired = ("claude desktop", "claude code", "claudedesktop", "server-everything", "server-fetch")
     for locale in SUPPORTED_LOCALES:
         entries = catalog.load_catalog(locale)
         for key, value in entries.items():

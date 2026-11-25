@@ -8294,3 +8294,143 @@ def list_syndication_dispatches(
     params.extend([limit, offset])
     rows = conn.execute(query, tuple(params)).fetchall()
     return [dict(row) for row in rows]
+
+
+def _extract_lineage_llm_models(meta: Any) -> list[str]:
+    """Return unique non-embedding LLM models recorded in documents.meta.model_lineage."""
+    if not isinstance(meta, dict):
+        return []
+    lineage = meta.get("model_lineage")
+    if not isinstance(lineage, dict):
+        return []
+    seen: list[str] = []
+    stages = lineage.get("stages")
+    if isinstance(stages, list):
+        for ev in stages:
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("stage") == "embed" or ev.get("status") == "error":
+                continue
+            m = str(ev.get("final_model") or ev.get("model") or "").strip()
+            if m and m not in seen:
+                seen.append(m)
+    if not seen:
+        final_models = lineage.get("final_output_models")
+        if isinstance(final_models, dict):
+            for stage_name, info in final_models.items():
+                if stage_name == "embed" or not isinstance(info, dict):
+                    continue
+                if info.get("status") == "error":
+                    continue
+                m = str(info.get("model") or "").strip()
+                if m and m not in seen:
+                    seen.append(m)
+    return seen
+
+
+def audit_document_models(
+    conn: sqlite3.Connection,
+    *,
+    kb_id: int | None = None,
+    model: str | None = None,
+    exclude_model: str | None = None,
+    since: float | None = None,
+    until: float | None = None,
+) -> dict[str, Any]:
+    """Audit latest extraction model and model_lineage across stored documents."""
+    doc_sql = "SELECT id, kb_id, title, url, canonical_url, fetched_at, meta, extraction_status FROM documents WHERE coalesce(extraction_status, 'extracted') != 'pending'"
+    doc_params: list[Any] = []
+    ext_sql = "SELECT kb_id, document_id, provider, model, prompt_version, created_at FROM extractions WHERE id IN (SELECT MAX(id) FROM extractions"
+    ext_params: list[Any] = []
+    inbox_sql = "SELECT kb_id, document_id, source, received_at FROM raw_inbox WHERE document_id IS NOT NULL AND id IN (SELECT MAX(id) FROM raw_inbox WHERE document_id IS NOT NULL"
+    inbox_params: list[Any] = []
+    if kb_id is not None:
+        doc_sql += " AND kb_id=?"
+        doc_params.append(int(kb_id))
+        ext_sql += " WHERE kb_id=?"
+        ext_params.append(int(kb_id))
+        inbox_sql += " AND kb_id=?"
+        inbox_params.append(int(kb_id))
+    ext_sql += " GROUP BY kb_id, document_id)"
+    inbox_sql += " GROUP BY kb_id, document_id)"
+
+    doc_rows = conn.execute(doc_sql, tuple(doc_params)).fetchall()
+    ext_map: dict[tuple[int, str], dict[str, Any]] = {}
+    for er in conn.execute(ext_sql, tuple(ext_params)).fetchall():
+        ext_map[(int(er["kb_id"]), str(er["document_id"]))] = dict(er)
+
+    inbox_map: dict[tuple[int, str], dict[str, Any]] = {}
+    for ir in conn.execute(inbox_sql, tuple(inbox_params)).fetchall():
+        inbox_map[(int(ir["kb_id"]), str(ir["document_id"]))] = dict(ir)
+
+    model_counts: dict[str, int] = {}
+    mismatch_count = 0
+    matched_docs: list[dict[str, Any]] = []
+
+    req_model = model.strip() if isinstance(model, str) and model.strip() else None
+    req_exclude = exclude_model.strip() if isinstance(exclude_model, str) and exclude_model.strip() else None
+
+    for dr in doc_rows:
+        did = str(dr["id"])
+        doc_kb = int(dr["kb_id"])
+        ext = ext_map.get((doc_kb, did))
+        inbox = inbox_map.get((doc_kb, did))
+        ext_provider = str(ext.get("provider") or "") if ext else ""
+        ext_model = str(ext.get("model") or "") if ext else ""
+        ext_created_at = float(ext["created_at"]) if ext and ext.get("created_at") is not None else None
+        fetched_at = float(dr["fetched_at"]) if dr["fetched_at"] is not None else None
+        effective_ts = ext_created_at if ext_created_at is not None else (fetched_at or 0.0)
+
+        meta_obj: dict[str, Any] = {}
+        if dr["meta"]:
+            try:
+                parsed_meta = json.loads(dr["meta"])
+                if isinstance(parsed_meta, dict):
+                    meta_obj = parsed_meta
+            except (TypeError, ValueError):
+                meta_obj = {}
+
+        lineage_models = _extract_lineage_llm_models(meta_obj)
+        lineage_mismatch = bool(lineage_models and ext_model and any(m != ext_model for m in lineage_models))
+        if lineage_mismatch:
+            mismatch_count += 1
+
+        bucket = ext_model or "(none)"
+        model_counts[bucket] = model_counts.get(bucket, 0) + 1
+
+        if since is not None and effective_ts < float(since):
+            continue
+        if until is not None and effective_ts > float(until):
+            continue
+        if req_model is not None and ext_model != req_model and req_model not in lineage_models:
+            continue
+        if req_exclude is not None:
+            has_other_lineage = any(m != req_exclude for m in lineage_models)
+            if ext_model == req_exclude and not has_other_lineage:
+                continue
+
+        matched_docs.append({
+            "document_id": did,
+            "kb_id": doc_kb,
+            "title": dr["title"] or "",
+            "url": dr["canonical_url"] or dr["url"] or "",
+            "fetched_at": fetched_at,
+            "extraction_provider": ext_provider or None,
+            "extraction_model": ext_model or None,
+            "extraction_created_at": ext_created_at,
+            "applied_effort": meta_obj.get("applied_effort"),
+            "lineage_models": lineage_models,
+            "lineage_mismatch": lineage_mismatch,
+            "source": inbox.get("source") if inbox else None,
+            "received_at": float(inbox["received_at"]) if inbox and inbox.get("received_at") is not None else None,
+        })
+
+    matched_docs.sort(key=lambda item: float(item.get("extraction_created_at") or item.get("fetched_at") or 0.0), reverse=True)
+    sorted_counts = dict(sorted(model_counts.items(), key=lambda kv: (-kv[1], kv[0])))
+    return {
+        "total_documents": len(doc_rows),
+        "matched_count": len(matched_docs),
+        "mismatch_count": mismatch_count,
+        "model_counts": sorted_counts,
+        "documents": matched_docs,
+    }

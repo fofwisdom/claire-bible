@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import functools
 import logging
+import sqlite3
 import threading
+import time
 from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -37,6 +39,7 @@ from .extraction_mode import available_extraction_modes, parse_extraction_mode
 from .fetchers.base import bound_fetch_settings
 from .pipeline import (
     IngestReport,
+    _effective_provider_effort,
     _fetch_settings_for_staging,
     _guess_kind,
     error_text,
@@ -80,6 +83,118 @@ def resolve_service_context(
         return _blocked_context(int(account_id)), exc
 
 
+def _file_stat_sig(path: Path) -> tuple[int, int, int] | None:
+    """Return a file stat signature ``(st_ino, st_mtime_ns, st_size)`` or ``None`` when absent."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+
+def _runtime_config_signature(data_dir: Any) -> tuple[tuple[int, int, int] | None, tuple[int, int, int] | None]:
+    """Return stat signatures for ``providers.json`` and ``ingest_limits.json`` under ``data_dir``."""
+    if not data_dir:
+        return (None, None)
+    base = Path(data_dir)
+    return (_file_stat_sig(base / "providers.json"), _file_stat_sig(base / "ingest_limits.json"))
+
+
+def _canonical_feature_models(feature_models: Any) -> tuple:
+    """Return a hashable canonical tuple for ``ProviderContext.feature_models``."""
+    if not isinstance(feature_models, dict) or not feature_models:
+        return ()
+    return tuple(
+        (str(slot), tuple(sorted((str(k), str(v)) for k, v in spec.items())))
+        for slot, spec in sorted(feature_models.items())
+        if isinstance(spec, dict)
+    )
+
+
+def _update_standalone_stage_lineage(
+    conn: sqlite3.Connection,
+    doc: Document,
+    provider: Any,
+    *,
+    stage: str,
+    slot: str,
+    effort: str | None,
+    status: str,
+    duration_ms: float,
+    kb_id: int,
+    detail: str = "",
+) -> None:
+    """Update one stage in ``doc.meta['model_lineage']`` after standalone regeneration and persist ``doc.meta``."""
+    from ..extract.provider import LineageCollector
+
+    slot_spec_fn = getattr(provider, "slot_spec", None)
+    spec = slot_spec_fn(slot) if callable(slot_spec_fn) else None
+    if isinstance(spec, (tuple, list)) and len(spec) >= 3:
+        prov_name = str(spec[0] or "?")
+        model_name = str(spec[1] or prov_name)
+        req_eff = effort if effort is not None else (str(spec[2] or "") or None)
+    else:
+        prov_name = str(getattr(provider, "name", "?") or "?")
+        raw_model = getattr(provider, "model", "")
+        model_name = str(raw_model if isinstance(raw_model, str) and raw_model else prov_name)
+        req_eff = effort
+    eff_label = _effective_provider_effort(provider, req_eff, slot=slot)
+    if doc.meta is None:
+        doc.meta = {}
+    existing = doc.meta.get("model_lineage") if isinstance(doc.meta, dict) else None
+    collector = LineageCollector()
+    if isinstance(existing, dict):
+        collector.events = [
+            dict(ev)
+            for ev in (existing.get("stages") or [])
+            if isinstance(ev, dict) and ev.get("stage") != stage
+        ]
+        collector.jev = dict(existing.get("jev") or {})
+    collector.record_stage(
+        stage=stage,
+        requested_provider=prov_name,
+        requested_model=model_name,
+        requested_effort=eff_label,
+        final_provider=prov_name,
+        final_model=model_name,
+        status=status,
+        duration_ms=duration_ms,
+        detail=detail,
+    )
+    doc.meta["model_lineage"] = collector.summarize()
+    dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=kb_id)
+
+
+def _extract_doc_lineage_models(meta: Any) -> list[str]:
+    """Return unique non-embedding LLM models recorded in ``doc.meta['model_lineage']``."""
+    if not isinstance(meta, dict):
+        return []
+    lineage = meta.get("model_lineage")
+    if not isinstance(lineage, dict):
+        return []
+    seen: list[str] = []
+    stages = lineage.get("stages")
+    if isinstance(stages, list):
+        for ev in stages:
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("stage") == "embed" or ev.get("status") == "error":
+                continue
+            m = str(ev.get("final_model") or ev.get("model") or "").strip()
+            if m and m not in seen:
+                seen.append(m)
+    if not seen:
+        final_models = lineage.get("final_output_models")
+        if isinstance(final_models, dict):
+            for stage_name, info in final_models.items():
+                if stage_name == "embed" or not isinstance(info, dict) or info.get("status") == "error":
+                    continue
+                m = str(info.get("model") or "").strip()
+                if m and m not in seen:
+                    seen.append(m)
+    return seen
+
+
 def context_cache_key(ctx: ProviderContext | None, error: BaseException | None = None) -> tuple:
     """풀·루프 캐시 키. 자격(``credential_key``)·출처(``source``)·등급이 바뀌면 서비스를 새로 만든다. 키 원문은 넣지 않는다."""
     if ctx is None:
@@ -91,8 +206,11 @@ def context_cache_key(ctx: ProviderContext | None, error: BaseException | None =
         ctx.credential_key,
         ctx.provider,
         ctx.model,
+        ctx.embed_model,
         ctx.effort,
         ctx.tier,
+        _canonical_feature_models(getattr(ctx, "feature_models", None)),
+        ctx.languages,
         getattr(error, "code", None),
     )
 
@@ -1185,6 +1303,9 @@ class IngestService:
         corrupted_detail: bool = False,
         missing_summary: bool = False,
         tables: bool = False,
+        model: str | None = None,
+        exclude_model: str | None = None,
+        since: float | None = None,
         refetch: bool = False,
         refetch_full: bool = False,
         force: bool = False,
@@ -1260,7 +1381,21 @@ class IngestService:
                     if m["id"] not in target_ids:
                         target_ids.append(m["id"])
 
-            # 대상이 특정되지 않고 tables, corrupted_summary 이거나 전체 스캔인 경우
+            # 대상이 특정되지 않고 tables, model/since 필터, corrupted_summary 이거나 전체 스캔인 경우
+            model_filter_active = model is not None or exclude_model is not None or since is not None
+            audit_res = dbm.audit_document_models(
+                conn,
+                kb_id=self.kb_id,
+                model=model,
+                exclude_model=exclude_model,
+                since=since,
+            ) if model_filter_active else None
+            audit_by_doc: dict[str, dict[str, Any]] = (
+                {item["document_id"]: item for item in audit_res["documents"]}
+                if audit_res is not None
+                else {}
+            )
+
             if tables:
                 table_docs = dbm.documents_with_tables(conn, limit=0, check_detail=True, kb_id=self.kb_id)
                 for td in table_docs:
@@ -1276,9 +1411,13 @@ class IngestService:
                     did = r["id"]
                     if did not in target_ids and dbm.latest_extraction_summary(conn, did, kb_id=self.kb_id) is None:
                         target_ids.append(did)
-            elif corrupted_summary or (not target_ids and not target and not token and not doc_id):
+            elif model_filter_active and not target_ids and not target and not token and not doc_id:
+                assert audit_res is not None
+                target_ids = [item["document_id"] for item in audit_res["documents"]]
+            elif not model_filter_active and (corrupted_summary or (not target_ids and not target and not token and not doc_id)):
                 rows = conn.execute(
-                    "SELECT document_id, raw_response FROM extractions ORDER BY id DESC"
+                    "SELECT document_id, raw_response FROM extractions WHERE kb_id=? ORDER BY id DESC",
+                    (self.kb_id,),
                 ).fetchall()
                 seen_docs: set[str] = set()
                 for r in rows:
@@ -1294,20 +1433,35 @@ class IngestService:
                     if _is_corrupted_adoc(curr_summ) and did not in target_ids:
                         target_ids.append(did)
 
+            if model_filter_active and target_ids and (target or token or doc_id or tables or missing_summary):
+                allowed_ids = set(audit_by_doc)
+                target_ids = [did for did in target_ids if did in allowed_ids]
+
             if not target_ids:
                 error_msg = "No matching documents found."
                 if tables:
                     error_msg = "No documents containing tables detected in database."
                 elif missing_summary:
                     error_msg = "No documents with missing summaries detected in database."
+                elif model_filter_active:
+                    error_msg = "No documents matching the specified model or time filter."
                 elif not target and not token and not doc_id:
                     error_msg = "No corrupted summaries detected in database."
-                return {
+                out_empty: dict[str, Any] = {
                     "dry_run": not force,
                     "count": 0,
                     "targets": [],
                     "error": error_msg,
+                    "provider": getattr(self.provider, "name", "unknown"),
+                    "model": getattr(self.provider, "model", "unknown"),
+                    "effort": provider_effort(self.provider, "default"),
+                    "effective_source": getattr(getattr(self, "provider_context", None), "source", "admin"),
                 }
+                if audit_res is not None:
+                    out_empty["model_counts"] = audit_res["model_counts"]
+                    out_empty["total_documents"] = audit_res["total_documents"]
+                    out_empty["mismatch_count"] = audit_res["mismatch_count"]
+                return out_empty
 
             from contextlib import nullcontext
             from .active import active_job, update_active_ingest
@@ -1397,8 +1551,8 @@ class IngestService:
                                 continue
 
                             ext_row = conn.execute(
-                                "SELECT raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                                (did,),
+                                "SELECT provider, model, created_at, raw_response FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1",
+                                (did, self.kb_id),
                             ).fetchone()
                             raw_summ = ""
                             if ext_row and ext_row["raw_response"]:
@@ -1421,10 +1575,40 @@ class IngestService:
                             elif detail_tables:
                                 table_preview = detail_tables[0].strip()
 
+                            doc_audit = audit_by_doc.get(did)
+                            if doc_audit is not None:
+                                curr_prov = doc_audit.get("extraction_provider")
+                                curr_model = doc_audit.get("extraction_model")
+                                ext_created_at = doc_audit.get("extraction_created_at")
+                                lineage_models = list(doc_audit.get("lineage_models") or [])
+                                lineage_mismatch = bool(doc_audit.get("lineage_mismatch"))
+                                doc_source = doc_audit.get("source")
+                                applied_effort = doc_audit.get("applied_effort")
+                            else:
+                                curr_prov = (ext_row["provider"] or None) if ext_row else None
+                                curr_model = (ext_row["model"] or None) if ext_row else None
+                                ext_created_at = float(ext_row["created_at"]) if ext_row and ext_row["created_at"] is not None else None
+                                lineage_models = _extract_doc_lineage_models(doc.meta)
+                                lineage_mismatch = bool(lineage_models and curr_model and any(m != curr_model for m in lineage_models))
+                                inbox_row = conn.execute(
+                                    "SELECT source FROM raw_inbox WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1",
+                                    (did, self.kb_id),
+                                ).fetchone()
+                                doc_source = inbox_row["source"] if inbox_row else None
+                                applied_effort = (doc.meta or {}).get("applied_effort") if isinstance(doc.meta, dict) else None
+
                             info: dict = {
                                 "document_id": did,
+                                "kb_id": self.kb_id,
                                 "title": doc.title or "(제목 없음)",
                                 "canonical_url": doc.canonical_url,
+                                "current_provider": curr_prov,
+                                "current_model": curr_model,
+                                "extraction_created_at": ext_created_at,
+                                "applied_effort": applied_effort,
+                                "lineage_models": lineage_models,
+                                "lineage_mismatch": lineage_mismatch,
+                                "source": doc_source,
                                 "current_summary": curr_summary,
                                 "summary_corrupted": is_corrupted,
                                 "summary_preface": is_preface_summary(raw_summ) or is_preface_summary(curr_summary),
@@ -1556,17 +1740,25 @@ class IngestService:
                                 else:
                                     if do_summary:
                                         # 요약만 단독 재추출 (엔티티/관계 보존)
+                                        sum_started = time.perf_counter()
                                         try:
-                                            extract_res = self.provider.extract(doc, None)
+                                            if effort is not None:
+                                                extract_res = self.provider.extract(doc, None, effort=effort)
+                                            else:
+                                                extract_res = self.provider.extract(doc, None)
                                         except TypeError:
-                                            extract_res = self.provider.extract(doc)
+                                            try:
+                                                extract_res = self.provider.extract(doc, None)
+                                            except TypeError:
+                                                extract_res = self.provider.extract(doc)
+                                        sum_ms = (time.perf_counter() - sum_started) * 1000.0
                                         new_summary = _clean_summary(extract_res.summary)
                                         info["new_summary"] = new_summary
 
                                         # extractions 테이블 in-place 갱신
                                         ext_row = conn.execute(
-                                            "SELECT id, raw_response FROM extractions WHERE document_id=? ORDER BY id DESC LIMIT 1",
-                                            (did,),
+                                            "SELECT id, raw_response FROM extractions WHERE document_id=? AND kb_id=? ORDER BY id DESC LIMIT 1",
+                                            (did, self.kb_id),
                                         ).fetchone()
                                         if ext_row:
                                             try:
@@ -1591,11 +1783,23 @@ class IngestService:
                                                 raw_response=new_raw,
                                                 kb_id=self.kb_id,
                                             )
+                                        _update_standalone_stage_lineage(
+                                            conn,
+                                            doc,
+                                            self.provider,
+                                            stage="summarize",
+                                            slot="summarize",
+                                            effort=effort,
+                                            status="ok" if new_summary else "empty",
+                                            duration_ms=sum_ms,
+                                            kb_id=self.kb_id,
+                                        )
                                         conn.commit()
 
                                     if do_detail:
                                         step_cb("가독 상세(detail) 렌더링 생성 중...", f"format={target_fmt}")
                                         detail_err_box: list[str] = []
+                                        detail_started = time.perf_counter()
                                         detail_ok = ensure_document_detail(
                                             conn,
                                             self.provider,
@@ -1604,7 +1808,23 @@ class IngestService:
                                             format=target_fmt,
                                             effort=effort,
                                             out_error=detail_err_box,
+                                            kb_id=self.kb_id,
+                                            settings=self.s,
                                         )
+                                        detail_ms = (time.perf_counter() - detail_started) * 1000.0
+                                        _update_standalone_stage_lineage(
+                                            conn,
+                                            doc,
+                                            self.provider,
+                                            stage="render_detail",
+                                            slot="render_detail",
+                                            effort=effort,
+                                            status="ok" if detail_ok else "error",
+                                            duration_ms=detail_ms,
+                                            kb_id=self.kb_id,
+                                            detail=(detail_err_box[0][:240] if (not detail_ok and detail_err_box) else ""),
+                                        )
+                                        conn.commit()
                                         if detail_ok:
                                             info["detail_format"] = target_fmt
                                         else:
@@ -1633,14 +1853,20 @@ class IngestService:
                                     msg=f"{done_msg} (실패 {len(failed)}건)" if failed else done_msg,
                                     result={"count": len(targets_info), "targets": targets_info},
                                 )
-                        return {
+                        out_payload: dict[str, Any] = {
                             "dry_run": not force,
                             "count": len(targets_info),
                             "targets": targets_info,
                             "provider": getattr(self.provider, "name", "unknown"),
                             "model": getattr(self.provider, "model", "unknown"),
                             "effort": provider_effort(self.provider, "default"),
+                            "effective_source": getattr(getattr(self, "provider_context", None), "source", "admin"),
                         }
+                        if audit_res is not None:
+                            out_payload["model_counts"] = audit_res["model_counts"]
+                            out_payload["total_documents"] = audit_res["total_documents"]
+                            out_payload["mismatch_count"] = audit_res["mismatch_count"]
+                        return out_payload
                     finally:
                         if old_effort is not None:
                             self.provider.effort = old_effort
@@ -2197,6 +2423,7 @@ class IngestServicePool:
         self._shared_provider: Any | None = base_service.provider if base_service else None
         self.account_id = account_id if account_id is not None else getattr(base_settings, "account_id", None)
         self._lock = threading.RLock()
+        self._config_sig = _runtime_config_signature(getattr(base_settings, "data_dir", None))
         # kb_id -> (컨텍스트 캐시 키, 서비스)
         self._services: dict[int, tuple[tuple, IngestService]] = {}
         # 컨텍스트 캐시 키 -> 멤버 프로바이더(같은 계정·자격의 테마들이 함께 쓴다)
@@ -2211,10 +2438,42 @@ class IngestServicePool:
             )
             self._services[getattr(base_service, "kb_id", 0)] = (base_key, base_service)
 
+    def _sync_runtime_config(self) -> None:
+        """Reload ``providers.json`` and ``ingest_limits.json`` when their stat signature changes on disk."""
+        with self._lock:
+            data_dir = getattr(self.base_settings, "data_dir", None)
+            if not data_dir or not hasattr(self.base_settings, "model_copy"):
+                return
+            sig = _runtime_config_signature(data_dir)
+            if sig == self._config_sig:
+                return
+            updates: dict[str, Any] = {}
+            try:
+                base_path = Path(data_dir)
+                if (base_path / "providers.json").is_file():
+                    from ..core.provider_manager import ProviderManager
+
+                    updates.update(ProviderManager(data_dir=base_path, auto_migrate=False).get_settings_dict())
+                if (base_path / "ingest_limits.json").is_file():
+                    from ..core.ingest_limit_manager import IngestLimitManager
+
+                    updates.update(IngestLimitManager(data_dir=base_path, auto_migrate=False).get_settings_dict())
+            except Exception as exc:  # noqa: BLE001 — keep previous settings if a transient file read fails
+                log.warning("IngestServicePool failed to reload runtime config: %s", type(exc).__name__)
+                return
+            if updates:
+                self.base_settings = self.base_settings.model_copy(update=updates)
+            self._services.clear()
+            self._member_providers.clear()
+            self._shared_provider = None
+            self.base_service = None
+            self._config_sig = sig
+
     @property
     def shared_provider(self) -> Any:
         """관리자 컨텍스트 테마가 함께 쓰는 프로바이더(호환 속성). 멤버 테마에는 주입하지 않는다."""
         with self._lock:
+            self._sync_runtime_config()
             if self._shared_provider is None:
                 self._shared_provider = get_provider(self.base_settings)
             return self._shared_provider
@@ -2230,22 +2489,23 @@ class IngestServicePool:
 
         A shared knowledge base has no owner: work that a person starts in it runs with the provider context of that person (``acting_account_id``; design Section 13.1 rule 5). Without it (server jobs), the server context applies.
         """
-        eff_account_id = account_id if account_id is not None else self.account_id
-        if theme_ref is None or str(theme_ref).strip() == "":
-            if eff_account_id is not None:
-                theme = self.theme_manager.personal_kb_for(eff_account_id)
-            else:
-                theme = self.theme_manager.get_kb(None)
-        else:
-            theme = self.theme_manager.get_kb(theme_ref)
-
-        owner_id = getattr(theme, "account_id", eff_account_id)
-        if owner_id is None and getattr(theme, "is_shared", False):
-            owner_id = acting_account_id
-        theme_settings = self.theme_manager.get_settings_for_kb(theme.id, self.base_settings)
-        ctx, error = resolve_service_context(theme_settings, owner_id)
-        key = context_cache_key(ctx, error)
         with self._lock:
+            self._sync_runtime_config()
+            eff_account_id = account_id if account_id is not None else self.account_id
+            if theme_ref is None or str(theme_ref).strip() == "":
+                if eff_account_id is not None:
+                    theme = self.theme_manager.personal_kb_for(eff_account_id)
+                else:
+                    theme = self.theme_manager.get_kb(None)
+            else:
+                theme = self.theme_manager.get_kb(theme_ref)
+
+            owner_id = getattr(theme, "account_id", eff_account_id)
+            if owner_id is None and getattr(theme, "is_shared", False):
+                owner_id = acting_account_id
+            theme_settings = self.theme_manager.get_settings_for_kb(theme.id, self.base_settings)
+            ctx, error = resolve_service_context(theme_settings, owner_id)
+            key = context_cache_key(ctx, error)
             cached = self._services.get(theme.id)
             if cached is not None and (cached[0] == key or (cached[0] == _ADMIN_ANY and ctx.is_admin)):
                 return cached[1]
@@ -2285,3 +2545,4 @@ class IngestServicePool:
             self._member_providers.clear()
             self._shared_provider = None
             self.base_service = None
+            self._config_sig = _runtime_config_signature(getattr(self.base_settings, "data_dir", None))

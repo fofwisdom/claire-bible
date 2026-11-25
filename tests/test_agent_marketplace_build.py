@@ -50,16 +50,21 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     repo_a = out_a / "repo"
     marketplace = json.loads((repo_a / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     assert marketplace["name"] == "claire-agents"
-    assert marketplace["metadata"]["version"] == "0.4.4"
+    assert marketplace["metadata"]["version"] == "0.0.14"
     assert [p["name"] for p in marketplace["plugins"]] == ["claire"]
     assert marketplace["plugins"][0]["source"] == "./plugins/claude/claire"
+
+    codex_marketplace = json.loads((repo_a / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8"))
+    assert codex_marketplace["name"] == "claire-agents"
+    assert [p["name"] for p in codex_marketplace["plugins"]] == ["claire"]
+    assert codex_marketplace["plugins"][0]["source"] == {"source": "local", "path": "./plugins/codex/claire"}
 
     claude_dir = repo_a / "plugins" / "claude" / "claire"
     claude_plugin = json.loads((claude_dir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert claude_plugin["name"] == "claire"
-    assert claude_plugin["version"] == "0.4.4"
+    assert claude_plugin["version"] == "0.0.14"
     assert claude_plugin["repository"] == "https://github.com/fofwisdom/claire-agents"
-    assert sorted(p.name for p in (claude_dir / "skills").iterdir()) == ["extract-runner", "ingest", "query"]
+    assert sorted(p.name for p in (claude_dir / "skills").iterdir()) == ["extract-runner", "ingest", "query", "regenerate"]
 
     claude_extractor = (claude_dir / "agents" / "extractor.md").read_text(encoding="utf-8")
     assert "mcp__claire__extract_read" in claude_extractor
@@ -74,16 +79,32 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "tombstoned" in claude_ingest
     assert claude_ingest.count("Apply Guardrail 5") + claude_ingest.count("apply Guardrail 5") == 3
     assert "claire:extract-runner" in claude_ingest
+    assert "model=<active_model_id>" in claude_ingest
+    assert "/claire:regenerate" in claude_ingest
     assert "/claire:extract" not in claude_ingest
+
+    claude_regenerate = (claude_dir / "skills" / "regenerate" / "SKILL.md").read_text(encoding="utf-8")
+    assert "extract_stage(" in claude_regenerate
+    assert "doc_list(" in claude_regenerate
+    assert "claire:extract-runner" in claude_regenerate
+    assert "model=<active_model_id>" in claude_regenerate
+    regenerate_fm = builder._frontmatter(claude_regenerate)
+    assert regenerate_fm["argument-hint"] == '"<document_id | title | topic>"'
+    assert regenerate_fm["allowed-tools"] == "[mcp__claire__extract_stage, mcp__claire__kb_list, mcp__claire__doc_list, Skill(claire:extract-runner)]"
+    assert "extract_read" not in regenerate_fm["allowed-tools"]
+    assert "context" not in regenerate_fm
 
     claude_runner = (claude_dir / "skills" / "extract-runner" / "SKILL.md").read_text(encoding="utf-8")
     assert "claire:extractor" in claude_runner
     assert "extract_queue(" in claude_runner
+    assert "payload.model" in claude_runner
     assert len(claude_runner.splitlines()) <= 20
 
     assert "kb_list()" in (claude_dir / "skills" / "query" / "SKILL.md").read_text(encoding="utf-8")
     claude_readme = (claude_dir / "README.md").read_text(encoding="utf-8")
     assert "/claire:ingest" in claude_readme
+    assert "/claire:regenerate" in claude_readme
+    assert "/claire:query" in claude_readme
     assert "--scope user" in claude_readme
     assert "/claire:extract" not in claude_readme
 
@@ -120,7 +141,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     ag_plugin = json.loads((ag_dir / "plugin.json").read_text(encoding="utf-8"))
     assert ag_plugin["name"] == "claire"
     assert ag_plugin["displayName"] == "Claire Bible"
-    assert ag_plugin["version"] == "0.4.4"
+    assert ag_plugin["version"] == "0.0.14"
     assert ag_plugin["logo"] == "assets/logo.svg"
     assert (ag_dir / "assets" / "logo.svg").is_file()
     assert not (ag_dir / "mcp_config.json.tmpl").exists()
@@ -134,12 +155,15 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "client_id" not in ag_plugin
     assert "required_scopes" not in ag_plugin
     assert "files" not in ag_plugin
-    assert sorted(p.name for p in (ag_dir / "skills").iterdir()) == ["claire-ingest", "claire-query"]
+    assert sorted(p.name for p in (ag_dir / "skills").iterdir()) == ["claire"]
 
     ag_readme = (ag_dir / "README.md").read_text(encoding="utf-8")
     assert "fofwisdom/claire-agents" in ag_readme
     assert "docs/antigravity.ko.md" in ag_readme
     assert "docs/antigravity.en.md" in ag_readme
+    assert "claire ingest" in ag_readme
+    assert "claire regenerate" in ag_readme
+    assert "claire query" in ag_readme
     assert "MCP Servers -> claire" in ag_readme
     assert "Allow using this MCP tool?" in ag_readme
     assert "Yes, and always allow" in ag_readme
@@ -149,8 +173,12 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "{{MCP_URL}}" in mcp_tmpl
     ag_rules = (ag_dir / "rules" / "AGENTS.md").read_text(encoding="utf-8")
     assert "fofwisdom/claire-agents" in ag_rules
+    assert "claire ingest" in ag_rules
+    assert "claire regenerate" in ag_rules
+    assert "claire query" in ag_rules
     assert "extract_read" in ag_rules
     assert "gemini-3.8-flash" in ag_rules
+    assert "inheriting the main agent's active model" in ag_rules
     assert "/clients/" not in ag_rules
     assert "clients.<domain>" not in ag_rules
     assert "extract_spec()" in (ag_dir / "agents" / "claire-extractor.md").read_text(encoding="utf-8")
@@ -163,23 +191,66 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert 'ServerName: "claire"' in ag_extractor
     assert "call_mcp_tool" in ag_extractor
     assert "gemini-3.8-flash" in ag_extractor
-    ag_ingest = (ag_dir / "skills" / "claire-ingest" / "SKILL.md").read_text(encoding="utf-8")
-    assert "claire-ingest" in ag_ingest
-    assert "extract_queue(" in ag_ingest
-    assert "doc_list(" in ag_ingest
-    assert "force=True" in ag_ingest
-    assert "No Manual Purge" in ag_ingest
-    assert "Ask Before Overwriting" in ag_ingest
-    assert "tombstoned" in ag_ingest
-    assert ag_ingest.count("Apply Guardrail 5") + ag_ingest.count("apply Guardrail 5") == 3
+    ag_skill = (ag_dir / "skills" / "claire" / "SKILL.md").read_text(encoding="utf-8")
+    assert builder._frontmatter(ag_skill)["name"] == "claire"
+    assert "claire ingest" in ag_skill
+    assert "claire regenerate" in ag_skill
+    assert "claire query" in ag_skill
+    assert 'Model: "inherit"' in ag_skill
+    assert "transcript.jsonl" in ag_skill
+    assert "PLANNER_RESPONSE" in ag_skill
+    assert "extract_queue(" in ag_skill
+    assert "doc_list(" in ag_skill
+    assert "kb_list()" in ag_skill
+    assert "force=True" in ag_skill
+    assert "No Manual Purge" in ag_skill
+    assert "Ask Before Overwriting" in ag_skill
+    assert "tombstoned" in ag_skill
+    assert ag_skill.count("Apply Guardrail 5") + ag_skill.count("apply Guardrail 5") == 3
     assert "force=True" in ag_extractor
-    assert "claire-query" in (ag_dir / "skills" / "claire-query" / "SKILL.md").read_text(encoding="utf-8")
+
+    codex_dir = repo_a / "plugins" / "codex" / "claire"
+    codex_plugin = json.loads((codex_dir / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert codex_plugin["name"] == "claire"
+    assert codex_plugin["version"] == "0.0.14"
+    assert codex_plugin["skills"] == "./skills/"
+    assert "mcpServers" not in codex_plugin
+    assert sorted(p.name for p in (codex_dir / "skills").iterdir()) == ["claire"]
+    assert not (codex_dir / "hooks").exists()
+    assert (codex_dir / "rules" / "AGENTS.md").is_file()
+    codex_skill = (codex_dir / "skills" / "claire" / "SKILL.md").read_text(encoding="utf-8")
+    assert builder._frontmatter(codex_skill)["name"] == "claire"
+    assert "$claire ingest" in codex_skill
+    assert "$claire regenerate" in codex_skill
+    assert "$claire query" in codex_skill
+    assert "inheriting the parent session's active model" in codex_skill
+    codex_extractor_md = (codex_dir / "agents" / "claire-extractor.md").read_text(encoding="utf-8")
+    assert "extract_spec()" in codex_extractor_md
+    codex_extractor_toml_raw = (codex_dir / "agents" / "claire-extractor.toml").read_text(encoding="utf-8")
+    import tomllib
+
+    codex_agent_cfg = tomllib.loads(codex_extractor_toml_raw)
+    assert codex_agent_cfg["name"] == "claire-extractor"
+    assert "model" not in codex_agent_cfg
+    assert codex_agent_cfg["sandbox_mode"] == "read-only"
+    assert "extract_spec()" in codex_agent_cfg["developer_instructions"]
+    assert not codex_agent_cfg["developer_instructions"].startswith("---")
+    codex_readme = (codex_dir / "README.md").read_text(encoding="utf-8")
+    assert "codex mcp add claire --url" in codex_readme
+    assert "codex mcp login claire" in codex_readme
+    assert "$claire ingest" in codex_readme
+    assert "$claire regenerate" in codex_readme
+    assert "$claire query" in codex_readme
+    assert "docs/chatgpt.ko.md" in codex_readme
+    assert "docs/chatgpt.en.md" in codex_readme
 
     for guide_name, expected_heading in (
         ("antigravity.ko.md", "Antigravity GUI 설치 및 연결 가이드"),
         ("antigravity.en.md", "Antigravity GUI Installation & Setup Guide"),
         ("claude.ko.md", "Claude 설치 및 연결 가이드"),
         ("claude.en.md", "Claude Installation & Setup Guide"),
+        ("chatgpt.ko.md", "ChatGPT (Codex) 설치 및 연결 가이드"),
+        ("chatgpt.en.md", "ChatGPT (Codex) Installation & Setup Guide"),
     ):
         guide_a = repo_a / "docs" / guide_name
         guide_b = out_b / "repo" / "docs" / guide_name
@@ -195,11 +266,23 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
             assert "Allow using this MCP tool?" in guide_text
             assert "Yes, and always allow" in guide_text
             assert "Add MCP Server (+)" not in guide_text
-            assert "claire-antigravity-v0.4.4.zip" in guide_text
-        else:
+            assert "claire-antigravity-v0.0.14.zip" in guide_text
+            assert "claire ingest" in guide_text
+            assert "claire regenerate" in guide_text
+            assert "claire query" in guide_text
+        elif guide_name.startswith("claude."):
             assert "claude mcp add --transport http --scope user claire https://" in guide_text
             assert "claude plugin install claire --marketplace fofwisdom/claire-agents" in guide_text
             assert "claude mcp login claire" in guide_text
+            assert "/claire:regenerate" in guide_text
+        else:
+            assert "claire-codex-v0.0.14.zip" in guide_text
+            assert 'codex mcp add claire --url "https://' in guide_text
+            assert "codex mcp login claire" in guide_text
+            assert "$claire ingest" in guide_text
+            assert "$claire regenerate" in guide_text
+            assert "$claire query" in guide_text
+            assert "readonly" in guide_text
         in_text_block = False
         for line in guide_text.splitlines():
             if line.strip() == "```text":
@@ -216,8 +299,12 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "docs/antigravity.en.md" in top_readme
     assert "docs/claude.ko.md" in top_readme
     assert "docs/claude.en.md" in top_readme
-    assert "claire-ingest" in top_readme and "claire-query" in top_readme
-    assert "/claire:ingest" in top_readme and "/claire:query" in top_readme
+    assert "docs/chatgpt.ko.md" in top_readme
+    assert "docs/chatgpt.en.md" in top_readme
+    assert "claire-codex-v0.0.14.zip" in top_readme
+    assert "claire ingest" in top_readme and "claire regenerate" in top_readme and "claire query" in top_readme
+    assert "$claire ingest" in top_readme and "$claire regenerate" in top_readme and "$claire query" in top_readme
+    assert "/claire:ingest" in top_readme and "/claire:regenerate" in top_readme and "/claire:query" in top_readme
     assert "3 starter suggested prompts" in top_readme
     assert "/claire:extract" not in top_readme
 
@@ -225,20 +312,24 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     notes_b = (out_b / "release_notes.md").read_bytes()
     assert notes_a == notes_b
     notes_text = notes_a.decode("utf-8")
-    assert "claire-antigravity-v0.4.4.zip" in notes_text
+    assert "claire-antigravity-v0.0.14.zip" in notes_text
+    assert "claire-codex-v0.0.14.zip" in notes_text
     assert "MCP Servers -> claire" in notes_text
     assert "Allow using this MCP tool?" in notes_text
     assert "docs/antigravity.ko.md" in notes_text
     assert "docs/antigravity.en.md" in notes_text
+    assert "docs/chatgpt.ko.md" in notes_text
+    assert "docs/chatgpt.en.md" in notes_text
     assert "3 starter suggested prompts" in notes_text
-    assert "/claire:ingest" in notes_text and "/claire:query" in notes_text
+    assert "/claire:ingest" in notes_text and "/claire:regenerate" in notes_text and "/claire:query" in notes_text
+    assert "$claire ingest" in notes_text and "$claire regenerate" in notes_text and "$claire query" in notes_text
     assert "/claire:extract" not in notes_text
     assert "release_notes.md" not in sums_a.decode("utf-8")
 
     manifest = json.loads((repo_a / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["repo"] == "fofwisdom/claire-agents"
-    assert manifest["version"] == "0.4.4"
-    assert [p["id"] for p in manifest["plugins"]] == ["claire-antigravity", "claire-claude"]
+    assert manifest["version"] == "0.0.14"
+    assert [p["id"] for p in manifest["plugins"]] == ["claire-antigravity", "claire-claude", "claire-codex"]
     assert all(p["plugin_name"] == "claire" for p in manifest["plugins"])
     manifest_ag = next(p for p in manifest["plugins"] if p["id"] == "claire-antigravity")
     assert manifest_ag["client_id"] == "antigravity"
@@ -246,24 +337,35 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert manifest_ag["required_scopes"] == ["readonly", "write"]
     assert any(f["path"] == "README.md" for f in manifest_ag["files"])
     assert any(f["path"] == "assets/logo.svg" for f in manifest_ag["files"])
-    assert any(f["path"] == "skills/claire-ingest/SKILL.md" for f in manifest_ag["files"])
+    assert any(f["path"] == "skills/claire/SKILL.md" for f in manifest_ag["files"])
 
-    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.4.4.tar.gz", "r:gz") as tf:
+    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.0.14.tar.gz", "r:gz") as tf:
         assert "claire/plugin.json" in tf.getnames()
         assert "claire/assets/logo.svg" in tf.getnames()
         assert "claire/README.md" in tf.getnames()
-        assert "claire/skills/claire-ingest/SKILL.md" in tf.getnames()
-        assert "claire/skills/claire-query/SKILL.md" in tf.getnames()
+        assert "claire/skills/claire/SKILL.md" in tf.getnames()
         assert "claire/skills/claire-extract/SKILL.md" not in tf.getnames()
         assert "claire/mcp_config.json.tmpl" not in tf.getnames()
-    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.4.4.zip", "r") as zf:
+    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.0.14.zip", "r") as zf:
         assert "claire/.claude-plugin/plugin.json" in zf.namelist()
         assert "claire/skills/ingest/SKILL.md" in zf.namelist()
+        assert "claire/skills/regenerate/SKILL.md" in zf.namelist()
         assert "claire/skills/extract-runner/SKILL.md" in zf.namelist()
         assert "claire/skills/query/SKILL.md" in zf.namelist()
         assert "claire/skills/extract/SKILL.md" not in zf.namelist()
         assert "claire/agents/extractor.md" in zf.namelist()
         assert "claire/hooks/hooks.json" in zf.namelist()
+    with zipfile.ZipFile(out_a / "releases" / "claire-codex-v0.0.14.zip", "r") as zf:
+        assert "claire/.codex-plugin/plugin.json" in zf.namelist()
+        assert "claire/skills/claire/SKILL.md" in zf.namelist()
+        assert "claire/agents/claire-extractor.md" in zf.namelist()
+        assert "claire/agents/claire-extractor.toml" in zf.namelist()
+        assert "claire/rules/AGENTS.md" in zf.namelist()
+        assert "claire/README.md" in zf.namelist()
+    with tarfile.open(out_a / "releases" / "claire-codex-v0.0.14.tar.gz", "r:gz") as tf:
+        assert "claire/.codex-plugin/plugin.json" in tf.getnames()
+        assert "claire/skills/claire/SKILL.md" in tf.getnames()
+        assert "claire/agents/claire-extractor.toml" in tf.getnames()
 
 
 def test_marketplace_builder_security_and_contract_rejections(tmp_path: Path) -> None:
@@ -425,3 +527,29 @@ def test_adapter_contract_suggested_prompts_and_retired_skill_gates(tmp_path: Pa
         builder._check_rendered_content("release_notes.md", "Use /claire:extract next.\n")
     with pytest.raises(builder.BuildValidationError, match="retired extract skill reference"):
         builder._check_rendered_content("README.md", "Use claire-extract next.\n")
+
+    codex_mcp_src = _copy_source_tree(tmp_path / "codex_mcp_override")
+    codex_plugin_override = codex_mcp_src / "clients" / "codex" / "overrides" / ".codex-plugin"
+    codex_plugin_override.mkdir(parents=True)
+    (codex_plugin_override / "plugin.json").write_text('{"name":"claire","skills":"./skills/","mcpServers":{}}\n', encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="must not embed mcpServers"):
+        builder.build_marketplace(codex_mcp_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    codex_sandbox_src = _copy_source_tree(tmp_path / "codex_sandbox_override")
+    codex_agent_override = codex_sandbox_src / "clients" / "codex" / "overrides" / "agents"
+    codex_agent_override.mkdir(parents=True)
+    (codex_agent_override / "claire-extractor.toml").write_text('name = "claire-extractor"\nsandbox_mode = "workspace-write"\ndeveloper_instructions = "x"\n', encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match="sandbox_mode must be 'read-only'"):
+        builder.build_marketplace(codex_sandbox_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    bad_rev_src = _copy_source_tree(tmp_path / "bad_rev")
+    bad_market_toml = bad_rev_src / "marketplace.toml"
+    bad_market_toml.write_text(bad_market_toml.read_text(encoding="utf-8").replace('version = "0.0.14"', 'version = "0.6.0"'), encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match=r"revision format 0\.0\.<n>"):
+        builder.build_marketplace(bad_rev_src, mcp_tools_file=MCP_TOOLS_FILE)
+
+    mismatch_rev_src = _copy_source_tree(tmp_path / "mismatch_rev")
+    mismatch_client_toml = mismatch_rev_src / "clients" / "codex" / "client.toml"
+    mismatch_client_toml.write_text(mismatch_client_toml.read_text(encoding="utf-8").replace('version = "0.0.14"', 'version = "0.0.99"'), encoding="utf-8")
+    with pytest.raises(builder.BuildValidationError, match=r"must match marketplace\.toml version"):
+        builder.build_marketplace(mismatch_rev_src, mcp_tools_file=MCP_TOOLS_FILE)

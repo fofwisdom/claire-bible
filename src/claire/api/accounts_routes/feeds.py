@@ -55,8 +55,9 @@ _NO_STORE = {"Cache-Control": "no-store"}
 
 
 def _settings(ctx: AccountsContext) -> Any:
-    if ctx.settings is not None:
-        return ctx.settings
+    current = ctx.current_settings()
+    if current is not None:
+        return current
     from ...core.config import get_settings
 
     return get_settings()
