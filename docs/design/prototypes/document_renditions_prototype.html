@@ -120,6 +120,7 @@ button, input, select { font: inherit; color: inherit; }
 .body h2 { font-size: 1.2em; margin: 1.3em 0 .45em; border-bottom: 1px solid var(--border); padding-bottom: .2em; }
 .body p { margin: .65em 0; }
 .body ul { margin: .5em 0; padding-inline-start: 1.4em; }
+.body .stem-block { font-family: "D2Coding", ui-monospace, Menlo, monospace; background: var(--chip-bg); padding: 6px 10px; border-radius: 6px; text-align: center; }
 .body .stem { font-family: "D2Coding", ui-monospace, Menlo, monospace; font-size: .92em; background: var(--chip-bg); padding: 0 4px; border-radius: 4px; }
 .body table { border-collapse: collapse; font-size: 13.5px; margin: .8em 0; }
 .body th, .body td { border: 1px solid var(--border); padding: 4px 10px; }
@@ -302,6 +303,14 @@ const BODY_DETAILED = `
 <table><tr><th>구성</th><th>지연 중앙값</th><th>처리량</th></tr><tr><td>3대</td><td>4.1 ms</td><td>21k op/s</td></tr><tr><td>5대</td><td>5.3 ms</td><td>18k op/s</td></tr></table></section>
 <section class="later"><h2>안전성</h2><p>선거 제한 규칙은 커밋된 항목을 가진 서버만 리더가 되도록 한다. 로그 일치 속성은 같은 인덱스와 임기를 가진 두 항목이 같은 명령을 담음을 보장한다.</p></section>
 <section class="later"><h2>한계</h2><p>원문은 네트워크 분할이 길어질 때의 가용성 저하를 한계로 밝힌다.</p></section>`;
+const BODY_STANDARD = `
+<h2>개요</h2><p><b>Raft</b>는 복제 로그를 관리하는 합의 알고리즘이다. 이해하기 쉬운 구조를 목표로 리더 선출, 로그 복제, 안전성을 분리해 설명한다.</p>
+<h2>리더 선출</h2><p>각 서버는 팔로워로 시작하고, 정해진 시간 안에 리더의 신호를 받지 못하면 후보가 되어 임기를 하나 올리고 투표를 요청한다. 리더가 되는 조건은 다음 대표 공식 하나로 정해진다.</p>
+<p class="stem-block">votes ≥ ⌊n/2⌋ + 1</p>
+<ul><li>제한 시간은 무작위로 정해 동시 출마를 줄인다.</li><li>한 임기에 한 서버는 한 표만 던진다.</li></ul>
+<section class="later"><h2>로그 복제</h2><p>리더는 클라이언트 요청을 로그 항목으로 추가하고 <code>AppendEntries</code>로 팔로워에 복제한다. 과반이 저장하면 항목은 커밋된다.</p>
+<p>원문의 측정에서 지연 중앙값은 3대 구성에서 4.1 ms, 5대 구성에서 5.3 ms이고, 처리량은 각각 21k op/s와 18k op/s이다.</p></section>
+<section class="later"><h2>안전성</h2><p>선거 제한 규칙은 커밋된 항목을 가진 서버만 리더가 되도록 한다. 같은 인덱스와 임기를 가진 두 항목은 같은 명령을 담는다.</p></section>`;
 const BODY_CONCISE = `
 <h2>핵심</h2><ul><li>Raft는 리더 선출, 로그 복제, 안전성을 분리한 합의 알고리즘이다.</li><li>과반의 표를 얻은 후보가 리더가 된다.</li><li>과반이 저장한 로그 항목은 커밋된다.</li></ul>
 <h2>내용</h2><p>팔로워는 무작위 선거 제한 시간 <span class="stem">T_e</span>가 지나면 후보가 되어 임기를 올리고 투표를 요청한다. 리더는 <code>AppendEntries</code>로 항목을 복제한다.</p>
@@ -312,9 +321,10 @@ const REMOTE_BODY = `<!doctype html><meta charset="utf-8"><style>body{font:15px/
 <h2>리더 선출</h2><p>팔로워는 하트비트를 받지 못하면 후보가 되어 RequestVote를 보낸다.</p><p><a href="https://lab.example/silvercord/abcd">원 서버의 고유 주소</a></p>`;
 
 const EDITIONS = [
-  { key: "d-standard", updatedAt: 20, group: "이 문서", template: "standard", version: "standard-v1", who: "@mina", server: null, plus: 12, plused: false, postLikes: 21, updated: "11월 20일", primary: true, path: `/silvercord/${TOKEN}`, body: BODY_DETAILED },
+  { key: "d-standard", updatedAt: 20, group: "이 문서", template: "standard", version: "standard-v1", who: "@mina", server: null, plus: 12, plused: false, postLikes: 21, updated: "11월 20일", primary: true, path: `/silvercord/${TOKEN}`, body: BODY_STANDARD },
   { key: "d-concise", updatedAt: 24, group: "이 문서", template: "concise", version: "concise-v1", who: "@mina", server: null, plus: 4, plused: false, updated: "11월 24일", path: `/silvercord/${TOKEN}/renditions/concise`, body: BODY_CONCISE },
-  { key: "s-academic", updatedAt: 23, group: "같은 출처 · 이 서버", template: "academic", version: "academic-v1", who: "@jun", server: null, plus: 2, plused: false, primary: true, postLikes: 3, updated: "11월 23일", path: "/silvercord/p3n8x2k5m9q4t7wa", body: BODY_DETAILED },
+  { key: "s-standard", updatedAt: 21, group: "같은 출처 · 이 서버", template: "standard", version: "standard-v1", who: "@jun", server: null, plus: 5, plused: false, primary: true, postLikes: 3, updated: "11월 21일", path: "/silvercord/p3n8x2k5m9q4t7wa", body: BODY_STANDARD },
+  { key: "s-academic", updatedAt: 23, group: "같은 출처 · 이 서버", template: "academic", version: "academic-v1", who: "@jun", server: null, plus: 2, plused: false, updated: "11월 23일", path: "/silvercord/p3n8x2k5m9q4t7wa/renditions/academic", body: BODY_DETAILED },
   { key: "r-concise", updatedAt: 22, group: "같은 출처 · 다른 서버", template: "concise", version: "concise-v1", who: "@sora", server: "notes.example", plus: 7, plused: false, updated: "11월 22일", remote: true, origin: "https://notes.example/silvercord/wxyz/renditions/concise" },
   { key: "r-standard", updatedAt: 18, group: "같은 출처 · 다른 서버", template: "standard", version: "standard-v1", who: "@bob", server: "lab.example", plus: 31, plused: true, primary: true, postLikes: 40, updated: "11월 18일", remote: true, origin: "https://lab.example/silvercord/abcd" }
 ];
@@ -332,8 +342,8 @@ const OPINIONS = [
   { id: "o6", name: "Park", handle: "@park@misskey.example", time: "3시간 전", cw: "스포일러가 아닌 긴 비평", text: "초록과 본문의 차이가 크지 않은 문서는 간결 정리본이 더 유용합니다.\n다만 안전성 절이 짧아진 점은 아쉽습니다.", attachment: true, replies: [] },
   { id: "o7", name: "spam-bot", handle: "@deals@spam.example", time: "4시간 전", text: "(숨긴 의견: 문서 소유자만 봄)", hidden: true, replies: [] },
   { id: "o8", name: "Choi", handle: "@choi@mastodon.example", time: "5시간 전", text: "로그 일치 속성 설명이 명확합니다.", isNew: true, replies: [], later: true },
-  { id: "o9", name: "Yuna", handle: "@yuna@gts.example", time: "6시간 전", text: "학술 정리본은 아직 기본과 같은 문안인가요?", replies: [
-    { id: "o10", name: "jun", handle: "@jun (이 서버)", local: true, time: "5시간 전", text: "네, 지금은 같은 문안입니다.", replies: [] }
+  { id: "o9", name: "Yuna", handle: "@yuna@gts.example", time: "6시간 전", text: "학술 정리본에는 표가 있고 기본 정리본에는 없네요.", replies: [
+    { id: "o10", name: "jun", handle: "@jun (이 서버)", local: true, time: "5시간 전", text: "네, 기본은 원문 표 대신 핵심 수치를 문장으로 쓰고, 수식도 대표 공식만 씁니다.", replies: [] }
   ], later: true }
 ];
 const QUOTES = [
@@ -424,7 +434,7 @@ function renderEdition() {
     + `<code>${e.version}</code><span>${e.who}${e.server ? "@" + e.server : ""}</span><span>${e.updated} 갱신</span>`
     + (e.primary ? `<span class="pill">대표 정리본 · 문서 객체</span>` : "")
     + (e.remote ? `<span class="pill pill-remote">${icon("remote")} 다른 서버</span>` : `<span class="pill">이 서버</span>`)
-    + (e.template === "academic" ? `<span class="pill">지금은 기본과 같은 문안</span>` : "");
+    + (e.template === "academic" ? `<span class="pill">표 · 수식 모두</span>` : "") + (e.template === "standard" ? `<span class="pill">원문 표 없음 · 대표 공식만</span>` : "");
   const banner = $("[data-remote-banner]");
   const reader = $("#reader");
   scopedTransition(reader, () => {

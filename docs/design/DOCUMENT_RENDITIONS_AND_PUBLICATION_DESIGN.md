@@ -1,7 +1,7 @@
 # Renditions of Published Documents, +1 Between Claire Servers, Opinions from Other Servers, and ActivityPub Publication (`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN`)
 
 - **Document Identifier**: `DESIGN-DOC-RENDITIONS-20261125`
-- **Status**: Proposal, revision 8. Implemented: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O16 are given (Section 11). O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
+- **Status**: Proposal, revision 9. Implemented: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; no ingest path uses them yet, phase E3) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7, O9 to O17, and O19 are given (Section 11); O18 is open. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
 - **Date**: 2026-11-25
 - **Base commit**: `8e6b0723`
 - **Visual prototype**: [`prototypes/document_renditions_prototype.html`](prototypes/document_renditions_prototype.html) (Silvercord view: rendition picker, +1, remote rendition, `의견` tab with likes, mobile; mock data)
@@ -14,6 +14,7 @@
   - Rev. 6 (2026-11-25): 에디션 → 정리본 (English "rendition") in all layers (O10); label 학술 (O11); 요약 → 초록 in prompts and texts (O12, implemented); +1 is a mark of a rendition that only Claire servers exchange, separate from the `Like` (Section 5.12); the fill of a timeline after a follow is in this design (O9 revised, Section 5.13; the idea document is removed).
   - Rev. 7 (2026-11-25): the template "상세" became "기본" with the identifier `standard` (O14: the body itself is 상세). The rendition of the first ingest is now 대표 정리본, so that "기본" names only the template.
   - Rev. 8 (2026-11-25): the picker does not order by +1; it orders by template (기본, 간결, 학술) (O16). The limit of one server in the +1 score is the estimated number of accounts that one Claire server can serve now: 1,000 (O15, Section 5.12 rule 9). 대표 정리본 accepted (O14). Review of the template model for the owner (Section 5.2 rules 8 and 9).
+  - Rev. 9 (2026-11-25): the 대표 정리본 is always the rendition of the template 기본 (owner: "대표 정리본은 간결 정리본일 수 없습니다"); each ingest makes it. O17: 학술 stays an exact copy of the current prompt, and the template 기본 changes: no tables of the source, representative formulas only. Open: O18 (tables in 간결).
 - **Related**: [`FEDERATION_REMOTE_READING_DESIGN.md`](FEDERATION_REMOTE_READING_DESIGN.md) (RD10, RD21), [`KNOWLEDGE_FEDERATION_DESIGN.md`](KNOWLEDGE_FEDERATION_DESIGN.md) (vocabulary, known servers, inbox journal), [`PERMALINK_UNIFICATION_DESIGN.md`](PERMALINK_UNIFICATION_DESIGN.md), [`SILVERCORD_RENDERING_DESIGN.md`](SILVERCORD_RENDERING_DESIGN.md) (the `의견` tab, SR5, SD8), [`SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md`](SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md) (reputation, CT18), [`FEDERATION.md`](../implementation/FEDERATION.md), [`KNOWLEDGE_FEDERATION.md`](../implementation/KNOWLEDGE_FEDERATION.md), [`PERMALINKS.md`](../implementation/PERMALINKS.md), [`EXTRACTION.md`](../implementation/EXTRACTION.md), [`GLOSSARY.md`](../implementation/GLOSSARY.md)
 
 ## 1. Owner request (2026-11-25)
@@ -72,6 +73,14 @@ Owner answers to revision 7 (2026-11-25):
 > * +1 점수 상한: 서버 이용자 수에 다른 클레어바이블 서버의 이용자 수가 상한이므로 일단 클레어바이블 서버가 현재 수용 가능한 성능 단위 유저 수를 임의로 추정하여 정해주세요.
 > * 선택기 정렬: 점수 순 정렬하지 않습니다. 기본/간결/학술 순 정렬합니다. 제가 템플릿을 제대로 인식했는지 검토 바랍니다.
 > * 용어: 수용합니다.
+
+Owner answers to revision 8 (2026-11-25):
+
+> 1. 수용
+> 2. 한 서버에서 작성 가능한 템플릿은 최대3개 겠지만, 같은 템플릿으로 다른 모델을 작성한 이용자가 생길 수 있지요. 또한 다른 서버에서도 문서를 작성할 것이고요. 저에게 제공한 시각 프로토타입을 근거로 하여 설명하였습니다. '대표 정리본'은 초록과 실버코드 링크라고 저에게 말한 것 같은데요? 그게 아니라면 대표 정리본은 간결 정리본일 수 없습니다.
+> 3. 그렇군요.
+>
+> O17: 학술 템플릿은 그대로 두고, 기본 템플릿을 고칩니다. '원문 테이블 미사용', '수식은 대표 공식만 사용'.
 
 Questions and the answers of this design:
 
@@ -142,7 +151,7 @@ Sources are in Section 13. **[code: Mastodon]** marks a fact read in the Mastodo
 | :--- | :--- | :--- | :--- |
 | **정리본** | Rendition | One readable body of a document, made with one rendition template (O10). A document has one rendition for each template that it has. The 초록, the entities, and the relations belong to the document, not to a rendition. | "에디션" (Rev. 1 to 5; too large in meaning), "판", "버전", "리비전" (a revision is a change in time; a rendition is a parallel body) |
 | **정리본 템플릿** | Rendition Template | A fixed instruction set for the body prompt, with an identifier (`standard` 기본, `concise` 간결, `academic` 학술) and a version. The code defines the set. | "프롬프트" alone, "초점" (`focus` is sealed data, CT28), the value `default` of the placeholder `prompt_template` (fact 3) |
-| **대표 정리본** | Primary Rendition | The rendition of the first ingest. It does not change (O6). Its ActivityPub object is the object of the document. | "기본 정리본" (기본 is the template `standard`, O14) |
+| **대표 정리본** | Primary Rendition | The rendition of the template 기본 (`standard`) of a document. Each ingest makes it, and it does not change (O6, Rev. 9). Its ActivityPub object is the object of the document: other servers see it as the post with the title, the 초록, and the Silvercord link; its body stays on Claire servers. | "기본 정리본" (기본 is the template `standard`, O14) |
 | **출처 식별자** | Source Identifier | The normalized identifier of the source of a document (Section 5.3). Documents with the same source identifier have renditions of the same source. | "작품", "원본 ID" |
 | **정리본 묶음** | Rendition Set | All published renditions with the same source identifier, on this server and on other Claire servers, and the own renditions of the reader. | — |
 | **+1** | Plus One | The mark of an account of a Claire server on one rendition: "같은 출처의 정리본 가운데 이 정리본을 추천한다". Only Claire servers send and receive it (Section 5.12). | "좋아요" (that is the `Like` of a post), "추천" as a separate name, "투표" |
@@ -168,7 +177,7 @@ Notes:
 1. A rendition is a document body made with one rendition template. One document has at most one rendition for each template.
 2. The template changes the body only. The structured extraction (초록, key claims, entities, relations) stays one for each document. Reason: fact 2 says that the body render is already independent of the graph, so a second rendition adds no entity and no relation.
 3. A new version of the same template replaces the body of that rendition. The rendition keeps its identity, its object ID, its address, its likes, and its +1 marks.
-4. The primary rendition is the rendition of the first ingest, and it does not change (O6). A later design can let the owner change it.
+4. The primary rendition (대표 정리본) is always the rendition of the template `standard` (기본), and it does not change (O6, Rev. 9). Each ingest makes it. Other servers see its object as the post: the title, the 초록, and the Silvercord link (Section 5.5); its body stays on Claire servers. Reason: the owner rule that the 대표 정리본 cannot be a 간결 rendition, and one fixed template for the 대표 정리본 of each document of a rendition set.
 5. A reader of a rendition set sees renditions of other accounts. These renditions never enter the knowledge base of the reader (RD10 rule 1). The reader can ingest the same source with an own template; that makes a new document and a new rendition.
 
 ### 5.2 ED2: Rendition templates
@@ -177,9 +186,9 @@ The texts are in `src/claire/extract/rendition_templates.py` (owner decisions O2
 
 | Identifier | Korean name | Version | Text |
 | :--- | :--- | :--- | :--- |
-| `standard` | 기본 | `standard-v1` | The current body prompt, `render_detail_instructions_adoc`. The registry calls it; it is not a copy. Not "상세": the body itself is 상세 (O14). |
+| `standard` | 기본 | `standard-v1` | A copy of the current prompt with two changes (O17): rule 7 "원문 테이블 미사용" (no `\|===` table; the key numbers of a source table go into sentences or bullets, with units and conditions, not rounded); rule 10 "수식은 대표 공식만" (only the formulas that define the main result or method, usually 1 to 3, as block formulas; derivations and other symbols in words). The other rules stay. Not "상세": the body itself is 상세 (O14). |
 | `concise` | 간결 | `concise-v1` | A copy of the current prompt, written again for a short body: about one A4 page (merged: `scale` to `2 × scale` pages); the section order `== 핵심` (3 to 5 one-sentence claims), `== 내용`, `== 결과와 수치`, `== 한계`, each only when the source has it; less background, repetition, and examples; numbers, conditions, definitions, and names stay exactly; at most one `[quote]`, one note block, two figures; tables that carry a result stay; no text that the source does not have, also to fill space. The common rules stay: AsciiDoc only, written style, quote rules, names in their original form, formulas, truncated sections, no author line. |
-| `academic` | 학술 | `academic-v1` | An exact copy of the current prompt. The owner changes it later. |
+| `academic` | 학술 | `academic-v1` | An exact copy of the current prompt, with all tables and all formulas (O17: it stays). The owner changes it later. |
 
 Rules:
 
@@ -190,12 +199,14 @@ Rules:
 5. The agent client gets the template text from the server in the claimed task. The client does not hold template texts. The server validates the body as now (`_validate_asciidoc_detail`).
 6. Phase E3 replaces the placeholder of fact 3: `prompt_template` carries the rendition template identifier, and the value `"default"` and `DEFAULT_EXTRACTION_TEMPLATE` go away at once (no external consumers; the agent client template `agent_clients/common/agents/extractor.md.tmpl` changes in the same commit).
 7. The body of `standard` and `academic` often starts with `== 개요`, because rule 14 of the current prompt names it as an example. That heading is a part of the body, not the 초록 (Rev. 5 question).
-8. **Template, document, and set** (review for O16). A template tells how the body is written; it does not tell who wrote it or where. One document (one account, one source) has at most one rendition for each template, thus at most three. A rendition set (all accounts and servers with the same source) can have many renditions of the same template. The template "기본" and the 대표 정리본 are different things: the 대표 정리본 is the rendition of the first ingest, with the template that the account selected then (it can be `concise`).
-9. **A template with the same text as another template** (proposal, O17). Now the text of `academic` is the same as the text of `standard`. An `academic` rendition costs a model call and gives a body like the `standard` rendition. Proposal: the ingest form and "정리본 추가" do not offer a template whose instruction text is the same as the text of another template; the code compares the built instructions. When the owner changes the text of `academic`, it is offered without other work.
+8. **Template, document, and set** (review for O16). A template tells how the body is written; it does not tell who wrote it or where. One document (one account, one source) has at most one rendition for each template, thus at most three. A rendition set (all accounts and servers with the same source) can have many renditions of the same template. A user of another server or another model can make a rendition with the same template (the owner's reading, Rev. 8). Since Rev. 9 the 대표 정리본 is always the rendition of the template 기본.
+9. **No two templates with the same text** (O17). The owner kept `academic` and changed `standard`, so the three texts differ, and the ingest form offers all three. The test `tests/test_rendition_templates.py` checks that no two templates build the same instructions.
+10. **The current ingest until E3.** No ingest path uses the templates yet. The ingest uses the current prompt `render_detail_instructions_adoc`, which has the text of `academic`, so bodies keep their tables and formulas until phase E3. From E3, each ingest makes the 대표 정리본 with `standard` (no tables of the source). The table data stays in the raw text and in the graph; the rendition `academic` keeps the tables. At E3, the statements about tables in the body (GLOSSARY 1.4, "원문에 포함된 비교표/벤치마크 테이블 보존") change to "in the template `academic`".
+11. **Tables in 간결** (open, O18). Now `concise` keeps a table that carries a result (its rule 8), but `standard` has no tables. Thus the short rendition can have tables that the standard one does not have. Recommendation: `concise` also uses no tables of the source and gives the key numbers in sentences, as `standard` does.
 
 ### 5.3 ED3: Creation of renditions and the source identifier
 
-1. **At ingest.** The ingest request selects one or more templates. The first selected template makes the primary rendition. The ingest form shows `standard` as selected; the API requires the field (no hidden default).
+1. **At ingest.** Each ingest makes the rendition `standard` (기본), which is the 대표 정리본 (Rev. 9). The ingest request can also select `concise` and `academic`; the API requires the list of the additional templates, which can be empty (no hidden default).
 2. **Later.** The document menu has "정리본 추가" with the templates that the document does not have. The run uses the stored raw text (glossary 1.1). It fetches nothing. It costs one model call.
 3. **Limits.** The number of rendition runs of an account uses the tier features as other model work does.
 4. **Source identifier.** A document gets a source identifier when its source has one of these forms, in this order:
@@ -331,7 +342,7 @@ Decision proposal: **the path word stays fixed. No new path word. Extension is i
 | Address | Content |
 | :--- | :--- |
 | `/silvercord/{token}` | The document, with its primary rendition, the rendition picker, and the `본문` / `의견` tabs. Unchanged as a link. |
-| `/silvercord/{token}/renditions/{template}` | One other rendition of this document. `{template}` is an identifier of Section 5.2. The template of the primary rendition gives 308 to `/silvercord/{token}`, because the primary rendition is the document (Section 5.5) and does not change (O6). |
+| `/silvercord/{token}/renditions/{template}` | One other rendition of this document. `{template}` is an identifier of Section 5.2. `/silvercord/{token}/renditions/standard` gives 308 to `/silvercord/{token}`, because the 대표 정리본 is the rendition `standard` and its object is the document (Section 5.5). |
 | `/silvercord/{token}/renditions` | JSON of the rendition set for the picker: local renditions with their paths, remote renditions with their origin addresses and local render tokens, and the +1 counts. |
 | `/silvercord/{token}/opinions` | JSON of the opinions of the object of the page, with the refresh state (Section 5.11 B). A rendition page uses `/silvercord/{token}/renditions/{template}/opinions`. |
 | `/silvercord/{token}/workspace`, `/silvercord/{token}/graph` | Unchanged. |
@@ -499,7 +510,7 @@ Intent: an account that follows a remote actor sees some posts of that actor at 
 | Item | Proposal |
 | :--- | :--- |
 | `document_renditions` (`claire.db`) | `doc_id`, `kb_id`, `template`, `template_version`, `detail`, `detail_format`, `detail_html`, `created_at`, `updated_at`, `model_lineage` (JSON), unique (`doc_id`, `template`). |
-| Primary rendition body | `documents.detail*` stays the body of the primary rendition, so that the 38 readers (fact 2) do not change. `document_renditions` has the other renditions, and a row without a body for the primary rendition (template and version). The primary rendition does not change (O6), so no body moves. |
+| Primary rendition body | `documents.detail*` stays the body of the 대표 정리본 (template `standard`), so that the 38 readers (fact 2) do not change. `document_renditions` has the renditions `concise` and `academic`, and a row without a body for the 대표 정리본 (template and version). The 대표 정리본 does not change (O6), so no body moves. Documents of before E3 have a body of the current prompt (the text of `academic`): E3 records it as an `academic` rendition, and the next run makes the `standard` body, or the owner of the document decides (an E3 detail). |
 | `documents.source_key`, `documents.source_id_version` | Section 5.3. Index on `source_key`. |
 | `federation_objects` | New columns `kind` (`document`, `rendition`), `parent_object_id`, `opinions_fetched_at`. The `CHECK` of the outbox kinds needs no change: renditions send no task (Section 5.4 rule 2). |
 | Body readers (`claire.db`) | (`object_public_id`, `server_actor_iri`, `first_read_at`, `last_read_at`) for the exact delete list (Section 5.4 rule 4). |
@@ -618,23 +629,25 @@ Tests (global rules: unit tests only for module interfaces, input and output, an
 | O3 | Quote policy of notes | A: notes keep the four policies. |
 | O4 | Files without a URL in rendition sets | A: not in the first version. |
 | O5 | Favourites | The ActivityPub `Like` as it is, for posts. Rev. 6: +1 is separate (O13). |
-| O6 | Change of the primary rendition | Recommendation: always the first rendition in phase E3. |
+| O6 | Change of the primary rendition | It does not change. Since Rev. 9 it is always the rendition 기본 (O19). |
 | O7 | English word for a note | Recommendation: "Post". |
 | O9 | Recent posts of a newly followed actor | Rev. 3: an idea. Rev. 6: in this design ("이번에 같이 고려합시다"), Section 5.13; the idea document is removed. |
 | O10 | Term for 에디션 | 정리본 (English "rendition"). |
 | O11 | Label of `academic` | 학술. |
 | O12 | 요약 → 초록 | The Korean prompts and texts call the document summary 초록. Implemented in commit `0dc44a6d`. |
 | O13 | +1 | A mark of a rendition that only Claire servers exchange (Section 5.12). |
-| O14 | Label of the current prompt as a template; term of the first rendition | 기본, identifier `standard` (not 상세: the body itself is 상세). The first rendition is 대표 정리본 (accepted in Rev. 8). |
+| O14 | Label of the template; term of the 대표 정리본 | 기본, identifier `standard` (not 상세: the body itself is 상세). 대표 정리본 accepted (Rev. 8); since Rev. 9 it is always the rendition `standard`. |
 | O15 | Limit of one server in the +1 score | The number of accounts that one Claire server can serve now, estimated by the agent: 1,000 (Section 5.12 rule 9). |
 | O16 | Order of the picker | Not by score. By template: 기본, 간결, 학술 (Section 5.10 rule 10). |
+| O17 | 학술 and 기본 with the same text | 학술 stays an exact copy of the current prompt. 기본 changes: "원문 테이블 미사용", "수식은 대표 공식만 사용" (Section 5.2). Implemented in the template module. |
+| O19 | Which rendition is the 대표 정리본 | Always the rendition 기본 (owner: "대표 정리본은 간결 정리본일 수 없습니다"). |
 
 Open:
 
 | # | Question | State |
 | :--- | :--- | :--- |
 | O8 | Reputation of a publisher | **On hold** (2026-11-25). The score between renditions is +1 (Section 5.12). Likes and +1 do not feed the reputation of an account until a decision. |
-| O17 | Offer `academic` while its text is the same as `standard` | Recommendation: do not offer it until the owner changes its text (Section 5.2 rule 9). |
+| O18 | Tables in the template 간결 | Recommendation: no tables of the source, as in 기본 (Section 5.2 rule 11). |
 
 ---
 

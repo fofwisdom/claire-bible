@@ -8,7 +8,6 @@ from __future__ import annotations
 import pytest
 
 from claire.extract.rendition_templates import RENDITION_TEMPLATE_IDS, UnknownRenditionTemplate, rendition_template
-from claire.extract.prompts import render_detail_instructions_adoc
 
 IMAGES = [{"url": "https://example.org/figure.png", "alt": "figure", "caption": "caption"}]
 
@@ -27,9 +26,9 @@ def test_an_unknown_identifier_has_no_default() -> None:
 
 
 @pytest.mark.parametrize(("merged", "scale"), [(False, 1), (True, 2)])
-def test_standard_is_the_current_body_prompt(merged: bool, scale: int) -> None:
-    built = rendition_template("standard").build_instructions(images=IMAGES, merged=merged, scale=scale)
-    assert built == render_detail_instructions_adoc(images=IMAGES, merged=merged, scale=scale)
+def test_no_two_templates_build_the_same_instructions(merged: bool, scale: int) -> None:
+    built = {template_id: rendition_template(template_id).build_instructions(images=IMAGES, merged=merged, scale=scale) for template_id in RENDITION_TEMPLATE_IDS}
+    assert len(set(built.values())) == len(built)
 
 
 @pytest.mark.parametrize("template_id", RENDITION_TEMPLATE_IDS)
