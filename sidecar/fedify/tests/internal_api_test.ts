@@ -15,7 +15,7 @@ Deno.test("the signature agrees with the vector that the Python code made", asyn
 });
 
 Deno.test("each fixture has a test in this file", () => {
-  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "context_objects", "context_tasks", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "interaction_task_ack", "interaction_tasks", "note", "note_gone", "object", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "quote_authorization", "quote_authorization_gone", "quote_event_accept", "quote_event_nobody", "quote_event_request", "quote_note", "quote_tasks", "server_actor_keys", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
+  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "context_objects", "context_tasks", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "interaction_task_ack", "interaction_tasks", "note", "note_gone", "object", "object_collection_likes", "object_collection_not_found", "object_collection_replies", "object_collection_replies_page", "object_gone", "object_not_found", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "quote_authorization", "quote_authorization_gone", "quote_event_accept", "quote_event_nobody", "quote_event_request", "quote_note", "quote_tasks", "server_actor_keys", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
 });
 
 Deno.test("config, actor, and key calls agree with the fixtures", async () => {
@@ -150,6 +150,20 @@ Deno.test("outbox tasks, acknowledgements, objects, and the outbox collection ag
   fake.failStatus = 500;
   await assert.rejects(api.object("816412345678901234"), (error: InternalApiError) => error.status === 500);
   await assert.rejects(api.outboxTasks(), (error: InternalApiError) => error.status === 500);
+});
+
+Deno.test("the collections of an own object agree with the fixtures (contract 1.19)", async () => {
+  const { api, fake } = client();
+  const document = (name: string) => (fixture(name).response as { document: unknown }).document;
+  assert.deepEqual(await api.objectCollection("816412345678901234", "replies", {}), document("object_collection_replies"));
+  assert.deepEqual(await api.objectCollection("816412345678901234", "replies", { page: "true" }), document("object_collection_replies_page"));
+  assert.deepEqual(await api.objectCollection("816412345678901234", "likes", {}), document("object_collection_likes"));
+  // An object that is not public now has no collection.
+  assert.equal(await api.objectCollection("816412345678901239", "replies", {}), null);
+  assert.deepEqual(fake.calls, ["object_collection_replies", "object_collection_replies_page", "object_collection_likes", "object_collection_not_found"].map((n) => `GET ${fixture(n).request.path}`));
+  // The shape is sealed: an answer with one more key is an error.
+  fake.overrides.set(`GET ${fixture("object_collection_likes").request.path}`, { status: 200, response: { ...(fixture("object_collection_likes").response as object), extra: 1 } });
+  await assert.rejects(api.objectCollection("816412345678901234", "likes", {}));
 });
 
 Deno.test("notes, interaction tasks, and their acknowledgement agree with the fixtures (contract 1.6)", async () => {

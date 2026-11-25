@@ -83,6 +83,10 @@ Deno.test("a create task and a delete task become signed activities for the inbo
       cc: `${ALICE_URL}/followers`,
       // A published document is always quotable (contract 1.18).
       interactionPolicy: { canQuote: { automaticApproval: "as:Public" } },
+      // The collections of the object (contract 1.19).
+      replies: `${OBJECT_URL}/replies`,
+      likes: { id: `${OBJECT_URL}/likes`, type: "Collection", totalItems: 0 },
+      shares: { id: `${OBJECT_URL}/shares`, type: "Collection", totalItems: 0 },
     });
     // v1 sends no tags and no attachments (design Section 9.1).
     assert.ok(!("tag" in (create.object as object)) && !("attachment" in (create.object as object)));
@@ -239,6 +243,32 @@ Deno.test("the object path gives the Article, 410 with a Tombstone for a deleted
     // A read of a deleted object leaves no state: the next read of a different answer is correct.
     fake.overrides.set(`GET ${PREFIX}/objects/${GONE}`, { status: 404, response: { error: "not_found" } });
     assert.equal((await get(GONE_URL)).status, 404);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("an own object has replies, likes, and shares, and their paths give the documents of Claire (contract 1.19)", async () => {
+  const { sidecar, get, restore } = setup();
+  try {
+    const article = await (await get(OBJECT_URL)).json();
+    assert.equal(article.replies, `${OBJECT_URL}/replies`);
+    assert.deepEqual([article.likes, article.shares], [{ id: `${OBJECT_URL}/likes`, type: "Collection", totalItems: 0 }, { id: `${OBJECT_URL}/shares`, type: "Collection", totalItems: 0 }]);
+
+    // The collection documents are those of Claire, as they are: the form that a server reads when it crawls a reply tree.
+    for (const [url, name] of [[`${OBJECT_URL}/replies`, "object_collection_replies"], [`${OBJECT_URL}/replies?page=true`, "object_collection_replies_page"], [`${OBJECT_URL}/likes`, "object_collection_likes"]]) {
+      const response = await get(url);
+      assert.equal(response.status, 200, url);
+      assert.equal(response.headers.get("content-type"), AS2);
+      assert.deepEqual(await response.json(), (fixture(name).response as { document: unknown }).document, url);
+    }
+    // An object that is not public now has no collection, a query key that is not of a page has no answer, and the path accepts GET and HEAD only.
+    assert.equal((await get(`${GONE_URL}/replies`)).status, 404);
+    assert.equal((await get(`${OBJECT_URL}/replies?max_id=1`)).status, 404);
+    assert.equal((await get(`${OBJECT_URL}/followers`)).status, 404);
+    assert.equal((await sidecar.handle(new Request(`${OBJECT_URL}/replies`, { method: "POST" }))).status, 405);
+    const head = await sidecar.handle(new Request(`${OBJECT_URL}/likes`, { method: "HEAD", headers: { accept: AS2 } }));
+    assert.deepEqual([head.status, await head.text()], [200, ""]);
   } finally {
     restore();
   }

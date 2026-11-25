@@ -13,6 +13,7 @@ import type { Context } from "@fedify/fedify";
 import { type Activity, type Actor, Announce, Create, Delete, Hashtag, isActor, LanguageString, Like, Mention, Note, PUBLIC_COLLECTION, type Recipient, Tombstone, Undo, Update } from "@fedify/fedify/vocab";
 import type { InteractionTask, InternalApi, NoteRecord, ResolvedMention } from "./internal_api.ts";
 import { buildQuoteAnswer, buildQuoteRequest, quoteInteractionPolicy } from "./quotes.ts";
+import { objectCollections } from "./object_collections.ts";
 
 // The parts of the Sidecar that this module uses.
 export interface InteractionDeps {
@@ -50,6 +51,8 @@ export function buildNote(ctx: Context<void>, record: NoteRecord, mentions: Note
   if (record.audience !== null) ccs.push(new URL(record.audience));
   return new Note({
     id,
+    // replies, likes, and shares (phase E6).
+    ...objectCollections(id, record),
     attribution: ctx.getActorUri(record.actor_public_id),
     contents: record.language === null ? [record.content] : [record.content, new LanguageString(record.content, record.language)],
     summary: record.summary,

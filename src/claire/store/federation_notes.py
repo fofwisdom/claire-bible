@@ -35,6 +35,7 @@ __all__ = [
     "mark_note_deleted",
     "note_timeline_item",
     "original_task_id",
+    "reply_notes",
     "set_item_flag",
     "set_note_mentions",
     "update_note",
@@ -83,6 +84,11 @@ def _note(row: sqlite3.Row | tuple) -> Note:
         tags=json.loads(v[10]), edited_at=None if v[11] is None else float(v[11]), published_at=float(v[12]), updated_at=float(v[13]), deleted_at=None if v[14] is None else float(v[14]),
         quote_of_iri=v[15], quote_author_iri=v[16], quote_state=v[17], quote_authorization_iri=v[18], quote_policy=str(v[19]),
     )
+
+
+def reply_notes(conn: sqlite3.Connection, object_iri: str) -> list[tuple[int, int]]:
+    """The notes that are replies to ``object_iri`` and are not deleted: ``(public_id, account_id)``, oldest first (phase E6, the ``replies`` collection of an own object)."""
+    return [(int(row[0]), int(row[1])) for row in conn.execute("SELECT public_id, account_id FROM federation_notes WHERE in_reply_to_iri=? AND deleted_at IS NULL ORDER BY public_id", (object_iri,)).fetchall()]
 
 
 def get_note(conn: sqlite3.Connection, public_id: int) -> Note | None:

@@ -81,7 +81,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.18"
+CONTRACT_VERSION = "1.19"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -514,6 +514,9 @@ class ObjectRecord(_Sealed):
     url: str | None
     published_at: float
     updated_at: float
+    # Contract 1.19 (phase E6): the numbers of ``Like`` and ``Announce`` that the object got. The sidecar writes them as ``totalItems`` of ``likes`` and ``shares``.
+    likes: int = Field(ge=0)
+    shares: int = Field(ge=0)
 
 
 class OutboxItem(_Sealed):
@@ -692,6 +695,7 @@ def allow_private_addresses(settings: Any) -> bool:
 
 def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time.time) -> list[BaseRoute]:
     """Make the route table for ``create_internal_federation_app``."""
+    from .federation_collection_routes import collection_internal_routes
     from .federation_note_routes import note_internal_routes
     from .federation_quote_routes import quote_internal_routes
     from .knowledge_federation_internal import knowledge_internal_routes
@@ -1479,6 +1483,11 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             address_token = permalinks.token_of(conn, "document", obj.document_id)
             share_url = None if address_token is None else permalinks.permalink_url(origin, address_token)
             html = _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id), document["title"] or "", share_url)
+            client = _client()
+            try:
+                reactions = client_store.count_object_reactions(client, [obj.public_id])[obj.public_id]
+            finally:
+                client.close()
             record = ObjectRecord(
                 public_id=str(obj.public_id),
                 actor_public_id=str(account.public_id),
@@ -1488,6 +1497,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 url=share_url,
                 published_at=obj.published_at,
                 updated_at=obj.updated_at,
+                likes=reactions["like"],
+                shares=reactions["announce"],
             )
         finally:
             store.conn.close()
@@ -1559,6 +1570,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         Route("/objects/{object_public_id}", published_object, methods=["GET"]),
         # Outbound interactions (contract 1.6, unit FP4-9): own notes and the tasks of notes, favourites, and boosts.
         *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
+        *collection_internal_routes(origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Quotes (contract 1.7, unit FP4-9Q): the events of the quote protocol and the record of an authorization.
         *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Federation of shared knowledge (unit KF1): the inbox journal, the signed reads of the collections, and the reads of known servers. No shape that existed changed.

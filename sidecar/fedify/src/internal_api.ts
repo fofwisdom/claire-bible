@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.18";
+export const CONTRACT_VERSION = "1.19";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -315,6 +315,9 @@ export interface ObjectRecord {
   url: string | null;
   published_at: number;
   updated_at: number;
+  // Contract 1.19 (phase E6): the numbers of Like and Announce that the object got.
+  likes: number;
+  shares: number;
 }
 
 // The quote policy of an own object (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6).
@@ -344,6 +347,9 @@ export interface NoteRecord {
   quote_policy: QuotePolicy;
   quote: string | null;
   quote_authorization: string | null;
+  // Contract 1.19 (phase E6): the numbers of Like and Announce that the note got.
+  likes: number;
+  shares: number;
   // Contract 1.17. The permalink of the note ({origin}/silvercord/{token}), or null: then url is the object ID.
   url: string | null;
 }
@@ -601,7 +607,8 @@ const outboxTasksShape = sealed({
 });
 const ackShape = sealed({ id: int, status: oneOf("pending", "handed_off", "rejected") });
 const quotePolicy = oneOf("public", "followers", "manual", "nobody");
-const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num });
+const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num, likes: int, shares: int });
+const objectCollectionShape = sealed({ document: jsonObject });
 const goneShape = sealed({ error: oneOf("gone"), gone_at: num });
 const actorOutboxShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, published_at: num, updated_at: num })), next_max_id: nullable(str) });
 const clientTasksShape = sealed({
@@ -625,6 +632,8 @@ const noteShape = sealed({
   quote_policy: quotePolicy,
   quote: nullable(str),
   quote_authorization: nullable(str),
+  likes: int,
+  shares: int,
   url: nullable(str),
 });
 const interactionTasksShape = sealed({
@@ -875,6 +884,17 @@ export class InternalApi {
     if (value === null) return null;
     objectShape(value, "object");
     return { state: "found", record: value as ObjectRecord };
+  }
+
+  // One collection document of an own object, or one page of `replies` (contract 1.19, phase E6). null: the object has no collection now (404).
+  async objectCollection(publicId: string, name: "replies" | "likes" | "shares", query: { page?: string; cursor?: string }): Promise<Record<string, unknown> | null> {
+    const params = new URLSearchParams();
+    if (query.page !== undefined) params.set("page", query.page);
+    if (query.cursor !== undefined) params.set("cursor", query.cursor);
+    const value = await this.#call("GET", `/objects/${encodeURIComponent(publicId)}/collections/${name}${params.size > 0 ? `?${params}` : ""}`);
+    if (value === null) return null;
+    objectCollectionShape(value, "object_collection");
+    return (value as { document: Record<string, unknown> }).document;
   }
 
   // An own note (contract 1.6): the record, the time of removal (410), or null (404).

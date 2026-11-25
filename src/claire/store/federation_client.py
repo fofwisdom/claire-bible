@@ -510,6 +510,11 @@ def remove_object_reaction(conn: sqlite3.Connection, *, object_public_id: int, k
     return conn.execute("DELETE FROM federation_object_reactions WHERE object_public_id=? AND kind=? AND actor_iri=?", (object_public_id, kind, actor_iri)).rowcount == 1
 
 
+def received_reply_iris(conn: sqlite3.Connection, object_iri: str) -> list[str]:
+    """The addresses of the received posts that are replies to ``object_iri``, each one time, in the order of receipt (phase E6, the ``replies`` collection of an own object). Each stored post is public (Section 6.2); more than one account can have the same post."""
+    return [str(row[0]) for row in conn.execute("SELECT object_iri FROM federation_timeline_items WHERE in_reply_to_iri=? GROUP BY object_iri ORDER BY MIN(id)", (object_iri,)).fetchall()]
+
+
 def count_object_reactions(conn: sqlite3.Connection, object_public_ids: list[int]) -> dict[int, dict[str, int]]:
     """The counters of the given objects: ``{public_id: {"like": n, "announce": n}}``. An object without a reaction has zeros."""
     counts = {public_id: {"like": 0, "announce": 0} for public_id in object_public_ids}

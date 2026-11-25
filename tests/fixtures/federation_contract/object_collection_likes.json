@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/objects/816412345678901234/collections/likes"
+  },
+  "status": 200,
+  "response": {
+    "document": {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      "id": "https://claire.example.com/ap/objects/816412345678901234/likes",
+      "type": "Collection",
+      "totalItems": 2
+    }
+  }
+}

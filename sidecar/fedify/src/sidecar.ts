@@ -41,6 +41,7 @@ import { buildNote, handOffInteraction, knownMentions } from "./notes.ts";
 // Quotes (contract 1.7, unit FP4-9Q).
 import { QuoteAuthorization } from "@fedify/fedify/vocab";
 import { buildQuoteAuthorization, quoteEventOf, quoteInteractionPolicy } from "./quotes.ts";
+import { OBJECT_COLLECTION_PATH, type ObjectCollectionName, objectCollections } from "./object_collections.ts";
 
 // The USERNAME of the server actor. Claire reserves this word, so no account can have it.
 export const SERVER_ACTOR_USERNAME = "claire";
@@ -279,6 +280,8 @@ export class Sidecar {
     const clean = new Request(withCanonicalScheme(request.url, config.canonical_origin), { method: request.method, headers, body: inbox ? body : request.body, redirect: "manual" });
     const collection = KNOWLEDGE_COLLECTION_PATHS.get(path);
     if (collection !== undefined) return await this.#knowledgeCollection(clean, config, collection);
+    const objectCollection = inbox ? null : OBJECT_COLLECTION_PATH.exec(path);
+    if (objectCollection !== null) return await this.#objectCollection(clean, objectCollection[1], objectCollection[2] as ObjectCollectionName);
     const kbActor = inbox ? null : KB_ACTOR_PATH.exec(path);
     if (kbActor !== null) return await this.#knowledgeBaseActor(clean, config, kbActor);
     if (inbox && body !== null) {
@@ -615,6 +618,22 @@ export class Sidecar {
     }
   }
 
+  // A collection of an own published object: replies, likes, or shares (phase E6, contract 1.19). Claire gives the document; each reader gets it, with no signature.
+  // The query of a page of replies: `page=true` and `cursor`. A request with another key, and a query that Claire does not accept, have no answer.
+  async #objectCollection(request: Request, publicId: string, name: ObjectCollectionName): Promise<Response> {
+    const params = new URL(request.url).searchParams;
+    for (const key of params.keys()) if (key !== "page" && key !== "cursor") return notFound();
+    try {
+      const document = await this.#api.objectCollection(publicId, name, { page: params.get("page") ?? undefined, cursor: params.get("cursor") ?? undefined });
+      if (document === null) return notFound();
+      return new Response(request.method === "HEAD" ? null : JSON.stringify(document), { status: 200, headers: { "content-type": "application/activity+json", "cache-control": "public, max-age=60" } });
+    } catch (error) {
+      if (error instanceof InternalApiError && error.status === 400) return notFound();
+      console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
+      return text(503, "Service Unavailable", { "retry-after": "5" });
+    }
+  }
+
   // A collection of shared knowledge for another server (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.3 and 8.1, KS1). The sidecar verifies the HTTP signature of the request; Claire decides with the actor of the key and gives the ActivityStreams document.
   // A request without a valid signature goes to Claire without a signer and gets the same 404 as each other refusal: a blocked server learns nothing.
   async #knowledgeCollection(request: Request, config: ServerConfig, name: "kb" | "themes"): Promise<Response> {
@@ -784,8 +803,11 @@ export class Sidecar {
   }
 
   #article(ctx: Context<void>, record: ObjectRecord): Article {
+    const id = ctx.getObjectUri(ASObject, { id: record.public_id });
     return new Article({
-      id: ctx.getObjectUri(ASObject, { id: record.public_id }),
+      id,
+      // replies, likes, and shares (phase E6).
+      ...objectCollections(id, record),
       attribution: ctx.getActorUri(record.actor_public_id),
       name: record.name,
       content: record.content,

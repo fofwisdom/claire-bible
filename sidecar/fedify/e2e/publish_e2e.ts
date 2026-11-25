@@ -53,7 +53,8 @@ Deno.test("a published document of a real Claire arrives at a test inbox with a 
     const article = create.body.object as Record<string, string>;
     assert.deepEqual([article.id, article.type, article.attributedTo, article.name], [objectUrl, "Article", actorUrl, "First Post"]);
     // RD21: the object has the summary (the title here: no extraction) and the share link, never the body.
-    assert.ok(article.url.startsWith(`${origin}/p?s=`), article.url);
+    // The url is the permalink of the document (PERMALINK_UNIFICATION_DESIGN.md U11).
+    assert.ok(article.url.startsWith(`${origin}/silvercord/`), article.url);
     assert.ok(article.content.startsWith("<p>First Post</p>") && article.content.includes(`href="${article.url}"`) && !article.content.includes("world") && !article.content.includes("<script"), article.content);
     assert.deepEqual(del.body.object, { id: goneUrl, type: "Tombstone" });
     assert.equal(del.body.id, `${goneUrl}#delete`);
@@ -77,6 +78,14 @@ Deno.test("a published document of a real Claire arrives at a test inbox with a 
     assert.equal(fetched.status, 200);
     const document = await fetched.json();
     assert.deepEqual([document.id, document.type, document.name, document.content, document.url], [objectUrl, "Article", article.name, article.content, article.url]);
+    // The collections of the object (phase E6, contract 1.19): the object names them, and the real Claire gives each document through the sidecar.
+    assert.equal(document.replies, `${objectUrl}/replies`);
+    assert.deepEqual([document.likes, document.shares], [{ id: `${objectUrl}/likes`, type: "Collection", totalItems: 0 }, { id: `${objectUrl}/shares`, type: "Collection", totalItems: 0 }]);
+    const replies = await get(`${objectUrl}/replies`);
+    assert.equal(replies.status, 200);
+    assert.deepEqual(await replies.json(), { "@context": "https://www.w3.org/ns/activitystreams", id: `${objectUrl}/replies`, type: "Collection", totalItems: 0, first: { type: "CollectionPage", partOf: `${objectUrl}/replies`, items: [] } });
+    assert.deepEqual(await (await get(`${objectUrl}/likes`)).json(), { "@context": "https://www.w3.org/ns/activitystreams", id: `${objectUrl}/likes`, type: "Collection", totalItems: 0 });
+    assert.equal((await get(`${goneUrl}/replies`)).status, 404);
     const gone = await get(goneUrl);
     assert.equal(gone.status, 410);
     assert.deepEqual([(await gone.json()).type], ["Tombstone"]);
