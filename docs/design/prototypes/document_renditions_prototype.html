@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <meta name="robots" content="noindex, nofollow"/>
-<title>Claire Bible — 에디션 · 좋아요 · 의견 시각 프로토타입 (DOCUMENT_EDITIONS_AND_PUBLICATION_DESIGN)</title>
+<title>Claire Bible — 정리본 · +1 · 의견 시각 프로토타입 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN)</title>
 <style>
 :root {
   --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --bar-bg: #f6f8fa; --border: #d0d7de; --panel-bg: #f6f8fa;
@@ -88,7 +88,7 @@ button, input, select { font: inherit; color: inherit; }
 .ed-select selectedcontent { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .ed-select selectedcontent .opt-meta { display: none; }
 .opt-tpl { display: inline-flex; align-items: center; min-inline-size: 64px; justify-content: center; padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 700; border: 1px solid var(--border); }
-.tpl-detailed { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.tpl-standard { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .tpl-concise { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .tpl-academic { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .opt-who { font-weight: 600; }
@@ -196,7 +196,7 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
 <div class="proto-status">
   <span><span class="pill pill-proto">시각 프로토타입 · 미구현 · 예시 데이터</span></span>
   <span>주소: <code id="st-path">/silvercord/7mq2k9x4hz3d8n5p</code></span>
-  <span>요청: <code id="st-api">GET /silvercord/7mq2k9x4hz3d8n5p/editions</code></span>
+  <span>요청: <code id="st-api">GET /silvercord/7mq2k9x4hz3d8n5p/renditions</code></span>
 </div>
 
 <div class="stage">
@@ -225,11 +225,11 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
 
     <!-- 본문 panel -->
     <section id="panel-doc" role="tabpanel" aria-label="본문">
-      <div class="sec">요약</div>
+      <div class="sec">초록</div>
       <p class="summary">Raft는 리더 선출, 로그 복제, 안전성을 분리해 이해하기 쉽게 만든 복제 로그 합의 알고리즘이다. 과반의 표를 얻은 후보가 리더가 되고, 과반이 저장한 로그 항목이 커밋된다.</p>
-      <div class="sec">상세</div>
+      <div class="sec">정리본</div>
       <div class="ed-bar">
-        <label class="ed-label" for="ed-select">에디션</label>
+        <label class="ed-label" for="ed-select">정리본</label>
         <select id="ed-select" name="edition" class="ed-select">
           <button type="button"><selectedcontent></selectedcontent></button>
         </select>
@@ -244,7 +244,7 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
     <section id="panel-opinions" role="tabpanel" aria-label="의견" hidden>
       <div class="op-head">
         <h2>의견</h2>
-        <span class="pill" data-op-target>대상: 상세 (기본 에디션)</span>
+        <span class="pill" data-op-target>대상: 기본 (대표 정리본)</span>
         <div class="op-counts" data-op-counts></div>
       </div>
       <div class="op-state" data-op-state></div>
@@ -253,9 +253,10 @@ dialog.frame-dlg::backdrop { background: rgba(0,0,0,.45); }
     </section>
 
     <p class="proto-note">
-      이 프로토타입은 동작하지 않는 시안입니다. 로컬 에디션 전환은 실제로는 <code>/silvercord/{token}/editions/{template}</code>으로의 페이지 이동(교차 문서 전환)이고,
-      다른 서버의 에디션은 같은 페이지의 샌드박스 프레임에 열립니다. 의견 본문은 페이지에 텍스트로만 두고, 서식 있는 본문과 첨부는 요청할 때 샌드박스 프레임으로 엽니다.
-      좋아요 수는 보여 주기만 하고 정렬에 쓰지 않습니다(O8 보류). 요약은 문서마다 하나이고 에디션을 바꿔도 바뀌지 않습니다.
+      이 프로토타입은 동작하지 않는 시안입니다. 로컬 정리본 전환은 실제로는 <code>/silvercord/{token}/renditions/{template}</code>으로의 페이지 이동(교차 문서 전환)이고,
+      다른 서버의 정리본은 같은 페이지의 샌드박스 프레임에 열립니다. 의견 본문은 페이지에 텍스트로만 두고, 서식 있는 본문과 첨부는 요청할 때 샌드박스 프레임으로 엽니다.
+      +1은 Claire 서버끼리만 주고받는 정리본 단위 표시이며, 선택기는 각 묶음 안에서 +1 점수 순으로 정렬합니다(한 서버의 +1은 10개까지만 셈). 좋아요는 게시물(대표 정리본)의 ActivityPub 좋아요로 의견 탭에 있습니다.
+      초록은 문서마다 하나이고 정리본을 바꿔도 바뀌지 않습니다.
     </p>
   </main>
 
@@ -290,7 +291,8 @@ const ICON = {
   remote: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.8 1.6 1.8 9.4 0 11M8 2.5c-1.8 1.6-1.8 9.4 0 11"/>'
 };
 const icon = (name) => `<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true">${ICON[name]}</svg>`;
-const TEMPLATE_LABEL = { detailed: "상세", concise: "간결", academic: "학문 특화" };
+const TEMPLATE_LABEL = { standard: "기본", concise: "간결", academic: "학술" };
+const TEMPLATE_ORDER = ["standard", "concise", "academic"];
 
 const BODY_DETAILED = `
 <h2>개요</h2><p><b>Raft</b>는 복제 로그를 관리하는 합의 알고리즘이다. 이해하기 쉬운 구조를 목표로 리더 선출, 로그 복제, 안전성을 분리해 설명한다.</p>
@@ -306,40 +308,40 @@ const BODY_CONCISE = `
 <h2>결과와 수치</h2><table><tr><th>구성</th><th>지연 중앙값</th><th>처리량</th></tr><tr><td>3대</td><td>4.1 ms</td><td>21k op/s</td></tr><tr><td>5대</td><td>5.3 ms</td><td>18k op/s</td></tr></table>
 <h2>한계</h2><p>긴 네트워크 분할에서 가용성이 떨어진다.</p>`;
 const REMOTE_BODY = `<!doctype html><meta charset="utf-8"><style>body{font:15px/1.7 system-ui,"Noto Sans KR",sans-serif;color:#1f2328;margin:16px 20px}h2{font-size:1.15em;border-bottom:1px solid #d0d7de}code{background:#eaeef2;padding:0 4px;border-radius:4px}</style>
-<h2>개요</h2><p>Raft는 이해 가능성을 설계 목표로 둔 합의 알고리즘이다. (다른 서버 lab.example의 이용자 @bob이 같은 출처를 상세 템플릿으로 적재한 에디션)</p>
+<h2>개요</h2><p>Raft는 이해 가능성을 설계 목표로 둔 합의 알고리즘이다. (다른 서버 lab.example의 이용자 @bob이 같은 출처를 기본 템플릿으로 적재한 정리본)</p>
 <h2>리더 선출</h2><p>팔로워는 하트비트를 받지 못하면 후보가 되어 RequestVote를 보낸다.</p><p><a href="https://lab.example/silvercord/abcd">원 서버의 고유 주소</a></p>`;
 
 const EDITIONS = [
-  { key: "d-detailed", group: "이 문서", template: "detailed", version: "detailed-v1", who: "@mina", server: null, likes: 12, liked: false, updated: "11월 20일", primary: true, path: `/silvercord/${TOKEN}`, body: BODY_DETAILED },
-  { key: "d-concise", group: "이 문서", template: "concise", version: "concise-v1", who: "@mina", server: null, likes: 4, liked: false, updated: "11월 24일", path: `/silvercord/${TOKEN}/editions/concise`, body: BODY_CONCISE },
-  { key: "s-academic", group: "같은 출처 · 이 서버", template: "academic", version: "academic-v1", who: "@jun", server: null, likes: 2, liked: false, updated: "11월 23일", path: "/silvercord/p3n8x2k5m9q4t7wa/editions/academic", body: BODY_DETAILED },
-  { key: "r-detailed", group: "같은 출처 · 다른 서버", template: "detailed", version: "detailed-v1", who: "@bob", server: "lab.example", likes: 31, liked: true, updated: "11월 18일", remote: true, origin: "https://lab.example/silvercord/abcd" },
-  { key: "r-concise", group: "같은 출처 · 다른 서버", template: "concise", version: "concise-v1", who: "@sora", server: "notes.example", likes: 7, liked: false, updated: "11월 22일", remote: true, origin: "https://notes.example/silvercord/wxyz" }
+  { key: "d-standard", group: "이 문서", template: "standard", version: "standard-v1", who: "@mina", server: null, plus: 12, score: 12, plused: false, postLikes: 21, updated: "11월 20일", primary: true, path: `/silvercord/${TOKEN}`, body: BODY_DETAILED },
+  { key: "d-concise", group: "이 문서", template: "concise", version: "concise-v1", who: "@mina", server: null, plus: 4, score: 4, plused: false, updated: "11월 24일", path: `/silvercord/${TOKEN}/renditions/concise`, body: BODY_CONCISE },
+  { key: "s-academic", group: "같은 출처 · 이 서버", template: "academic", version: "academic-v1", who: "@jun", server: null, plus: 2, score: 2, plused: false, primary: true, postLikes: 3, updated: "11월 23일", path: "/silvercord/p3n8x2k5m9q4t7wa", body: BODY_DETAILED },
+  { key: "r-concise", group: "같은 출처 · 다른 서버", template: "concise", version: "concise-v1", who: "@sora", server: "notes.example", plus: 7, score: 7, plused: false, updated: "11월 22일", remote: true, origin: "https://notes.example/silvercord/wxyz/renditions/concise" },
+  { key: "r-standard", group: "같은 출처 · 다른 서버", template: "standard", version: "standard-v1", who: "@bob", server: "lab.example", plus: 31, score: 14, plused: true, primary: true, postLikes: 40, updated: "11월 18일", remote: true, origin: "https://lab.example/silvercord/abcd" }
 ];
 
 const OPINIONS = [
-  { id: "o1", name: "Lee Hana", handle: "@hana@mastodon.example", time: "2시간 전", text: "선거 제한 시간을 무작위로 두는 이유가 간결 에디션에서 더 잘 보이네요. 표 수치는 원 논문과 같습니다.", replies: [
+  { id: "o1", name: "Lee Hana", handle: "@hana@mastodon.example", time: "2시간 전", text: "선거 제한 시간을 무작위로 두는 이유가 간결 정리본에서 더 잘 보이네요. 표 수치는 원 논문과 같습니다.", replies: [
     { id: "o2", name: "mina", handle: "@mina (이 서버 · 문서 소유자)", local: true, time: "1시간 전", text: "맞습니다. 수치는 바꾸지 않는 것이 간결 템플릿의 규칙입니다.", replies: [
-      { id: "o3", name: "Bob", handle: "@bob@lab.example", time: "48분 전", text: "lab.example에 같은 출처의 상세 에디션이 있습니다: https://lab.example/silvercord/abcd", isNew: true, replies: [
-        { id: "o4", name: "Sora", handle: "@sora@notes.example", time: "30분 전", text: "분할 상황의 가용성 부분은 두 에디션 모두 원문 표현을 따릅니다.", replies: [
+      { id: "o3", name: "Bob", handle: "@bob@lab.example", time: "48분 전", text: "lab.example에 같은 출처의 기본 정리본이 있습니다: https://lab.example/silvercord/abcd", isNew: true, replies: [
+        { id: "o4", name: "Sora", handle: "@sora@notes.example", time: "30분 전", text: "분할 상황의 가용성 부분은 두 정리본 모두 원문 표현을 따릅니다.", replies: [
           { id: "o5", name: "Kim", handle: "@kim@social.example", time: "10분 전", text: "(깊이 5 이하는 원 서버에서 이어 읽기)", replies: [] }
         ], moreOnOrigin: 2 }
       ] }
     ] }
   ] },
-  { id: "o6", name: "Park", handle: "@park@misskey.example", time: "3시간 전", cw: "스포일러가 아닌 긴 비평", text: "요약과 상세의 차이가 크지 않은 문서는 간결 에디션이 더 유용합니다.\n다만 안전성 절이 짧아진 점은 아쉽습니다.", attachment: true, replies: [] },
+  { id: "o6", name: "Park", handle: "@park@misskey.example", time: "3시간 전", cw: "스포일러가 아닌 긴 비평", text: "초록과 본문의 차이가 크지 않은 문서는 간결 정리본이 더 유용합니다.\n다만 안전성 절이 짧아진 점은 아쉽습니다.", attachment: true, replies: [] },
   { id: "o7", name: "spam-bot", handle: "@deals@spam.example", time: "4시간 전", text: "(숨긴 의견: 문서 소유자만 봄)", hidden: true, replies: [] },
   { id: "o8", name: "Choi", handle: "@choi@mastodon.example", time: "5시간 전", text: "로그 일치 속성 설명이 명확합니다.", isNew: true, replies: [], later: true },
-  { id: "o9", name: "Yuna", handle: "@yuna@gts.example", time: "6시간 전", text: "학문 특화 에디션은 아직 상세와 같은 문안인가요?", replies: [
+  { id: "o9", name: "Yuna", handle: "@yuna@gts.example", time: "6시간 전", text: "학술 정리본은 아직 기본과 같은 문안인가요?", replies: [
     { id: "o10", name: "jun", handle: "@jun (이 서버)", local: true, time: "5시간 전", text: "네, 지금은 같은 문안입니다.", replies: [] }
   ], later: true }
 ];
 const QUOTES = [
   { id: "q1", name: "Dev Notes", handle: "@devnotes@hachyderm.example", time: "어제", text: "합의 알고리즘 입문으로 좋은 정리." },
-  { id: "q2", name: "Seo", handle: "@seo@mastodon.example", time: "2일 전", text: "간결 에디션을 강의 자료로 씁니다." }
+  { id: "q2", name: "Seo", handle: "@seo@mastodon.example", time: "2일 전", text: "간결 정리본을 강의 자료로 씁니다." }
 ];
 
-const state = { role: "signed", viewport: "desktop", theme: "light", fetch: "finished", tab: "doc", edition: "d-detailed", addOpen: false };
+const state = { role: "signed", viewport: "desktop", theme: "light", fetch: "finished", tab: "doc", edition: "d-standard", addOpen: false };
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const device = $("#device");
@@ -359,19 +361,26 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
-/* Edition picker: order until O8 = opened, primary, template order, updated. Likes are shown, not sorted. */
+/* Rendition picker (ED10 rule 10, ED12 rule 8): inside each group, opened first, then +1 score, primary, template order. */
+function orderInGroup(list) {
+  return list.slice().sort((a, b) =>
+    (b.key === state.edition) - (a.key === state.edition)
+    || b.score - a.score
+    || (b.primary ? 1 : 0) - (a.primary ? 1 : 0)
+    || TEMPLATE_ORDER.indexOf(a.template) - TEMPLATE_ORDER.indexOf(b.template));
+}
 function buildPicker() {
   for (const n of $$("optgroup, option", select)) n.remove();
   const groups = {};
   for (const e of EDITIONS) (groups[e.group] ||= []).push(e);
   for (const [label, list] of Object.entries(groups)) {
     const og = el("optgroup", { label });
-    for (const e of list) {
+    for (const e of orderInGroup(list)) {
       const opt = el("option", { value: e.key });
       opt.innerHTML = `<span class="opt-tpl tpl-${e.template}">${TEMPLATE_LABEL[e.template]}</span><span class="vh">.</span>`
         + `<span class="opt-who">${e.who}${e.server ? "@" + e.server : ""}</span><span class="vh">.</span>`
-        + (e.primary ? ` <span class="opt-flag">기본 에디션</span><span class="vh">.</span>` : "")
-        + `<span class="opt-meta">좋아요 ${e.likes}<span class="vh">.</span> · ${e.updated}</span>`;
+        + (e.primary ? ` <span class="opt-flag">대표 정리본</span><span class="vh">.</span>` : "")
+        + `<span class="opt-meta">+1 ${e.plus}<span class="vh">.</span> · ${e.updated}</span>`;
       if (e.key === state.edition) opt.selected = true;
       og.append(opt);
     }
@@ -386,23 +395,23 @@ function renderEditionActions() {
   const box = $("[data-ed-actions]");
   box.replaceChildren();
   if (state.role === "anon") {
-    box.append(el("span", { class: "like-static", html: `${icon("heart")} 좋아요 ${e.likes} <a href="#" onclick="return false">로그인하여 좋아요</a>` }));
+    box.append(el("span", { class: "like-static", html: `<b>+1</b> ${e.plus} <a href="#" onclick="return false">로그인하여 +1</a>` }));
   } else if (state.role === "owner" && !e.remote && e.who === "@mina") {
-    box.append(el("span", { class: "like-static", title: "자기 에디션에는 좋아요를 줄 수 없습니다", html: `${icon("heart")} 좋아요 ${e.likes}` }));
+    box.append(el("span", { class: "like-static", title: "자기 정리본에는 +1을 줄 수 없습니다", html: `<b>+1</b> ${e.plus}` }));
   } else {
-    const btn = el("button", { type: "button", class: "like-btn", "aria-pressed": String(e.liked), html: `${icon("heart")} <span>좋아요 ${e.likes}</span>` });
-    btn.addEventListener("click", () => { e.liked = !e.liked; e.likes += e.liked ? 1 : -1; renderEditionActions(); buildPicker(); setApi(`${e.liked ? "POST" : "DELETE"} (Like / Undo(Like) → ${e.remote ? e.server : "이 서버"})`); });
+    const btn = el("button", { type: "button", class: "like-btn", "aria-pressed": String(e.plused), title: "같은 출처의 정리본 가운데 이 정리본을 추천합니다 (Claire 서버끼리만)", html: `<b>+1</b> <span>${e.plus}</span>` });
+    btn.addEventListener("click", () => { e.plused = !e.plused; e.plus += e.plused ? 1 : -1; e.score += e.plused ? 1 : -1; renderEditionActions(); buildPicker(); setApi(`${e.plused ? "claire:PlusOne" : "Undo(claire:PlusOne)"} → ${e.remote ? e.server : "이 서버"} (Claire 서버끼리만)`); });
     box.append(btn);
   }
   if (state.role === "owner") {
     const wrap = el("span", { class: "add-ed" });
-    const addBtn = el("button", { type: "button", class: "ed-btn", "aria-expanded": String(state.addOpen), "aria-controls": "add-menu", html: `${icon("plus")}<span>에디션 추가</span>` });
+    const addBtn = el("button", { type: "button", class: "ed-btn", "aria-expanded": String(state.addOpen), "aria-controls": "add-menu", html: `${icon("plus")}<span>정리본 추가</span>` });
     addBtn.addEventListener("click", () => { state.addOpen = !state.addOpen; renderEditionActions(); });
     wrap.append(addBtn);
     if (state.addOpen) {
       const menu = el("div", { class: "add-menu", id: "add-menu" });
-      const b = el("button", { type: "button", html: `<span>학문 특화 에디션 만들기</span><small>저장된 원문으로 만듭니다 · 모델 호출 1회 · 다시 가져오지 않음</small>` });
-      b.addEventListener("click", () => { state.addOpen = false; renderEditionActions(); setApi("POST {namespace}/documents/{id}/editions {template: academic}"); });
+      const b = el("button", { type: "button", html: `<span>학술 정리본 만들기</span><small>저장된 원문으로 만듭니다 · 모델 호출 1회 · 다시 가져오지 않음</small>` });
+      b.addEventListener("click", () => { state.addOpen = false; renderEditionActions(); setApi("POST {namespace}/documents/{id}/renditions {template: academic}"); });
       menu.append(b);
       wrap.append(menu);
     }
@@ -415,26 +424,26 @@ function renderEdition() {
   const info = $("[data-ed-info]");
   info.innerHTML = `<span class="opt-tpl tpl-${e.template}">${TEMPLATE_LABEL[e.template]}</span>`
     + `<code>${e.version}</code><span>${e.who}${e.server ? "@" + e.server : ""}</span><span>${e.updated} 갱신</span>`
-    + (e.primary ? `<span class="pill">기본 에디션 · 문서 객체</span>` : "")
+    + (e.primary ? `<span class="pill">대표 정리본 · 문서 객체</span>` : "")
     + (e.remote ? `<span class="pill pill-remote">${icon("remote")} 다른 서버</span>` : `<span class="pill">이 서버</span>`)
-    + (e.template === "academic" ? `<span class="pill">지금은 상세와 같은 문안</span>` : "");
+    + (e.template === "academic" ? `<span class="pill">지금은 기본과 같은 문안</span>` : "");
   const banner = $("[data-remote-banner]");
   const reader = $("#reader");
   scopedTransition(reader, () => {
     banner.replaceChildren();
     reader.replaceChildren();
     if (e.remote) {
-      banner.append(el("div", { class: "remote-banner", html: `${icon("remote")}<span><b>${e.server}</b>의 이용자 ${e.who}가 같은 출처로 만든 에디션입니다. 이 서버에 캐시된 사본을 보여 줍니다.</span><a href="${e.origin}" onclick="return false">${icon("external")} 원 서버에서 열기</a>` }));
-      const frame = el("iframe", { class: "remote-frame", sandbox: "allow-popups allow-popups-to-escape-sandbox", title: `다른 서버의 에디션 본문: ${TEMPLATE_LABEL[e.template]}, ${e.who}@${e.server}`, loading: "lazy" });
+      banner.append(el("div", { class: "remote-banner", html: `${icon("remote")}<span><b>${e.server}</b>의 이용자 ${e.who}가 같은 출처로 만든 정리본입니다. 이 서버에 캐시된 사본을 보여 줍니다.</span><a href="${e.origin}" onclick="return false">${icon("external")} 원 서버에서 열기</a>` }));
+      const frame = el("iframe", { class: "remote-frame", sandbox: "allow-popups allow-popups-to-escape-sandbox", title: `다른 서버의 정리본 본문: ${TEMPLATE_LABEL[e.template]}, ${e.who}@${e.server}`, loading: "lazy" });
       frame.srcdoc = REMOTE_BODY;
       reader.append(frame);
     } else {
       reader.append(el("div", { class: "body", html: e.body }));
     }
   });
-  $("#st-path").textContent = e.remote ? `/silvercord/${TOKEN}?edition=${e.key}` : e.path;
+  $("#st-path").textContent = e.remote ? `/silvercord/${TOKEN}?rendition=${e.key}` : e.path;
   setApi(e.remote ? `GET ${e.origin.replace("/silvercord/", "/ap/objects/")}/body (서명한 서버 액터 · 캐시 24시간)` : (e.primary ? `GET /silvercord/${TOKEN}` : `GET ${e.path} (페이지 이동)`));
-  $("[data-op-target]").textContent = `대상: ${TEMPLATE_LABEL[e.template]}${e.primary ? " (기본 에디션)" : ""} · ${e.who}${e.server ? "@" + e.server : ""}`;
+  $("[data-op-target]").textContent = `대상: ${TEMPLATE_LABEL[e.template]}${e.primary ? " (대표 정리본)" : ""} · ${e.who}${e.server ? "@" + e.server : ""}`;
   renderEditionActions();
 }
 
@@ -502,7 +511,17 @@ function renderOpinions() {
   for (const c of $$("[data-op-count]")) c.textContent = state.fetch === "empty" ? "0" : String(visible + QUOTES.length);
   const counts = $("[data-op-counts]");
   counts.replaceChildren();
-  if (state.fetch !== "empty") for (const t of [`답글 ${visible}`, `인용 ${QUOTES.length}`, `좋아요 ${current().likes}`, "부스트 3"]) counts.append(el("span", { class: "pill" }, t));
+  const cur = current();
+  if (state.fetch !== "empty") for (const t of [`답글 ${visible}`, `인용 ${QUOTES.length}`, "부스트 3"]) counts.append(el("span", { class: "pill" }, t));
+  if (cur.primary) {
+    if (state.role === "signed") {
+      const pl = el("button", { type: "button", class: "like-btn", "aria-pressed": String(!!cur.postLiked), html: `${icon("heart")} <span>좋아요 ${cur.postLikes}</span>` });
+      pl.addEventListener("click", () => { cur.postLiked = !cur.postLiked; cur.postLikes += cur.postLiked ? 1 : -1; renderOpinions(); setApi(`${cur.postLiked ? "Like" : "Undo(Like)"} → 게시물 (ActivityPub 좋아요)`); });
+      counts.append(pl);
+    } else {
+      counts.append(el("span", { class: "pill", html: `${icon("heart")} 좋아요 ${cur.postLikes}` }));
+    }
+  }
   const st = $("[data-op-state]");
   st.className = "op-state";
   st.replaceChildren();
@@ -531,12 +550,12 @@ function renderOpinions() {
   if (state.role === "anon") {
     reply.append(el("span", {}, "로그인하면 이 서버 계정으로 답글을 씁니다. 다른 서버 계정으로 답글하려면 이 페이지 주소를 그 서버의 검색창에 붙여 넣으세요."));
   } else {
-    reply.append(el("button", { type: "button", class: "sc-btn", html: `${icon("reply")} 이 에디션에 답글` }), el("span", { class: "op-note" }, "답글은 연합 클라이언트의 작성 창으로 열립니다 (inReplyTo = 이 에디션 객체)."));
+    reply.append(el("button", { type: "button", class: "sc-btn", html: `${icon("reply")} 이 정리본에 답글` }), el("span", { class: "op-note" }, "답글은 연합 클라이언트의 작성 창으로 열립니다 (inReplyTo = 이 정리본 객체)."));
   }
   const body = $("[data-op-body]");
   body.replaceChildren();
   if (state.fetch === "empty") {
-    body.append(el("div", { class: "op-empty" }, "아직 의견이 없습니다. 연합우주의 다른 서버에서도 이 에디션에 답글을 달 수 있습니다."));
+    body.append(el("div", { class: "op-empty" }, "아직 의견이 없습니다. 연합우주의 다른 서버에서도 이 정리본에 답글을 달 수 있습니다."));
     return;
   }
   const tree = el("ol", { class: "op-tree", "aria-label": "의견 글타래" });

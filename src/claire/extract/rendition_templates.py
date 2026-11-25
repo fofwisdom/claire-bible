@@ -1,10 +1,10 @@
-"""Edition templates (DOCUMENT_EDITIONS_AND_PUBLICATION_DESIGN.md Section 5.2, ED2).
+"""Rendition templates, 정리본 템플릿 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.2, ED2).
 
-An edition template is a fixed instruction set for the body prompt. The code defines the set. An account cannot make a template.
+A rendition template is a fixed instruction set for the body prompt of a rendition (정리본). The code defines the set. An account cannot make a template.
 
-- ``detailed`` (상세): the current body prompt, ``prompts.render_detail_instructions_adoc``.
+- ``standard`` (기본): the current body prompt, ``prompts.render_detail_instructions_adoc`` (owner, 2026-11-25: not "상세", because the body itself is 상세).
 - ``concise`` (간결): a copy of the current body prompt, changed for a short body.
-- ``academic`` (학문 특화): an exact copy of the current body prompt (owner decision O2, 2026-11-25). The owner changes its text later.
+- ``academic`` (학술): an exact copy of the current body prompt (owner decisions O2 and O11, 2026-11-25). The owner changes its text later.
 
 No ingest path selects a template yet. Phase E3 of the design connects this module to ``ensure_document_detail`` and to the task of the agent client. A change of the text of a template increments its version.
 """
@@ -17,25 +17,25 @@ from dataclasses import dataclass
 from .prompts import images_block_adoc, render_detail_instructions_adoc
 
 
-class UnknownEditionTemplate(ValueError):
-    """The identifier is not an edition template."""
+class UnknownRenditionTemplate(ValueError):
+    """The identifier is not a rendition template."""
 
 
 @dataclass(frozen=True, slots=True)
-class EditionTemplate:
-    """One edition template: identifier, version, and the builder of the instructions without the source text."""
+class RenditionTemplate:
+    """One rendition template: identifier, version, and the builder of the instructions without the source text."""
 
     id: str
     version: str
     build_instructions: Callable[..., str]
 
 
-def _detailed_instructions(*, images: list[dict] | None, merged: bool, scale: int) -> str:
+def _standard_instructions(*, images: list[dict] | None, merged: bool, scale: int) -> str:
     return render_detail_instructions_adoc(images=images, merged=merged, scale=scale)
 
 
 def _concise_instructions(*, images: list[dict] | None, merged: bool, scale: int) -> str:
-    """The concise body: a copy of the detailed instructions with a short scope, a fixed section order, and the common rules."""
+    """The concise rendition: a copy of the standard instructions with a short scope, a fixed section order, and the common rules."""
     if merged:
         length_hint = f"대략 A4 {scale}~{2 * scale}장 이내"
         merge_hint = (
@@ -46,7 +46,7 @@ def _concise_instructions(*, images: list[dict] | None, merged: bool, scale: int
         merge_hint = ""
 
     image_hint = (
-        "\n[간결 에디션의 그림 규칙] 아래 후보 중 내용 이해에 꼭 필요한 그림을 최대 두 개까지만 넣는다.\n"
+        "\n[간결 정리본의 그림 규칙] 아래 후보 중 내용 이해에 꼭 필요한 그림을 최대 두 개까지만 넣는다.\n"
         if images
         else ""
     )
@@ -110,7 +110,7 @@ def _academic_instructions(
     scale: int = 1,
     focus: str | None = None,
 ) -> str:
-    """The academic body. Now an exact copy of ``render_detail_instructions_adoc`` (owner decision O2, 2026-11-25); the owner changes it later."""
+    """The academic rendition (학술). Now an exact copy of ``render_detail_instructions_adoc`` (owner decision O2, 2026-11-25); the owner changes it later."""
     if merged:
         length_hint = f"대략 A4 {2 * scale}~{4 * scale}장 분량"
         merge_hint = (
@@ -182,18 +182,18 @@ def _academic_registry_instructions(*, images: list[dict] | None, merged: bool, 
     return _academic_instructions(images=images, merged=merged, scale=scale)
 
 
-EDITION_TEMPLATES: dict[str, EditionTemplate] = {
-    "detailed": EditionTemplate(id="detailed", version="detailed-v1", build_instructions=_detailed_instructions),
-    "concise": EditionTemplate(id="concise", version="concise-v1", build_instructions=_concise_instructions),
-    "academic": EditionTemplate(id="academic", version="academic-v1", build_instructions=_academic_registry_instructions),
+RENDITION_TEMPLATES: dict[str, RenditionTemplate] = {
+    "standard": RenditionTemplate(id="standard", version="standard-v1", build_instructions=_standard_instructions),
+    "concise": RenditionTemplate(id="concise", version="concise-v1", build_instructions=_concise_instructions),
+    "academic": RenditionTemplate(id="academic", version="academic-v1", build_instructions=_academic_registry_instructions),
 }
 
-EDITION_TEMPLATE_IDS: tuple[str, ...] = tuple(EDITION_TEMPLATES)
+RENDITION_TEMPLATE_IDS: tuple[str, ...] = tuple(RENDITION_TEMPLATES)
 
 
-def edition_template(template_id: str) -> EditionTemplate:
-    """Return the template of the identifier. An identifier that is not in the set gives ``UnknownEditionTemplate``; there is no default template."""
-    found = EDITION_TEMPLATES.get(template_id)
+def rendition_template(template_id: str) -> RenditionTemplate:
+    """Return the template of the identifier. An identifier that is not in the set gives ``UnknownRenditionTemplate``; there is no default template."""
+    found = RENDITION_TEMPLATES.get(template_id)
     if found is None:
-        raise UnknownEditionTemplate(template_id)
+        raise UnknownRenditionTemplate(template_id)
     return found

@@ -16,7 +16,7 @@ docs/
 │   │   # 미구현 또는 일부 구현 (상태 줄에 구현된 부분과 구현 문서 링크)
 │   ├── CLAUDE_AGENT_CLIENT_DESIGN.md      # Claude용 claire 플러그인 실동작: CL0–CL8 구현(v0.4.0 공통 사양 진화는 AGENT_CLIENT_COMMON_SPEC.md → API_AND_MCP_GUIDE.md §3.4, EXTERNAL_ACCESS.md), CL9(업로드 링크) 미구현, CL10(Cowork·claude.ai) 설계 없음, 결정 CD1–CD4 확정
 │   ├── DATA_STORE_LAYOUT_DESIGN.md        # RD27 구현(client.db), DS-3 미구현
-│   ├── DOCUMENT_EDITIONS_AND_PUBLICATION_DESIGN.md  # 발행 문서의 에디션(상세·간결·학문 특화)·Claire 서버 간 에디션 교환·좋아요·요약만 연합·인용 항상 허용·다른 서버 의견 끌어오기(Mastodon replies 구조)·/silvercord/{token}/editions/{template}·게시→발행 용어, Rev. 4(O1–O7·O9 결정, O8 보류, Silvercord 화면 시각 프로토타입 design/prototypes/document_editions_prototype.html, 다른 화면은 규칙만), 템플릿 문안만 구현(→ EXTRACTION.md §2.2), 팔로우 직후 최근 글 채우기는 구상(ideas/TIMELINE_BACKFILL_IDEAS.md)
+│   ├── DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md  # 발행 문서의 정리본(기본·간결·학술)·Claire 서버 간 정리본 교환과 +1·초록만 연합·인용 항상 허용·다른 서버 의견 끌어오기(Mastodon replies 구조)·팔로우 후 최근 글 채우기·/silvercord/{token}/renditions/{template}·게시→발행 용어, Rev. 7(O8만 보류), 구현: 템플릿 문안(→ EXTRACTION.md §2.2)과 요약→초록(→ GLOSSARY.md §1.3), Silvercord 화면 시각 프로토타입 design/prototypes/document_renditions_prototype.html
 │   ├── EXPANSION_DESIGN.md
 │   ├── FEDERATION_REMOTE_READING_DESIGN.md  # FP4 구현 완료, 남은 계획 D1·D2·D4(RD12 보류)·피드 자동 적재·아이디어 I1–I3, 시각 프로토타입은 design/prototypes/
 │   ├── FEDERATION_GO_LIVE_DESIGN.md       # 운영 서버 연합 가동: GL1–GL3 구현(→ implementation/FEDERATION.md §7.2·§10.1), GL4(L0–L6)는 소유자 단계, 결정 GD1–GD7 확정(→ §3.1·§7.1·§8.1)
