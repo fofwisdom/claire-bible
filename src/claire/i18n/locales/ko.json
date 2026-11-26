@@ -4656,5 +4656,9 @@
   "reader.rendition.group_same_server": "같은 출처 · 이 서버",
   "reader.rendition.group_other_servers": "같은 출처 · 다른 서버",
   "reader.rendition.open_origin": "원 서버에서 열기",
-  "reader.rendition.remote_frame_title": "{account}의 {label} 정리본"
+  "reader.rendition.remote_frame_title": "{account}의 {label} 정리본",
+  "reader.rendition.plus_one_label": "이 정리본에 +1",
+  "reader.rendition.plus_one_count": "+1 {count}",
+  "reader.rendition.plus_one_sign_in": "로그인하고 +1",
+  "reader.rendition.plus_one_failed": "+1을 기록하지 못했습니다: {error}"
 }

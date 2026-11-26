@@ -40,7 +40,7 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        # Federation client (FP4-5)
        "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/api/federation/timeline/{item_id}/context", "/render/remote/{item_id}", "/media/remote/{url_hash}", "/api/federation/objects",
        # Outbound interactions (FP4-9)
-       "/api/federation/notes", "/api/federation/notes/{note_id}", "/api/federation/timeline/{item_id}/favourite", "/api/federation/timeline/{item_id}/boost",
+       "/api/federation/notes", "/api/federation/notes/{note_id}", "/api/renditions/plus-one", "/api/federation/timeline/{item_id}/favourite", "/api/federation/timeline/{item_id}/boost",
        # Quotes (FP4-9Q)
        "/api/federation/quotes", "/api/federation/quotes/{quote_id}",
        # Account feeds (FP4-F1, FP4-F2)

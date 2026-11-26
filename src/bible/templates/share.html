@@ -357,6 +357,20 @@ const scRend = (dc.silvercord && Array.isArray(dc.silvercord.renditions) && dc.s
 function renditionLabel(t){ return rtr('rendition.template.'+t+'.label'); }
 function renditionDate(ts){ const d = new Date(Number(ts||0)*1000); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0,10); }
 function renditionVersion(v){ return v==='pre-template' ? rtr('reader.rendition.version_pre_template') : String(v||''); }
+// +1 of a rendition (Section 5.10 rule 2, Section 5.12): the count in the option text, and the control outside the picker. A rendition without an object (a document that is not published) has no +1.
+function plusOptionHtml(plus){
+  return plus ? ' <span class="ro-plus">'+esc(rtr('reader.rendition.plus_one_count', { count: plus.score }))+'<span class="sr-only">.</span></span>' : '';
+}
+function plusOneHtml(sc, plus){
+  if(!plus) return '';
+  const count = '<span class="sc-count-badge" id="sc-plus-one-count">'+esc(String(plus.score))+'</span>';
+  const control = sc.plus_one || {};
+  // The author sees the count as text; a reader that is an actor gets the toggle; a visitor gets the count and the sign-in link.
+  if(control.url && !plus.own) return '<button type="button" id="sc-plus-one" class="sc-btn sc-plus-btn" aria-pressed="'+(plus.mine?'true':'false')+'" aria-label="'+esc(rtr('reader.rendition.plus_one_label'))+'"><span aria-hidden="true">+1</span> '+count+'</button>';
+  let x = '<span class="sc-plus-text"><span aria-hidden="true">+1</span><span class="sr-only">'+esc(rtr('reader.rendition.plus_one_count', { count: plus.score }))+'</span> '+count+'</span>';
+  if(control.sign_in && !plus.own) x += ' <a class="sc-plus-signin" href="'+esc(control.sign_in)+'">'+esc(rtr('reader.rendition.plus_one_sign_in'))+'</a>';
+  return x;
+}
 function renditionSectionHead(sc){
   const sel = sc.renditions.find(r=>r.template===sc.rendition) || sc.renditions[0];
   let x = '<div class="sec sc-rendition-sec"><label for="sc-rendition-select">'+rtr('reader.section.rendition')+'</label></div><div class="sc-rendition-bar">';
@@ -365,6 +379,7 @@ function renditionSectionHead(sc){
   sc.renditions.forEach(r=>{
     x += '<option value="'+esc(r.url)+'" data-template="'+esc(r.template)+'"'+(r===sel?' selected':'')+'><span class="ro-title">'+esc(renditionLabel(r.template))+'<span class="sr-only">.</span></span>'
       + (r.primary ? ' <span class="ro-badge">'+esc(rtr('reader.rendition.primary'))+'<span class="sr-only">.</span></span>' : '')
+      + plusOptionHtml(r.plus)
       + ' <span class="ro-meta">'+esc(renditionDate(r.updated_at))+'</span></option>';
   });
   x += '</optgroup>';
@@ -387,11 +402,12 @@ function renditionSectionHead(sc){
     remote.forEach(r=>{
       x += '<option value="remote:'+esc(r.key)+'" data-template="'+esc(r.template)+'" data-group="other-servers"><span class="ro-title">'+esc(renditionLabel(r.template))+'<span class="sr-only">.</span></span>'
         + ' <span class="ro-account">'+esc(r.account||'')+'<span class="sr-only">.</span></span>'
+        + plusOptionHtml(r.plus)
         + ' <span class="ro-meta">'+esc(String(r.updated||'').slice(0,10))+'</span></option>';
     });
     x += '</optgroup>';
   }
-  x += '</select>';
+  x += '</select><span id="sc-plus-one-slot" class="sc-plus-slot">'+plusOneHtml(sc, sel.plus)+'</span>';
   if(sc.add_rendition_url && (sc.missing_renditions||[]).length){
     x += '<button type="button" class="sc-btn" id="sc-rendition-add-btn" popovertarget="sc-rendition-add"><span data-icon="plus"></span> '+esc(rtr('reader.rendition.add'))+'</button>';
     x += '<div id="sc-rendition-add" class="sc-rendition-add" popover><p class="sc-rendition-cost">'+esc(rtr('reader.rendition.add_cost'))+'</p><div class="sc-rendition-add-list">';
@@ -439,6 +455,39 @@ function bindRenditionBar(sc){
   const localBody = bodyEl ? bodyEl.innerHTML : '';
   const localInfo = infoEl ? infoEl.innerHTML : '';
   const remoteList = Array.isArray(sc.remote_renditions) ? sc.remote_renditions : [];
+  const plusSlot = document.getElementById('sc-plus-one-slot');
+  const localEntry = sc.renditions.find(r=>r.template===sc.rendition) || sc.renditions[0];
+  // The rendition of the control: the template of this page, or "remote:{key}".
+  let plusTarget = { rendition: localEntry.template, plus: localEntry.plus };
+  function renderPlus(){
+    if(!plusSlot) return;
+    plusSlot.innerHTML = plusOneHtml(sc, plusTarget.plus);
+    const btn = document.getElementById('sc-plus-one');
+    if(btn) btn.addEventListener('click', togglePlus);
+  }
+  async function togglePlus(){
+    const btn = document.getElementById('sc-plus-one');
+    const status = document.getElementById('sc-rendition-status');
+    const target = plusTarget;
+    if(!btn || !target.plus) return;
+    const on = !target.plus.mine;
+    btn.disabled = true;
+    try{
+      const resp = await fetch(sc.plus_one.url, { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ token: sc.token, rendition: target.rendition, on: on }) });
+      const data = await resp.json().catch(()=>null);
+      if(resp.ok && data && typeof data.on === 'boolean'){
+        target.plus.mine = data.on;
+        target.plus.score = data.score;
+        if(status) status.textContent = '';
+      }else if(status){
+        status.textContent = rtr('reader.rendition.plus_one_failed', { error: String((data && data.error) || resp.status) });
+      }
+    }catch(_){
+      if(status) status.textContent = rtr('reader.rendition.plus_one_failed', { error: 'network_error' });
+    }
+    if(plusTarget === target) renderPlus();
+  }
+  renderPlus();
   // A rendition of another server (Section 5.10 rule 4): the body area changes inside the page. The transition is scoped to the body area where the browser has element-scoped view transitions; else the change is at once, with no document transition, so that the bottom bar and the popovers stay on top.
   function swapBody(update){
     if(bodyEl && 'startViewTransition' in Element.prototype){
@@ -460,6 +509,8 @@ function bindRenditionBar(sc){
       }
       if(typeof updateSharedRail === 'function') updateSharedRail();
     });
+    plusTarget = { rendition: 'remote:' + r.key, plus: r.plus };
+    renderPlus();
     if(push){
       const url = new URL(window.location.href);
       url.searchParams.set('rendition', key);
@@ -475,6 +526,8 @@ function bindRenditionBar(sc){
       applyMathRendering(bodyEl);
       if(typeof updateSharedRail === 'function') updateSharedRail();
     });
+    plusTarget = { rendition: localEntry.template, plus: localEntry.plus };
+    renderPlus();
     const url = new URL(window.location.href);
     url.searchParams.delete('rendition');
     window.history.replaceState(null, '', url);

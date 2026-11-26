@@ -512,6 +512,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("POST", "/api/federation/notes"),
         *((m, "/api/federation/notes/{note_id}") for m in ("PATCH", "DELETE")),
         *((m, "/api/federation/timeline/{item_id}/favourite") for m in ("POST", "DELETE")),
+        ("POST", "/api/renditions/plus-one"),
         *((m, "/api/federation/timeline/{item_id}/boost") for m in ("POST", "DELETE")),
         # Quotes (FP4-9Q)
         *((m, "/api/federation/quotes") for m in ("GET", "HEAD")),

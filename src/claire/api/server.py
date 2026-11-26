@@ -6264,6 +6264,29 @@ def create_app(
             finally:
                 conn.close()
 
+        # The account of the reader for the +1 marks (Section 5.12): a session with the scope "owner". The page route is public; the route of the mark decides each request.
+        viewer_account = viewer_principal.account_id if (viewer_principal is not None and viewer_principal.scope == "owner") else None
+        page_origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+
+        def _marks() -> tuple[dict[str, dict[str, Any] | None], bool]:
+            # The +1 of each rendition of the document that has an object (a published document), and if the reader is a federation actor.
+            from .accounts_routes import rendition_marks
+            from ..store import plus_ones
+
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                actor_row = None if viewer_account is None else conn.execute("SELECT public_id FROM accounts WHERE id=? AND status='active' AND username IS NOT NULL", (viewer_account,)).fetchone()
+                viewer_actor = None if actor_row is None else f"{page_origin}/ap/actors/{actor_row[0]}"
+                marks: dict[str, dict[str, Any] | None] = {}
+                for r in renditions:
+                    target = rendition_marks.local_rendition_object(conn, kb_id=kb.id, document_id=found.target, template=r.template)
+                    marks[r.template] = None if target is None else {"score": plus_ones.counts(conn, target[0])["score"], "mine": viewer_actor is not None and plus_ones.has_mark(conn, target[0], actor_iri=viewer_actor), "own": viewer_account == target[1]}
+                return marks, viewer_actor is not None
+            finally:
+                conn.close()
+
+        local_marks, viewer_is_actor = await asyncio.to_thread(_marks) if renditions else ({}, False)
+
         def _other_servers() -> list[dict[str, Any]]:
             # The renditions of other Claire servers that the cache can show now (Section 5.4 rule 1, the picker group "같은 출처 · 다른 서버"). The body is not in the page: the frame route gives it.
             conn = dbm.connect_existing(s.db_file, readonly=True)
@@ -6271,10 +6294,13 @@ def create_app(
                 row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
                 if row is None or not row[0]:
                     return []
-                return [
-                    {"key": r.key, "template": r.template, "version": r.template_version, "updated": r.updated, "account": r.account_handle or r.account_name or r.domain, "domain": r.domain, "origin_url": r.url or r.iri, "frame_url": f"{permalinks.permalink_path(found.token)}/renditions/remote/{r.key}"}
-                    for r in remote_renditions.renditions_of(conn, str(row[0]), now=time.time())
-                ]
+                from .accounts_routes import rendition_marks
+
+                out: list[dict[str, Any]] = []
+                for r in remote_renditions.renditions_of(conn, str(row[0]), now=time.time()):
+                    score, mine = rendition_marks.remote_score(conn, r, viewer_account if viewer_is_actor else None)
+                    out.append({"key": r.key, "template": r.template, "version": r.template_version, "updated": r.updated, "account": r.account_handle or r.account_name or r.domain, "domain": r.domain, "origin_url": r.url or r.iri, "frame_url": f"{permalinks.permalink_path(found.token)}/renditions/remote/{r.key}", "plus": {"score": score, "mine": mine, "own": False}})
+                return out
             finally:
                 conn.close()
 
@@ -6310,7 +6336,9 @@ def create_app(
             "entity_count": len(document.get("nodes") or []),
             "link_only": bool(not is_member and not readable_kb and found.link_access),
             # The renditions of the document in the template order, for the section "정리본" (Section 5.10 rules 9 and 10). Only the owner gets the route of 정리본 추가 (Section 5.3 rule 2).
-            "renditions": [{"template": r.template, "version": r.template_version, "updated_at": r.updated_at, "primary": r.primary, "url": permalinks.permalink_path(found.token) + ("" if r.primary else f"/renditions/{r.template}")} for r in renditions],
+            "renditions": [{"template": r.template, "version": r.template_version, "updated_at": r.updated_at, "primary": r.primary, "url": permalinks.permalink_path(found.token) + ("" if r.primary else f"/renditions/{r.template}"), "plus": local_marks.get(r.template)} for r in renditions],
+            # The +1 control (Section 5.10 rule 2): the route for a reader that is a federation actor; a visitor without a session gets the sign-in address.
+            "plus_one": {"url": "/api/renditions/plus-one" if viewer_is_actor else None, "sign_in": None if viewer_principal is not None else "/login?next=" + quote(permalinks.permalink_path(found.token) + (f"/renditions/{rendition}" if rendition else ""), safe="")},
             "rendition": selected.template if selected is not None else (PRIMARY_RENDITION_TEMPLATE if any(r.primary for r in renditions) else None),
             # The page route is public and has no validated credential: the session of the owner of a personal knowledge base shows the control, and the route of API v1 decides the request.
             "add_rendition_url": (f"/api/v1/kbs/{ids.format_public_id(kb.number)}/documents/{found.target}/renditions" if (is_member and kb.is_personal and viewer_principal is not None and viewer_principal.scope == "owner" and viewer_principal.account_id == kb.account_id) else None),

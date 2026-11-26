@@ -77,7 +77,9 @@ CREATE TABLE IF NOT EXISTS remote_renditions (
     body_html TEXT,
     body_source TEXT,
     fetched_at REAL NOT NULL,
-    expires_at REAL NOT NULL
+    expires_at REAL NOT NULL,
+    plus_total INTEGER NOT NULL DEFAULT 0,
+    plus_score INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_remote_renditions_key ON remote_renditions(source_key, domain);
 CREATE TABLE IF NOT EXISTS remote_rendition_indexes (
@@ -90,7 +92,7 @@ CREATE TABLE IF NOT EXISTS remote_rendition_indexes (
 )
 """
 
-_COLUMNS = "iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_hash, body_html, body_source, fetched_at, expires_at"
+_COLUMNS = "iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_hash, body_html, body_source, fetched_at, expires_at, plus_total, plus_score"
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +116,9 @@ class RemoteRendition:
     body_source: str
     fetched_at: float
     expires_at: float
+    # The +1 counts that the origin gave at the last read of the object (Section 5.12 rules 10 and 11). The reader shows them as they are.
+    plus_total: int
+    plus_score: int
 
     @property
     def key(self) -> str:
@@ -185,6 +190,11 @@ def _record_index(conn: sqlite3.Connection, read: dict[str, Any], document: dict
     return None
 
 
+def _count(value: Any) -> int:
+    """A count of the wire, or 0 for a value that is not a count."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= vocabulary.MAX_COUNT else 0
+
+
 def _text(value: Any, limit: int) -> str | None:
     return value.strip()[:limit] if isinstance(value, str) and value.strip() else None
 
@@ -214,6 +224,9 @@ def _record_object(conn: sqlite3.Connection, read: dict[str, Any], document: dic
         "ON CONFLICT(iri) DO UPDATE SET template=excluded.template, template_version=excluded.template_version, rendition_of=excluded.rendition_of, account_iri=excluded.account_iri, name=excluded.name, url=excluded.url, updated=excluded.updated, body_iri=excluded.body_iri, body_hash=excluded.body_hash, fetched_at=excluded.fetched_at, expires_at=excluded.expires_at",
         (iri, read["domain"], key, template, _text(document.get(vocabulary.TEMPLATE_VERSION), 64), rendition_of, account_iri, _text(document.get("name"), _TITLE_MAX) or "", url if _on_server(url, read, origin) else None, _text(document.get("updated") or document.get("published"), 40), body_iri, body_hash, now, now + LIFETIME_SECONDS),
     )
+    marks = document.get(vocabulary.PLUS_ONES)
+    total, score = (marks.get("totalItems"), marks.get(vocabulary.SCORE)) if isinstance(marks, dict) else (0, 0)
+    conn.execute("UPDATE remote_renditions SET plus_total=?, plus_score=? WHERE iri=?", (_count(total), _count(score), iri))
     row = conn.execute("SELECT cached_body_hash, account_handle FROM remote_renditions WHERE iri=?", (iri,)).fetchone()
     if row[0] != body_hash:
         _add_read(conn, "rendition_body", domain=read["domain"], url=str(body_iri), target=iri, now=now)

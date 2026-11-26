@@ -729,6 +729,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("POST", "/api/federation/notes"): _any("owner", "none"),
     ("PATCH", "/api/federation/notes/{note_id}"): _any("owner", "none"),
     ("DELETE", "/api/federation/notes/{note_id}"): _any("owner", "none"),
+    ("POST", "/api/renditions/plus-one"): _any("owner", "none"),
     ("POST", "/api/federation/timeline/{item_id}/favourite"): _any("owner", "none"),
     ("DELETE", "/api/federation/timeline/{item_id}/favourite"): _any("owner", "none"),
     ("POST", "/api/federation/timeline/{item_id}/boost"): _any("owner", "none"),

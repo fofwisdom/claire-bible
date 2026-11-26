@@ -126,6 +126,8 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
         "rendition_account": "Alice In Wonderland",
         "same_source_renditions": [],
         "remote_renditions": [],
+        # A visitor without a session gets the sign-in address of the +1 control (phase E9b).
+        "plus_one": {"url": None, "sign_in": f"/login?next=%2Fsilvercord%2F{tok_doc1}"},
     }
     assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/50123"/>' in r_anon.text
     # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7, phase E2): the preferred address, the account as the author, the time of the publication, and the actor of the account for the byline of a link preview.
@@ -223,6 +225,8 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
             "rendition_account": "",
             "same_source_renditions": [],
             "remote_renditions": [],
+            # The document has no rendition object: no +1. Only a visitor without a session gets the sign-in address.
+            "plus_one": {"url": None, "sign_in": f"/login?next=%2Fsilvercord%2F{tok_doc1}" if caller is anon else None},
         }
 
 
@@ -655,7 +659,7 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     anon = _make_caller(test_client, s.public_url.rstrip("/"))
     sc = _extract_docdata(anon("GET", f"/silvercord/{token}").text)["silvercord"]
     remote_key = hashlib.sha256(iri.encode()).hexdigest()[:16]
-    assert sc["remote_renditions"] == [{"key": remote_key, "template": "concise", "version": "concise-v1", "updated": "2027-01-15T08:05:20Z", "account": "@bob@b.example", "domain": "b.example", "origin_url": "https://b.example/silvercord/tok/renditions/concise", "frame_url": f"/silvercord/{token}/renditions/remote/{remote_key}"}]
+    assert sc["remote_renditions"] == [{"key": remote_key, "template": "concise", "version": "concise-v1", "updated": "2027-01-15T08:05:20Z", "account": "@bob@b.example", "domain": "b.example", "origin_url": "https://b.example/silvercord/tok/renditions/concise", "frame_url": f"/silvercord/{token}/renditions/remote/{remote_key}", "plus": {"score": 0, "mine": False, "own": False}}]
     frame = anon("GET", sc["remote_renditions"][0]["frame_url"])
     assert frame.status_code == 200
     csp = frame.headers["content-security-policy"]

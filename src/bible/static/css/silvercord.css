@@ -197,3 +197,11 @@ dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hi
 @media (prefers-reduced-motion: reduce) {
   #sc-rendition-body::view-transition-group(*), #sc-rendition-body::view-transition-old(*), #sc-rendition-body::view-transition-new(*) { animation: none !important; }
 }
+/* +1 of a rendition: a toggle button outside the picker; the pressed state has a border and a background, not only a color. */
+.sc-plus-slot { display: inline-flex; align-items: center; gap: 6px; }
+.sc-plus-btn { min-height: 36px; min-width: 44px; }
+.sc-plus-btn[aria-pressed="true"] { background: var(--active); border-color: var(--accent); color: var(--accent); }
+.sc-plus-text { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.sc-plus-signin { font-size: 12.5px; }
+.sc-rendition-select .ro-plus { font-size: 11.5px; color: var(--muted); }
+.sc-rendition-select selectedcontent .ro-plus { display: none; }

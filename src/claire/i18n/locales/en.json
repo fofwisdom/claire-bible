@@ -4656,5 +4656,9 @@
   "reader.rendition.group_same_server": "Same source · this server",
   "reader.rendition.group_other_servers": "Same source · other servers",
   "reader.rendition.open_origin": "Open on the origin server",
-  "reader.rendition.remote_frame_title": "{label} rendition of {account}"
+  "reader.rendition.remote_frame_title": "{label} rendition of {account}",
+  "reader.rendition.plus_one_label": "Give +1 to this rendition",
+  "reader.rendition.plus_one_count": "+1 {count}",
+  "reader.rendition.plus_one_sign_in": "Sign in to give +1",
+  "reader.rendition.plus_one_failed": "The +1 was not recorded: {error}"
 }

@@ -126,3 +126,69 @@ test('a rendition of another server opens in a sandbox frame inside the page and
   // The service worker block of this test (test.use) runs a script in each frame; in a sandbox frame without allow-same-origin that script fails. It is not a script of the page.
   expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed'))).toEqual([]);
 });
+
+// The +1 control (phase E9b). The page data comes from the test, as in the test of the frame; the route and the counts of the server are in tests/test_plus_one_marks.py.
+test('the +1 control is a toggle for a reader, follows the rendition that the page shows, and is text for the author', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  const DOC_PATH = '/silvercord/23456789abcdefgh';
+  const FRAME_PATH = `${DOC_PATH}/renditions/remote/0123456789abcdef`;
+  let own = false;
+  const sent = [];
+  await page.route((u) => u.pathname === DOC_PATH, async (route) => {
+    const res = await route.fetch();
+    const text = await res.text();
+    const match = text.match(/<script id="docdata" type="application\/json">([\s\S]*?)<\/script>/);
+    const doc = JSON.parse(match[1]);
+    doc.silvercord.renditions = [{ template: 'standard', version: 'standard-v1', updated_at: 1800000000, primary: true, url: DOC_PATH, plus: { score: 2, mine: false, own } }];
+    doc.silvercord.rendition = 'standard';
+    doc.silvercord.remote_renditions = [{ key: '0123456789abcdef', template: 'concise', version: 'concise-v1', updated: '2027-01-15T08:05:20Z', account: '@bob@b.example', domain: 'b.example', origin_url: 'https://b.example/x', frame_url: FRAME_PATH, plus: { score: 7, mine: true, own: false } }];
+    doc.silvercord.plus_one = { url: '/api/renditions/plus-one', sign_in: null };
+    const json = JSON.stringify(doc).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    return route.fulfill({ status: res.status(), contentType: 'text/html; charset=utf-8', body: text.replace(match[0], `<script id="docdata" type="application/json">${json}</script>`) });
+  });
+  await page.route((u) => u.pathname === FRAME_PATH, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!DOCTYPE html><html><body><p>remote</p></body></html>' }));
+  await page.route((u) => u.pathname === '/api/renditions/plus-one', (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    sent.push(body);
+    const base = body.rendition === 'standard' ? 2 : 6;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ on: body.on, score: base + (body.on ? 1 : 0) }) });
+  });
+
+  await page.goto(DOC_PATH, { waitUntil: 'domcontentloaded' });
+  const button = page.locator('#sc-plus-one');
+  await expect(button).toBeVisible();
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await expect(button).toHaveAttribute('aria-label', '이 정리본에 +1');
+  await expect(page.locator('#sc-plus-one-count')).toHaveText('2');
+  await expect(page.locator('#sc-rendition-select option[data-template="standard"]')).toContainText('+1 2');
+  await expectNoRawKeys(page);
+
+  // The toggle gives the +1 and takes it back; the count is the score of the answer.
+  await button.click();
+  await expect(page.locator('#sc-plus-one')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#sc-plus-one-count')).toHaveText('3');
+  await page.locator('#sc-plus-one').click();
+  await expect(page.locator('#sc-plus-one')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#sc-plus-one-count')).toHaveText('2');
+
+  // The control follows the rendition of the body area: the rendition of the other server has its own mark and count.
+  await page.locator('#sc-rendition-select').selectOption('remote:0123456789abcdef');
+  await expect(page.locator('#sc-plus-one')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#sc-plus-one-count')).toHaveText('7');
+  await page.locator('#sc-plus-one').click();
+  await expect(page.locator('#sc-plus-one')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#sc-plus-one-count')).toHaveText('6');
+  expect(sent).toEqual([
+    { token: '23456789abcdefgh', rendition: 'standard', on: true },
+    { token: '23456789abcdefgh', rendition: 'standard', on: false },
+    { token: '23456789abcdefgh', rendition: 'remote:0123456789abcdef', on: false },
+  ]);
+
+  // The author sees the count as text, with no control.
+  own = true;
+  await page.goto(DOC_PATH, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#sc-plus-one-count')).toHaveText('2');
+  await expect(page.locator('#sc-plus-one')).toHaveCount(0);
+  expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed'))).toEqual([]);
+});

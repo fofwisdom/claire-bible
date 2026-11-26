@@ -510,3 +510,11 @@ Basis: phase E9a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/
 - **[code]** `SCHEMA_VERSION` is 55. `_migrate_v55_plus_ones` calls `store.plus_ones.ensure_schema`, which makes `rendition_plus_ones`: (`object_public_id`, `actor_iri`) is the key, with `actor_host`, `activity_iri`, and `created_at`, and an index on (`actor_host`, `created_at`) for the hourly limit of a domain.
 - **[code]** The counts of an object come from the rows; a gone object loses its rows (`federation._readers_gone`).
 - **[test]** `tests/test_plus_ones.py`.
+
+## v56 (+1 marks of the accounts of this server)
+
+Basis: phase E9b of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.12 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 56. `_migrate_v56_account_plus_ones` calls `federation.plus_one_marks.ensure_schema`, which makes `account_plus_ones`: (`account_id`, `rendition_iri`) is the key, with `author_iri`, `activity_iri`, and `created_at`. The step also adds `plus_total` and `plus_score` to `remote_renditions` (the counts of the origin).
+- **[code] [decision]** The marks are in `claire.db`: the mark and the outbox task of its activity (`kf_outbox`) change in one transaction.
+- **[test]** `tests/test_plus_one_marks.py`.

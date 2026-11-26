@@ -170,6 +170,7 @@
 
 | Method | Path | 성공 | 그 밖의 응답 |
 |---|---|---|---|
+| `POST` | `/api/renditions/plus-one` | 정리본 +1(설계 E9b). 본문 `{"token", "rendition", "on"}`: 실버코드 문서 주소 토큰, 정리본(`standard`·`concise`·`academic` 또는 다른 서버 정리본 `remote:{key}`), 주기(`true`)·거두기(`false`). 요청자는 연합 액터인 계정이다. 200 `{"on", "score"}` | 400 `invalid_request`, 400 `blocked_domain`, 404 `rendition_not_found`(발행되지 않은 문서 포함), 409 `not_actor`, 409 `own_rendition`, 429 `rate_limited`(계정당 한 시간 60개) |
 | `POST` | `/api/federation/notes` | 본문 `{"content", "in_reply_to"?, "summary"?, "sensitive"?, "language"?, "quote_of"?, "quote_policy"?}`. `content`는 일반 텍스트이고 HTML은 서버가 만든다. `quote_of`는 인용할 타임라인 항목 ID, `quote_policy`는 `public`·`followers`·`manual`·`nobody`다(FP4-9Q, §5). 201 `{"note", "item_id"}` | 400 `invalid_quote_policy`, 409 `own_item`(자기 노트 인용), 400 `invalid_request`, 400 `empty_content`, 400 `content_too_long`(`limit`), 400 `summary_too_long`, 400 `too_many_mentions`, 400 `too_many_tags`, 400 `invalid_language`, 400 `invalid_mention`, 400 `blocked_domain`, 404 `item_not_found`, 409 `not_actor` |
 | `PATCH` | `/api/federation/notes/{note_id}` | 본문은 `content`, `summary`, `sensitive`, `language`, `quote_policy` 중 하나 이상. 200 `{"note"}` | `POST`의 400 응답, 404 `note_not_found`, 409 `not_actor` |
 | `DELETE` | `/api/federation/notes/{note_id}` | 200 `{"deleted": true, "id"}`. 객체 경로는 그 뒤로 410이다 | 404 `note_not_found` |

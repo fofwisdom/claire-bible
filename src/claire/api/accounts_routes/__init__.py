@@ -32,6 +32,7 @@ from . import laboratory
 from . import plugins
 from . import federation_notes
 from . import federation_quotes
+from . import rendition_marks
 from . import knowledge_federation
 from . import notifications as notification_routes
 from .common import AccountsContext, build_context, prepare_auth_db, prepare_client_db, require_recent_auth
@@ -72,6 +73,7 @@ def build_account_routes(
         *federation.routes(ctx),
         *federation_notes.routes(ctx),
         *federation_quotes.routes(ctx),
+        *rendition_marks.routes(ctx),
         *knowledge_federation.routes(ctx),
         *idp.routes(ctx),
         *invites.routes(ctx),
