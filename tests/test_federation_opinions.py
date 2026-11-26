@@ -1,6 +1,6 @@
-"""Opinions of published objects (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B and C, phases E7a and E7c, contract 1.23, client.db version 11).
+"""Opinions of published objects (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B, C, and E, phases E7a, E7c, and E8, contract 1.23, client.db version 11).
 
-The interface between Claire and the sidecar (each endpoint agrees with its contract fixture; the sidecar tests read the same files), the rules of the store (which posts are opinions, and what a 404 does), the remote ``Delete`` of an opinion, and the run that deletes the opinions of a gone object.
+The interface between Claire and the sidecar (each endpoint agrees with its contract fixture; the sidecar tests read the same files), the rules of the store (which posts are opinions, and what a 404 does), the remote ``Delete`` of an opinion, and the scheduled run (the opinions of a gone object, and the daily refresh).
 """
 
 from __future__ import annotations
@@ -154,7 +154,7 @@ def test_the_run_deletes_the_opinions_of_a_gone_object_only(internal):  # noqa: 
         client.commit()
     finally:
         client.close()
-    assert opinion_scheduler.run_once(internal.settings) == {"removed": 1}
+    assert opinion_scheduler.run_once(internal.settings, now=NOW)["removed"] == 1
     client = _client(internal)
     conn = dbm.connect_existing(internal.settings.db_file)
     try:
@@ -163,3 +163,29 @@ def test_the_run_deletes_the_opinions_of_a_gone_object_only(internal):  # noqa: 
     finally:
         conn.close()
         client.close()
+
+
+def test_the_daily_refresh_asks_for_the_objects_with_activity_in_seven_days(internal):  # noqa: F811
+    from claire.federation import opinion_scheduler
+    from tests.test_federation_routes import SECOND_OBJECT_ID
+
+    # Three days after the publication: a delivered reply to the object two days ago, and a like of the second object eight days ago.
+    at = NOW + 3 * 86400
+    client = _client(internal)
+    try:
+        client.execute("INSERT INTO federation_timeline_items (account_id, object_iri, object_type, author_iri, author_json, content_html, in_reply_to_iri, received_at) VALUES (?, ?, 'Note', 'https://remote.example/users/carol', '{}', '', ?, ?)", (internal.alice, CAROL, OBJECT, at - 2 * 86400))
+        client.execute("INSERT INTO federation_object_reactions (object_public_id, kind, actor_iri, activity_iri, account_id, received_at) VALUES (?, 'like', 'https://remote.example/users/dan', 'https://remote.example/likes/1', ?, ?)", (SECOND_OBJECT_ID, internal.alice, at - 8 * 86400))
+        client.commit()
+    finally:
+        client.close()
+    assert opinion_scheduler.run_once(internal.settings, now=at) == {"removed": 0, "refreshed": 1}
+    client = _client(internal)
+    try:
+        assert [(f.object_iri, f.status, f.own) for f in (opinions_store.get_fetch(client, iri) for iri in (OBJECT, f"{ORIGIN}/ap/objects/{SECOND_OBJECT_ID}")) if f is not None] == [(OBJECT, "pending", True)]
+        opinions_store.finish(client, opinions_store.get_fetch(client, OBJECT).id, result_count=0, now=at + 60)
+        client.commit()
+    finally:
+        client.close()
+    # One refresh in one day: a run one hour later asks for nothing, a run one day later asks again.
+    assert opinion_scheduler.run_once(internal.settings, now=at + 3600)["refreshed"] == 0
+    assert opinion_scheduler.run_once(internal.settings, now=at + 86400)["refreshed"] == 1

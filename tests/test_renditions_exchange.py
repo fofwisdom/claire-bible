@@ -1,11 +1,11 @@
-"""End-to-end exchange of renditions between two real Claire servers and their real sidecars (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md phases E4, E5, and E9).
+"""End-to-end exchange of renditions between two real Claire servers and their real sidecars (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md phases E4, E5, E7, E8, and E9).
 
 A (``https://a.claire.test``) publishes a document with the renditions "standard" and "concise". B (``https://b.claire.test``) has a document of the same source and knows A. The test runs two Claire processes (each with its own database and its internal federation socket) and ``sidecar/fedify/e2e/renditions_exchange_e2e.ts`` for three phases. The sidecar code is real; the network between the two sidecars is in the Deno process (a request to the origin of one server goes to the handle function of its sidecar).
 
 1. ``read``: the read queue of B gets the source index, the objects, the bodies, and the account from A with signed requests; B shows the two renditions, and A records B as a reader of each body.
 2. ``plus``: an account of B gives a +1 to the rendition "concise"; the knowledge outbox of B delivers it; A stores the mark.
-3. ``opinions``: carol of B replied to the document of A (A got the reply), and dan of B replied to carol (A did not get it). A fetches the opinions of its object with requests that its server actor signs: it reads the reply of carol from B and finds the reply of dan in the ``replies`` collection of carol. The 의견 route of A shows the two.
-4. ``delete``: A retracts the document; the knowledge outbox of A sends one ``Delete`` for each object to the server actor of B only; B removes its copies.
+3. ``opinions``: carol of B replied to the document of A (A got the reply), and dan of B replied to carol (A did not get it). A fetches the opinions of its object with requests that its server actor signs: it reads the reply of carol from B and finds the reply of dan in the ``replies`` collection of carol. The 의견 route of A shows the two. Then dan replies again, the daily run of A (phase E8) asks for a fetch because the object got a reply in the last 7 days, and the same phase gets the new reply.
+4. ``delete``: A retracts the document; the knowledge outbox of A sends one ``Delete`` for each object to the server actor of B only; B removes its copies. The run of A deletes the opinions of the gone object (phase E7c).
 
 The same as ``tests/test_fedify_sidecar.py``: it needs Deno, and it is skipped without it.
 """
@@ -19,12 +19,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from claire.api.federation_internal import federation_socket_path, service_key_path
-from claire.federation import plus_one_marks, remote_renditions
+from claire.federation import opinion_scheduler, plus_one_marks, remote_renditions
 from claire.federation.knowledge import known_servers
 from claire.ingest.source_key import source_key
 from claire.store import accounts as accounts_store
@@ -32,6 +33,7 @@ from claire.store import client_db
 from claire.store import db as dbm
 from claire.store import document_renditions as renditions_store
 from claire.store import federation as federation_store
+from claire.store import federation_opinions as opinions_store
 from claire.store import permalinks
 from tests.test_fedify_sidecar import _clean_env, _free_port, _stop
 
@@ -223,6 +225,20 @@ def test_e2e_two_claire_servers_exchange_renditions_plus_ones_and_deletes(tmp_pa
             (f"{b.origin}/ap/objects/{dan_note}", f"{b.origin}/ap/objects/{carol_note}", "@dan@b.claire.test", [[{"text": "Dan answers Carol"}]]),
         ]
 
+        # 3b. dan replies again (A does not get it). The daily run of A, 20 minutes later (after the 15 minutes of rule B2), asks for a fetch of the object with a reply in the last 7 days; the sidecar of A gets the new reply.
+        dan_again = 916412345678901003
+        client = client_db.connect_client_existing(client_db.client_db_path(b.data_dir / "claire.db"))
+        try:
+            client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (dan_again, dan, f"{b.origin}/ap/objects/{carol_note}", "Dan again", "<p>Dan again</p>", time.time() - 60, time.time() - 60))
+            client.commit()
+        finally:
+            client.close()
+        settings_a = SimpleNamespace(db_file=a.data_dir / "claire.db", public_url=a.origin)
+        assert opinion_scheduler.run_once(settings_a, now=time.time() + 1200) == {"removed": 0, "refreshed": 1}
+        _phase(a, b, "opinions")
+        page = httpx.get(f"http://127.0.0.1:{a.port}/silvercord/{token}/opinions", headers={"Host": a.host}, timeout=10).json()
+        assert [o["iri"] for o in page["opinions"]][-1] == f"{b.origin}/ap/objects/{dan_again}", page
+
         # 4. alice of A retracts the document: B, the reader of the two bodies, gets one Delete for each object and removes its copies.
         conn = a.db()
         try:
@@ -239,6 +255,13 @@ def test_e2e_two_claire_servers_exchange_renditions_plus_ones_and_deletes(tmp_pa
             conn.close()
         assert journal == [("delete_rendition", "processed", None), ("delete_rendition", "processed", None)]
         assert left == 0
+        # The run of A deletes the three opinions of the gone object.
+        assert opinion_scheduler.run_once(settings_a)["removed"] == 3
+        client = client_db.connect_client_existing(client_db.client_db_path(a.data_dir / "claire.db"))
+        try:
+            assert opinions_store.object_iris(client) == []
+        finally:
+            client.close()
     except BaseException:
         print("A:", a.stop()[-3000:])
         print("B:", b.stop()[-3000:])

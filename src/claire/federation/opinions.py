@@ -16,10 +16,13 @@ from ..store import federation_notes as notes_store
 from ..store import federation_opinions as opinions_store
 from ..store import federation_quotes as quotes_store
 
-__all__ = ["REFRESH_RETRY_SECONDS", "opinions_view", "purge_gone_objects", "text_segments"]
+__all__ = ["ACTIVE_SECONDS", "REFRESH_MAX_OBJECTS", "REFRESH_RETRY_SECONDS", "active_objects", "daily_refresh", "opinions_view", "purge_gone_objects", "text_segments"]
 
 # The page asks again after this time while a fetch runs (Section 5.11 B6).
 REFRESH_RETRY_SECONDS = 3
+# The scheduled refresh (Section 5.11 E): the objects with activity in the last 7 days, 200 at most in one run.
+ACTIVE_SECONDS = 7 * 24 * 3600.0
+REFRESH_MAX_OBJECTS = 200
 _BLOCK_TAGS = {"p", "div", "li", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "table", "tr"}
 _MAX_TEXT = 20000
 
@@ -154,3 +157,37 @@ def purge_gone_objects(conn: sqlite3.Connection, client: sqlite3.Connection, *, 
         if federation_store.owning_object(conn, int(number)) is None:
             removed += opinions_store.delete_for_object(client, object_iri)
     return removed
+
+
+def active_objects(conn: sqlite3.Connection, client: sqlite3.Connection, *, origin: str, now: float) -> list[tuple[str, float]]:
+    """The own published objects that got a delivered reply, a like, or a quote request in the last 7 days (Section 5.11 E), the newest activity first, ``REFRESH_MAX_OBJECTS`` at most: (the object address, the time of its publication)."""
+    since = now - ACTIVE_SECONDS
+    prefix = f"{origin.rstrip('/')}/ap/objects/"
+    last: dict[int, float] = {}
+
+    def seen(number: int, at: float) -> None:
+        last[number] = max(at, last.get(number, at))
+
+    for iri, at in client.execute("SELECT in_reply_to_iri, MAX(received_at) FROM federation_timeline_items WHERE substr(in_reply_to_iri, 1, ?)=? AND received_at>=? GROUP BY in_reply_to_iri", (len(prefix), prefix, since)).fetchall():
+        number = str(iri)[len(prefix):]
+        if str(iri).startswith(prefix) and number.isascii() and number.isdigit():
+            seen(int(number), float(at))
+    for number, at in client.execute("SELECT object_public_id, MAX(received_at) FROM federation_object_reactions WHERE kind='like' AND received_at>=? GROUP BY object_public_id", (since,)).fetchall():
+        seen(int(number), float(at))
+    for number, at in client.execute("SELECT object_public_id, MAX(created_at) FROM federation_quote_authorizations WHERE created_at>=? GROUP BY object_public_id", (since,)).fetchall():
+        seen(int(number), float(at))
+    out: list[tuple[str, float]] = []
+    for number, _at in sorted(last.items(), key=lambda pair: (-pair[1], pair[0])):
+        owning = federation_store.owning_object(conn, number)
+        if owning is None:
+            continue
+        document, rendition = owning
+        out.append((f"{prefix}{number}", rendition.created_at if rendition is not None else document.published_at))
+        if len(out) >= REFRESH_MAX_OBJECTS:
+            break
+    return out
+
+
+def daily_refresh(conn: sqlite3.Connection, client: sqlite3.Connection, *, origin: str, now: float) -> int:
+    """Ask for a fetch of the opinions of each active object (Section 5.11 E) with the conditions of rule B2. Return the number of fetches that wait after the run. The caller commits ``client``."""
+    return sum(1 for object_iri, published in active_objects(conn, client, origin=origin, now=now) if opinions_store.request_fetch(client, object_iri, own=True, object_published=published, now=now) is not None)
