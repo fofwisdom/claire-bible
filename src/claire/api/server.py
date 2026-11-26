@@ -62,6 +62,7 @@ from ..notifications import events as notification_events
 from ..accounts import kb_access
 from ..store import permalinks
 from ..store import document_renditions as renditions_store
+from ..federation import remote_renditions
 from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES, PRIMARY_RENDITION_TEMPLATE, RENDITION_TEMPLATE_IDS
 from ..accounts import user_home as user_home_mod
 from ..store import accounts as accounts_store
@@ -6252,6 +6253,23 @@ def create_app(
         # The renditions are parts of the document: each reader of the page sees them (Section 5.8 rule 1).
         renditions = await asyncio.to_thread(_renditions)
         same_source = await asyncio.to_thread(_same_source) if renditions else []
+
+        def _ask_other_servers() -> None:
+            # The renditions of other Claire servers for the same source (Section 5.4 rules 3 and 6): at most one index read for each server and key in the lifetime. The sidecar does the reads later; this request does not wait.
+            conn = dbm.connect_existing(s.db_file)
+            try:
+                row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
+                if row is not None and row[0] and remote_renditions.request_set(conn, str(row[0]), origin=base_origin, now=time.time()):
+                    conn.commit()
+            finally:
+                conn.close()
+
+        if renditions:
+            base_origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+            try:
+                await asyncio.to_thread(_ask_other_servers)
+            except Exception:  # noqa: BLE001  (the page does not fail for the request of a read)
+                log.warning("rendition set request failed", exc_info=True)
         selected = next((r for r in renditions if r.template == rendition), None) if rendition is not None else None
         if rendition is not None and selected is None:
             return PlainTextResponse("Not Found", status_code=404)

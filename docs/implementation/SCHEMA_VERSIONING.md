@@ -494,3 +494,11 @@ Basis: phase E5a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/
 - **[code]** `SCHEMA_VERSION` is 53. `_migrate_v53_body_readers` (`src/claire/store/db.py`) runs at each start and makes `federation_body_readers`: (`object_public_id`, `server_actor_iri`) is the key, with `first_read_at`, `last_read_at`, and, after the object is gone, `gone_at`, `template`, and `account_id` (partial index on `gone_at`).
 - **[code]** The body route writes a row for each read; the knowledge outbox sends one `Delete` to the readers of a gone object and removes its rows ([FEDERATION.md](FEDERATION.md) §4.6).
 - **[test]** `tests/test_federation_rendition_objects.py` (`test_the_readers_of_a_body_get_one_delete_when_the_rendition_is_gone`).
+
+## v54 (the cache of the renditions of other servers)
+
+Basis: phase E5b of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.4 rules 3 to 6 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 54. `_migrate_v54_remote_renditions` calls `federation.remote_renditions.ensure_schema`, which makes `remote_renditions` (one row for each rendition of another server: its address, domain, source key, template, account, title, page address, body address, the hash that the object names, the hash and the content of the stored body, `fetched_at`, `expires_at`) and `remote_rendition_indexes` (the last request of the source index of one server for one key and its result).
+- **[code] [decision]** The cache is in `claire.db`: it is of the server and not of an account, and its reads are rows of `kf_remote_reads` in the same file.
+- **[test]** `tests/test_remote_renditions.py`.

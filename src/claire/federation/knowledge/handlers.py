@@ -252,8 +252,14 @@ def revoke(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: d
 
 
 def delete_rendition(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:
-    """The origin deleted a rendition object whose body this server read (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4): the copy goes away at once. The actor of the activity must be the actor of the object (the validator checks that the two are on one server). The cache of remote renditions comes with phase E5b; until then this server keeps no copy, and the activity changes nothing."""
-    del ctx, entry, activity
+    """The origin deleted a rendition object whose body this server read (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4): the copy goes away at once. The actor of the activity must be the actor of the object (the validator checks that the two are on one server). Only the account of the copy can delete it: refusal ``not_own_object``. A ``Delete`` for a rendition that this server does not have changes nothing."""
+    from .. import remote_renditions
+
+    iri = str(activity["object"]["id"])
+    row = ctx.conn.execute("SELECT account_iri FROM remote_renditions WHERE iri=?", (iri,)).fetchone()
+    if row is not None and str(row[0]) != entry.actor:
+        raise journal.HandlerRefusal("not_own_object")
+    remote_renditions.forget(ctx.conn, iri)
 
 
 HANDLERS: dict[str, journal.Handler] = {

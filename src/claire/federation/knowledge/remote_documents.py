@@ -29,6 +29,7 @@ from ...store import federation as federation_store
 from ...store import kb_collab
 from ...store import themes as themes_store
 from . import access, known_servers, remote_kbs, vocabulary
+from .. import remote_renditions
 
 __all__ = [
     "LEASE_SECONDS",
@@ -258,6 +259,7 @@ def _finish(conn: sqlite3.Connection, read_id: int, *, status: str, error_code: 
 def lease(conn: sqlite3.Connection, *, now: float, limit: int) -> list[dict[str, Any]]:
     """Return the oldest reads that are ready, and give a lease on each one. A read of a blocked domain ends as ``failed`` (``blocked_domain``); a read with ``MAX_ATTEMPTS`` leases and no answer ends as ``failed`` (``read_timeout``). The caller makes sure that the switch ``federation`` is on."""
     out: list[dict[str, Any]] = []
+    remote_renditions.purge(conn, now=now)
     for row in conn.execute(f"SELECT {_READ_COLUMNS} FROM kf_remote_reads WHERE status='pending' AND (lease_until IS NULL OR lease_until<=?) ORDER BY id", (now,)).fetchall():
         read = _read(row)
         if federation_store.blocking_domain(conn, read["domain"]) is not None:
@@ -422,6 +424,9 @@ def record_result(conn: sqlite3.Connection, read_id: int, *, document: dict[str,
         return None
     if federation_store.blocking_domain(conn, read["domain"]) is not None:
         _finish(conn, read["id"], status="failed", error_code="blocked_domain", now=now)
+    elif read["kind"] in remote_renditions.KINDS:
+        # A read of the renditions of another server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md phase E5b): the queue is the same, the answer goes to its module.
+        remote_renditions.record_result(conn, read, document=document, error=error, origin=origin, now=now)
     elif read["kind"] == "recheck":
         _record_recheck(conn, read, document, error, now=now)
     elif error is not None or document is None:

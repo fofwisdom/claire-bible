@@ -602,3 +602,21 @@ def test_the_picker_has_the_published_renditions_of_other_documents_with_the_sam
     sc = _extract_docdata(anon("GET", f"/silvercord/{token}").text)["silvercord"]
     assert [(r["template"], r["url"], r["primary"]) for r in sc["same_source_renditions"]] == [("standard", f"/silvercord/{bob_token}", True), ("academic", f"/silvercord/{bob_token}/renditions/academic", False)]
     assert all(r["account"] for r in sc["same_source_renditions"])
+
+    # The page asks each known server for its renditions of the source, one time in the lifetime (phase E5b). The sidecar does the read later.
+    from claire.federation.knowledge import known_servers
+
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        known_servers.note_server(conn, "c.example", source="admin", added_by=1, now=1.0)
+        conn.commit()
+    finally:
+        conn.close()
+    for _ in range(2):
+        assert anon("GET", f"/silvercord/{token}").status_code == 200
+    conn = dbm.connect_existing(env["db_file"], readonly=True)
+    try:
+        scheme = s.public_url.split("://", 1)[0]
+        assert [tuple(r) for r in conn.execute("SELECT kind, url, status FROM kf_remote_reads WHERE kind LIKE 'rendition_%'")] == [("rendition_index", f"{scheme}://c.example/ap/sources/{key}", "pending")]
+    finally:
+        conn.close()
