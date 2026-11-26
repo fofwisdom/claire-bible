@@ -225,6 +225,7 @@ Telegram의 Support Bundle 생성은 Compose 내부 owner 인증 API로 위임�
 | `data/auth/fedify_service.key` | `claire migrate` | 내부 연합 API 서명용 서비스 키, 32바이트, 권한 0600. `fedify` 컨테이너에는 이 파일 하나만 읽기 전용으로 마운트된다 |
 | `data/fedify/fedify.db` (`-wal`, `-shm`) | 사이드카 | Fedify 캐시와 메시지 큐, 권한 0600. Claire는 이 파일을 읽지 않는다 |
 | `data/auth/auth.db`의 `actor_keys` | `api` 프로세스 (사이드카가 키를 처음 요청할 때) | 액터 키. 개인 키는 `master.key`로 암호화되어 있다 |
+| `data/auth/master.key` | The first process that needs it (`SecretService`), when `CLAIRE_SECRET_KEY` is empty. `claire migrate` does not make it | 32 bytes, mode 0600. The api and the workers can start at the same time on a new data folder: the new key goes to a temporary file, and a hard link puts it at the path only when no file is there; a process that loses reads the key of the winner (fix of 2026-11-26: before it, two processes could each write a key, and then the actor keys of one of them could not be decrypted, GF12 `actor_keys_decrypt_failed`). |
 
 서비스 키를 바꾸려면 파일을 지우고 `claire migrate`를 다시 실행한 뒤 `api`와 `fedify`를 재시작한다. 두 프로세스 모두 키를 메모리에 들고 있어서 재시작 전에는 새 키를 쓰지 않는다.
 

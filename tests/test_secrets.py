@@ -359,3 +359,29 @@ def test_restore_preserves_master_key_and_rejects_archive_with_master_key(tmp_pa
             cb.command_restore(runtime, raw_source=str(malicious_archive), raw_components=None, confirmed=True)
 
     assert master_key_path.read_bytes() == original_master_key
+
+
+def _resolve_in_process(path: str, start, queue) -> None:
+    os.environ.pop("CLAIRE_SECRET_KEY", None)
+    start.wait()
+    queue.put(SecretService(key_path=Path(path))._master_key.hex())
+
+
+def test_processes_that_start_together_make_one_master_key(tmp_path: Path):
+    """The api and the workers start at the same time on a new data folder (the development network found it): each process must get the key that is in the file. Before the fix, two processes could each write their own key, and the actor keys of one process could not be decrypted after that."""
+    import multiprocessing
+
+    for attempt in range(5):
+        key_file = tmp_path / str(attempt) / "auth" / "master.key"
+        context = multiprocessing.get_context("spawn")
+        start, queue = context.Event(), context.Queue()
+        processes = [context.Process(target=_resolve_in_process, args=(str(key_file), start, queue)) for _ in range(6)]
+        for process in processes:
+            process.start()
+        start.set()
+        keys = {queue.get(timeout=60) for _ in processes}
+        for process in processes:
+            process.join(timeout=60)
+        assert keys == {key_file.read_bytes().hex()}
+        assert sorted(p.name for p in key_file.parent.iterdir()) == ["master.key"]
+        assert stat.S_IMODE(os.stat(key_file).st_mode) == 0o600

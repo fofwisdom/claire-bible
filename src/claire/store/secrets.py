@@ -91,35 +91,46 @@ class SecretService:
 
         path = key_path or Path("data/auth/master.key")
         if path.exists():
-            try:
-                os.chmod(path, 0o600)
-            except OSError:
-                pass
-            raw = path.read_bytes()
-            raw_str = raw.decode("utf-8", errors="ignore").strip()
-            if len(raw_str) == 64:
-                try:
-                    return bytes.fromhex(raw_str)
-                except ValueError:
-                    pass
-            if len(raw) < 32:
-                raise SecretError(f"Master key file at {path} contains fewer than 32 bytes")
-            return raw[:32]
+            return cls._read_master_key(path)
 
+        # The api and the workers start at the same time on a new data folder, and each one can come here. The new key goes to a temporary file with its full content, and a hard link puts it at the path only when no file is there. A process that loses reads the key of the winner, so all processes have the same key.
         new_key = secrets.token_bytes(32)
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(path.parent, 0o700)
         except OSError:
             pass
-        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with open(fd, "wb") as f:
-            f.write(new_key)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}")
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with open(fd, "wb") as f:
+                f.write(new_key)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                os.link(tmp, path)
+            except FileExistsError:
+                return cls._read_master_key(path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return new_key
+
+    @staticmethod
+    def _read_master_key(path: Path) -> bytes:
         try:
             os.chmod(path, 0o600)
         except OSError:
             pass
-        return new_key
+        raw = path.read_bytes()
+        raw_str = raw.decode("utf-8", errors="ignore").strip()
+        if len(raw_str) == 64:
+            try:
+                return bytes.fromhex(raw_str)
+            except ValueError:
+                pass
+        if len(raw) < 32:
+            raise SecretError(f"Master key file at {path} contains fewer than 32 bytes")
+        return raw[:32]
 
     def derive_hmac_key(self, purpose: str) -> bytes:
         """Derive purpose-specific HMAC key using HMAC-SHA256."""
