@@ -149,7 +149,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | Opinions of a rendition of another server | 5.11 C2 | `071cf2a2` | AD35. `GET /silvercord/{token}/renditions/remote/{key}/opinions`; the tab follows the shown rendition. Tests: `tests/test_silvercord_rendering.py`, `sidecar/fedify/tests/context_test.ts`, `e2e/renditions.spec.js`. No two-server phase: in the test of two servers all opinions are on the reading server, and the sidecar never reads its own origin. |
 | Prefetch of the other renditions; `content-visibility` of long bodies and opinion trees | 5.10 rules 5 and 6; measurement 6 | `96900bf2` | AD36, AD37. Measurement 6: headless Chromium 153 uses a prefetched answer also with `Cache-Control: private, no-store`. |
 | Notification for a reply of an account of this server | owner decision O22 | `f0fb8944` | The note route gives the owner of the target (another account of this server) an item with `mention` 1 and `ap_mention`, as a reply of another server does. Applies to each reply of the federation client, not only the 의견 tab. A like still makes no notification (no notification kind for likes, also for remote likes). AD38. |
-| "답글" on a reply of this server in the 의견 tab | 5.11 D4 | (this commit) | AD27 (extended). The reply goes to the address of the note with `in_reply_to_object`; its author gets the notification of O22. |
+| "답글" on a reply of this server in the 의견 tab | 5.11 D4 | `48e183c8` | AD27 (extended). The reply goes to the address of the note with `in_reply_to_object`; its author gets the notification of O22. |
 
 ## 8. Open Items
 
