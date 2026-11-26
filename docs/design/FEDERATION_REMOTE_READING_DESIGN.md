@@ -338,6 +338,8 @@ Two-way communication needs the answers of remote users who are not followed.
 
 ### 6.7 Accounts of the Same Server (RD30)
 
+**State (2026-11-26):** implemented ([`FEDERATION.md`](../implementation/FEDERATION.md) Section 2.1; the decisions AD39 to AD42 of [`RENDITIONS_HANDOFF.md`](../implementation/RENDITIONS_HANDOFF.md)).
+
 Facts before RD30 (2026-11-26): this design names only remote actors. The code refused an address on the origin of this server in each inbound path (`_remote_host` of the internal API, since FP2-2), and the sidecar made no request to its own origin. Thus two accounts of one server could not follow each other, and a reply, a like, a boost, or a quote between them did not arrive. Phase E7 of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) added special paths for the same server (its handoff AD25, AD27, AD38).
 
 Rules:

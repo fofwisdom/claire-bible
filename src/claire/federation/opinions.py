@@ -112,7 +112,7 @@ def _local_replies(client: sqlite3.Connection, conn: sqlite3.Connection, parents
                 continue
             actor = f"{origin}/ap/actors/{row[0]}"
             out.append({
-                "iri": f"{origin}/ap/objects/{public_id}", "parent": str(parent), "kind": "reply", "local": True,
+                "iri": f"{origin}/ap/objects/{public_id}", "parent": str(parent), "kind": "reply", "local": True, "hideable": False,
                 "author": {"iri": actor, "name": row[2] or row[1], "handle": f"@{row[1]}@{host}"},
                 "url": f"{origin}/ap/objects/{public_id}", "summary": note.summary, "sensitive": bool(note.sensitive), "language": note.language,
                 "published": note.published_at, "text": text_segments(note.content_html),
@@ -125,14 +125,16 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
     opinions: list[dict[str, Any]] = []
     for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=moderator):
         opinions.append({
-            "iri": opinion.opinion_iri, "parent": opinion.parent_iri, "kind": opinion.kind, "local": False, "hidden": opinion.hidden_at is not None,
+            # ``local``: the author is an account of this server (a badge only; RD30 gives the same controls). ``hideable``: a row of the opinions, which the author of the object can hide.
+            "iri": opinion.opinion_iri, "parent": opinion.parent_iri, "kind": opinion.kind, "local": opinion.author_iri.startswith(f"{origin}/"), "hideable": True, "hidden": opinion.hidden_at is not None,
             "author": {"iri": opinion.author_iri, "name": opinion.author_name, "handle": opinion.author_handle},
             "url": opinion.url or opinion.opinion_iri, "summary": opinion.summary, "sensitive": opinion.sensitive, "language": opinion.language,
             "published": opinion.published, "text": text_segments(opinion.content_html),
             "attachments": len(opinion.attachments),
             "frame_url": None if frame_base is None else f"{frame_base}/{opinions_store.opinion_key(opinion.opinion_iri)}",
         })
-    seen = {item["iri"] for item in opinions}
+    # Each opinion row, also a hidden one: a note of this server that is an opinion row (RD30) does not come back as a local reply.
+    seen = {item["iri"] for item in opinions} | {opinion.opinion_iri for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=True)}
     parents = [object_iri, *(item["iri"] for item in opinions if not item.get("hidden"))]
     opinions += [item for item in _local_replies(client, conn, parents, origin, actor_ids) if item["iri"] not in seen]
     opinions.sort(key=lambda item: (item["published"] or 0.0, item["iri"]))

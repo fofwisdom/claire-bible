@@ -78,7 +78,8 @@ Deno.test(`renditions between two Claire servers: ${Deno.env.get("E2E_PHASE")}`,
       assert.equal(tasks, 1, traffic.join("\n"));
       assert.equal(a.outboxCounters.handed_off, 1, traffic.join("\n"));
       assert.ok(traffic.some((line) => line.startsWith("GET b.claire.test/ap/objects/") && line.endsWith("/replies")), traffic.join("\n"));
-      assert.ok(traffic.every((line) => !line.startsWith("GET a.claire.test/ap/objects/")), traffic.join("\n"));
+      // RD30: A reads its own object as an object of another server (in production through its loopback); the walk then reads the replies collection of the object too.
+      assert.ok(traffic.some((line) => line.startsWith("GET a.claire.test/ap/objects/") && line.endsWith("/replies")), traffic.join("\n"));
     } else if (phase === "fill") {
       // alice of A follows carol of B: A reads the first page of the outbox of carol with the key of alice (phase E10a).
       const tasks = await drain(() => a.processFillTasks());

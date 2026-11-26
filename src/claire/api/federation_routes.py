@@ -622,6 +622,37 @@ def _reaction_kind(event: InboxEventRequest) -> tuple[Literal["like", "announce"
     return None
 
 
+_SHARED_INBOX = "shared"
+
+
+def _own_actor_address(conn: Any, iri: str, origin: str) -> str | None:
+    """RD30 (FEDERATION_REMOTE_READING_DESIGN.md Section 6.7): the actor of this server that owns the address ``iri`` (the actor address itself or its inbox) when the actor is active and has a USERNAME, ``"shared"`` for the shared inbox of this server, else ``None``."""
+    base = origin.rstrip("/")
+    if iri == f"{base}/ap/inbox":
+        return _SHARED_INBOX
+    prefix = f"{base}/ap/actors/"
+    if not iri.startswith(prefix):
+        return None
+    number, _sep, tail = iri[len(prefix):].partition("/")
+    if tail not in ("", "inbox") or not (number.isascii() and number.isdigit()):
+        return None
+    row = conn.execute("SELECT 1 FROM accounts WHERE public_id=? AND status='active' AND username IS NOT NULL", (int(number),)).fetchone()
+    return None if row is None else f"{prefix}{number}"
+
+
+def _peer_host(conn: Any, iri: str, origin: str, *, actor_iri: str | None = None) -> str | None:
+    """The host of an address of a peer actor: an address of another server (``_remote_host``), or since RD30 an address of an actor of this server. An address of this server is accepted only when it is the address of ``actor_iri`` (the actor itself or its inbox) or the shared inbox; another server cannot use an address of this server. ``None`` when the address is not permitted."""
+    host = _remote_host(iri, origin)
+    if host is not None:
+        return host
+    owner = _own_actor_address(conn, iri, origin)
+    if owner is None or (owner != _SHARED_INBOX and actor_iri is not None and owner != actor_iri):
+        return None
+    if owner == _SHARED_INBOX and actor_iri is not None and _own_actor_address(conn, actor_iri, origin) in (None, _SHARED_INBOX):
+        return None
+    return federation_store.iri_host(origin)
+
+
 def _local_object_public_id(origin: str, iri: str | None) -> int | None:
     """Return the public ID in an object ID of this server (``{origin}/ap/objects/{public_id}``), or ``None``."""
     prefix = f"{origin}/ap/objects/"
@@ -872,7 +903,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return InboxEventResponse(decision="rejected", reply=None, reason=reason)
 
         conn = store.conn
-        hosts = [_remote_host(address, origin) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
+        # RD30: an actor of this server is a peer as an actor of another server.
+        hosts = [_peer_host(conn, address, origin, actor_iri=event.actor.iri) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
         if any(host is None for host in hosts):
             return rejected("invalid_actor")
         # Claire makes the final check of the domain blocks (design Section 11 item 1).
@@ -1034,8 +1066,22 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
     def _too_large(obj: TimelineObject) -> bool:
         return len(obj.content_html.encode("utf-8")) > client_store.TIMELINE_CONTENT_MAX_BYTES or len(obj.attachments) > client_store.TIMELINE_MAX_ATTACHMENTS
 
+    def _own_object_author(conn: Any, origin: str, iri: str) -> str | None:
+        """The actor of the account of an object of this server (a published document object, a rendition object, or a note that is not deleted), or ``None``."""
+        public_id = _local_object_public_id(origin, iri)
+        if public_id is None:
+            return None
+        owning = federation_store.owning_object(conn, public_id)
+        account_id = int(owning[0].account_id) if owning is not None else _note_owner(public_id)
+        if account_id is None:
+            return None
+        row = conn.execute("SELECT public_id FROM accounts WHERE id=? AND status='active' AND username IS NOT NULL", (account_id,)).fetchone()
+        return None if row is None else f"{origin}/ap/actors/{ids.format_public_id(int(row[0]))}"
+
     def _object_refusal(conn: Any, origin: str, obj: TimelineObject) -> Literal["invalid_object", "blocked_domain", "too_large"] | None:
-        """The reason why an object cannot be an item, or ``None``. The domain block applies to the author and to the host of the object IRI (Section 6.2 rule 3). An object of this server is not an item of a timeline."""
+        """The reason why an object cannot be an item, or ``None``. The domain block applies to the author and to the host of the object IRI (Section 6.2 rule 3). Since RD30 an object of this server can be an item, as an object of another server, when it exists here and its author is the author that the object names: no other server can give an object of this server."""
+        if obj.object_iri.startswith(f"{origin}/"):
+            return "invalid_object" if _own_object_author(conn, origin, obj.object_iri) != obj.author.iri else ("too_large" if _too_large(obj) else None)
         hosts = [_remote_host(obj.object_iri, origin), _remote_host(obj.author.iri, origin)]
         if any(host is None for host in hosts):
             return "invalid_object"
@@ -1108,7 +1154,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             return TimelineEventResponse(decision=decision, reason=reason, items=items, notices=notices or [])
 
         conn = store.conn
-        hosts = [_remote_host(address, origin) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
+        hosts = [_peer_host(conn, address, origin, actor_iri=event.actor.iri) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
         if any(host is None for host in hosts):
             return answer("rejected", "invalid_actor")
         if any(federation_store.blocking_domain(conn, host) is not None for host in hosts if host is not None):
@@ -1153,7 +1199,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         if not accounts:
             return answer("ignored", "not_followed")
         rate = int(client_store.get_reading_settings(conn)["mention_rate_per_hour"])
-        author_host = _remote_host(obj.author.iri, origin)
+        author_host = _peer_host(conn, obj.author.iri, origin)
         announced_by = None
         if event.type == "Announce":
             announced_by = (event.announced_by or TimelineActor(iri=actor_iri, name=None, handle=None)).model_dump(mode="json")
@@ -1174,7 +1220,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             if mention and account_id not in followers:
                 # Section 6.6 rule 6: the limit applies to the items that only the mention brings, for each remote domain and account.
                 recent = client_store.recent_mention_authors(client, account_id, since=now() - MENTION_RATE_WINDOW_SECONDS)
-                if sum(1 for author in recent if _remote_host(author, origin) == author_host) >= rate:
+                if sum(1 for author in recent if _peer_host(conn, author, origin) == author_host) >= rate:
                     limited += 1
                     continue
             in_timeline = True
@@ -1190,7 +1236,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             for parent in parents:
                 client_store.upsert_timeline_item(client, account_id=account_id, item=parent.model_dump(mode="json"), announced_by=None, in_timeline=False, now=now())
         if new_mentions:
-            notification_events.ap_mention(settings.db_file, account_ids=new_mentions, actor_iri=obj.author.iri)
+            # The label is the handle of the author when the object gives it: an actor of this server (RD30) has a number in its address, not a name.
+            notification_events.ap_mention(settings.db_file, account_ids=new_mentions, actor_iri=obj.author.iri, actor_label=(obj.author.handle or "").lstrip("@") or None)
         if limited == len(accounts):
             return answer("ignored", "rate_limited")
         return answer("accepted", None, made)
@@ -1376,7 +1423,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             conn = dbm.connect_existing(settings.db_file, readonly=True)
             try:
                 blocked = body.actor is not None and any(
-                    (host := _remote_host(address, origin)) is None or federation_store.blocking_domain(conn, host) is not None
+                    (host := _peer_host(conn, address, origin, actor_iri=body.actor.iri)) is None or federation_store.blocking_domain(conn, host) is not None
                     for address in (body.actor.iri, body.actor.inbox, body.actor.shared_inbox) if address is not None
                 )
             finally:

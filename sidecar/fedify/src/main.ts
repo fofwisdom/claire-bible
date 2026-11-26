@@ -16,6 +16,7 @@ import { SqliteKvStore, SqliteMessageQueue } from "@fedify/sqlite";
 import { CONTEXT_TASK_BATCH } from "./context.ts";
 import { OPINION_TASK_BATCH } from "./opinions.ts";
 import { FILL_TASK_BATCH } from "./fills.ts";
+import { loopbackFetch } from "./loopback.ts";
 import { CONTRACT_VERSION, InternalApi } from "./internal_api.ts";
 import { KNOWLEDGE_OUTBOX_BATCH, KNOWLEDGE_READ_BATCH } from "./knowledge.ts";
 import { resolvePublicHost } from "./probes.ts";
@@ -59,16 +60,20 @@ if (import.meta.main) {
   const key = Deno.readFileSync(env("CLAIRE_FEDIFY_SERVICE_KEY_FILE", "/data/auth/fedify_service.key"));
   const db = openDatabase(env("CLAIRE_FEDIFY_DB", "/data/fedify/fedify.db"));
   const client = Deno.createHttpClient({ proxy: { transport: "unix", path: socketPath } });
-  const api = new InternalApi({ key, transport: (request) => fetch(request, { client }) });
+  // The real fetch of the network: the internal API and the self-checks of the public path use it, and the loopback (below) gives it each request to another server.
+  const realFetch = globalThis.fetch;
+  const api = new InternalApi({ key, transport: (request) => realFetch(request, { client }) });
   const sidecar = new Sidecar({ api, kv: new SqliteKvStore(db), queue: new SqliteMessageQueue(db) });
+  // RD30 (FEDERATION_REMOTE_READING_DESIGN.md Section 6.7): a request of Fedify to the origin of this server goes to the request handler of this process, not to the network.
+  globalThis.fetch = loopbackFetch(realFetch, async () => (await sidecar.config()).canonical_origin, (request) => sidecar.handle(request));
 
   const beat = async () => {
     try {
       const config = await sidecar.config();
       // The path record (GF18) tells which addresses the public host has for this process.
       const [selfCheck, knowledgeSelfCheck, publicHost] = await Promise.all([
-        sidecar.publicSelfCheck(config),
-        sidecar.knowledgeSelfCheck(config),
+        sidecar.publicSelfCheck(config, realFetch),
+        sidecar.knowledgeSelfCheck(config, realFetch),
         resolvePublicHost(config.canonical_origin),
       ]);
       await api.heartbeat({

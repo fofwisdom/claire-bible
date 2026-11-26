@@ -2,7 +2,7 @@
 //
 // - Claire makes one fill when a follow of an account becomes accepted. The sidecar reads the first page of the `featured` collection of the followed actor (the pinned posts, as Mastodon does), then the first page of its `outbox` (as FediFetcher does), and gives the posts to Claire.
 // - The key of the account signs each read: the account follows the actor, and a server in authorized fetch mode needs a signature (rule 4).
-// - The limits of one fill: one page of each collection, 60 requests, and 30 seconds (rule 7). No request goes to this server or to a blocked domain; the document loader of Fedify refuses a private address.
+// - The limits of one fill: one page of each collection, 60 requests, and 30 seconds (rule 7). No request goes to a blocked domain; the document loader of Fedify refuses a private address. A request to this server goes through the loopback of the sidecar (RD30).
 // - A post must be on the origin of the actor, as its collections are (rule 5). An `Announce` in the outbox is skipped (rule 3). Only a public post of the actor goes to Claire; Claire decides the rest (the retention, the replies, 20 posts).
 
 import type { Context, DocumentLoader } from "@fedify/fedify";
@@ -30,7 +30,8 @@ export async function readActorPosts(actorIri: string, options: FillReadOptions)
   const loader: DocumentLoader = async (url, init) => {
     const iri = new URL(url);
     if (requests >= MAX_REQUESTS || Date.now() > options.deadline) throw new Error("the limit of the fill");
-    if ((iri.protocol !== "https:" && iri.protocol !== "http:") || iri.origin === options.origin || await options.isBlocked(iri.hostname)) throw new Error("a request that is not permitted");
+    // A document of this server comes through the loopback of the sidecar (RD30): an account of this server is filled as an account of another server.
+    if ((iri.protocol !== "https:" && iri.protocol !== "http:") || await options.isBlocked(iri.hostname)) throw new Error("a request that is not permitted");
     requests += 1;
     return await options.documentLoader(url, init);
   };

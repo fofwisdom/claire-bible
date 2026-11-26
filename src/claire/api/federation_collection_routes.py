@@ -57,11 +57,12 @@ def known_replies(conn: Any, client: Any, *, origin: str, public_id: int, author
     object_iri = f"{origin}/ap/objects/{public_id}"
     own: list[str] = []
     others: list[str] = []
-    for note_id, account_id in notes_store.reply_notes(client, object_iri):
-        if account_id in actor_ids:
-            (own if account_id == author_account_id else others).append(f"{origin}/ap/objects/{note_id}")
-    # The posts of other servers: delivered (the timeline) and fetched (the opinions, phase E7a). An opinion that the owner or the admin hid is not listed (Section 5.11 D5).
+    # An opinion that the owner or the admin hid is not listed (Section 5.11 D5), also a reply of this server (RD30: it is an opinion as a post of another server).
     hidden = {str(row[0]) for row in client.execute("SELECT opinion_iri FROM federation_opinions WHERE object_iri=? AND hidden_at IS NOT NULL", (object_iri,))}
+    for note_id, account_id in notes_store.reply_notes(client, object_iri):
+        if account_id in actor_ids and f"{origin}/ap/objects/{note_id}" not in hidden:
+            (own if account_id == author_account_id else others).append(f"{origin}/ap/objects/{note_id}")
+    # The posts of other servers: delivered (the timeline) and fetched (the opinions, phase E7a).
     fetched = [str(row[0]) for row in client.execute("SELECT opinion_iri FROM federation_opinions WHERE object_iri=? AND parent_iri=? AND kind='reply' AND hidden_at IS NULL ORDER BY COALESCE(published, fetched_at)", (object_iri, object_iri))]
     for iri in dict.fromkeys([*client_store.received_reply_iris(client, object_iri), *fetched]):
         host = _remote_host(iri, origin)

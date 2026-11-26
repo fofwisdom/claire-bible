@@ -109,11 +109,10 @@
         article.appendChild(body);
       }
       var actions = make("div", "op-post-actions");
-      if (!opinion.local && !opinion.hidden && state.data && state.data.actions) clientButtons(opinion).forEach(function (btn) { actions.appendChild(btn); });
-      // A reply of this server: a reply to it goes to its address (design rule D4; the author gets the notification, owner decision O22). Like, boost, and quote of a note of this server are not here.
-      if (opinion.local && state.data && state.data.actions) actions.appendChild(localReplyButton(opinion));
+      // RD30: an opinion of an account of this server has the same controls as an opinion of another server.
+      if (!opinion.hidden && state.data && state.data.actions) clientButtons(opinion).forEach(function (btn) { actions.appendChild(btn); });
       if (opinion.frame_url && String(opinion.frame_url).charAt(0) === "/") actions.appendChild(frameButton(opinion));
-      if (state.data && state.data.moderation && !opinion.local) actions.appendChild(moderationButton(opinion));
+      if (state.data && state.data.moderation && opinion.hideable) actions.appendChild(moderationButton(opinion));
       if (actions.childElementCount > 0) article.appendChild(actions);
       return article;
     }
@@ -173,24 +172,20 @@
       return [reply, toggles[0], toggles[1], quote];
     }
 
-    function localReplyButton(opinion) {
-      var reply = make("button", "sc-btn op-act-reply", rtr("share.sc.op_reply"));
-      reply.type = "button";
-      reply.addEventListener("click", function () { openCompose({ kind: "local", opinion: opinion }); });
-      return reply;
-    }
-
-    // The like of the post of the page (Section 5.6 rule 4): a toggle button with the count of likes.
+    // The like of the post of the page (Section 5.6 rule 4): the favourite of the item of the object, as for each post (RD30). The count changes at once; the origin counts the delivered Like.
     function likePostButton(data) {
+      var post = { iri: data.object };
       var btn = make("button", "sc-btn op-like-post", rtr("share.sc.op_like_post"));
       btn.type = "button";
       btn.setAttribute("aria-pressed", data.actions.liked ? "true" : "false");
       btn.addEventListener("click", function () {
         btn.disabled = true;
-        postJson(data.actions.like_url, "POST", { object: data.object, on: !data.actions.liked })
+        ensureItem(post)
+          .then(function (item) { return postJson("/api/federation/timeline/" + encodeURIComponent(item.item_id) + "/favourite", data.actions.liked ? "DELETE" : "POST", null); })
           .then(function (answer) {
-            data.actions.liked = Boolean(answer.liked);
-            if (data.counts) data.counts.likes = Number(answer.likes) || 0;
+            var liked = Boolean(answer.favourited);
+            if (data.counts && liked !== data.actions.liked) data.counts.likes = Math.max(0, Number(data.counts.likes || 0) + (liked ? 1 : -1));
+            data.actions.liked = liked;
             render();
           })
           .catch(function (error) {
@@ -251,7 +246,7 @@
       var name = author.name || author.handle || "";
       composeDialog.querySelector("#op-compose-title").textContent = target.kind === "object" ? rtr("share.sc.op_reply_object") : rtr(target.kind === "quote" ? "share.sc.op_compose_quote_title" : "share.sc.op_compose_reply_title", { name: name });
       var field = composeDialog.querySelector(".op-compose-text");
-      field.value = (target.kind === "reply" || target.kind === "local") && author.handle ? author.handle + " " : "";
+      field.value = target.kind === "reply" && author.handle ? author.handle + " " : "";
       composeDialog.querySelector(".op-compose-cw").value = "";
       composeDialog.querySelector(".op-compose-error").hidden = true;
       composeDialog.showModal();
@@ -268,11 +263,10 @@
         body.summary = cw.value.trim();
         body.sensitive = true;
       }
-      var ready = target.kind === "object" || target.kind === "local" ? Promise.resolve(null) : ensureItem(target.opinion);
+      var ready = target.kind === "object" ? Promise.resolve(null) : ensureItem(target.opinion);
       ready
         .then(function (item) {
           if (target.kind === "object") body.in_reply_to_object = state.data.object;
-          else if (target.kind === "local") body.in_reply_to_object = target.opinion.iri;
           else if (target.kind === "quote") body.quote_of = item.item_id;
           else body.in_reply_to = item.item_id;
           return postJson(state.data.actions.notes_url, "POST", body);
@@ -467,7 +461,7 @@
       if (data) {
         var top = make("div", "op-top");
         top.appendChild(countsNode(data.counts));
-        if (data.actions && data.actions.like_url) top.appendChild(likePostButton(data));
+        if (data.actions && data.actions.post) top.appendChild(likePostButton(data));
         box.appendChild(top);
       }
       var status = statusNode();

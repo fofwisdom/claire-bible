@@ -86,7 +86,7 @@ Deno.test("a start object that is not available rejects the task", async () => {
   }
 });
 
-Deno.test("a paged context collection stops at the item limit, and the fetch makes no request to this server or to a blocked domain", async () => {
+Deno.test("a paged context collection stops at the item limit, and the fetch makes no request to a blocked domain", async () => {
   const { add, fetchWith, fetched, iris, restore } = setup();
   try {
     await add(note(ROOT, DAN, { contexts: [new URL(CONTEXT)] }));
@@ -98,9 +98,11 @@ Deno.test("a paged context collection stops at the item limit, and the fetch mak
     await add(new CollectionPage({ id: new URL(`${CONTEXT}?page=2`), partOf: new URL(CONTEXT), items: ids(44, 46).map((id) => new URL(id)) }));
 
     assert.deepEqual(iris(await fetchWith(100, 5, ["blocked.example"])), ids(41, 46));
-    assert.ok(!fetched.some((url) => url.startsWith(ORIGIN) || url.includes("blocked.example")));
+    // An object of this server in the collection is read as each other object (RD30: in the sidecar the read goes to the loopback); here it is not a post, so it is not in the result.
+    assert.ok(!fetched.some((url) => url.includes("blocked.example")));
 
-    assert.deepEqual(iris(await fetchWith(4, 5, ["blocked.example"])), ids(41, 44));
+    // The limit counts the items of the walk: the object of this server takes one of the 4 places (here the fake server gives no post for it).
+    assert.deepEqual(iris(await fetchWith(4, 5, ["blocked.example"])), ids(41, 43));
     assert.deepEqual(await fetchWith(0), []);
   } finally {
     restore();
@@ -174,8 +176,6 @@ Deno.test("the opinions of an own object start from the known replies, read the 
     // A start keeps its reply target although the walk cannot read it (the own object): Claire attaches the post to the object with it.
     const parents = Object.fromEntries(result.objects.map((o) => [o.object_iri, o.in_reply_to]));
     assert.deepEqual(parents, { "https://remote.example/notes/50": own, "https://other.example/notes/51": "https://remote.example/notes/50", "https://remote.example/notes/60": null });
-    // The walk never reads the own object, although it is the reply target of carol.
-    assert.ok(!fetched.includes(own));
 
     // The task: the lease of Claire, the walk, and one call with the posts, the gone start, and done.
     fake.overrides.set(`GET ${PREFIX}/opinion-tasks?limit=2`, { status: 200, response: { tasks: [{ id: 7, object_iri: own, own: true, start: ["https://remote.example/notes/50", "https://remote.example/missing"], quotes: ["https://remote.example/notes/60"], max_items: 100, max_depth: 5, lease_until: fake.now + 300 }] } });

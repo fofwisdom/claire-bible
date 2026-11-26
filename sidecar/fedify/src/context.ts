@@ -3,7 +3,7 @@
 // Rules of this module:
 // - A thread fetch task has no activity. The sidecar reads the FEP-7888 `context` collection of the start object (FEP-f228) with `@fedify/backfill`. When that collection gives no object, it reads the reply tree: the `inReplyTo` parents and the `replies` collections.
 // - The limits of one task: `max_items` objects (`context_max_items`), `max_depth` levels of the reply tree (`context_depth`), a number of requests (requestLimit), and a time (TASK_SECONDS).
-// - Each request uses the document loader of Fedify with the key of the account. That loader refuses a private network address, as for the other fetches of the sidecar. No request goes to this server or to a blocked domain.
+// - Each request uses the document loader of Fedify with the key of the account. That loader refuses a private network address, as for the other fetches of the sidecar. No request goes to a blocked domain. A request to this server goes to the request handler of the sidecar (the loopback of RD30), as a request to another server goes to the network.
 // - An object in a collection is not trusted as it is: a collection of one server can contain an object with the ID of another server. Each object that goes to Claire comes from a document on the origin of its own ID, and its author is on that origin too.
 // - Only a public post goes to Claire, as the normal form of Section 6.3. Claire makes the final decision for each object.
 
@@ -61,7 +61,8 @@ export async function walkPosts(startIris: string[], options: ThreadFetchOptions
     if (requests >= maxRequests || (options.deadline !== undefined && Date.now() > options.deadline)) return null;
     if (iri.protocol !== "https:" && iri.protocol !== "http:") return null;
     try {
-      if (iri.origin === options.origin || await options.isBlocked(iri.hostname)) return null;
+      // A document of this server comes through the loopback of the sidecar (RD30), as a document of another server.
+      if (await options.isBlocked(iri.hostname)) return null;
       requests += 1;
       const remote = await options.documentLoader(iri.href);
       const object = await ASObject.fromJsonLd(remote.document, { documentLoader: options.documentLoader, contextLoader: options.contextLoader });

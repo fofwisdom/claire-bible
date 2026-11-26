@@ -34,7 +34,7 @@ from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
 from ..store import federation_quotes as quotes_store
 from ..notifications import events as notification_events
-from .federation_routes import _MAX_IRI_LENGTH, _NO_STORE, MENTION_RATE_WINDOW_SECONDS, InboxActor, _error, _json, _local_object_public_id, _not_found, _remote_host, _Sealed
+from .federation_routes import _MAX_IRI_LENGTH, _NO_STORE, MENTION_RATE_WINDOW_SECONDS, InboxActor, _error, _json, _local_object_public_id, _not_found, _peer_host, _remote_host, _Sealed
 
 __all__ = ["QUOTE_REQUEST_FRAGMENT", "QuoteAuthorizationRecord", "QuoteEventRequest", "QuoteEventResponse", "quote_internal_routes", "quoted_object"]
 
@@ -125,8 +125,9 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
             return answer("ignored", "no_object")
         account_id, policy = target
         # The quoting object must be on the host of the actor that asks. Claire does not fetch it.
-        actor_host = _remote_host(event.actor.iri, canonical)
-        if event.instrument_iri is None or _remote_host(event.instrument_iri, canonical) != actor_host:
+        actor_host = _peer_host(store.conn, event.actor.iri, canonical)
+        # The quoting object is on the host of the actor (RD30: also on this server for an actor of this server).
+        if event.instrument_iri is None or actor_host is None or federation_store.iri_host(event.instrument_iri) != actor_host:
             return answer("rejected", "invalid_object")
         if event.recipient_public_id is not None and event.recipient_public_id != str(store.get(account_id).public_id):
             return answer("rejected", "recipient_mismatch")
@@ -135,7 +136,7 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
             # RS9: the requests of one remote domain for one account have the limit of the mentions (``mention_rate_per_hour``).
             rate = int(client_store.get_reading_settings(store.conn)["mention_rate_per_hour"])
             recent = quotes_store.recent_request_actors(client, account_id, since=now() - MENTION_RATE_WINDOW_SECONDS)
-            if sum(1 for actor in recent if _remote_host(actor, canonical) == actor_host) >= rate:
+            if sum(1 for actor in recent if _peer_host(store.conn, actor, canonical) == actor_host) >= rate:
                 return answer("ignored", "rate_limited")
         follower = federation_store.get_follower(store.conn, account_id, event.actor.iri) is not None
         row = quotes_store.decide_request(client, account_id=account_id, object_public_id=public_id, quoting_object_iri=event.instrument_iri, quoting_actor_iri=event.actor.iri, request_iri=event.event_id, policy=policy, follower=follower, now=now())
@@ -161,7 +162,9 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
         if event.type == "Accept":
             body = event.authorization
             # The authorization is on the origin of the author, names the quoting note and the quoted object, and has no other owner.
-            if body is None or _remote_host(body.iri, canonical) is None or not _same_origin(body.iri, event.actor.iri) or body.interacting_object != note_iri or body.interaction_target != note.quote_of_iri or body.attributed_to not in (None, event.actor.iri):
+            # RD30: the authorization of an author of this server is on this server (the actor passed the peer check of _decide).
+            local_author = body is not None and body.iri.startswith(f"{canonical}/") and event.actor.iri.startswith(f"{canonical}/ap/actors/")
+            if body is None or (_remote_host(body.iri, canonical) is None and not local_author) or not _same_origin(body.iri, event.actor.iri) or body.interacting_object != note_iri or body.interaction_target != note.quote_of_iri or body.attributed_to not in (None, event.actor.iri):
                 return answer("rejected", "invalid_authorization")
             authorization = body.iri
         result = quotes_store.apply_quote_answer(client, public_id, author_iri=event.actor.iri, approved=event.type == "Accept", authorization_iri=authorization, now=now())
@@ -171,7 +174,7 @@ def quote_internal_routes(settings: Any, *, now: Callable[[], float], origin: Ca
         return answer("accepted", None, state if result == "changed" else None)
 
     def _decide(store: Any, client: Any, canonical: str, event: QuoteEventRequest) -> QuoteEventResponse:
-        hosts = [_remote_host(address, canonical) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
+        hosts = [_peer_host(store.conn, address, canonical, actor_iri=event.actor.iri) for address in (event.actor.iri, event.actor.inbox, event.actor.shared_inbox) if address is not None]
         if any(host is None for host in hosts):
             return answer("rejected", "invalid_actor")
         # Claire makes the final check of the domain blocks.

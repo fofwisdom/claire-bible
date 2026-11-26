@@ -253,7 +253,7 @@ test('mobile bottom bar switches doc and opinions preserving scrollY, syncs srai
 
 // The JSON of the 의견 tab (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D, phase E7b). A post in the normal form of the route: the text is paragraphs of segments.
 function opinion(iri, parent, extra = {}) {
-  return { iri, parent, kind: 'reply', local: false, author: { iri: 'https://remote.example/users/carol', name: 'Carol', handle: '@carol@remote.example' }, url: iri, summary: null, sensitive: false, language: 'en', published: 1800000000 + Number(iri.split('/').pop()), text: [[{ text: 'Reply ' + iri.split('/').pop() }]], ...extra };
+  return { iri, parent, kind: 'reply', local: false, hideable: true, author: { iri: 'https://remote.example/users/carol', name: 'Carol', handle: '@carol@remote.example' }, url: iri, summary: null, sensitive: false, language: 'en', published: 1800000000 + Number(iri.split('/').pop()), text: [[{ text: 'Reply ' + iri.split('/').pop() }]], ...extra };
 }
 
 test('the 의견 tab loads on the first open, waits for the fetch with a progress bar, and shows the tree, the quotes, and the new opinions once', async ({ page }) => {
@@ -351,7 +351,7 @@ test('a failed fetch of opinions shows an alert, the opinions that the server ha
 test('the author hides an opinion from the page and shows it again (phase E7c)', async ({ page }) => {
   const errors = watchErrors(page);
   const object = 'https://claire.example.com/ap/objects/1';
-  const posts = [opinion('https://remote.example/notes/1', object), { ...opinion('https://claire.example.com/ap/objects/2', object), local: true }];
+  const posts = [opinion('https://remote.example/notes/1', object), { ...opinion('https://claire.example.com/ap/objects/2', object), local: true, hideable: false }];
   const sent = [];
   await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: posts, counts: { replies: 2, quotes: 0, likes: 0, shares: 0 }, refresh: null, moderation: { url: '/api/federation/opinions/hide' } }) });
@@ -364,7 +364,7 @@ test('the author hides an opinion from the page and shows it again (phase E7c)',
   await page.goto(PUBLIC_DOC_PATH, { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-op-top').click();
   const tab = page.locator('#sc-opinions-inner');
-  // A local reply is the note of an account of this server: it has no hide control.
+  // A reply of this server that the fetch has not stored yet is not a row of the opinions: it has no hide control.
   await expect(tab.locator('.op-hide')).toHaveCount(1);
   const remote = tab.locator('article').first();
   await remote.locator('.op-hide').click();
@@ -412,7 +412,7 @@ test('the formatted body of an opinion opens in a sandbox frame of a modal dialo
   expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed') && !(e.includes('Blocked script execution') && (e.includes('/opinions/') || e.includes('about:blank'))))).toEqual([]);
 });
 
-test('a signed-in actor likes the post, likes and boosts an opinion, replies, quotes, and replies to the rendition (phase E7d)', async ({ page }) => {
+test('a signed-in actor likes the post, likes and boosts an opinion, replies, quotes, and replies to the rendition (phase E7d, RD30)', async ({ page }) => {
   const errors = watchErrors(page);
   const object = 'https://claire.example.com/ap/objects/1';
   const carol = 'https://remote.example/notes/1';
@@ -420,13 +420,12 @@ test('a signed-in actor likes the post, likes and boosts an opinion, replies, qu
   let loads = 0;
   await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
     loads += 1;
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: [opinion(carol, object), { ...opinion('https://claire.example.com/ap/objects/2', object), local: true, author: { iri: 'https://claire.example.com/ap/actors/5', name: 'Dora', handle: '@dora@claire.example.com' } }], counts: { replies: 2, quotes: 0, likes: 4, shares: 0 }, refresh: null, moderation: null, actions: { item_url: '/api/federation/opinions/item', notes_url: '/api/federation/notes', like_url: '/api/federation/opinions/like', liked: false, states: {} } }) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: [opinion(carol, object), { ...opinion('https://claire.example.com/ap/objects/2', object), local: true, author: { iri: 'https://claire.example.com/ap/actors/5', name: 'Dora', handle: '@dora@claire.example.com' } }], counts: { replies: 2, quotes: 0, likes: 4, shares: 0 }, refresh: null, moderation: null, actions: { item_url: '/api/federation/opinions/item', notes_url: '/api/federation/notes', post: true, liked: false, states: {} } }) });
   });
   const answer = async (route, body, status = 200) => {
     sent.push(`${route.request().method()} ${new URL(route.request().url()).pathname} ${route.request().postData() || ''}`);
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   };
-  await page.route((u) => u.pathname === '/api/federation/opinions/like', (route) => answer(route, { liked: route.request().postDataJSON().on, likes: route.request().postDataJSON().on ? 5 : 4 }));
   await page.route((u) => u.pathname === '/api/federation/opinions/item', (route) => answer(route, { item_id: '77', favourited: false, boosted: false }));
   await page.route((u) => u.pathname === '/api/federation/timeline/77/favourite', (route) => answer(route, { item_id: '77', favourited: route.request().method() === 'POST', boosted: false }));
   await page.route((u) => u.pathname === '/api/federation/timeline/77/boost', (route) => answer(route, { item_id: '77', favourited: true, boosted: route.request().method() === 'POST' }));
@@ -435,7 +434,7 @@ test('a signed-in actor likes the post, likes and boosts an opinion, replies, qu
   await page.locator('#tab-op-top').click();
   const tab = page.locator('#sc-opinions-inner');
 
-  // The like of the post (Section 5.6 rule 4).
+  // The like of the post (Section 5.6 rule 4): the favourite of the item of the object (RD30); the count changes at once.
   const likePost = tab.locator('.op-like-post');
   await expect(likePost).toHaveAttribute('aria-pressed', 'false');
   await likePost.click();
@@ -476,9 +475,9 @@ test('a signed-in actor likes the post, likes and boosts an opinion, replies, qu
   await dialog.locator('.op-compose-send').click();
   await expect(dialog).toBeHidden();
 
-  // A reply of this server has only "답글" (design rule D4); the reply goes to its address.
+  // A reply of this server has the same controls as an opinion of another server (RD30); the reply goes to its item.
   const local = tab.locator('article').nth(1);
-  await expect(local.locator('.op-act-like, .op-act-boost, .op-act-quote')).toHaveCount(0);
+  await expect(local.locator('.op-act-reply, .op-act-like, .op-act-boost, .op-act-quote')).toHaveCount(4);
   await local.locator('.op-act-reply').click();
   await expect(dialog.locator('h2')).toHaveText('Dora에게 답글');
   await expect(dialog.locator('textarea')).toHaveValue('@dora@claire.example.com ');
@@ -491,10 +490,11 @@ test('a signed-in actor likes the post, likes and boosts an opinion, replies, qu
     { content: '@carol@remote.example Thanks', in_reply_to: '77' },
     { content: 'Worth a read', summary: 'long', sensitive: true, quote_of: '77' },
     { content: 'On the paper', in_reply_to_object: object },
-    { content: '@dora@claire.example.com Agreed', in_reply_to_object: 'https://claire.example.com/ap/objects/2' },
+    { content: '@dora@claire.example.com Agreed', in_reply_to: '77' },
   ]);
-  expect(sent.filter((line) => line.startsWith('POST /api/federation/opinions/item'))).toHaveLength(1);
-  expect(sent.filter((line) => line.includes('/favourite')).map((line) => line.split(' ')[0])).toEqual(['POST', 'DELETE']);
+  // One item for the post, one for the opinion of carol, and one for the reply of this server.
+  expect(sent.filter((line) => line.startsWith('POST /api/federation/opinions/item'))).toHaveLength(3);
+  expect(sent.filter((line) => line.includes('/favourite')).map((line) => line.split(' ')[0])).toEqual(['POST', 'POST', 'DELETE']);
   await expectNoRawKeys(page);
   expect(errors).toEqual([]);
 });

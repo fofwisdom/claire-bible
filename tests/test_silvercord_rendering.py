@@ -748,7 +748,7 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert (view["published"], view["object"]) == (True, object_iri)
     assert view["counts"] == {"replies": 1, "quotes": 0, "likes": 0, "shares": 0}
     assert view["moderation"] is None
-    assert view["opinions"] == [{"iri": reply["object_iri"], "parent": object_iri, "kind": "reply", "local": False, "hidden": False, "author": reply["author"], "url": "https://remote.example/@carol/9", "summary": "spoiler", "sensitive": True, "language": "en", "published": 1800000000.0, "text": [[{"text": "Good "}, {"text": "read", "href": "https://example.org/a"}]], "attachments": 1, "frame_url": f"/silvercord/{token}/opinions/{opinions_store.opinion_key(reply['object_iri'])}"}]
+    assert view["opinions"] == [{"iri": reply["object_iri"], "parent": object_iri, "kind": "reply", "local": False, "hideable": True, "hidden": False, "author": reply["author"], "url": "https://remote.example/@carol/9", "summary": "spoiler", "sensitive": True, "language": "en", "published": 1800000000.0, "text": [[{"text": "Good "}, {"text": "read", "href": "https://example.org/a"}]], "attachments": 1, "frame_url": f"/silvercord/{token}/opinions/{opinions_store.opinion_key(reply['object_iri'])}"}]
     # The object is older than five minutes and has no fetch: the request starts one, and the page sees it run.
     assert view["refresh"]["status"] == "running" and view["refresh"]["retry"] == 3
     assert anon("GET", f"/silvercord/{token}/opinions").json()["refresh"]["id"] == view["refresh"]["id"]
@@ -797,32 +797,20 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert admin("POST", "/api/federation/opinions/hide", json={**hide, "hidden": False}).json() == {"hidden": False}
     assert [o["iri"] for o in anon("GET", f"/silvercord/{token}/opinions").json()["opinions"]] == [reply["object_iri"]]
 
-    # Phase E7d (Sections 5.6 rule 4 and 5.11 D4 and D9): the actions of a signed-in actor. The author has no like of an own post; a visitor has no actions.
+    # Phase E7d (Sections 5.6 rule 4 and 5.11 D4 and D9): the actions of a signed-in actor. The author has no like of an own post; a visitor has no actions. Since RD30 the like of the post is the favourite of the item of the object (a Like that the sidecar delivers, as to another server).
     assert anon("GET", f"/silvercord/{token}/opinions").json()["actions"] is None
-    assert alice("GET", f"/silvercord/{token}/opinions").json()["actions"]["like_url"] is None
+    assert alice("GET", f"/silvercord/{token}/opinions").json()["actions"]["post"] is False
     actions = bob("GET", f"/silvercord/{token}/opinions").json()["actions"]
-    assert actions == {"item_url": "/api/federation/opinions/item", "notes_url": "/api/federation/notes", "like_url": "/api/federation/opinions/like", "liked": False, "states": {}}
-    assert alice("POST", actions["like_url"], json={"object": object_iri, "on": True}).json() == {"error": "own_post"}
-    assert bob("POST", actions["like_url"], json={"object": object_iri, "on": True}).json() == {"liked": True, "likes": 1}
-    assert anon("GET", f"/silvercord/{token}/opinions").json()["counts"]["likes"] == 1
+    assert actions == {"item_url": "/api/federation/opinions/item", "notes_url": "/api/federation/notes", "post": True, "liked": False, "states": {}}
+    post_item = bob("POST", actions["item_url"], json={"object": object_iri, "opinion": object_iri}).json()
+    assert bob("POST", f"/api/federation/timeline/{post_item['item_id']}/favourite").json()["favourited"] is True
     assert bob("GET", f"/silvercord/{token}/opinions").json()["actions"]["liked"] is True
-    assert bob("POST", actions["like_url"], json={"object": object_iri, "on": False}).json() == {"liked": False, "likes": 0}
-    # The purge of the account of bob removes its like of the post of alice.
-    assert bob("POST", actions["like_url"], json={"object": object_iri, "on": True}).json()["likes"] == 1
-    conn = dbm.connect_existing(env["db_file"])
+    # The favourite makes a like task for the sidecar, with the object and its author.
+    client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
     try:
-        client_db.purge_account_of_claire_db(conn, env["bob_id"])
-        conn.commit()
+        assert [tuple(r) for r in client.execute("SELECT kind, target_iri FROM federation_client_outbox WHERE account_id=? AND kind='like'", (env["bob_id"],))] == [("like", object_iri)]
     finally:
-        conn.close()
-    assert anon("GET", f"/silvercord/{token}/opinions").json()["counts"]["likes"] == 0
-    conn = dbm.connect_existing(env["db_file"])
-    try:
-        sessions["bob"] = accounts_store.create_account_session(conn, account_id=env["bob_id"], scope="owner")
-        conn.commit()
-    finally:
-        conn.close()
-    bob = _make_caller(test_client, origin, sessions["bob"])
+        client.close()
     # An opinion becomes an item of the timeline of bob (not in the home stream); the favourite of the federation client works on it.
     item = bob("POST", actions["item_url"], json={"object": object_iri, "opinion": reply["object_iri"]})
     assert item.status_code == 200 and item.json()["favourited"] is False
@@ -830,86 +818,19 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert bob("POST", f"/api/federation/timeline/{item.json()['item_id']}/favourite").json()["favourited"] is True
     assert bob("POST", actions["item_url"], json={"object": object_iri, "opinion": reply["object_iri"]}).json() == {"item_id": item.json()["item_id"], "favourited": True, "boosted": False}
     assert bob("GET", f"/silvercord/{token}/opinions").json()["actions"]["states"] == {reply["object_iri"]: {"favourited": True, "boosted": False}}
-    # A reply to the opinion (an item) and a reply to the object of the page (in_reply_to_object); the tab shows both as replies of this server.
+    # A reply to the opinion (an item) and a reply to the object of the page (in_reply_to_object, which mentions the author of the object, so that the delivery reaches her); the tab shows both as replies of this server.
     assert bob("POST", actions["notes_url"], json={"content": "Bob answers Carol", "in_reply_to": item.json()["item_id"]}).status_code == 201
-    assert bob("POST", actions["notes_url"], json={"content": "Bob on the paper", "in_reply_to_object": object_iri}).status_code == 201
+    on_paper = bob("POST", actions["notes_url"], json={"content": "Bob on the paper", "in_reply_to_object": object_iri})
+    assert on_paper.status_code == 201
+    assert any(m.endswith(f"/ap/actors/{_public_of(env, 'alice')}") or m.startswith("@alice@") for m in on_paper.json()["note"]["mentions"])
     assert bob("POST", actions["notes_url"], json={"content": "x", "in_reply_to_object": "https://other.example/ap/objects/1"}).json()["error"] == "object_not_found"
     local = [(o["parent"], o["text"]) for o in anon("GET", f"/silvercord/{token}/opinions").json()["opinions"] if o["local"]]
     assert local == [(reply["object_iri"], [[{"text": "Bob answers Carol"}]]), (object_iri, [[{"text": "Bob on the paper"}]])]
 
 
-def test_e2e_a_reply_of_an_account_of_this_server_gives_the_author_an_item_and_a_notification(tmp_path: Path) -> None:
-    """Owner decision 2026-11-26: a reply of an account of this server notifies the author of the target as a reply of another server does (an item with mention 1 and ``ap_mention``). Bob replies from the 의견 tab to the document of Alice; Alice answers from her timeline; a deleted reply leaves the timeline of the author."""
-    import json as _json
-    import time as _time
-
-    from claire.store import document_renditions as renditions_store
-    from claire.store import federation as federation_store
-
-    s, env = _setup_network_env(tmp_path)
+def _public_of(env: dict, name: str) -> int:
     conn = dbm.connect_existing(env["db_file"])
     try:
-        conn.execute("UPDATE documents SET detail='= 기본\n\n본문.' WHERE id='doc1'")
-        renditions_store.record_primary(conn, "doc1", 10, lineage={}, now=1.0)
-        obj, _task, _made = federation_store.publish_document(conn, account_id=env["alice_id"], kb_id=10, document_id="doc1", published_by_account_id=env["alice_id"], salt=accounts_store.AccountStore(conn).id_salt(), now=_time.time() - 3600)
-        sessions = {name: accounts_store.create_account_session(conn, account_id=env[f"{name}_id"], scope="owner") for name in ("alice", "bob")}
-        usernames = {name: conn.execute("SELECT username FROM accounts WHERE id=?", (env[f"{name}_id"],)).fetchone()[0] for name in ("alice", "bob")}
-        conn.commit()
+        return int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (env[f"{name}_id"],)).fetchone()[0])
     finally:
         conn.close()
-    origin = s.public_url.rstrip("/")
-    host = origin.split("://", 1)[1]
-    object_iri = f"{origin}/ap/objects/{obj.public_id}"
-    test_client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
-    alice, bob = (_make_caller(test_client, origin, sessions[name]) for name in ("alice", "bob"))
-
-    def items(account: str) -> list[tuple]:
-        client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
-        try:
-            return [tuple(r) for r in client.execute("SELECT id, object_iri, in_timeline, mention FROM federation_timeline_items WHERE account_id=? AND author_iri<>? ORDER BY id", (env[f"{account}_id"], f"{origin}/ap/actors/{_public(account)}"))]
-        finally:
-            client.close()
-
-    def notices(account: str) -> list[tuple]:
-        client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
-        try:
-            return [(r[0], _json.loads(r[1]).get("actor")) for r in client.execute("SELECT kind, params_json FROM notifications WHERE account_id=? ORDER BY id", (env[f"{account}_id"],))]
-        finally:
-            client.close()
-
-    def _public(account: str) -> int:
-        conn = dbm.connect_existing(env["db_file"])
-        try:
-            return int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (env[f"{account}_id"],)).fetchone()[0])
-        finally:
-            conn.close()
-
-    # Bob replies to the document of Alice (in_reply_to_object, the 의견 tab).
-    made = bob("POST", "/api/federation/notes", json={"content": "Bob on the paper", "in_reply_to_object": object_iri})
-    assert made.status_code == 201
-    reply_iri = made.json()["note"]["url"]
-    [(reply_item, iri, in_timeline, mention)] = items("alice")
-    assert (iri, in_timeline, mention) == (reply_iri, 1, 1)
-    assert notices("alice") == [("ap_mention", f"{usernames['bob']}@{host}")]
-    # The stream of mentions of Alice has it.
-    assert [i["object_iri"] for i in alice("GET", "/api/federation/timeline?mention=1").json()["items"]] == [reply_iri]
-    # Alice answers from her timeline (in_reply_to, an item whose object is a note of Bob): Bob gets the same.
-    answer = alice("POST", "/api/federation/notes", json={"content": "Thanks, Bob", "in_reply_to": str(reply_item)})
-    assert answer.status_code == 201
-    assert [(i[1], i[2], i[3]) for i in items("bob")] == [(answer.json()["note"]["url"], 1, 1)]
-    assert notices("bob") == [("ap_mention", f"{usernames['alice']}@{host}")]
-    # A reply to a reply of this server in the 의견 tab (design rule D4) goes to the address of the note; its author gets the notification.
-    assert alice("POST", "/api/federation/notes", json={"content": "From the tab", "in_reply_to_object": reply_iri}).status_code == 201
-    # Unread notifications of the same kind and group are one row with a count (NOTIFICATIONS.md).
-    client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
-    try:
-        assert [tuple(r) for r in client.execute("SELECT kind, count FROM notifications WHERE account_id=?", (env["bob_id"],))] == [("ap_mention", 2)]
-    finally:
-        client.close()
-    assert alice("POST", "/api/federation/notes", json={"content": "x", "in_reply_to_object": f"{origin}/ap/objects/1"}).json()["error"] == "object_not_found"
-    # A reply to an own object notifies nobody.
-    assert alice("POST", "/api/federation/notes", json={"content": "My own addendum", "in_reply_to_object": object_iri}).status_code == 201
-    assert len(notices("alice")) == 1
-    # Bob deletes his reply: the item of Alice goes.
-    assert bob("DELETE", f"/api/federation/notes/{made.json()['note']['id']}").status_code == 200
-    assert items("alice") == []

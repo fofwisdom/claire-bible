@@ -174,6 +174,9 @@ def note_internal_routes(settings: Any, *, now: Callable[[], float], origin: Cal
         return _json(note_record(found, actor_public_id=actor_public_id, origin=origin(), url=None if token is None else permalinks.permalink_url(origin(), token), likes=reactions["like"], shares=reactions["announce"]))
 
     def _blocked(conn: Any, iri: str) -> bool:
+        # RD30: an address of this server is a peer as an address of another server; this server is never a blocked domain.
+        if iri.startswith(f"{origin()}/"):
+            return False
         host = _remote_host(iri, origin())
         return host is None or federation_store.blocking_domain(conn, host) is not None
 

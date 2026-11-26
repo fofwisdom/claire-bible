@@ -21,7 +21,6 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from ...federation import notes as note_text
-from ...notifications import events as notification_events
 from ...core import ids
 from ...store import accounts as accounts_store
 from ...store import federation as federation_store
@@ -260,7 +259,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     raise _Refused(404, "object_not_found")
                 if parent is not None and (_blocked(conn, federation_store.iri_host(parent.object_iri)) or _blocked(conn, federation_store.iri_host(parent.author_iri))):
                     raise _Refused(400, "blocked_domain")
-                rendered, mentions = _compose(conn, client, account, text=fields["content"], parent_author=None if parent is None else (parent.author_iri, parent.author.get("handle")), old_mentions=[], quote_url=None if quoted is None else quoted.object_iri)
+                # The author of the parent is a mention of a reply (Section 5.4 rule 1), also for a reply to an object of this server (``in_reply_to_object``): the delivery of the note reaches the author, who gets the item and the notification as from another server (RD30).
+                parent_author = None if parent is None else (parent.author_iri, parent.author.get("handle"))
+                owner_id = None if own_parent is None else _local_owner(conn, client, own_parent)
+                if owner_id is not None:
+                    owner_account = store.get(owner_id)
+                    parent_author = (f"{origin}/ap/actors/{owner_account.public_id}", f"@{owner_account.username}@{ctx.config.expected_authority}")
+                rendered, mentions = _compose(conn, client, account, text=fields["content"], parent_author=parent_author, old_mentions=[], quote_url=None if quoted is None else quoted.object_iri)
                 when = time.time()
 
                 def _taken(number: int) -> bool:
@@ -283,19 +288,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 client_store.upsert_timeline_item(client, account_id=account_id, item=notes_store.note_timeline_item(note, object_iri=object_iri, author=_author_profile(account), context_iri=None if parent is None else parent.context_iri), announced_by=None, in_timeline=True, now=when)
                 client.execute("UPDATE federation_timeline_items SET unread=0 WHERE account_id=? AND object_iri=?", (account_id, object_iri))
                 item_id = int(client.execute("SELECT id FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (account_id, object_iri)).fetchone()[0])
-                # A reply to an object of another account of this server (owner decision 2026-11-26): that account gets what a reply of another server gives (FEDERATION_REMOTE_READING_DESIGN.md Section 6.6 rule 1): an item with mention 1 and the notification ap_mention. The timeline event of a delivery does not do it, because it refuses an actor of this server.
-                notified = None
-                owner = _local_owner(conn, client, own_parent if parent is None else parent.object_iri)
-                if owner is not None and owner != account_id and actor_state(store.get(owner)) == "active":
-                    reply_item = notes_store.note_timeline_item(note, object_iri=object_iri, author=_author_profile(account), context_iri=None if parent is None else parent.context_iri)
-                    if client_store.upsert_timeline_item(client, account_id=owner, item=reply_item, announced_by=None, in_timeline=True, now=when, mention=True):
-                        notified = owner
                 # The note and its task are in one transaction (DATA_STORE_LAYOUT_DESIGN.md Section 3 rule 2).
                 # A note with a quote has the task ``quote_request``: the sidecar sends QuoteRequest to the author of the quoted object and then Create(Note) (Section 5.2).
                 client_store.add_client_task(client, account_id=account_id, kind="note" if quoted is None else "quote_request", target_iri=None if quoted is None else quoted.object_iri, ref_id=note.public_id, now=when)
                 client.commit()
-                if notified is not None:
-                    notification_events.ap_mention(ctx.db_file, account_ids=[notified], actor_iri=f"{origin}/ap/actors/{account.public_id}", actor_label=f"{account.username}@{ctx.config.expected_authority}")
                 return 201, {"note": note_view(note, origin=origin), "item_id": str(item_id)}
             finally:
                 client.close()

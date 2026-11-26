@@ -58,10 +58,10 @@ class OpinionObjectsResponse(_Sealed):
 
 
 def _remote_unique(iris: list[str], canonical: str, skip: set[str]) -> list[str]:
-    """The remote addresses of ``iris`` in their order, each one time, without the addresses of ``skip``."""
+    """The addresses of ``iris`` in their order, each one time, without the addresses of ``skip``: posts of other servers, and since RD30 posts of this server (the sidecar reads them through its loopback, so that they become opinions as the posts of another server)."""
     out: list[str] = []
     for iri in iris:
-        if iri in skip or iri in out or _remote_host(iri, canonical) is None:
+        if iri in skip or iri in out or (_remote_host(iri, canonical) is None and not iri.startswith(f"{canonical}/ap/objects/")):
             continue
         out.append(iri)
     return out

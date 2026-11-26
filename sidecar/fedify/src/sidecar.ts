@@ -1174,14 +1174,13 @@ export class Sidecar {
     return profile ?? { iri: object.attributionId!.href, name: null, handle: null };
   }
 
-  // The reply chain of a post, nearest parent first, `depth` levels at most (design Section 6.5 rule 2). The chain stops at a parent that is not a public post, has no author, is on this server or on a blocked domain, or cannot be fetched.
+  // The reply chain of a post, nearest parent first, `depth` levels at most (design Section 6.5 rule 2). The chain stops at a parent that is not a public post, has no author, is on a blocked domain, or cannot be fetched. A parent on this server comes through the loopback (RD30), and Claire checks it against its own data.
   async #parents(post: Post, depth: number, load: LoadOptions & { suppressError: true }): Promise<TimelineObject[]> {
-    const origin = (await this.config()).canonical_origin;
     const parents: TimelineObject[] = [];
     let current = post;
     while (parents.length < depth) {
       const target = current.replyTargetId;
-      if (target === null || target.origin === origin || await this.isBlocked(target.hostname)) break;
+      if (target === null || await this.isBlocked(target.hostname)) break;
       const parent = await current.getReplyTarget(load);
       if (!isPost(parent) || parent.id?.href !== target.href || parent.attributionId === null || !isPublic(parent) || await this.isBlocked(parent.attributionId.hostname)) break;
       const normal = await normalObject(parent, await this.#authorProfile(parent, load), load);

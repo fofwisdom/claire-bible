@@ -6446,16 +6446,16 @@ def create_app(
                 # The author of the object and a server admin can hide an opinion (Section 5.11 D5).
                 moderator = viewer is not None and viewer.scope == "owner" and (viewer.account_id == author_account_id or viewer.server_role == "admin")
                 view = opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator, frame_base=request.url.path)
-                # A signed-in account that is an actor gets the routes of its actions (Sections 5.6 rule 4 and 5.11 D4 and D9, phase E7d). Only a document object is a post with a like; the author does not like an own post.
+                # A signed-in account that is an actor gets the routes of its actions (Sections 5.6 rule 4 and 5.11 D4 and D9, phase E7d). Since RD30 each action uses the federation client: the like of the post is the favourite of the item of the object. Only a document object is a post with a like; the author does not like an own post.
                 view["actions"] = None
                 if viewer is not None and viewer.scope == "owner" and viewer.account_id is not None and viewer.account_id in actor_ids:
-                    account = accounts_store.AccountStore(conn).get(viewer.account_id)
                     is_post = template in (None, PRIMARY_RENDITION_TEMPLATE)
+                    states = opinion_actions.item_states(client, viewer.account_id, [object_iri, *(o["iri"] for o in view["opinions"])])
                     view["actions"] = {
                         "item_url": opinion_actions.OPINION_ITEM_PATH, "notes_url": "/api/federation/notes",
-                        "like_url": opinion_actions.POST_LIKE_PATH if is_post and viewer.account_id != author_account_id else None,
-                        "liked": bool(account is not None and is_post and opinion_actions.local_like(client, object_public_id=public_id, actor_iri=f"{origin}/ap/actors/{account.public_id}")),
-                        "states": opinion_actions.item_states(client, viewer.account_id, [o["iri"] for o in view["opinions"] if not o["local"]]),
+                        "post": is_post and viewer.account_id != author_account_id,
+                        "liked": bool(states.get(object_iri, {}).get("favourited")),
+                        "states": {iri: value for iri, value in states.items() if iri != object_iri},
                     }
                 return view
             finally:
