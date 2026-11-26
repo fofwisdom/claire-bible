@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import os
 
 import pytest
 
 import claire_bible.bootstrap
 from claire.i18n import use_locale
 
+os.environ.setdefault("CLAIRE_IGNORE_DOTENV", "1")
 claire_bible.bootstrap.configure()
+
+
+@pytest.fixture(autouse=True)
+def _ignore_checkout_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent tests from reading the checkout .env file unless a test opts out."""
+    monkeypatch.setenv("CLAIRE_IGNORE_DOTENV", "1")
 
 
 @pytest.fixture(autouse=True)

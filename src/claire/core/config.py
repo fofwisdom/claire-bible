@@ -261,15 +261,20 @@ class Settings(BaseSettings):
             settings_cls,
             init_kwargs=init_kwargs,
         )
-        return (
+        sources: list[PydanticBaseSettingsSource] = [
             init_settings,
             _ServerLanguagesSettingsSource(settings_cls, init_kwargs=init_kwargs),
             ingest_limits_json,
             providers_json,
             _WithoutModelFields(settings_cls, env_settings),
-            _WithoutModelFields(settings_cls, dotenv_settings),
-            file_secret_settings,
-        )
+        ]
+        # Skip the checkout .env file when CLAIRE_IGNORE_DOTENV=1 and _env_file was not explicitly overridden (F9).
+        ignore_dotenv = os.environ.get("CLAIRE_IGNORE_DOTENV") == "1"
+        explicit_env_file = getattr(dotenv_settings, "env_file", None) != cls.model_config.get("env_file")
+        if not ignore_dotenv or explicit_env_file:
+            sources.append(_WithoutModelFields(settings_cls, dotenv_settings))
+        sources.append(file_secret_settings)
+        return tuple(sources)
 
     # --- provider policy (P4, 설계 §10.2) ---
     # 계정 컨텍스트(``accounts.provider_policy.ProviderContext``)는 필드가 아니라 비공개 속성이다. 그래서 env·.env·providers.json

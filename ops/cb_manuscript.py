@@ -4032,6 +4032,17 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         return importlib.import_module("devnet").main(layout.root, args[1:])
 
+    # The contributor toolbox container (docs/design/CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md DE1): runs checks without reading .env or .env.dev.
+    if dev and args[:1] == ["toolbox"]:
+        import importlib
+
+        if __package__ == "ops":
+            return importlib.import_module("ops.toolbox").main(layout.root, args[1:])
+        ops_dir = str(Path(__file__).resolve().parent)
+        if ops_dir not in sys.path:
+            sys.path.insert(0, ops_dir)
+        return importlib.import_module("toolbox").main(layout.root, args[1:])
+
     try:
         if args and args[0] in PASSTHROUGH_COMMANDS:
             if args[0] != "app" and args[1:] in (["--help"], ["-h"]):
