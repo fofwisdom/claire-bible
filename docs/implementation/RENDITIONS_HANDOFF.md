@@ -1,7 +1,7 @@
 # Handoff: Renditions, Publication, +1, and Opinions
 
 - **Design**: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) (Rev. 11). Its Section 9 is the phase table; Section 11 has the owner decisions O1 to O21.
-- **State (2026-11-26)**: phases E0 to E10 are on `main`, not pushed. The last commit of the phases is `f977bf7d`. Section 7 of this document lists what stays open.
+- **State (2026-11-26)**: phases E0 to E10 and the work after them (Section 7) are on `main`, not pushed. The last commit of the phases is `f977bf7d`; Section 7 lists the later commits. Section 8 lists what stays open.
 - **Purpose**: a person or an agent without the conversation of the implementation can find each decision that the agent made alone, each change from the design, its reason, the code, and the cost to change it back.
 
 This document records decisions and state. The design keeps the intent; [`FEDERATION.md`](FEDERATION.md), [`PERMALINKS.md`](PERMALINKS.md), and [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) keep the details of the code. When this document and the code do not agree, the code is correct; then correct this document.
@@ -11,8 +11,8 @@ This document records decisions and state. The design keeps the intent; [`FEDERA
 1. Design Section 11 (owner decisions) and Section 9 (phase table; each row has "Changes" and "Not done").
 2. Section 3 of this document (agent decisions AD1 and later, with reasons; the numbers do not change, and a new decision gets the next number).
 3. The implementation pages:
-   - [`FEDERATION.md`](FEDERATION.md) Sections 4.5 (`replies`, `likes`, `shares`), 4.6 (rendition objects, source index, remote renditions, +1), 4.7 (opinions), 17.1 (fill after a follow), 5.3 and 5.4 (internal endpoints, contract versions).
-   - [`PERMALINKS.md`](PERMALINKS.md) Section 3 (page data of the Silvercord page), 3.1a (rendition sub-path), 3.1b (remote rendition frame), 3.1c (opinions route, opinion frame, the 의견 tab).
+   - [`FEDERATION.md`](FEDERATION.md) Sections 4.5 (`replies`, `likes`, `shares`), 4.6 (rendition objects, source index, remote renditions, +1, reactions of rendition objects), 4.7 (opinions, also of remote renditions), 17.1 (fill after a follow), 19.1 (`?author=`), 5.3 and 5.4 (internal endpoints, contract versions).
+   - [`PERMALINKS.md`](PERMALINKS.md) Section 3 (page data of the Silvercord page), 3.0a (prefetch, long bodies), 3.1a (rendition sub-path), 3.1b (remote rendition frame), 3.1c (opinions routes, opinion frame, the 의견 tab).
    - [`KNOWLEDGE_FEDERATION.md`](KNOWLEDGE_FEDERATION.md) (read queue, knowledge outbox, inbox journal, which phases E5 and E9 use).
    - [`SCHEMA_VERSIONING.md`](SCHEMA_VERSIONING.md) (`claire.db` v49 to v56, `client.db` v10 to v13).
    - [`EXTRACTION.md`](EXTRACTION.md) and [`API_AND_MCP_GUIDE.md`](API_AND_MCP_GUIDE.md) (templates, `renditions` of the ingest, the agent client).
@@ -56,7 +56,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - **AD2. `extract_stage(renditions=...)` of MCP is optional; no value means no additional rendition.** The HTTP field `renditions` of `/ingest`, `/ingest-stream`, and the personal ingest of API v1 is required. Reason: agent bundles that are installed now do not send the field and must keep working. Code: MCP tool `extract_stage`, `ingest/renditions.py` (`parse_rendition_selection`). Cost: a required MCP field breaks old bundles.
 - **AD3. `DEFAULT_EXTRACTION_TEMPLATE` and the old body prompt are removed.** Each body run takes a required template. Reason: two copies of the body rules would differ in time. Code: `extract/prompts.py`, `extract/rendition_templates.py`.
 
-### 3.2 Silvercord Page (E2, E3c, E5c, E7b, E7e)
+### 3.2 Silvercord Page (E2, E3c, E5c, E7b, E7e, and after)
 
 - **AD4. The cross-document view transition is skipped for a destination that is not a Silvercord document or rendition page** (`pageswap` handler of `share.html`). Reason: a page that does not opt in (the workspace) makes Chromium abort the transition with a page error. Design Section 5.10 rule 4 has no such case.
 - **AD5. The frame of a remote rendition (E5c) and the frame of one opinion (E7e) are on the app origin**, not on the usercontent host (design Section 5.8 rule 4 and Section 5.11 D2). Paths: `/silvercord/{token}/renditions/remote/{key}`, `/silvercord/{token}/opinions/{key}`. Reason: the render token of the usercontent host is of one account, and a reader of a Silvercord page can have no account. The same protection stays: `sandbox` without scripts, an opaque origin, `default-src 'none'`, `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`, `noindex`. The page policy got `frame-src 'self'`. Cost to change back: a render token for anonymous readers on the usercontent host.
@@ -64,6 +64,8 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - **AD7. The 의견 tab is a separate script** (`static/js/silvercord_opinions.js`), inlined before `silvercord.js` by `_build_standalone_shared_html` (`web/pages.py`). Reason: `silvercord.js` was already long; the tab has its own state.
 - **AD8. "새 의견" marks the opinions that arrived during this visit** (after the first answer of the route). Design rule D8 says "until the next visit"; a reload starts a new visit, so the effect is the same without stored state.
 - **AD9. The first answer of the route replaces the loading text without a transition**; only a later answer with new opinions has the element-scoped view transition, and only when the reader permits motion (`prefers-reduced-motion`).
+- **AD36. Prefetch uses a list rule added on intent, not a document rule** (design Section 5.10 rule 5 says a document rule with eagerness `moderate`). Reason: the picker is a `select`; its options are not links, so a document rule cannot match them. The page adds the rule when the reader focuses the picker or keeps the pointer on it for 200 ms (the delay of `moderate`), with eagerness `immediate`, for the other renditions of this document only. Measurement 6 (headless Chromium 153): the prefetched answer is used also with `Cache-Control: private, no-store`, so the rule is the same for visitors and signed-in readers. Code: `prefetchRenditions` in `share.html`.
+- **AD37. Long bodies get parts; opinion threads use a smaller size estimate** (design Section 5.10 rule 6). The body HTML has no section elements (the renderer gives flat `h2` and `p`), so the page puts the content after each `h2` into a part when the body has 3 or more `h2`; the headings stay outside the parts for the section rail and the find of the browser. A part or a thread gets `content-visibility: auto` only when it starts below the first screen at the first render. A thread uses `contain-intrinsic-size: auto 160px`, not 800px: one thread is much shorter than a body section, and 800px for each of hundreds of threads would make the scroll bar wrong. Test note: `innerText` leaves out the parts that are not rendered yet; compare `textContent`. Code: `deferLongBody` in `share.html`, `deferThreads` in `silvercord_opinions.js`, `silvercord.css`.
 
 ### 3.3 Rendition Objects and Exchange (E4, E5, E9)
 
@@ -88,8 +90,6 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - **AD24. The author of the object and a server admin get the hidden opinions** with `hidden: true` and the control "다시 보이기". Design rule D5 says only "hide".
 - **AD34. "The view of a published object in `/syndication`" (rule B1) is the selection of a published document in the knowledge base view** (stage 2). The page sends `POST /api/federation/objects/{object_id}/opinions` one time for each document and page load; the server applies rule B2. Reason: `/syndication` has no other view of one published object. The route needs no actor (the server actor signs the fetch). Code: `syndication_live.js` (`bridge.onOpenDocument`), `syndication_client.js`, `accounts_routes/opinion_actions.py`.
 - **AD35. The opinions of a rendition of another server (rule C2) have no controls of this server**: no hide, no actions, no frame, and no likes or boosts (`null`). Reason: the opinions belong to an object of the origin; this server cannot moderate them, and it has no item or frame route for them yet. The fetch has no age check (`object_published` 0): the age of the remote object is not known; the interval of 15 minutes still limits the fetches. The hourly run deletes them when the copy leaves the cache. Code: `permalink_remote_opinions_route` in `server.py`, `opinions_view` (`object_public_id` None), `purge_gone_objects`, `silvercord_opinions.js` (`setUrl`), `share.html` (`setOpinionsSource`).
-- **AD36. Prefetch uses a list rule added on intent, not a document rule** (design Section 5.10 rule 5 says a document rule with eagerness `moderate`). Reason: the picker is a `select`; its options are not links, so a document rule cannot match them. The page adds the rule when the reader focuses the picker or keeps the pointer on it for 200 ms (the delay of `moderate`), with eagerness `immediate`, for the other renditions of this document only. Measurement 6 (headless Chromium 153): the prefetched answer is used also with `Cache-Control: private, no-store`, so the rule is the same for visitors and signed-in readers. Code: `prefetchRenditions` in `share.html`.
-- **AD37. Long bodies get parts; opinion threads use a smaller size estimate** (design Section 5.10 rule 6). The body HTML has no section elements (the renderer gives flat `h2` and `p`), so the page puts the content after each `h2` into a part when the body has 3 or more `h2`; the headings stay outside the parts for the section rail and the find of the browser. A part or a thread gets `content-visibility: auto` only when it starts below the first screen at the first render. A thread uses `contain-intrinsic-size: auto 160px`, not 800px: one thread is much shorter than a body section, and 800px for each of hundreds of threads would make the scroll bar wrong. Test note: `innerText` leaves out the parts that are not rendered yet; compare `textContent`. Code: `deferLongBody` in `share.html`, `deferThreads` in `silvercord_opinions.js`, `silvercord.css`.
 
 ### 3.5 Actions of a Signed-in Account (E7d)
 
@@ -118,6 +118,9 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | `@fedify/backfill` 2.4.6 | Follows `first` and `next` pages of `replies` and `context` (design R15 asked to verify). | None needed. Test: `context_test.ts`. | — |
 | Chromium | Aborts a cross-document view transition to a page that does not opt in, with a page error. | `pageswap` skip (AD4). | `share.html` |
 | Playwright | Puts its scripts into each frame; a sandbox frame refuses them and logs errors. | The specs filter these messages (`pageErrors` in `e2e/renditions.spec.js`; the frame test of `e2e/silvercord_rendering.spec.js`). | specs |
+| Chromium 153 (headless) | Uses a prefetched page of a speculation rule also when its answer has `Cache-Control: private, no-store` (design measurement 6). | One rule for visitors and signed-in readers (AD36). | `share.html` |
+| Browsers | `innerText` leaves out content that `content-visibility: auto` does not render yet. | Tests compare `textContent` (AD37). | `e2e/renditions.spec.js` |
+| Fedify 2.4.6 (sidecar tests) | With network permission (`deno test -A`), the document loader resolves the test hosts in DNS and fails. | `deno task test` (no network permission). | `sidecar/fedify/deno.json` |
 
 ## 5. Versions
 
@@ -131,7 +134,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - Python: `PATH="$HOME/.deno/bin:$PATH" uv run pytest -n 6`. Without Deno on `PATH`, `tests/test_fedify_sidecar.py` and `tests/test_renditions_exchange.py` are skipped. Baseline: 2 failures that are older than this work (`test_public_directory_authenticated_user_navigation_e2e`; `test_security_hotfixes` `app.js` `(!hid)`).
 - Sidecar: `deno task test` and `deno task check` in `sidecar/fedify`. Do not use `deno test -A`: with network permission, Fedify resolves the test hosts in DNS and the tests fail.
 - Playwright: only `bash scripts/e2e.sh start` and `wait` (or `run`). With no argument each spec has its own process (about 9 minutes now). Baseline: 3 failures that are older than this work (`line_icons.spec.js`; `workspace.spec.js` 2454 and 3229).
-- Main tests of this work: `tests/test_federation_opinions.py`, `tests/test_federation_fills.py`, `tests/test_silvercord_rendering.py`, `tests/test_renditions_exchange.py`, `tests/test_plus_ones.py`, `tests/test_plus_one_marks.py`, `tests/test_federation_rendition_objects.py`, `e2e/renditions.spec.js`, `e2e/silvercord_rendering.spec.js`, `e2e/federation_client.spec.js`, `sidecar/fedify/tests/context_test.ts`.
+- Main tests of this work: `tests/test_federation_opinions.py`, `tests/test_federation_fills.py`, `tests/test_silvercord_rendering.py`, `tests/test_renditions_exchange.py`, `tests/test_plus_ones.py`, `tests/test_plus_one_marks.py`, `tests/test_federation_rendition_objects.py`, `tests/test_e2e_federation_client.py`, `e2e/renditions.spec.js`, `e2e/silvercord_rendering.spec.js`, `e2e/federation_client.spec.js`, `e2e/federation_compose.spec.js`, `sidecar/fedify/tests/context_test.ts`, `sidecar/fedify/tests/internal_api_test.ts`.
 - For a visual check, a temporary spec in `e2e/` with the mocks of a real spec and `page.screenshot` works through `scripts/e2e.sh`; delete the spec after.
 
 ## 7. Work After the Phases
@@ -143,7 +146,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | +1 scores in the published list of `/syndication` | 5.12 rule 13 | `b0fab1c3` | `plus_ones` of `GET /api/federation/objects`; the knowledge base view shows "+1" with each rendition that has a score, else "+1 0". Tests: `tests/test_plus_one_marks.py`, `e2e/federation_compose.spec.js`. |
 | Opinion fetch from the view of a published document in `/syndication` | 5.11 B1 | `251010ae` | AD34. `POST /api/federation/objects/{object_id}/opinions`. Tests: `tests/test_silvercord_rendering.py`, `e2e/federation_compose.spec.js`. |
 | Opinions of a rendition of another server | 5.11 C2 | `071cf2a2` | AD35. `GET /silvercord/{token}/renditions/remote/{key}/opinions`; the tab follows the shown rendition. Tests: `tests/test_silvercord_rendering.py`, `sidecar/fedify/tests/context_test.ts`, `e2e/renditions.spec.js`. No two-server phase: in the test of two servers all opinions are on the reading server, and the sidecar never reads its own origin. |
-| Prefetch of the other renditions; `content-visibility` of long bodies and opinion trees | 5.10 rules 5 and 6; measurement 6 | (this commit) | AD36, AD37. Measurement 6: headless Chromium 153 uses a prefetched answer also with `Cache-Control: private, no-store`. |
+| Prefetch of the other renditions; `content-visibility` of long bodies and opinion trees | 5.10 rules 5 and 6; measurement 6 | `96900bf2` | AD36, AD37. Measurement 6: headless Chromium 153 uses a prefetched answer also with `Cache-Control: private, no-store`. |
 
 ## 8. Open Items
 
@@ -151,3 +154,10 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | :--- | :--- | :--- | :--- |
 | `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no such property of `Person`, and Fedify drops unknown terms from outgoing `Update(Person)` (AD10), so the sidecar cannot add it to the deliveries. Checked 2026-11-26: the latest release on JSR is 2.4.6 (only 2.5.0 development builds). |
 | Notification to the author for a reply from an account of this server | — (not in the design) | question for the owner | A remote reply to an own object makes an item with `mention` 1 and the notification `ap_mention`; a reply from the 의견 tab of an account of this server (`in_reply_to_object`) makes neither. A like makes no notification in both cases (there is no notification kind for likes). The design has no rule; the agent did not add one. |
+
+## 9. How to Add to This Document
+
+1. A decision that the design does not give, or a change from the design, gets the next number (AD38, and so on) in the section of its area. Write: what the code does, the design text that it changes, the reason, the code, and a test. Do not change the numbers of the other entries.
+2. Change the row of the phase in design Section 9 ("Changes", "Added after the phase") and the implementation page of the area in the same commit.
+3. Add the commit to Section 7 (or Section 2 for a new phase). A commit cannot have its own hash in its text: write "(this commit)" and put the hash in with the next commit.
+4. When an open item of Section 8 is done, move it to Section 7. When an owner decision replaces an AD entry, keep the entry and add "Replaced by owner decision O.." with the date.
