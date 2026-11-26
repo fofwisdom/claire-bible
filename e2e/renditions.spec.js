@@ -54,8 +54,16 @@ test('an ingest with 간결 makes two renditions, the picker opens each page, an
   await expect(page.locator('#wrap .doc-content').last()).toContainText('[template: standard]');
   await expectNoRawKeys(page);
 
+  // Intent on the picker adds one speculation rule that prefetches the other rendition (Section 5.10 rule 5); the navigation then uses the prefetched page.
+  await expect(page.locator('#sc-rendition-prefetch')).toHaveCount(0);
+  await select.focus();
+  const rules = JSON.parse(await page.locator('script#sc-rendition-prefetch[type="speculationrules"]').textContent());
+  expect(rules).toEqual({ prefetch: [{ urls: [`${docPath}/renditions/concise`], eagerness: 'immediate' }] });
+  await page.waitForTimeout(1500);
+
   // A choice in the picker opens the page of that rendition (a navigation, Section 5.10 rule 3).
   await Promise.all([page.waitForURL(`**${docPath}/renditions/concise`), select.selectOption(`${docPath}/renditions/concise`)]);
+  expect(await page.evaluate(() => performance.getEntriesByType('navigation')[0].deliveryType)).toBe('navigational-prefetch');
   await expect(page.locator('#sc-rendition-select option:checked')).toHaveAttribute('data-template', 'concise');
   await expect(page.locator('#sc-rendition-info')).toContainText('간결 · concise-v1');
   await expect(page.locator('#wrap .doc-content').last()).toContainText('[template: concise]');
@@ -109,7 +117,8 @@ test('a rendition of another server opens in a sandbox frame inside the page and
   const remoteOption = select.locator('option[data-group="other-servers"]');
   await expect(remoteOption).toContainText('간결');
   await expect(remoteOption).toContainText('@bob@b.example');
-  const localText = await page.locator('#sc-rendition-body').innerText();
+  // textContent, not innerText: innerText leaves out the parts that content-visibility: auto does not render yet (Section 5.10 rule 6).
+  const localText = await page.locator('#sc-rendition-body').textContent();
   await expectNoRawKeys(page);
 
   // The choice changes the body area to the frame; the page does not navigate, and the address keeps the choice.
@@ -135,7 +144,7 @@ test('a rendition of another server opens in a sandbox frame inside the page and
   // The rendition of the document comes back in the same page.
   await page.locator('#sc-rendition-select').selectOption(DOC_PATH);
   await expect(page.locator('#sc-rendition-body iframe')).toHaveCount(0);
-  expect((await page.locator('#sc-rendition-body').innerText()).trim()).toBe(localText.trim());
+  expect((await page.locator('#sc-rendition-body').textContent()).trim()).toBe(localText.trim());
   expect(new URL(page.url()).search).toBe('');
   // The tab started with the copy; after the change it asks for the opinions of the document.
   await page.locator('#tab-op-top').click();

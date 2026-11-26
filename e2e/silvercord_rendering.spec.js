@@ -488,6 +488,49 @@ test('a signed-in actor likes the post, likes and boosts an opinion, replies, qu
   expect(errors).toEqual([]);
 });
 
+test('a long body and a long opinion tree defer their parts below the first screen, and the keyboard still reaches them (Section 5.10 rule 6)', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const parts = Array.from({ length: 6 }, (_, n) => `<h2>Part ${n + 1}</h2>` + Array.from({ length: 8 }, (_, m) => `<p>Paragraph ${m + 1} of part ${n + 1}. ${'Text of the long body. '.repeat(12)}</p>`).join('') + `<p><a href="https://example.org/part-${n + 1}">Link of part ${n + 1}</a></p>`).join('');
+  await page.route((u) => u.pathname === PUBLIC_DOC_PATH, async (route) => {
+    const res = await route.fetch();
+    const html = patchDocDataInHtml(await res.text(), (doc) => { doc.detail_html = '<p>Start of the body.</p>' + parts; });
+    await route.fulfill({ status: res.status(), headers: res.headers(), body: html });
+  });
+  const object = 'https://claire.example.com/ap/objects/1';
+  const many = Array.from({ length: 40 }, (_, n) => opinion(`https://remote.example/notes/${n + 1}`, object));
+  await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: many, counts: { replies: 40, quotes: 0, likes: 0, shares: 0 }, refresh: null, moderation: null, actions: null }) }));
+  await page.goto(PUBLIC_DOC_PATH, { waitUntil: 'load' });
+
+  // The parts after the headings: none on the first screen is deferred; the parts below it are.
+  const bodyParts = page.locator('#wrap .doc-content > .sc-body-part');
+  await expect(bodyParts).toHaveCount(6);
+  await expect(page.locator('#wrap .doc-content > h2')).toHaveCount(6);
+  const states = await bodyParts.evaluateAll((els) => els.map((el) => ({ deferred: el.classList.contains('is-deferred'), top: el.getBoundingClientRect().top, cv: getComputedStyle(el).contentVisibility })));
+  expect(states.filter((x) => x.top <= 800).every((x) => !x.deferred)).toBe(true);
+  expect(states[5].deferred).toBe(true);
+  expect(states[5].cv).toBe('auto');
+
+  // The keyboard reaches the link of the last part, and the browser shows it.
+  let reached = false;
+  for (let n = 0; n < 120 && !reached; n++) {
+    await page.keyboard.press('Tab');
+    reached = await page.evaluate(() => document.activeElement && document.activeElement.textContent === 'Link of part 6');
+  }
+  expect(reached).toBe(true);
+  const box = await page.evaluate(() => { const r = document.activeElement.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+  expect(box.top >= 0 && box.bottom <= 800).toBe(true);
+
+  // The opinion threads below the first screen are deferred too; the first ones are not.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.locator('#tab-op-top').click();
+  const items = page.locator('#sc-opinions-inner .op-thread > .op-tree > .op-item');
+  await expect(items).toHaveCount(40);
+  expect(await items.first().evaluate((el) => el.classList.contains('is-deferred'))).toBe(false);
+  expect(await items.last().evaluate((el) => el.classList.contains('is-deferred') && getComputedStyle(el).contentVisibility === 'auto')).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('private link_access=1 renders opaque IDs e0..eN, blocks other documents, hides workspace link, and shows non-federated notice in Opinions', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1280, height: 800 });

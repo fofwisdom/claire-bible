@@ -431,6 +431,7 @@ if(!dc.summary && !dc.detail_html){
 }
 h+='<div class=foot>' + rtr("share.foot") + '</div>';
 document.getElementById('wrap').innerHTML=h;
+deferLongBody(document.getElementById('wrap'));
 if(scRend) bindRenditionBar(scRend);
 applyMathRendering(document.getElementById('wrap'));
 updateSharedRail();
@@ -448,6 +449,52 @@ if(typeof window !== 'undefined' && typeof window.addEventListener === 'function
   });
 }
 
+// Long bodies (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.10 rule 6): on a body with 3 or more h2 headings, the content after each h2 goes into a part. A part that starts below the first screen gets content-visibility: auto (silvercord.css), never a part on the first screen. The headings stay outside the parts, so the section rail and the find of the browser see them. This runs before the page keeps the local body and before silvercord.js makes the ranges of the entity marks.
+function deferLongBody(root){
+  if(!root || !root.querySelectorAll) return;
+  root.querySelectorAll('.doc-content').forEach((content)=>{
+    const heads = Array.from(content.children).filter((el)=>el.tagName === 'H2');
+    if(heads.length < 3) return;
+    heads.forEach((head)=>{
+      const part = document.createElement('div');
+      part.className = 'sc-body-part';
+      let next = head.nextElementSibling;
+      while(next && next.tagName !== 'H2' && next.tagName !== 'H1'){
+        const move = next;
+        next = next.nextElementSibling;
+        part.appendChild(move);
+      }
+      if(part.childElementCount) head.after(part);
+    });
+    const firstScreen = window.innerHeight || 800;
+    content.querySelectorAll(':scope > .sc-body-part').forEach((part)=>{
+      if(part.getBoundingClientRect().top > firstScreen) part.classList.add('is-deferred');
+    });
+  });
+}
+
+// Prefetch of the other renditions (Section 5.10 rule 5). The picker is a select, not links, so a document rule cannot match it: when the reader shows intent (focus on the picker, or the pointer on it for 200 ms, as the eagerness "moderate"), the page adds one list rule that prefetches the pages of the other renditions of this document. No prerender: a page can have the state of a session. Only where the browser has speculation rules.
+function prefetchRenditions(sc, select){
+  if(!select || !(window.HTMLScriptElement && typeof HTMLScriptElement.supports === 'function' && HTMLScriptElement.supports('speculationrules'))) return;
+  const here = window.location.pathname;
+  const urls = (sc.renditions || []).map((r)=>String(r.url || '')).filter((url)=>url.indexOf('/silvercord/') === 0 && url !== here && url.indexOf('/workspace') === -1);
+  if(!urls.length) return;
+  let done = false;
+  let timer = null;
+  const add = ()=>{
+    if(done) return;
+    done = true;
+    const rules = document.createElement('script');
+    rules.type = 'speculationrules';
+    rules.id = 'sc-rendition-prefetch';
+    rules.textContent = JSON.stringify({ prefetch: [{ urls: urls, eagerness: 'immediate' }] });
+    document.head.appendChild(rules);
+  };
+  select.addEventListener('focus', add);
+  select.addEventListener('pointerenter', ()=>{ timer = window.setTimeout(add, 200); });
+  select.addEventListener('pointerleave', ()=>{ if(timer !== null) window.clearTimeout(timer); });
+}
+
 // A local rendition is a page (Section 5.10 rule 3): the picker navigates, and the browser can animate the change with the cross-document view transition of silvercord.css.
 function bindRenditionBar(sc){
   const select = document.getElementById('sc-rendition-select');
@@ -458,6 +505,7 @@ function bindRenditionBar(sc){
   const remoteList = Array.isArray(sc.remote_renditions) ? sc.remote_renditions : [];
   const plusSlot = document.getElementById('sc-plus-one-slot');
   const localEntry = sc.renditions.find(r=>r.template===sc.rendition) || sc.renditions[0];
+  prefetchRenditions(sc, select);
   // The rendition of the control: the template of this page, or "remote:{key}".
   let plusTarget = { rendition: localEntry.template, plus: localEntry.plus };
   function renderPlus(){

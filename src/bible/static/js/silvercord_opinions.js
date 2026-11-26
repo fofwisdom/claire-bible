@@ -498,6 +498,15 @@
         box.appendChild(hintNode());
       }
       root.replaceChildren(box);
+      deferThreads(box);
+    }
+
+    // Long opinion trees (Section 5.10 rule 6): each top-level thread that starts below the first screen gets content-visibility: auto (silvercord.css); never a thread on the first screen.
+    function deferThreads(box) {
+      var firstScreen = window.innerHeight || 800;
+      box.querySelectorAll(".op-thread > .op-tree > .op-item, .op-quotes > .op-tree > .op-item").forEach(function (item) {
+        if (item.getBoundingClientRect().top > firstScreen) item.classList.add("is-deferred");
+      });
     }
 
     // The new opinions come with the element-scoped view transition of the body area (Section 5.10 rule 4) where the browser has it and the reader permits motion.

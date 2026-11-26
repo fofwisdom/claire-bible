@@ -45,6 +45,16 @@ This document tells what the code does now. Evidence tags follow [`PRINCIPLES.md
 
 **[code] Workspace path.** `/kb/{number}/` for a shared knowledge base, `/@{username}/` for a personal one. Each active account has a USERNAME: the code makes an account without one only as the administrator row in the status `setup_required`, before the setup, and a trigger stops the removal of a USERNAME. For a knowledge base whose account is not active or has no USERNAME, the route has no workspace path and no member.
 
+### 3.0a Prefetch and Long Bodies of the Page (2026-11-26)
+
+**[code]** `share.html` ([`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.10 rules 5 and 6).
+
+1. **Prefetch** (`prefetchRenditions`). When the reader shows intent on the rendition picker (focus, or the pointer on it for 200 ms), the page adds one `script#sc-rendition-prefetch` of the type `speculationrules`: a list rule with `prefetch`, eagerness `immediate`, and the addresses of the other renditions of this document (not the page itself, no `/workspace`). Only where `HTMLScriptElement.supports('speculationrules')` is true. No prerender.
+2. **Long body** (`deferLongBody`). On a body with 3 or more `h2` headings, the content after each `h2` goes into a `div.sc-body-part`; the headings stay outside. A part that starts below the first screen (at the first render) gets `is-deferred`: `content-visibility: auto` with `contain-intrinsic-size: auto 800px` (`silvercord.css`). This runs before `bindRenditionBar` keeps the local body and before `silvercord.js` makes the ranges of the entity marks.
+3. **Long opinion tree** (`silvercord_opinions.js`, `deferThreads`). Each top-level thread of the 의견 tab that starts below the first screen gets `is-deferred`: `content-visibility: auto` with `contain-intrinsic-size: auto 160px`.
+
+Tests: `e2e/renditions.spec.js` (the rule, and a navigation with `deliveryType` `navigational-prefetch`), `e2e/silvercord_rendering.spec.js` (the parts, the threads, and the keyboard through a deferred part).
+
 ### 3.1 Route `GET /silvercord/{token}/workspace`
 
 **[code]** `permalink_workspace_route` in `src/claire/api/server.py` (design `U8`). Route rule: `_system("public", "none")` for `GET` and `HEAD`.

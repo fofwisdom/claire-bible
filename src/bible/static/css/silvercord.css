@@ -189,6 +189,10 @@ dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hi
 .op-private-box { border: 1px solid var(--border); border-left: 4px solid var(--warn); background: var(--warn-bg); border-radius: 8px; padding: 12px 14px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; line-height: 1.55; }
 .op-private-box strong { display: inline-flex; align-items: center; gap: 6px; }
 
+/* Long bodies and long opinion trees (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.10 rule 6): only the parts below the first screen (the page scripts set is-deferred). An opinion thread is much shorter than a body section, so its size estimate is smaller. */
+.sc-body-part.is-deferred { content-visibility: auto; contain-intrinsic-size: auto 800px; }
+.op-item.is-deferred { content-visibility: auto; contain-intrinsic-size: auto 160px; }
+
 /* Renditions (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.10). A local rendition is a page: the change is a cross-document view transition where the browser has it, and a plain navigation elsewhere. */
 @media (prefers-reduced-motion: no-preference) {
   @view-transition { navigation: auto; }
