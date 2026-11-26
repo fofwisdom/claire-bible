@@ -1803,3 +1803,366 @@ async def test_member_account_bot_is_scoped_to_its_account(tmp_path: Path, monke
     ctx.args = ["graph"]
     await handlers["on_export"](update, ctx)
     assert created and created[0]["kb_id"] == own.id and created[0]["account_id"] == member
+
+
+def test_parse_rendition_flags():
+    """Verify --rendition flag parsing, deduplication, ordering, and validation."""
+    from claire.telegram.bot import parse_rendition_flags
+
+    assert parse_rendition_flags(None) == ("", [])
+    assert parse_rendition_flags("") == ("", [])
+    assert parse_rendition_flags("https://example.com/a") == ("https://example.com/a", [])
+    assert parse_rendition_flags("https://example.com/a --rendition concise") == ("https://example.com/a", ["concise"])
+    assert parse_rendition_flags("https://example.com/a --rendition academic,concise") == ("https://example.com/a", ["concise", "academic"])
+    assert parse_rendition_flags("--rendition academic --rendition concise --rendition academic https://example.com/a --full") == ("https://example.com/a --full", ["concise", "academic"])
+    assert parse_rendition_flags("https://example.com/a --rendition=concise") == ("https://example.com/a", ["concise"])
+    assert parse_rendition_flags("https://example.com/a —rendition academic") == ("https://example.com/a", ["academic"])
+
+    for bad in (
+        "https://example.com/a --rendition",
+        "https://example.com/a --rendition=",
+        "https://example.com/a --rendition ,",
+        "https://example.com/a --rendition concise,",
+        "https://example.com/a --rendition ,concise",
+        "https://example.com/a --rendition standard",
+        "https://example.com/a --rendition unknown",
+    ):
+        with pytest.raises(ValueError):
+            parse_rendition_flags(bad)
+
+
+async def test_on_ingest_and_on_message_rendition_flags(tmp_path: Path, monkeypatch):
+    """Verify /ingest and on_message validate --rendition, thread it through pending_ingest, and format results."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from claire.core.config import Settings
+    from claire.ingest.service import IngestReport
+    from claire.store import db as dbm
+    from claire.store.knowledge_base import KnowledgeBaseManager
+    from claire.telegram.bot import build_app
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
+        CLAIRE_PROVIDER="mock",
+        telegram_bot_token="12345:fake_token",
+    )
+    app = build_app(settings)
+    handlers = {getattr(h.callback, "__name__", ""): h.callback for h in app.handlers[0]}
+
+    # 1. Invalid --rendition returns localized error without invoking ingest.
+    ingest_calls: list[dict] = []
+    monkeypatch.setattr(
+        "claire.ingest.service.IngestService.ingest",
+        lambda self, payload, **kw: ingest_calls.append({"payload": payload, **kw}) or IngestReport(document_id="doc_x", title="X"),
+    )
+
+    for handler_name, make_args in (
+        ("on_ingest", lambda: (["https://example.com/x", "--rendition", "bogus"], None)),
+        ("on_message", lambda: ([], "https://example.com/x --rendition bogus")),
+    ):
+        msg = AsyncMock()
+        msg.text = make_args()[1]
+        msg.reply_text = AsyncMock()
+        update = MagicMock()
+        update.effective_user = SimpleNamespace(id=100, language_code="en")
+        update.effective_chat = SimpleNamespace(id=200)
+        update.message = msg
+        update.update_id = 5001
+        ctx = MagicMock()
+        ctx.args = make_args()[0]
+        await handlers[handler_name](update, ctx)
+        assert ingest_calls == []
+        assert "concise, academic" in msg.reply_text.call_args[0][0]
+
+    # 2. Valid /ingest --rendition academic,concise runs run_ingest_renditions and appends localized line.
+    rendition_calls: list[dict] = []
+
+    def fake_run_renditions(**kwargs):
+        rendition_calls.append(kwargs)
+        return [{"template": tpl, "state": "made", "error": ""} for tpl in kwargs["templates"]]
+
+    monkeypatch.setattr("claire.ingest.renditions.run_ingest_renditions", fake_run_renditions)
+
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+    msg = AsyncMock()
+    msg.reply_text = AsyncMock(return_value=status_msg)
+    msg.set_reaction = AsyncMock()
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100, language_code="ko")
+    update.effective_chat = SimpleNamespace(id=200)
+    update.message = msg
+    update.update_id = 5002
+    ctx = MagicMock()
+    ctx.args = ["https://example.com/rd", "--rendition", "academic,concise"]
+
+    await handlers["on_ingest"](update, ctx)
+
+    assert len(ingest_calls) == 1
+    assert ingest_calls[0]["payload"] == "https://example.com/rd"
+    assert len(rendition_calls) == 1
+    assert rendition_calls[0]["templates"] == ["concise", "academic"]
+    assert rendition_calls[0]["extraction_mode"] == "provider"
+    edited_text = status_msg.edit_text.call_args[0][0]
+    assert "간결 (생성됨)" in edited_text
+    assert "학술 (생성됨)" in edited_text
+
+    # 3. Multi-theme flow threads renditions through pending_ingest and igt: callback.
+    tm = KnowledgeBaseManager(settings)
+    t1 = tm.define_kb("AI", icon="🤖", knowledge_type="real")
+    monkeypatch.setattr("claire.telegram.bot.AccountThemeScope._owned", lambda self, theme: True)
+    prompt_msg = AsyncMock()
+    prompt_msg.edit_text = AsyncMock()
+    msg_multi = AsyncMock()
+    msg_multi.reply_text = AsyncMock(return_value=prompt_msg)
+    msg_multi.set_reaction = AsyncMock()
+    update_multi = MagicMock()
+    update_multi.effective_user = SimpleNamespace(id=100, language_code="ko")
+    update_multi.effective_chat = SimpleNamespace(id=200)
+    update_multi.message = msg_multi
+    update_multi.update_id = 5003
+    ctx_multi = MagicMock()
+    ctx_multi.args = ["https://example.com/rd-multi", "--rendition", "concise"]
+
+    await handlers["on_ingest"](update_multi, ctx_multi)
+    assert len(rendition_calls) == 1  # Not run before theme pick.
+
+    cb_query = AsyncMock()
+    cb_query.data = f"igt:5003:{t1.id}"
+    cb_query.answer = AsyncMock()
+    cb_query.from_user = SimpleNamespace(id=100)
+    cb_query.message = prompt_msg
+    cb_update = MagicMock()
+    cb_update.effective_user = SimpleNamespace(id=100, language_code="ko")
+    cb_update.callback_query = cb_query
+
+    await handlers["on_callback"](cb_update, None)
+    assert len(rendition_calls) == 2
+    assert rendition_calls[1]["templates"] == ["concise"]
+    assert rendition_calls[1]["kb_id"] == t1.id
+
+    # 4. Staged ingest (--agent-client) threads extraction_mode="client" and attaches no rd: buttons.
+    monkeypatch.setattr("claire.telegram.bot.AccountThemeScope._owned", lambda self, theme: getattr(theme, "account_id", dbm.ADMIN_ACCOUNT_ID) == self.account_id)
+    monkeypatch.setattr(
+        "claire.ingest.service.IngestService.ingest",
+        lambda self, payload, **kw: IngestReport(document_id="doc_staged_1", title="Staged Doc", staged=True),
+    )
+
+    def fake_run_staged_renditions(**kwargs):
+        rendition_calls.append(kwargs)
+        return [{"template": tpl, "state": "queued", "error": ""} for tpl in kwargs["templates"]]
+
+    monkeypatch.setattr("claire.ingest.renditions.run_ingest_renditions", fake_run_staged_renditions)
+    status_staged = AsyncMock()
+    status_staged.edit_text = AsyncMock()
+    msg_staged = AsyncMock()
+    msg_staged.reply_text = AsyncMock(return_value=status_staged)
+    msg_staged.set_reaction = AsyncMock()
+    update_staged = MagicMock()
+    update_staged.effective_user = SimpleNamespace(id=100, language_code="en")
+    update_staged.effective_chat = SimpleNamespace(id=200)
+    update_staged.message = msg_staged
+    update_staged.update_id = 5004
+    ctx_staged = MagicMock()
+    ctx_staged.args = ["https://example.com/rd-staged", "--agent-client", "--rendition", "concise"]
+    await handlers["on_ingest"](update_staged, ctx_staged)
+    assert rendition_calls[-1]["extraction_mode"] == "client"
+    assert "Concise (queued)" in status_staged.edit_text.call_args[0][0]
+    assert status_staged.edit_text.call_args.kwargs.get("reply_markup") is None
+
+
+async def test_ingest_completion_missing_rendition_buttons(tmp_path: Path, monkeypatch):
+    """Verify completion keyboard shows buttons only for missing additional renditions."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from claire.core.config import Settings
+    from claire.ingest.service import IngestReport
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+    from claire.store import document_renditions as renditions_store
+    from claire.telegram.bot import build_app
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_ENVIRONMENT="production",
+        CLAIRE_FQDN="cb.example.com",
+        telegram_bot_token="12345:fake_token",
+    )
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    doc = Document(
+        id="doc_rd_btn_1",
+        url="https://example.com/rd-btn",
+        canonical_url="https://example.com/rd-btn",
+        title="Rendition Button Doc",
+        raw_text="Some source text",
+        source_type="web",
+        content_hash="h_rd_btn_1",
+    )
+    dbm.insert_document(conn, doc)
+    conn.commit()
+    conn.close()
+
+    app = build_app(settings)
+    handlers = {getattr(h.callback, "__name__", ""): h.callback for h in app.handlers[0]}
+    monkeypatch.setattr(
+        "claire.ingest.service.IngestService.ingest",
+        lambda *a, **kw: IngestReport(document_id="doc_rd_btn_1", title="Rendition Button Doc", summary="Summary"),
+    )
+
+    async def _run_once(update_id: int):
+        status_msg = AsyncMock()
+        status_msg.edit_text = AsyncMock()
+        msg = AsyncMock()
+        msg.reply_text = AsyncMock(return_value=status_msg)
+        msg.set_reaction = AsyncMock()
+        update = MagicMock()
+        update.effective_user = SimpleNamespace(id=100, language_code="ko")
+        update.effective_chat = SimpleNamespace(id=200)
+        update.message = msg
+        update.update_id = update_id
+        ctx = MagicMock()
+        ctx.args = ["https://example.com/rd-btn"]
+        await handlers["on_ingest"](update, ctx)
+        return status_msg.edit_text.call_args.kwargs.get("reply_markup")
+
+    # 1. Both concise and academic missing -> both buttons in one row, < 64 bytes each.
+    markup1 = await _run_once(6001)
+    assert markup1 is not None
+    cb1 = [b.callback_data for row in markup1.inline_keyboard for b in row if b.callback_data]
+    assert cb1 == ["rd:0:doc_rd_btn_1:c", "rd:0:doc_rd_btn_1:a"]
+    assert all(len(c.encode("utf-8")) <= 64 for c in cb1)
+
+    # 2. Store concise -> only academic button remains.
+    conn = dbm.connect(settings.db_file)
+    renditions_store.store_additional(conn, "doc_rd_btn_1", 0, template="concise", detail="== 핵심\n* 내용", lineage={})
+    conn.commit()
+    conn.close()
+
+    markup2 = await _run_once(6002)
+    assert markup2 is not None
+    cb2 = [b.callback_data for row in markup2.inline_keyboard for b in row if b.callback_data]
+    assert cb2 == ["rd:0:doc_rd_btn_1:a"]
+
+
+async def test_on_callback_rd_adds_rendition_and_updates_keyboard(tmp_path: Path, monkeypatch):
+    """Verify rd: callback enforces auth, calls add_renditions, links permalink, and removes completed button."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    from claire.core.config import Settings
+    from claire.ontology.base import Document
+    from claire.store import db as dbm
+    from claire.store import permalinks as permalinks_store
+    from claire.telegram.bot import build_app
+
+    settings = Settings(
+        CLAIRE_DB_PATH=str(tmp_path / "claire.db"),
+        CLAIRE_PROVIDER="mock",
+        CLAIRE_ENVIRONMENT="production",
+        CLAIRE_FQDN="cb.example.com",
+        telegram_allowed_users="100",
+        telegram_bot_token="12345:fake_token",
+    )
+    conn = dbm.connect(settings.db_file)
+    dbm.init_db(conn)
+    doc = Document(
+        id="doc_rd_cb_1",
+        url="https://example.com/rd-cb",
+        canonical_url="https://example.com/rd-cb",
+        title="Callback Rendition Doc",
+        raw_text="Raw body text for rendition test",
+        source_type="web",
+        content_hash="h_rd_cb_1",
+    )
+    dbm.insert_document(conn, doc)
+    tok = permalinks_store.ensure(conn, "document", "doc_rd_cb_1", kb_id=0)
+    conn.commit()
+    conn.close()
+
+    add_calls: list[tuple[str, list[str]]] = []
+
+    def fake_add_renditions(self, document_id: str, templates: list[str], *, effort=None):
+        add_calls.append((document_id, list(templates)))
+        return [{"template": templates[0], "state": "made", "error": ""}]
+
+    monkeypatch.setattr("claire.ingest.service.IngestService.add_renditions", fake_add_renditions)
+
+    app = build_app(settings)
+    on_callback = next(h.callback for h in app.handlers[0] if getattr(h.callback, "__name__", "") == "on_callback")
+
+    # 1. Disallowed user is ignored.
+    bad_query = AsyncMock()
+    bad_query.data = "rd:0:doc_rd_cb_1:c"
+    bad_query.from_user = SimpleNamespace(id=999)
+    bad_query.message = AsyncMock()
+    bad_update = MagicMock()
+    bad_update.effective_user = SimpleNamespace(id=999, language_code="en")
+    bad_update.callback_query = bad_query
+    await on_callback(bad_update, None)
+    assert add_calls == []
+
+    # 2. Allowed user completes concise -> link included, concise button removed, academic + reader kept.
+    orig_markup = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📖 Open", url=f"https://cb.example.com/silvercord/{tok}")],
+            [
+                InlineKeyboardButton("📄 Add Concise", callback_data="rd:0:doc_rd_cb_1:c"),
+                InlineKeyboardButton("🎓 Add Academic", callback_data="rd:0:doc_rd_cb_1:a"),
+            ],
+        ]
+    )
+    status_msg = AsyncMock()
+    status_msg.edit_text = AsyncMock()
+    orig_msg = AsyncMock()
+    orig_msg.reply_markup = orig_markup
+    orig_msg.reply_text = AsyncMock(return_value=status_msg)
+
+    query = AsyncMock()
+    query.data = "rd:0:doc_rd_cb_1:c"
+    query.from_user = SimpleNamespace(id=100)
+    query.answer = AsyncMock()
+    query.edit_message_reply_markup = AsyncMock()
+    query.message = orig_msg
+
+    update = MagicMock()
+    update.effective_user = SimpleNamespace(id=100, language_code="en")
+    update.callback_query = query
+
+    await on_callback(update, None)
+
+    assert add_calls == [("doc_rd_cb_1", ["concise"])]
+    edited_text = status_msg.edit_text.call_args[0][0]
+    assert f"https://cb.example.com/silvercord/{tok}/renditions/concise" in edited_text
+    new_markup = query.edit_message_reply_markup.call_args.kwargs["reply_markup"]
+    remaining_callbacks = [b.callback_data for row in new_markup.inline_keyboard for b in row if b.callback_data]
+    assert remaining_callbacks == ["rd:0:doc_rd_cb_1:a"]
+    assert new_markup.inline_keyboard[0][0].url == f"https://cb.example.com/silvercord/{tok}"
+
+    # 3. Failed rendition reports error and preserves the button for retry.
+    monkeypatch.setattr(
+        "claire.ingest.service.IngestService.add_renditions",
+        lambda self, doc_id, templates, *, effort=None: [{"template": templates[0], "state": "failed", "error": "model timeout"}],
+    )
+    fail_status = AsyncMock()
+    fail_status.edit_text = AsyncMock()
+    fail_msg = AsyncMock()
+    fail_msg.reply_markup = new_markup
+    fail_msg.reply_text = AsyncMock(return_value=fail_status)
+    fail_query = AsyncMock()
+    fail_query.data = "rd:0:doc_rd_cb_1:a"
+    fail_query.from_user = SimpleNamespace(id=100)
+    fail_query.answer = AsyncMock()
+    fail_query.edit_message_reply_markup = AsyncMock()
+    fail_query.message = fail_msg
+    fail_update = MagicMock()
+    fail_update.effective_user = SimpleNamespace(id=100, language_code="en")
+    fail_update.callback_query = fail_query
+
+    await on_callback(fail_update, None)
+    assert "model timeout" in fail_status.edit_text.call_args[0][0]
+    fail_query.edit_message_reply_markup.assert_not_awaited()

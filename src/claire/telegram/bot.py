@@ -266,6 +266,16 @@ async def _reply_extraction_flags_conflict(msg) -> None:
         log.debug("extraction flags notice failed", exc_info=True)
 
 
+async def _reply_invalid_rendition(msg, error: Exception) -> None:
+    """Tell the sender that a --rendition flag has an invalid or empty template name."""
+    from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES
+
+    try:
+        await msg.reply_text(_t("bot.ingest.invalid_rendition", error=str(error), allowed=", ".join(ADDITIONAL_RENDITION_TEMPLATES)))
+    except Exception:  # noqa: BLE001
+        log.debug("invalid rendition notice failed", exc_info=True)
+
+
 async def _reply_focus_sealed(msg) -> None:
     """CT28: tell the sender that the text after the separator is not used as a focus."""
     try:
@@ -296,6 +306,63 @@ def contribute_callback_data(notice: dict[str, Any]) -> str | None:
         log.warning("no contribute button for document %s: the callback data is longer than %d bytes", notice["document"], CALLBACK_DATA_MAX_BYTES)
         return None
     return data
+
+
+_RENDITION_CALLBACK_SPECS: dict[str, tuple[str, str]] = {
+    "concise": ("c", "bot.button.add_rendition_concise"),
+    "academic": ("a", "bot.button.add_rendition_academic"),
+}
+_RENDITION_CODE_TO_TEMPLATE: dict[str, str] = {spec[0]: tpl for tpl, spec in _RENDITION_CALLBACK_SPECS.items()}
+
+
+def _missing_rendition_buttons(db_file: Path | str, doc_id: str, kb_id: int) -> list[Any]:
+    """Return one inline button row for additional rendition templates not yet stored for the document."""
+    from telegram import InlineKeyboardButton
+
+    from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES
+    from ..store import document_renditions as renditions_store
+
+    existing: set[str] = set()
+    db_path = Path(db_file)
+    if db_path.exists():
+        try:
+            conn = dbm.connect_existing(db_path, readonly=True)
+            try:
+                existing = {r.template for r in renditions_store.list_renditions(conn, doc_id, kb_id)}
+            finally:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            log.debug("Failed to list renditions for doc_id=%s kb_id=%s", doc_id, kb_id, exc_info=True)
+    row: list[Any] = []
+    for tpl in ADDITIONAL_RENDITION_TEMPLATES:
+        if tpl in existing:
+            continue
+        spec = _RENDITION_CALLBACK_SPECS.get(tpl)
+        if spec is None:
+            continue
+        code, label_key = spec
+        cb_data = f"rd:{kb_id}:{doc_id}:{code}"
+        if len(cb_data.encode("utf-8")) > CALLBACK_DATA_MAX_BYTES:
+            log.warning("Skip rendition button for document %s: callback_data exceeds %d bytes", doc_id, CALLBACK_DATA_MAX_BYTES)
+            continue
+        row.append(InlineKeyboardButton(_t(label_key), callback_data=cb_data))
+    return row
+
+
+def _format_rendition_results_line(items: list[dict[str, str]]) -> str:
+    """Format one concise localized summary line for additional rendition results."""
+    parts: list[str] = []
+    for item in items:
+        tpl = item.get("template", "")
+        label = _t(f"rendition.template.{tpl}.label")
+        if label == f"rendition.template.{tpl}.label":
+            label = tpl
+        state = item.get("state", "failed")
+        if state in ("made", "existing", "queued"):
+            parts.append(_t(f"bot.ingest.rendition_item.{state}", label=label))
+        else:
+            parts.append(_t("bot.ingest.rendition_item.failed", label=label, error=item.get("error") or "unknown"))
+    return _t("bot.ingest.renditions_line", items=", ".join(parts))
 
 
 def _markup_with_rows(reply_markup: Any, extra_rows: list[list[Any]]) -> Any:
@@ -619,6 +686,52 @@ def parse_extraction_mode_flag(text: str | None) -> tuple[str, str | None]:
     if len(found) > 1:
         raise ValueError("extraction_flags_conflict")
     return t, (found[0] if found else None)
+
+
+_RENDITION_FLAG_RE = re.compile(
+    r"(?:\s+|^)[-–—―]{1,2}(?i:rendition)(?:=(?P<eq_val>\S*)|(?:\s+(?P<sp_val>\S+))?)(?=\s|$)",
+)
+
+
+def parse_rendition_flags(text: str | None) -> tuple[str, list[str]]:
+    """Extract and strip ``--rendition <tpl[,tpl]>`` flags from message or caption text.
+
+    Return ``(cleaned_text, templates)`` where ``templates`` are deduplicated in ``ADDITIONAL_RENDITION_TEMPLATES`` order. Raise ``ValueError`` on empty or unknown template names.
+    """
+    from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES
+
+    t = (text or "").strip()
+    if not t:
+        return "", []
+    selected: set[str] = set()
+    spans: list[tuple[int, int]] = []
+    for m in _RENDITION_FLAG_RE.finditer(t):
+        spans.append((m.start(), m.end()))
+        raw_val = m.group("eq_val") if m.group("eq_val") is not None else (m.group("sp_val") or "")
+        if not raw_val.strip():
+            raise ValueError("empty rendition template")
+        for part in raw_val.split(","):
+            name = part.strip().lower()
+            if not name:
+                raise ValueError("empty rendition template")
+            if name not in ADDITIONAL_RENDITION_TEMPLATES:
+                raise ValueError(f"unknown rendition template: {name}")
+            selected.add(name)
+    if not spans:
+        return t, []
+    pieces: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        if start > cursor:
+            pieces.append(t[cursor:start])
+        cursor = end
+    if cursor < len(t):
+        pieces.append(t[cursor:])
+    cleaned = "".join(pieces)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r" *\n *", "\n", cleaned).strip()
+    ordered = [tpl for tpl in ADDITIONAL_RENDITION_TEMPLATES if tpl in selected]
+    return cleaned, ordered
 
 
 def parse_regenerate_flags(text: str) -> tuple[str, bool, bool, str | None]:
@@ -1195,6 +1308,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         has_effort: str | None = None,
         has_refetch_full: bool = False,
         extraction_mode: str | None = None,
+        renditions: list[str] | None = None,
         kind_label: str = "",
         uid: int | None = None,
         cid: int | None = None,
@@ -1219,22 +1333,46 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         is_staged = False
         did = None
         contribute_rows: list[list[Any]] = []
+        rendition_list = list(renditions or ())
 
         def _work():
             if doc_work is not None:
-                return doc_work(target_svc)
-            return target_svc.ingest(
-                payload,
-                source="telegram",
-                user_id=uid,
-                chat_id=cid,
-                effort=has_effort,
-                full_content=has_refetch_full,
-                extraction_mode=extraction_mode,
-            )
+                rep = doc_work(target_svc)
+            else:
+                rep = target_svc.ingest(
+                    payload or "",
+                    source="telegram",
+                    user_id=uid,
+                    chat_id=cid,
+                    effort=has_effort,
+                    full_content=has_refetch_full,
+                    extraction_mode=extraction_mode,
+                )
+            rd_items: list[dict[str, str]] = []
+            if rendition_list and getattr(rep, "document_id", None) and not getattr(rep, "error", None) and not getattr(rep, "duplicate", False):
+                from ..extract.provider import emit_progress
+                from ..ingest.renditions import run_ingest_renditions
+
+                effective_mode = "client" if getattr(rep, "staged", False) else (extraction_mode if extraction_mode is not None else (target_svc.resolve_extraction_mode(None) if hasattr(target_svc, "resolve_extraction_mode") else "provider"))
+                if effective_mode == "provider":
+                    emit_progress(", ".join(rendition_list))
+                try:
+                    rd_items = run_ingest_renditions(
+                        kb_svc=target_svc,
+                        db_file=s.db_file,
+                        kb_id=target_theme.id,
+                        report=rep,
+                        templates=rendition_list,
+                        extraction_mode=effective_mode,
+                        effort=has_effort,
+                    )
+                except Exception as rd_exc:  # noqa: BLE001
+                    log.warning("Ingest renditions failed for doc_id=%s: %s", rep.document_id, rd_exc)
+                    rd_items = [{"template": tpl, "state": "failed", "error": str(rd_exc)} for tpl in rendition_list]
+            return rep, rd_items
 
         try:
-            report = await _run_with_ticker(status_msg, label, _work)
+            report, rendition_items = await _run_with_ticker(status_msg, label, _work)
             summary, cands = report.telegram_summary(), report.candidates
             # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7), in the locale of the chat.
             for notice_line in report.notice_lines(locale=None):
@@ -1246,6 +1384,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                     contribute_rows.append([InlineKeyboardButton(_t("campaign.contribute_action"), callback_data=callback_data)])
             if target_theme.id != 0:
                 summary = f"🎯 *[{target_theme.icon} {target_theme.label}]*\n" + summary
+            if rendition_items:
+                summary += "\n\n" + _format_rendition_results_line(rendition_items)
             is_stt_failed = bool(
                 report.stt_error
                 or (report.source_type == "video" and report.has_transcript is False and report.stt_error)
@@ -1263,6 +1403,10 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 summary_error="summary missing" if is_summary_failed else None,
             )
             did = report.document_id
+            if did and not has_error and not is_staged:
+                rendition_row = _missing_rendition_buttons(target_svc.s.db_file, did, target_theme.id)
+                if rendition_row:
+                    contribute_rows.append(rendition_row)
             log.info(
                 "Ingest completed: doc_id=%s, title=%r, error=%s, detail_error=%s, duplicate=%s, staged=%s, cands=%d",
                 report.document_id,
@@ -1413,7 +1557,12 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         except ValueError:
             await _reply_extraction_flags_conflict(update.message)
             return
-        payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload_fp_clean)
+        try:
+            payload_rd_clean, renditions = parse_rendition_flags(payload_fp_clean)
+        except ValueError as exc:
+            await _reply_invalid_rendition(update.message, exc)
+            return
+        payload_clean, has_refetch, has_refetch_full, has_effort = parse_regenerate_flags(payload_rd_clean)
 
         # 자체 FQDN의 공유 링크 또는 document_id 검사 (타 사이트 /p?s= 오인 방지)
         target_doc_id = None
@@ -1605,7 +1754,11 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             return
 
         # 일반 외부 웹페이지/텍스트 신규 적재
-        payload_to_ingest = payload_clean or payload
+        if not payload_clean:
+            if msg is not None:
+                await msg.reply_text(_t("bot.ingest.usage"))
+            return
+        payload_to_ingest = payload_clean
         kind = classify_input(payload_to_ingest)
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
@@ -1633,6 +1786,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "extraction_mode": flag_mode,
+                "renditions": renditions,
                 "kind_label": kind,
                 "uid": uid,
                 "cid": cid,
@@ -1651,6 +1805,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             extraction_mode=flag_mode,
+            renditions=renditions,
             kind_label=kind,
             uid=uid,
             cid=cid,
@@ -1681,8 +1836,13 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         except ValueError:
             await _reply_extraction_flags_conflict(msg)
             return
+        try:
+            caption_rd_clean, renditions = parse_rendition_flags(caption_clean)
+        except ValueError as exc:
+            await _reply_invalid_rendition(msg, exc)
+            return
         composite_url, sealed_focus, explicit_tid, has_refetch_full, has_effort = parse_caption_composite(
-            caption_clean or None, theme_mgr
+            caption_rd_clean or None, theme_mgr
         )
         if sealed_focus:
             await _reply_focus_sealed(msg)
@@ -1748,6 +1908,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "doc_work": _doc_work_for_theme,
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
+                "extraction_mode": flag_mode,
+                "renditions": renditions,
                 "kind_label": kind_label,
                 "uid": uid,
                 "cid": cid,
@@ -1797,6 +1959,8 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             doc_work=_work,
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
+            extraction_mode=flag_mode,
+            renditions=renditions,
             kind_label=kind_label,
             uid=uid,
             cid=cid,
@@ -1825,8 +1989,17 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
         except ValueError:
             await _reply_extraction_flags_conflict(update.message)
             return
-        payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload_fp_clean)
-        payload_to_ingest = payload_clean or payload
+        try:
+            payload_rd_clean, renditions = parse_rendition_flags(payload_fp_clean)
+        except ValueError as exc:
+            await _reply_invalid_rendition(update.message, exc)
+            return
+        payload_clean, _, has_refetch_full, has_effort = parse_regenerate_flags(payload_rd_clean)
+        if not payload_clean:
+            if update.message is not None:
+                await update.message.reply_text(_t("bot.ingest.usage"))
+            return
+        payload_to_ingest = payload_clean
         msg = update.message
         kind = classify_input(payload_to_ingest)
         uid = user.id if user else None
@@ -1851,6 +2024,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 "has_effort": has_effort,
                 "has_refetch_full": has_refetch_full,
                 "extraction_mode": flag_mode,
+                "renditions": renditions,
                 "kind_label": kind,
                 "uid": uid,
                 "cid": cid,
@@ -1869,6 +2043,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             has_effort=has_effort,
             has_refetch_full=has_refetch_full,
             extraction_mode=flag_mode,
+            renditions=renditions,
             kind_label=kind,
             uid=uid,
             cid=cid,
@@ -1951,6 +2126,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 has_effort=item.get("has_effort"),
                 has_refetch_full=item.get("has_refetch_full", False),
                 extraction_mode=item.get("extraction_mode"),
+                renditions=item.get("renditions"),
                 kind_label=item.get("kind_label", ""),
                 uid=item.get("uid"),
                 cid=item.get("cid"),
@@ -2073,6 +2249,87 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
                 log.exception("Contribution to a theme failed: %s", exc)
                 answer = _t("campaign.contribute_failed", error=type(exc).__name__)
             await query.message.reply_text(answer)
+            return
+        if data.startswith("rd:"):
+            user = update.effective_user
+            if not _is_allowed(user.id if user else None):
+                return
+            if query is None:
+                return
+            cb_query: Any = query
+            cb_msg: Any = cb_query.message
+            if cb_msg is None or not hasattr(cb_msg, "reply_text"):
+                return
+            parts = data.split(":")
+            if len(parts) < 4:
+                return
+            tid_str = parts[1]
+            code = parts[-1]
+            did = ":".join(parts[2:-1])
+            template = _RENDITION_CODE_TO_TEMPLATE.get(code)
+            try:
+                target_tid = int(tid_str)
+            except ValueError:
+                return
+            if not did or template is None:
+                return
+            template_label = _t(f"rendition.template.{template}.label")
+            await cb_query.answer(_t("bot.rendition.progress_toast", template=template_label))
+            try:
+                target_svc = service_pool.get_service(target_tid)
+            except KnowledgeBaseNotFound:
+                await cb_msg.reply_text(_t("bot.theme.stale"))
+                return
+            status_msg = await cb_msg.reply_text(_t("bot.rendition.progress", template=template_label, doc_id=did))
+            completed = False
+            try:
+                items = await asyncio.to_thread(target_svc.add_renditions, did, [template])
+                item = items[0] if items else {"template": template, "state": "failed", "error": "empty result"}
+                state = item.get("state", "failed")
+                if state in ("made", "existing"):
+                    completed = True
+                    rendition_url = ""
+                    base_url = (getattr(s, "public_url", "") or "").rstrip("/")
+                    if base_url:
+                        try:
+                            from ..store import permalinks as permalinks_store
+
+                            db_path = Path(target_svc.s.db_file)
+                            if db_path.exists():
+                                conn = dbm.connect_existing(db_path, readonly=True)
+                                try:
+                                    tok = permalinks_store.token_of(conn, "document", did)
+                                finally:
+                                    conn.close()
+                                if tok:
+                                    rendition_url = f"{base_url}/silvercord/{tok}/renditions/{template}"
+                        except Exception:  # noqa: BLE001
+                            pass
+                    key_base = "bot.rendition.existing" if state == "existing" else "bot.rendition.done"
+                    if rendition_url:
+                        ans = _t(f"{key_base}_with_link", template=template_label, doc_id=did, url=rendition_url)
+                    else:
+                        ans = _t(key_base, template=template_label, doc_id=did)
+                else:
+                    ans = _t("bot.rendition.failed", template=template_label, error=item.get("error") or "unknown")
+            except LookupError:
+                ans = _t("bot.rendition.doc_not_found", doc_id=did)
+            except Exception as exc:  # noqa: BLE001
+                ans = _t("bot.rendition.error", template=template_label, error=exc)
+            await status_msg.edit_text(ans)
+            if completed:
+                existing_markup = getattr(cb_msg, "reply_markup", None)
+                if existing_markup is not None and getattr(existing_markup, "inline_keyboard", None):
+                    new_rows = []
+                    for row in existing_markup.inline_keyboard:
+                        kept = [btn for btn in row if getattr(btn, "callback_data", None) != data]
+                        if kept:
+                            new_rows.append(kept)
+                    new_markup = InlineKeyboardMarkup(new_rows) if new_rows else None
+                    try:
+                        await cb_query.edit_message_reply_markup(reply_markup=new_markup)
+                    except Exception:  # noqa: BLE001
+                        pass
             return
         if data.startswith("sb:"):
             user = update.effective_user
