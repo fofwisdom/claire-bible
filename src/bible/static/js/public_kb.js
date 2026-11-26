@@ -80,15 +80,18 @@
     return esc(t("kb.pub.recent_remote_kb")) + " " + remote + server;
   }
 
-  // The root page of network mode, after the themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 3). The server puts the recent activity across servers in the JSON element "public-home-recent-data": {"recent": [items of recentItemHtml]}. The page has the styles of public_directory.html. With no recent activity, the part shows nothing.
+  // The root page of network mode, after the themes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 3). The server puts the recent activity across servers in the JSON element "public-home-recent-data": {"recent": [items of recentItemHtml]}. With no recent activity, the part shows nothing.
   function renderHomeRecent(host) {
     var source = document.getElementById("public-home-recent-data");
     var recent = [];
     try { recent = (source && JSON.parse(source.textContent).recent) || []; } catch (e) { recent = []; }
     if (!recent.length) { host.innerHTML = ""; return; }
-    host.innerHTML = "<h2>" + esc(t("kb.pub.recent_title")) + "</h2>" + '<article class="account-card"><ul class="themes-list">' + recent.map(function (it) {
-      return '<li data-federation-recent="' + esc(it.kind) + '">' + recentItemHtml(it) + "</li>";
-    }).join("") + "</ul></article>";
+    host.innerHTML = '<section class="about-card home-section-card" aria-labelledby="home-recent-h2">' +
+      '<div class="home-section-head"><h2 id="home-recent-h2">' + ui().icon("globe") + " <span>" + esc(t("kb.pub.recent_title")) + "</span></h2></div>" +
+      '<article class="account-card home-list-card"><ul class="themes-list">' + recent.map(function (it) {
+        return '<li data-federation-recent="' + esc(it.kind) + '">' + recentItemHtml(it) + "</li>";
+      }).join("") + "</ul></article></section>";
+    ui().enhance(host);
   }
 
   // GET /themes: the root of the collection has each theme in "themes" (number, url, label, description, knowledge_type, state, knowledge_bases = the count of knowledge bases of this server, remote_knowledge_bases = the count of shared knowledge bases of other servers).

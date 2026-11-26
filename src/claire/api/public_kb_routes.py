@@ -17,6 +17,7 @@ from ..store import accounts as accounts_store
 from .accounts_routes.admin import is_admin
 from .accounts_routes.common import AccountsContext, escape, open_db, render_template
 from .principal import request_principal
+from .security import read_session_cookie
 
 PUBLIC_VIEWS = ("kb_list", "kb_detail", "themes_list", "theme_detail")
 
@@ -24,15 +25,31 @@ PUBLIC_VIEWS = ("kb_list", "kb_detail", "themes_list", "theme_detail")
 def _caller_context(request: Request, ctx: AccountsContext) -> dict[str, Any]:
     """The data of the requester that the application bar and the page script use."""
     principal = request_principal(request)
-    is_auth = principal.account_id is not None and principal.scope in {"owner", "write", "readonly"}
+    account_id = principal.account_id
+    scope = principal.scope
+    is_auth = account_id is not None and scope in {"owner", "write", "readonly"}
     admin = is_admin(principal)
     home_href = "/"
     conn = open_db(ctx)
     try:
         store = accounts_store.AccountStore(conn)
         mode = store.server_mode()
-        if is_auth and mode == "network":
-            username = store.get(principal.account_id).username
+        if not is_auth:
+            cookie_present, cookie_token = read_session_cookie(request.scope)
+            if cookie_present and cookie_token:
+                binding = accounts_store.validate_session_binding(conn, cookie_token)
+                if binding is not None and binding.scope in {"owner", "write", "readonly"}:
+                    try:
+                        account = store.get(binding.account_id)
+                    except accounts_store.AccountNotFound:
+                        account = None
+                    if account is not None and account.status in accounts_store.CREDENTIAL_ACCEPTING_STATUSES:
+                        account_id = account.id
+                        scope = binding.scope
+                        is_auth = True
+                        admin = account.role == "admin"
+        if is_auth and mode == "network" and account_id is not None:
+            username = store.get(account_id).username
             if username:
                 home_href = f"/@{username}/"
     finally:
@@ -40,7 +57,7 @@ def _caller_context(request: Request, ctx: AccountsContext) -> dict[str, Any]:
     return {
         "is_authenticated": is_auth,
         "is_admin": admin,
-        "scope": principal.scope,
+        "scope": scope,
         "home_href": home_href,
         "console_href": "/admin" if admin else "/account",
         "mode": mode,

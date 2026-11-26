@@ -91,8 +91,10 @@ from ..store.queries import theme_summary
 from ..store.legacy_hosts import SqliteLegacyHostDirectory
 from ..store.knowledge_base import KnowledgeBaseInfo, KnowledgeBaseManager, KnowledgeBaseNotFound, get_kb_manager
 from .accounts_routes import build_account_routes, prepare_auth_db, prepare_client_db
+from .accounts_routes import common as accounts_common
 from .accounts_routes.common import same_origin
 from . import public_kb_routes
+from .routes.public_about import build_public_hero_context
 from .citation_tags import render_citation_tags
 from .host_router import LegacyHost
 from . import collections
@@ -1111,7 +1113,128 @@ def create_app(
 
         account_id, username, nav_auth = await asyncio.to_thread(_directory_viewer_nav, request, principal)
 
-        if root_page or collections.wants_html(request):
+        if root_page:
+            locale = get_locale()
+
+            def _render_root_home() -> tuple[bytes, str]:
+                live_settings = account_routes.context.current_settings() or s
+                hero = build_public_hero_context(live_settings, locale=locale)
+                appbar_html = public_kb_routes.public_appbar_html(request, account_routes.context, active="home")
+
+                if account_id is not None:
+                    workspace_href = f"/@{username}/" if username else "/me"
+                    hero_actions_html = (
+                        f'<a class="claire-btn pri" href="{html.escape(workspace_href)}"><span data-icon="home"></span> {html.escape(_t("directory.my_workspace"))}</a>'
+                        f'<a class="claire-btn sec" href="/kb"><span data-icon="folder"></span> {html.escape(_t("kb.pub.nav_kbs"))}</a>'
+                        f'<a class="claire-btn sec" href="/about"><span data-icon="info"></span> {html.escape(_t("home_root.hero.cta_about"))}</a>'
+                    )
+                else:
+                    hero_actions_html = (
+                        f'<a class="claire-btn pri" href="/about"><span data-icon="info"></span> {html.escape(_t("home_root.hero.cta_about"))}</a>'
+                        f'<a class="claire-btn sec" href="/kb"><span data-icon="folder"></span> {html.escape(_t("kb.pub.nav_kbs"))}</a>'
+                        f'<a class="claire-btn sec" href="/login">{html.escape(_t("directory.login"))}</a>'
+                    )
+
+                if not accounts:
+                    if account_id is not None:
+                        empty_btn_html = f'<a class="claire-btn pri" href="{html.escape(f"/@{username}/" if username else "/me")}">{html.escape(_t("directory.go_workspace"))}</a>'
+                    else:
+                        empty_btn_html = f'<a class="claire-btn pri" href="/login">{html.escape(_t("directory.login"))}</a>'
+                    accounts_body_html = (
+                        '<div class="home-empty-state">'
+                        f'<h3>{html.escape(_t("directory.empty_title"))}</h3>'
+                        f'<p>{html.escape(_t("directory.empty"))}</p>'
+                        f'{empty_btn_html}'
+                        '</div>'
+                    )
+                else:
+                    cards = []
+                    for a in accounts:
+                        t_items = []
+                        for t in a.themes:
+                            t_url = f"/@{html.escape(a.username)}/themes/{t.number}/" if t.number else f"/@{html.escape(a.username)}/"
+                            t_items.append(f'<li><a href="{html.escape(t_url)}">{html.escape(t.label)}</a><span class="themes-count">({html.escape(_t("directory.theme_docs", count=t.documents))})</span></li>')
+                        themes_html = f'<ul class="themes-list">{"".join(t_items)}</ul>' if t_items else f'<p class="about-section-desc">{html.escape(_t("directory.no_themes"))}</p>'
+                        cards.append(
+                            '<article class="account-card home-item-card">'
+                            '<div class="account-header">'
+                            f'<a class="account-name" href="/@{html.escape(a.username)}/">{html.escape(a.display_name or a.username)}<span class="account-handle">@{html.escape(a.username)}</span></a>'
+                            f'<span class="badge">{html.escape(_t("directory.badge", themes=a.public_themes, documents=a.public_documents))}</span>'
+                            '</div>'
+                            f'{themes_html}'
+                            '</article>'
+                        )
+                    accounts_body_html = f'<div class="home-card-grid">{"".join(cards)}</div>'
+
+                themes_section_html = ""
+                recent_host_html = ""
+                if not query.page:
+                    theme_views = _active_theme_views(origin=base_origin)
+                    recent = _recent_activity(base_origin)
+                    recent_json = json.dumps({"recent": recent}, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+                    recent_host_html = f'<script type="application/json" id="public-home-recent-data">{recent_json}</script><div id="public-home-recent"></div>'
+                    if theme_views:
+                        themes_section_html = (
+                            '<section class="about-card home-section-card" id="home-themes" aria-labelledby="home-themes-h2">'
+                            f'<div class="home-section-head"><h2 id="home-themes-h2"><span data-icon="folder"></span> <span>{html.escape(_t("themes.section_title"))}</span></h2><a class="home-section-more" href="/themes">{html.escape(_t("themes.all"))} &rarr;</a></div>'
+                            f'<div class="home-card-grid">{_theme_cards_html(theme_views, modern=True)}</div>'
+                            '</section>'
+                        )
+
+                pagination_parts = []
+                if query.page:
+                    if len(accounts) == query.limit:
+                        last_id = ids.format_public_id(accounts[-1].public_id)
+                        pagination_parts.append(f'<a href="/directory?page=true&max_id={last_id}">{html.escape(_t("directory.next"))} &rarr;</a>')
+                    if query.max_id is not None and accounts:
+                        first_id = ids.format_public_id(accounts[0].public_id)
+                        pagination_parts.insert(0, f'<a href="/directory?page=true&min_id={first_id}">&larr; {html.escape(_t("directory.prev"))}</a>')
+                pagination_html = f'<div class="home-pagination">{"".join(pagination_parts)}</div>' if pagination_parts else ""
+
+                accounts_section_html = (
+                    '<section class="about-card home-section-card" id="home-accounts" aria-labelledby="home-accounts-h2">'
+                    f'<div class="home-section-head"><h2 id="home-accounts-h2"><span data-icon="users"></span> <span>{html.escape(_t("themes.accounts_title"))}</span></h2><a class="home-section-more" href="/directory">{html.escape(_t("directory.title"))} &rarr;</a></div>'
+                    f'{accounts_body_html}'
+                    f'{pagination_html}'
+                    '</section>'
+                )
+                content_html = themes_section_html + recent_host_html + accounts_section_html
+
+                rendered_resp = accounts_common.render_template(
+                    "public_home.html",
+                    text={
+                        "page_title": _t("directory.title"),
+                        "hero_lead": hero["hero_lead"],
+                        "kpi_mode_value": hero["kpi_mode_value"],
+                        "kpi_mode_sub": hero["kpi_mode_sub"],
+                        "kpi_public_value": hero["kpi_public_value"],
+                        "kpi_public_sub": hero["kpi_public_sub"],
+                        "kpi_content_value": hero["kpi_content_value"],
+                        "kpi_content_sub": hero["kpi_content_sub"],
+                    },
+                    markup={
+                        "common_appbar_html": appbar_html,
+                        "hero_actions_html": hero_actions_html,
+                        "kpi_build_html": hero["kpi_build_html"],
+                        "curator_strip_html": hero["curator_strip_html"],
+                        "content_html": content_html,
+                        "footer_links_html": hero["footer_links_html"],
+                    },
+                )
+                etag = collections.collection_etag([locale, str(account_id or ""), hashlib.sha256(rendered_resp.body).hexdigest()])
+                return rendered_resp.body, etag
+
+            body_bytes, etag = await asyncio.to_thread(_render_root_home)
+            headers = collections.collection_cache_headers(anonymous=(account_id is None), etag=etag)
+            headers["Vary"] += ", Accept-Language"
+            headers["Referrer-Policy"] = accounts_common.FORM_PAGE_REFERRER_POLICY
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304, headers=headers)
+            if request.method == "HEAD":
+                return Response(status_code=200, headers=headers, media_type="text/html; charset=utf-8")
+            return HTMLResponse(body_bytes, status_code=200, headers=headers)
+
+        if collections.wants_html(request):
             template_path = Path(__file__).resolve().parent / "templates" / "public_directory.html"
             template_text = template_path.read_text(encoding="utf-8")
 
@@ -2482,10 +2605,29 @@ def create_app(
             view["computed_at"] = theme["computed_at"]
         return view
 
-    def _theme_cards_html(views: list[dict[str, Any]]) -> str:
+    def _theme_cards_html(views: list[dict[str, Any]], *, modern: bool = False) -> str:
         """The themes of a public page as cards: the label, the knowledge type, the counts, and the top entities."""
         cards = []
         for view in views:
+            if modern:
+                entities_html = f'<div class="home-entity-tags">{"".join(f"""<span class="claire-tag">{html.escape(str(name))}</span>""" for name in view["top_entities"][:5])}</div>' if view["top_entities"] else ""
+                items = "".join(
+                    f'<li>{f"""<a href="{html.escape(kb["url"])}"{""" target="_blank" rel="noopener noreferrer" """.rstrip() if kb["remote"] else ""}>{html.escape(kb["label"])}</a>""" if kb["url"] else html.escape(kb["label"])}'
+                    f'<span class="themes-count">({html.escape(kb["server"] if kb["remote"] else _t("themes.kb_personal") if kb["is_personal"] else _t("themes.kb_shared"))})</span></li>'
+                    for kb in view["knowledge_bases"]
+                )
+                type_cls = "fic" if view["knowledge_type"] == "fictional" else "acc"
+                cards.append(
+                    '<article class="account-card home-item-card" data-kind="theme">'
+                    '<div class="account-header">'
+                    f'<a class="account-name" href="/themes/{html.escape(view["number"])}/">{html.escape(view["label"])}</a>'
+                    f'<span class="badge"><span class="claire-tag {type_cls}">{html.escape(_t("kb.knowledge_type." + view["knowledge_type"]))}</span> · {html.escape(_t("themes.counts_federated", knowledge_bases=view["shared_knowledge_bases"], remote=view["remote_knowledge_bases"], contributions=view["visible_contributions"]))}</span>'
+                    "</div>"
+                    + entities_html
+                    + (f'<ul class="themes-list">{items}</ul>' if items else "")
+                    + "</article>"
+                )
+                continue
             entities = ", ".join(html.escape(str(name)) for name in view["top_entities"][:5])
             items = "".join(
                 f'<li>{f"""<a href="{html.escape(kb["url"])}">{html.escape(kb["label"])}</a>""" if kb["url"] else html.escape(kb["label"])}'

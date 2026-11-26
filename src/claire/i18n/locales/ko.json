@@ -4964,5 +4964,7 @@
   "pipeline.neon.beat5.fail": "원문(raw_text)과 출처 메타는 절대 덮어쓰지 않는 불변 원칙(A1)을 지키며 텔레메트리는 정본 DB와 물리 분리(A4)됩니다. 공유 KB는 소유 계정 과금 방지를 위해 expand·refresh·recover 루프가 돌지 않습니다(CT10).",
   "pipeline.neon.beat5.acc_title": "세부 참조: 개인 KB 3종 루프(CT10) · 재처리 안전장치(before_store)",
   "pipeline.neon.beat5.acc_1": "개인 KB 전용 3종 워커: expand-loop(깊이 1 고정), refresh-loop(동일 doc.id로 갱신해 엔티티 출처 보존), recover-loop(원래 extraction_mode 유지 · staged 건너뜀).",
-  "pipeline.neon.beat5.acc_2": "재생성 보호: 기존 문서를 다시 추출(regenerate)할 때는 extract_graph가 성공해 before_store가 호출되기 전까지 기존 그래프를 삭제하지 않습니다."
+  "pipeline.neon.beat5.acc_2": "재생성 보호: 기존 문서를 다시 추출(regenerate)할 때는 extract_graph가 성공해 before_store가 호출되기 전까지 기존 그래프를 삭제하지 않습니다.",
+  "home_root.hero.badge": "공개 네트워크 · /",
+  "home_root.hero.cta_about": "소개 및 파이프라인"
 }

@@ -4964,5 +4964,7 @@
   "pipeline.neon.beat5.fail": "Raw text (raw_text) and source metadata are immutable (A1), and telemetry is physically separated from canonical claire.db (A4). Shared KBs never run expand, refresh, or recover loops to protect owner billing (CT10).",
   "pipeline.neon.beat5.acc_title": "Details: Personal KB 3 worker loops (CT10) · Reprocess guard (before_store)",
   "pipeline.neon.beat5.acc_1": "Personal KB worker loops: expand-loop (depth 1 fixed), refresh-loop (re-fetches with same doc.id to preserve entity sources), recover-loop (retries failures preserving original extraction_mode, skipping staged rows).",
-  "pipeline.neon.beat5.acc_2": "Regeneration guard: during regenerate, existing graph data is preserved until extract_graph succeeds and before_store runs."
+  "pipeline.neon.beat5.acc_2": "Regeneration guard: during regenerate, existing graph data is preserved until extract_graph succeeds and before_store runs.",
+  "home_root.hero.badge": "Public Network · /",
+  "home_root.hero.cta_about": "About & Pipeline"
 }

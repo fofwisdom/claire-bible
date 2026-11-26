@@ -178,6 +178,39 @@ def _build_curator_strip_html(*, curator_name: str, curator_handle: str, locale:
     )
 
 
+def build_public_hero_context(settings: Any, *, locale: str) -> dict[str, Any]:
+    """Build shared KD15-compliant hero, KPI, curator, primary language, and footer markup context for public ``/`` and ``/about`` pages."""
+    snap = _collect_public_snapshot(settings)
+    _, lang_order, primary_lang_name = resolve_primary_language_info(settings, locale=locale)
+    mode_key = "about.kpi.mode_network" if snap["mode"] == "network" else "about.kpi.mode_single"
+    return {
+        "snapshot": snap,
+        "lang_order": lang_order,
+        "primary_lang_name": primary_lang_name,
+        "hero_lead": t("about.hero.lead", locale=locale, lang=primary_lang_name),
+        "kpi_mode_value": t(mode_key, locale=locale),
+        "kpi_mode_sub": t("about.kpi.mode_sub", locale=locale),
+        "kpi_public_value": t(
+            "about.kpi.public_counts_val",
+            locale=locale,
+            profiles=f"{snap['public_profiles']:,}",
+            kbs=f"{snap['public_shared_kbs']:,}",
+            themes=f"{snap['public_themes']:,}",
+        ),
+        "kpi_public_sub": t("about.kpi.public_counts_sub", locale=locale),
+        "kpi_content_value": t(
+            "about.kpi.docs_entities_val",
+            locale=locale,
+            docs=f"{snap['public_documents']:,}",
+            entities=f"{snap['public_entities']:,}",
+        ),
+        "kpi_content_sub": t("about.kpi.docs_entities_sub", locale=locale),
+        "kpi_build_html": _build_kpi_build_html(settings, short_sha=snap["build_commit_short"], locale=locale),
+        "curator_strip_html": _build_curator_strip_html(curator_name=snap["curator_name"], curator_handle=snap["curator_handle"], locale=locale),
+        "footer_links_html": _build_footer_links_html(settings, locale=locale),
+    }
+
+
 def build_public_about_routes(*, settings: Any, ctx: AccountsContext) -> list[Route]:
     """Build the public ``/about`` route."""
 
@@ -186,50 +219,33 @@ def build_public_about_routes(*, settings: Any, ctx: AccountsContext) -> list[Ro
 
         def _render() -> Response:
             live_settings = ctx.current_settings() or settings
-            snap = _collect_public_snapshot(live_settings)
-            _, lang_order, primary_lang_name = resolve_primary_language_info(live_settings, locale=locale)
+            hero = build_public_hero_context(live_settings, locale=locale)
             pipeline_data = build_pipeline_view_data(
                 viewer="public",
                 settings=live_settings,
-                lang_order=lang_order,
+                lang_order=hero["lang_order"],
                 locale=locale,
             )
-            mode_key = "about.kpi.mode_network" if snap["mode"] == "network" else "about.kpi.mode_single"
             appbar_html = public_appbar_html(request, ctx, active="about")
             return render_template(
                 "public_about.html",
                 text={
                     "page_title": t("about.page_title", locale=locale),
-                    "hero_lead": t("about.hero.lead", locale=locale, lang=primary_lang_name),
-                    "kpi_mode_value": t(mode_key, locale=locale),
-                    "kpi_mode_sub": t("about.kpi.mode_sub", locale=locale),
-                    "kpi_public_value": t(
-                        "about.kpi.public_counts_val",
-                        locale=locale,
-                        profiles=f"{snap['public_profiles']:,}",
-                        kbs=f"{snap['public_shared_kbs']:,}",
-                        themes=f"{snap['public_themes']:,}",
-                    ),
-                    "kpi_public_sub": t("about.kpi.public_counts_sub", locale=locale),
-                    "kpi_content_value": t(
-                        "about.kpi.docs_entities_val",
-                        locale=locale,
-                        docs=f"{snap['public_documents']:,}",
-                        entities=f"{snap['public_entities']:,}",
-                    ),
-                    "kpi_content_sub": t("about.kpi.docs_entities_sub", locale=locale),
+                    "hero_lead": hero["hero_lead"],
+                    "kpi_mode_value": hero["kpi_mode_value"],
+                    "kpi_mode_sub": hero["kpi_mode_sub"],
+                    "kpi_public_value": hero["kpi_public_value"],
+                    "kpi_public_sub": hero["kpi_public_sub"],
+                    "kpi_content_value": hero["kpi_content_value"],
+                    "kpi_content_sub": hero["kpi_content_sub"],
                 },
                 markup={
                     "common_appbar_html": appbar_html,
-                    "kpi_build_html": _build_kpi_build_html(live_settings, short_sha=snap["build_commit_short"], locale=locale),
-                    "curator_strip_html": _build_curator_strip_html(
-                        curator_name=snap["curator_name"],
-                        curator_handle=snap["curator_handle"],
-                        locale=locale,
-                    ),
+                    "kpi_build_html": hero["kpi_build_html"],
+                    "curator_strip_html": hero["curator_strip_html"],
                     "pipeline_mount_html": render_pipeline_mount_html(pipeline_data),
                     "sources_rows_html": _build_sources_rows_html(locale),
-                    "footer_links_html": _build_footer_links_html(live_settings, locale=locale),
+                    "footer_links_html": hero["footer_links_html"],
                 },
                 headers={"Vary": "Cookie, Authorization, Accept-Language"},
             )

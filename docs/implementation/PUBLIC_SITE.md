@@ -10,9 +10,10 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 
 | File | Role | Main symbols |
 | :--- | :--- | :--- |
-| `src/claire/api/server.py` | Robots, sitemap, directory/profile nav injection | `robots_txt_route`, `sitemap_xml_route`, `_sitemap_cache` |
-| `src/claire/api/routes/public_about.py` | Public `/about` page route and KD15 snapshot | `build_public_about_routes`, `_collect_public_snapshot` |
+| `src/claire/api/server.py` | Robots, sitemap, directory/profile nav injection, network-mode root page | `robots_txt_route`, `sitemap_xml_route`, `_sitemap_cache`, `public_directory_route` |
+| `src/claire/api/routes/public_about.py` | Public `/about` page route, shared hero/KPI/footer context, KD15 snapshot | `build_public_about_routes`, `build_public_hero_context`, `_collect_public_snapshot` |
 | `src/claire/api/templates/public_about.html` | Public `/about` HTML template | `#about-top`, `#pipeline-graph`, `#about-sources` |
+| `src/claire/api/templates/public_home.html` | Public network-mode root `/` HTML template sharing `/about` UI/look-and-feel | `#home-top`, `#public-home-showcase`, `#home-themes`, `#public-home-recent`, `#home-accounts` |
 | `src/claire/api/public_kb_routes.py` | Public appbar with `/about` nav and KB pages | `public_appbar_html`, `render_public_kb_page`, `directory_head_markup` |
 | `src/claire/api/accounts_routes/pipeline.py` | Shared Gemini Neon pipeline serializer and mount | `build_pipeline_view_data`, `render_pipeline_mount_html`, `resolve_primary_language_info` |
 | `src/claire/accounts/username_policy.py` | Username reservation policy (`"about"` reserved) | `RESERVED_USERNAMES` |
@@ -24,7 +25,7 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 | `src/claire/api/namespace.py` | GA ID of the theme that the path pins | `NamespaceResolverMiddleware` |
 | `src/claire/core/config.py` | Settings | `robots_policy`, `block_ai_crawlers`, `sitemap_enabled`, `sitemap_cache_ttl`, `site_name`, `site_description`, `ga_measurement_id`, `anonymous_readonly` |
 
-Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/test_google_analytics.py`, `tests/test_theme_fqdn.py`, `tests/test_public_about.py`, `e2e/public_about.spec.js`.
+Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/test_google_analytics.py`, `tests/test_theme_fqdn.py`, `tests/test_public_about.py`, `tests/test_public_home.py`, `e2e/public_about.spec.js`, `e2e/public_home.spec.js`.
 
 ---
 
@@ -149,7 +150,7 @@ Design: [`ABOUT_PAGE_AND_INTERACTIVE_PIPELINE_DESIGN.md`](../design/ABOUT_PAGE_A
 
 ### 7.1 `/about` Route and KD15 Privacy Guarantees
 
-- **[code]** `build_public_about_routes` in `src/claire/api/routes/public_about.py` handles `GET` and `HEAD` `/about` for anonymous visitors using `src/claire/api/templates/public_about.html` (`Vary: Cookie, Authorization, Accept-Language`).
+- **[code]** `build_public_about_routes` in `src/claire/api/routes/public_about.py` handles `GET` and `HEAD` `/about` for anonymous visitors using `src/claire/api/templates/public_about.html` (`Vary: Cookie, Authorization, Accept-Language`), and `build_public_hero_context` shares the Gemini Neon hero, KD15 KPI grid, curator strip, primary-language interpolation, and footer links with the network-mode root page `public_directory_route(..., root_page=True)` (`src/claire/api/templates/public_home.html`, rendering active themes, cross-server recent activity, and public accounts alongside `public_appbar_html`).
 - **[code] [decision]** `_collect_public_snapshot` enforces `KD15` and public viewer isolation:
   - **KPI Box 1**: server mode (`network` or `single`) and private invite-only registration policy (`about.kpi.mode_*`).
   - **KPI Box 2**: active public profiles (`accounts.profile_public = 1 AND status = 'active'`), public shared knowledge bases (`is_personal = 0 AND is_public = 1`), and active themes (`themes.state = 'active'`).
