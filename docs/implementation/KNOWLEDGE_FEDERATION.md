@@ -1024,6 +1024,7 @@ Design: Section 14.1, decisions KD10, KD11, KD13 (`PQ14: A`), KD14 (`PQ15: C`), 
 | `src/claire/api/accounts_routes/console_federation_panels.py`, `src/bible/static/js/console_admin.js`, `src/claire/i18n/locales/en.json`, `src/claire/i18n/locales/ko.json` | Two-group readiness table, level column, "Does not apply", loop states |
 | `src/claire/cli.py` | `--federation` help (`GF1 to GF17`) and output |
 | `src/claire/api/security.py`, `src/claire/api/host_router.py` | Decision CD4 (`DQ1: A`): `development` accepts `https://<name>.test/` and applies `.test` DNS role rules |
+| `src/claire/core/config.py` (`Settings.public_url`) | Decision CD4 (2026-11-26 fix): in `development`, `CLAIRE_FQDN` with a DNS name below `.test` gives an `https` public URL; before the fix it gave `http`, and the origin rule of `security.py` refused it at the start. An IPv4 address still gives `http`. |
 | `sidecar/fedify/src/internal_api.ts`, `sidecar/fedify/src/sidecar.ts`, `sidecar/fedify/src/main.ts` | Contract `1.12`, `POST /ap/self-check`, `knowledgeSelfCheck`, `runKnowledgeReads`, `runKnowledgeExchange`, `loops()` |
 
 ### 17.2 Checks GF8 to GF17

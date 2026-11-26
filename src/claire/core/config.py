@@ -845,8 +845,11 @@ class Settings(BaseSettings):
         eff = self.effective_fqdn
         if not eff:
             return ""
-        is_prod = (self.environment or "").strip().lower() == "production"
-        scheme = "https" if is_prod else "http"
+        environment = (self.environment or "").strip().lower()
+        # Decision CD4 (CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md): in development a DNS name below ".test" uses https, as the origin rule of ``security.WebRuntimeConfig`` requires; an IPv4 address uses http.
+        labels = eff.split(":", 1)[0].split(".")
+        test_name = len(labels) >= 2 and labels[-1] == "test" and all(labels)
+        scheme = "https" if environment == "production" or (environment == "development" and test_name) else "http"
         return f"{scheme}://{eff}/"
 
 
