@@ -23,6 +23,8 @@ IMAGE_TAG = "devnet"
 TOOLBOX_IMAGE = "claire-devnet-toolbox:devnet"
 # The port of Claire in the container (CLAIRE_INJECT_PORT). No host port is open: the gateway is the only way in.
 API_PORT = "8766"
+# The loopback port on the host for the HTTP CONNECT proxy (access service).
+ACCESS_PORT = "18443"
 
 
 class DevnetError(RuntimeError):
@@ -49,7 +51,7 @@ class Devnet:
 
     def _base_env(self) -> dict[str, str]:
         env = dict(os.environ)
-        env.update(CB_DEVNET_RUN_DIR=str(self.run_dir), CB_DEVNET_EDGE_PREFIX=EDGE_PREFIX, CB_DEVNET_IMAGE=f"claire-bible:{IMAGE_TAG}", CB_UID=str(os.getuid()), CB_GID=str(os.getgid()))
+        env.update(CB_DEVNET_RUN_DIR=str(self.run_dir), CB_DEVNET_EDGE_PREFIX=EDGE_PREFIX, CB_DEVNET_IMAGE=f"claire-bible:{IMAGE_TAG}", CB_DEVNET_ACCESS_PORT=ACCESS_PORT, CB_UID=str(os.getuid()), CB_GID=str(os.getgid()))
         return env
 
     def _server_env(self, server: str) -> dict[str, str]:
@@ -96,7 +98,7 @@ class Devnet:
         print("devnet: build the images (tag devnet)")
         _run(self._server(servers[0]) + ["build", "api", "fedify", "edge"], env=self._server_env(servers[0]))
         _run(["docker", "build", "-q", "-t", TOOLBOX_IMAGE, "--build-arg", f"CLAIRE_IMAGE=claire-bible:{IMAGE_TAG}", "-f", str(self.ops / "toolbox.Dockerfile"), str(self.ops)], capture=True)
-        print("devnet: start the core project (certificates, DNS, gateway)")
+        print("devnet: start the core project (certificates, DNS, gateway, access proxy)")
         _run(self._core() + ["up", "-d", "--build", "--wait"], env=self._base_env())
         for server in servers:
             self._up_server(server, bot=bot)
@@ -181,7 +183,9 @@ class Devnet:
             print(f"  server {server}        : https://{server}.claire.test/ (through the gateway on the network claire-devnet-edge)")
         print(f"  authority       : {self.ca}")
         print(f"  state file      : {self.state} (admin credentials, mode 0600)")
-        print("  access from a browser of the host: not implemented (open question DQ2)")
+        print(f"  access proxy    : 127.0.0.1:{ACCESS_PORT} (HTTP CONNECT for claire.test and *.claire.test on port 443)")
+        print(f"  chromium        : chromium --proxy-server=http://127.0.0.1:{ACCESS_PORT} --user-data-dir=/tmp/claire-devnet-chromium (import {self.ca} in the profile)")
+        print(f"  firefox         : firefox --profile /tmp/claire-devnet-firefox --no-remote (set HTTPS proxy 127.0.0.1:{ACCESS_PORT} and import {self.ca} in the profile)")
         return 0
 
     def down(self) -> int:
@@ -204,7 +208,7 @@ def main(root: Path, argv: list[str]) -> int:
     sub.add_parser("check", help="Readiness report of each server (claire server check --federation)")
     test = sub.add_parser("test", help="Run the tests with the marker devnet in the toolbox")
     test.add_argument("pytest_args", nargs=argparse.REMAINDER)
-    sub.add_parser("info", help="Names, the authority file, and the state file")
+    sub.add_parser("info", help="Names, the access proxy, the authority file, and the state file")
     sub.add_parser("down", help="Remove the network, the servers, their data, and .dev/devnet")
     args = parser.parse_args(argv)
     devnet = Devnet(root)

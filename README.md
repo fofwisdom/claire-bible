@@ -50,7 +50,7 @@ flowchart LR
 
 ### 1. 개발 빠른 시작 (Local Development)
 
-평소 개발은 현재 체크아웃을 `uv`로 직접 실행한다. Docker 개발 스택(`./cb-manuscript dev up`)은 운영과 같은 조건을 확인할 때만 사용한다. 설정 로딩과 역할 호스트 포트 확인은 [COMMANDS.md §1.1](docs/implementation/COMMANDS.md#11-개발-절차-평소-uv-운영-조건-확인-docker)을 본다.
+평소 개발은 현재 체크아웃을 `uv`로 직접 실행한다. Docker 개발 스택(`./cb-manuscript dev up`)은 운영과 같은 조건을 확인할 때만 사용한다. 개발 환경 전체 절차와 기여 규칙은 [DEVELOPMENT_ENVIRONMENT.md](docs/implementation/DEVELOPMENT_ENVIRONMENT.md), [DEVELOPMENT_NETWORK.md](docs/implementation/DEVELOPMENT_NETWORK.md), [CONTRIBUTING.md](CONTRIBUTING.md), [COMMANDS.md §1.1](docs/implementation/COMMANDS.md#11-개발-절차-평소-uv-운영-조건-확인-docker)을 본다.
 
 ```bash
 # 1. 의존성 동기화 및 개발 설정 초기화
@@ -165,6 +165,8 @@ claire-bible/
 
 ## 주요 문서
 
+- [기여 가이드 (Contributing)](CONTRIBUTING.md): 기여 절차, MIT + DCO(`Signed-off-by`) 규칙 및 코드·테스트 규약
+- [개발 환경 가이드](docs/implementation/DEVELOPMENT_ENVIRONMENT.md) · [개발 네트워크](docs/implementation/DEVELOPMENT_NETWORK.md): `uv`, CI 게이트, Docker 개발 스택 및 2서버 연합 개발 네트워크(`devnet`)
 - [문서 구조 안내](docs/README.md): 전체 문서 체계(`implementation/`, `design/`, `ideas/`) 및 정합성 검사 규칙
 - [프로젝트 원칙](docs/PRINCIPLES.md): 구현 변경에도 유지되는 불변 원칙
 - [구현 상태 및 제약](docs/implementation/IMPLEMENTATION_STATUS.md): 현재 알려진 제약, 보류 결정, 테스트 기준선

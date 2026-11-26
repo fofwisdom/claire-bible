@@ -72,6 +72,8 @@ docs/
 │   ├── API_HTTP_CONTRACT.md    # HTTP API 경로와 동작
 │   ├── COMMANDS.md             # 에이전트용 CLI 명령어 설명서 (전체 명령어 레퍼런스)
 │   ├── DATA_LIFECYCLE.md       # 원문 zstd 아티팩트, 소각·툼스톤·감사, 초점(focus) 저장
+│   ├── DEVELOPMENT_ENVIRONMENT.md # Contributor development environment: uv, CI gate, Docker stack, and devnet usage
+│   ├── DEVELOPMENT_NETWORK.md  # Two-server development network (claire-devnet, TLS, DNS, access proxy, tests)
 │   ├── DOCUMENT_FORMAT.md      # 문서 본문 형식(AsciiDoc)·AOT 렌더링·Markdown 내보내기
 │   ├── ENVIRONMENT_VARIABLES.md # 환경변수 설정 및 Pydantic 검증 매뉴얼
 │   ├── EXTERNAL_ACCESS.md      # 웹 접속, reverse proxy, 포트, 인증/CORS 경계 명세
@@ -106,8 +108,9 @@ docs/
 
 ## 분류 및 참조 가이드
 
-0. **[`PRINCIPLES.md`](PRINCIPLES.md)**
-   - 구현이 바뀌어도 유지되는 규칙만 둔다. 어기면 버그다. 원칙 간 충돌과 알려진 위반도 여기에 적는다.
+0. **[`PRINCIPLES.md`](PRINCIPLES.md)** & **[`CONTRIBUTING.md`](../CONTRIBUTING.md)**
+   - [`PRINCIPLES.md`](PRINCIPLES.md)에는 구현이 바뀌어도 유지되는 규칙만 둔다. 어기면 버그다. 원칙 간 충돌과 알려진 위반도 여기에 적는다.
+   - [`CONTRIBUTING.md`](../CONTRIBUTING.md)에는 기여 절차, DCO(`Signed-off-by`), 테스트·언어·용어 규칙을 둔다. 개발 환경 실행 절차는 [`DEVELOPMENT_ENVIRONMENT.md`](implementation/DEVELOPMENT_ENVIRONMENT.md)와 [`DEVELOPMENT_NETWORK.md`](implementation/DEVELOPMENT_NETWORK.md)를 본다.
 
 1. **[`docs/implementation/`](implementation/)**
    - 현재 실행 코드와 정확히 일치하는 기능 명세, 와이어 프로토콜, 스키마 및 운영 문서 집합입니다.

@@ -174,3 +174,26 @@ def test_compose_model_of_the_development_network_keeps_the_mount_rule_and_has_n
     assert model["services"]["edge"]["networks"]["edge"]["aliases"] == ["a-edge"]
     assert all(not service.get("ports") for service in model["services"].values())
     assert model["services"]["bot"]["profiles"] == ["bot"]
+
+
+@pytest.mark.skipif(DOCKER is None, reason="docker is not installed")
+def test_compose_model_of_the_core_devnet_wires_the_access_proxy(tmp_path):
+    """The core Compose file of the development network (ops/dev/devnet/compose.core.yml) exposes the HTTP CONNECT proxy only on loopback."""
+    from ops import devnet
+
+    assert DOCKER is not None
+    net = devnet.Devnet(REPO_ROOT)
+    net.run_dir = tmp_path / "devnet"
+    env = net._base_env()
+    result = subprocess.run([DOCKER, "compose", "-f", str(net.ops / "compose.core.yml"), "config", "--format", "json"], cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr[-4000:]
+    model = json.loads(result.stdout)
+    access = model["services"]["access"]
+    assert access["image"] == f"claire-bible:{devnet.IMAGE_TAG}"
+    assert access["dns"] == [f"{devnet.EDGE_PREFIX}.3"]
+    assert str(access["mem_limit"]) == "67108864"
+    assert set(access["networks"]) == {"edge"}
+    assert [(port["host_ip"], str(port["published"]), port["target"]) for port in access.get("ports", [])] == [("127.0.0.1", devnet.ACCESS_PORT, 8888)]
+    mounts = {volume["target"]: volume for volume in access["volumes"]}
+    assert mounts["/devnet/access_proxy.py"]["source"] == str(net.ops / "access_proxy.py")
+    assert mounts["/devnet/access_proxy.py"]["read_only"] is True

@@ -7,6 +7,8 @@ The tests act only through the public routes and the federation paths of the ser
 
 from __future__ import annotations
 
+import asyncio
+import importlib.util
 import json
 import os
 import secrets
@@ -18,10 +20,132 @@ from typing import Any
 import httpx
 import pytest
 
-pytestmark = [
-    pytest.mark.devnet,
-    pytest.mark.skipif(os.environ.get("CB_DEVNET_TEST") != "1", reason="the tests of the development network need CB_DEVNET_TEST=1 (./cb-manuscript dev devnet test)"),
-]
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_access_proxy():
+    spec = importlib.util.spec_from_file_location("devnet_access_proxy", REPO_ROOT / "ops" / "dev" / "devnet" / "access_proxy.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _devnet_only(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Mark live development-network integration tests so unit tests in this file run in normal pytest."""
+    marked = pytest.mark.devnet(func)
+    return pytest.mark.skipif(os.environ.get("CB_DEVNET_TEST") != "1", reason="the tests of the development network need CB_DEVNET_TEST=1 (./cb-manuscript dev devnet test)")(marked)
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("claire.test:443", ("claire.test", 443)),
+        ("a.claire.test:443", ("a.claire.test", 443)),
+        ("uc.b.claire.test:443", ("uc.b.claire.test", 443)),
+        ("A.CLAIRE.TEST:443", ("a.claire.test", 443)),
+        ("example.com:443", None),
+        ("evilclaire.test:443", None),
+        ("claire.test.evil.com:443", None),
+        (".claire.test:443", None),
+        ("a..claire.test:443", None),
+        ("a.claire.test:80", None),
+        ("a.claire.test:8443", None),
+        ("a.claire.test:0443", None),
+        ("a.claire.test", None),
+        ("127.0.0.1:443", None),
+        ("user@a.claire.test:443", None),
+        ("a.claire.test:443/path", None),
+        ("[::1]:443", None),
+        ("", None),
+    ],
+)
+def test_access_proxy_validate_connect_target(target: str, expected: tuple[str, int] | None) -> None:
+    proxy = _load_access_proxy()
+    assert proxy.validate_connect_target(target) == expected
+
+
+async def test_access_proxy_rejects_disallowed_and_tunnels_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    proxy = _load_access_proxy()
+
+    async def echo_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            while chunk := await reader.read(4096):
+                writer.write(chunk)
+                await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    upstream = await asyncio.start_server(echo_handler, "127.0.0.1", 0)
+    upstream_port = upstream.sockets[0].getsockname()[1]
+    proxy_server = await asyncio.start_server(proxy.handle_client, "127.0.0.1", 0)
+    proxy_port = proxy_server.sockets[0].getsockname()[1]
+
+    real_open_connection = asyncio.open_connection
+
+    async def fake_open_connection(host: str, port: int):
+        assert (host, port) == ("a.claire.test", 443)
+        return await real_open_connection("127.0.0.1", upstream_port)
+
+    monkeypatch.setattr(proxy.asyncio, "open_connection", fake_open_connection)
+
+    async def send_raw(payload: bytes) -> bytes:
+        reader, writer = await real_open_connection("127.0.0.1", proxy_port)
+        try:
+            writer.write(payload)
+            await writer.drain()
+            return await reader.read(4096)
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    try:
+        resp_get = await send_raw(b"GET http://a.claire.test/ HTTP/1.1\r\nHost: a.claire.test\r\n\r\n")
+        assert resp_get.startswith(b"HTTP/1.1 405 Method Not Allowed\r\n")
+
+        resp_host = await send_raw(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+        assert resp_host.startswith(b"HTTP/1.1 403 Forbidden\r\n")
+
+        resp_port = await send_raw(b"CONNECT a.claire.test:80 HTTP/1.1\r\nHost: a.claire.test:80\r\n\r\n")
+        assert resp_port.startswith(b"HTTP/1.1 403 Forbidden\r\n")
+
+        reader, writer = await real_open_connection("127.0.0.1", proxy_port)
+        try:
+            writer.write(b"CONNECT a.claire.test:443 HTTP/1.1\r\nHost: a.claire.test:443\r\n\r\n")
+            await writer.drain()
+            head = await reader.readuntil(b"\r\n\r\n")
+            assert head == b"HTTP/1.1 200 Connection Established\r\n\r\n"
+            writer.write(b"hello-devnet")
+            await writer.drain()
+            writer.write_eof()
+            echoed = await reader.readexactly(len(b"hello-devnet"))
+            assert echoed == b"hello-devnet"
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    finally:
+        proxy_server.close()
+        await proxy_server.wait_closed()
+        upstream.close()
+        await upstream.wait_closed()
+
+
+def test_devnet_info_and_base_env(tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    from ops import devnet
+
+    net = devnet.Devnet(tmp_path)
+    base_env = net._base_env()
+    assert base_env["CB_DEVNET_ACCESS_PORT"] == devnet.ACCESS_PORT == "18443"
+
+    monkeypatch.setattr(net, "_running_servers", lambda: ["a", "b"])
+    assert net.info() == 0
+    out = capsys.readouterr().out
+    assert "127.0.0.1:18443" in out
+    assert str(net.ca) in out
+    assert "chromium" in out and "--proxy-server=http://127.0.0.1:18443" in out
+    assert "firefox" in out and "--profile" in out
+    assert "not implemented" not in out
 
 # The loops of the sidecar run each 5 or 60 seconds: a wait has three intervals of the slow loop.
 WAIT_SECONDS = 200
@@ -81,6 +205,7 @@ def _readiness(admin: Session) -> dict[str, dict]:
     return {item["id"]: item for item in admin.ok("GET", "/api/admin/federation")["readiness"]["items"]}
 
 
+@_devnet_only
 def test_ka1_ka2_readiness_of_both_servers(admins: dict[str, Session]) -> None:
     """KA1 and KA2: on each server each required check passes through the public origin, and GF17 passes. GF15 applies when the server has a shared knowledge base: each server gets one."""
     assert set(admins) == {"a", "b"}
@@ -101,6 +226,7 @@ def test_ka1_ka2_readiness_of_both_servers(admins: dict[str, Session]) -> None:
         assert items["GF17"]["passed"] is True, items["GF17"]
 
 
+@_devnet_only
 def test_de4_a_reads_the_server_of_b_through_the_gateway(admins: dict[str, Session]) -> None:
     """Phase DE4: after the admin of A adds b.claire.test as a known server, the sidecar of A reads NodeInfo and the server actor of B through the gateway with TLS and the DNS of the network."""
     a = admins["a"]
@@ -206,6 +332,7 @@ def world(admins: dict[str, Session]) -> dict[str, Any]:
     return {"sfx": sfx, "names": names, "cities": cities, "places": places, "kb_actor": kb_actor, "remote_id": record["id"], "theme": theme["number"]}
 
 
+@_devnet_only
 def test_ka3_kf2_a_shared_knowledge_base_of_b_is_in_a_theme_and_on_the_root_page_of_a(admins: dict[str, Session], world: dict[str, Any]) -> None:
     """KF2: a shared knowledge base on server B appears in a theme of server A and on the root page of A, without any agreement."""
     a = admins["a"]
@@ -230,6 +357,7 @@ def pending_of(b: Session, kb_number: str, credit: str, title: str) -> dict | No
     return next((c for c in contributions if (c.get("remote") or {}).get("credit") == credit and c["title"] == title), None)
 
 
+@_devnet_only
 def test_ka3_kf4_contributions_across_servers_with_approval_grant_revoke_and_reject(admins: dict[str, Session], world: dict[str, Any]) -> None:
     """KF4: an account of A contributes to a shared knowledge base of B; a reviewer of B approves; the submission page on A shows the decision; after a grant, the next contribution needs no approval; after Revoke, it needs approval again (and a rejection reaches A)."""
     a, b = admins["a"], admins["b"]
@@ -307,6 +435,7 @@ class _Page:
         return f"http://{self.address}:{self.server.server_address[1]}{path}"
 
 
+@_devnet_only
 def test_ka3_kf3_curation_then_a_revision_and_a_removal_at_the_origin(admins: dict[str, Session], world: dict[str, Any]) -> None:
     """KF3: a revision on B reaches the copy on A without approval; a removal on B hides the copy on A and puts it in the review queue."""
     a, b = admins["a"], admins["b"]
@@ -351,6 +480,7 @@ def test_ka3_kf3_curation_then_a_revision_and_a_removal_at_the_origin(admins: di
         page.server.shutdown()
 
 
+@_devnet_only
 def test_ka3_kf5_a_new_shared_knowledge_base_on_b_gets_the_matching_documents_of_an_account_of_a(admins: dict[str, Session], world: dict[str, Any]) -> None:
     """KF5: with kb_auto_contribution on both servers, a new shared knowledge base on B gets the matching documents of an account of A after a run."""
     a, b = admins["a"], admins["b"]
@@ -399,6 +529,7 @@ def test_ka3_kf5_a_new_shared_knowledge_base_on_b_gets_the_matching_documents_of
     assert row["remote_target"]["result"] == f"{towns_actor}/documents/{approved['number']}", row
 
 
+@_devnet_only
 def test_ka3_kf1_servers_know_each_other_a_blocked_server_gets_404_and_the_single_mode_root(admins: dict[str, Session], world: dict[str, Any]) -> None:
     """KF1: two servers know each other after a contribution or an admin entry; a blocked server gets 404 on the shared-knowledge collections; in single mode / gives 302 to /@{username}/.
 

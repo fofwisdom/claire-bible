@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_devnet:
+        description: "Run the development network integration tests (./cb-manuscript dev devnet)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: CI Gate (scripts/ci.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Deno for sidecar tests
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.8"
+
+      - name: Run CI gate
+        run: bash ./scripts/ci.sh
+
+  devnet:
+    name: Development Network Integration Tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_devnet }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Start development network
+        run: ./cb-manuscript dev devnet up --servers a,b
+
+      - name: Check server readiness
+        run: ./cb-manuscript dev devnet check
+
+      - name: Run development network tests
+        run: ./cb-manuscript dev devnet test
+
+      - name: Stop development network
+        if: always()
+        run: ./cb-manuscript dev devnet down

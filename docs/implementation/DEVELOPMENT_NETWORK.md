@@ -1,6 +1,6 @@
 # Development Network (Implemented Part)
 
-- **Date**: 2026-11-26
+- **Date**: 2026-11-27
 - **Design**: [`CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`](../design/CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md) Sections 6 and 8.4 (phases DE2 and DE4), and the acceptance steps KA1 to KA3 of [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md) Section 14.2.
 - **Readers**: agents and contributors who run two Claire servers with real sidecars, real TLS, real DNS, and the reverse proxy of production.
 
@@ -12,7 +12,9 @@ This document tells what exists now. Section 5 lists the parts of the design tha
 
 ```mermaid
 flowchart LR
-    T["toolbox (bootstrap, tests)"] --> G["gateway (TLS)"]
+    B["Browser of the host"] -->|"127.0.0.1:18443, CONNECT *.claire.test:443"| X["access (proxy)"]
+    X --> G["gateway (TLS)"]
+    T["toolbox (bootstrap, tests)"] --> G
     G -->|"a.claire.test and names below it"| EA["a-edge (rules of FEDERATION.md Section 10.1)"]
     G -->|"b.claire.test and names below it"| EB["b-edge"]
     EA --> SA["server a: fedify"]
@@ -26,13 +28,13 @@ flowchart LR
 
 | Part | Files | Function |
 | :--- | :--- | :--- |
-| Core project `claire-devnet` | `ops/dev/devnet/compose.core.yml` | `certs` (a one-shot job: `certs.sh` with the `openssl` of the Claire image, as the user of the host), `dns` (`dns.Dockerfile`: dnsmasq on the edge base image), `gateway` (`nginx:1.30.7-alpine`, `gateway.conf`) |
+| Core project `claire-devnet` | `ops/dev/devnet/compose.core.yml`, `ops/dev/devnet/access_proxy.py` | `certs` (a one-shot job: `certs.sh` with the `openssl` of the Claire image, as the user of the host), `dns` (`dns.Dockerfile`: dnsmasq on the edge base image), `gateway` (`nginx:1.30.7-alpine`, `gateway.conf`), `access` (stdlib `asyncio` HTTP `CONNECT` proxy on `127.0.0.1:18443` for `claire.test:443` and `*.claire.test:443`) |
 | Server projects `claire-devnet-a`, `claire-devnet-b` | `docker-compose.yml` with the overlay `ops/dev/devnet/compose.server.yml` | The services of production with the edge service. The overlay changes only the networks, the DNS, the host ports (none), the trust of the private authority, the limits, and the profile of `bot` |
 | Toolbox `claire-devnet-toolbox:devnet` | `ops/dev/devnet/toolbox.Dockerfile` | The Claire image of the network with the extra `dev` of `uv.lock` (pytest). It runs the bootstrap and the tests on the network `claire-devnet-edge` |
 | Bootstrap | `ops/dev/devnet/bootstrap.py` | The first setup of one server through the gateway: it opens the one-time login link (`claire auth --scope owner --json`), completes `/setup` with the USERNAME `keeper` and a random password, and writes the state file |
 | Command | `ops/devnet.py` (called by `ops/cb_manuscript.py` for `dev devnet`) | `up`, `check`, `test`, `info`, `down`. Only the standard library of the host Python |
-| Tests | `tests/test_devnet.py` (marker `devnet`, registered in `pyproject.toml`; gate `CB_DEVNET_TEST=1`) | KA1 and KA2, phase DE4, and one test for each completion criterion of KF1 to KF5 (KA3) |
-| Model test | `tests/test_federation_compose.py` (`test_compose_model_of_the_development_network_…`) | `docker compose config` of the overlay with the environment of the command: the mount rule of the sidecar, no route out for the sidecar, no host port |
+| Tests | `tests/test_devnet.py` | Unit tests for `access_proxy.py` and `devnet info` run in normal pytest; live network integration tests (marker `devnet`, gate `CB_DEVNET_TEST=1`) cover KA1, KA2, phase DE4, and KF1 to KF5 (KA3) |
+| Model test | `tests/test_federation_compose.py` (`test_compose_model_of_the_development_network_…`, `test_compose_model_of_the_core_devnet_…`) | `docker compose config` of the server overlay and core project: the mount rule of the sidecar, no route out for the sidecar, no host port on servers, and loopback-only binding for `access` |
 
 ## 2. Rules of the Network
 
@@ -43,6 +45,7 @@ flowchart LR
 5. **Data.** Each server has a run subfolder `.dev/devnet/{server}/` with `data/` (bind mount, as production) and `plugins/`; `CB_BIN_DIR` is an empty folder, so no host tool goes into the containers. The env file `.dev/devnet/{server}.env` (mode 0600) has `CLAIRE_FQDN`, `CLAIRE_PROVIDER=mock`, `CLAIRE_ALLOW_PRIVATE_NETWORKS=1`, `CLAIRE_TRUSTED_PROXIES` (the gateway), and a new `CLAIRE_INJECT_TOKEN` at each `up`. `claire migrate` runs in a one-shot container before the services start, and it makes the service key of the sidecar.
 6. **Images.** Tag `devnet` (`claire-bible:devnet`, `claire-bible-fedify:devnet`, `claire-bible-edge:devnet`, `claire-devnet-toolbox:devnet`, `claire-devnet-dns:1`), so the images of another stack on the host do not change. `up` builds them each time (layer cache).
 7. **State file.** `.dev/devnet/state.json` (mode 0600) has the origin, the USERNAME, the password, and the first session of the admin of each server. The tests sign in again with the password (a recent sign-in for the step-up routes). No secret is in the repository; `down` deletes the run folder.
+8. **Host browser access (DQ2 Option A).** The `access` service (`ops/dev/devnet/access_proxy.py`) runs on `claire-devnet-edge` with DNS `172.31.250.3` and `mem_limit: 64m`, and binds `127.0.0.1:18443` (`CB_DEVNET_ACCESS_PORT`) to container port `8888`. It accepts only `CONNECT <host>:443` for `claire.test` and `*.claire.test`, and rejects all other methods, hosts, and ports with `405` or `403`. Start a separate Chromium or Firefox profile configured to use `127.0.0.1:18443` as its proxy and import `.dev/devnet/tls/ca/ca.crt` in that profile.
 
 ## 3. Commands
 
@@ -50,7 +53,7 @@ flowchart LR
 ./cb-manuscript dev devnet up --servers a,b      # build, start the core and the servers, first setup of each server (about 40 s with a warm cache)
 ./cb-manuscript dev devnet check                 # claire server check --federation of each running server; exit 1 when a required check fails
 ./cb-manuscript dev devnet test                  # pytest -m devnet tests/test_devnet.py in the toolbox; other pytest arguments replace the file
-./cb-manuscript dev devnet info                  # the running servers, the authority file, the state file
+./cb-manuscript dev devnet info                  # the running servers, the access proxy, the authority file, the state file, and browser launch flags
 ./cb-manuscript dev devnet down                  # remove the containers, the networks, the volumes, and .dev/devnet
 ```
 
@@ -88,7 +91,6 @@ Memory (`docker stats`): idle, each server about 450 MiB (api about 115 MiB, eac
 
 | Item | State |
 | :--- | :--- |
-| `access` proxy for a browser of the host (Section 6.7, open question DQ2) | Not implemented. `devnet info` says so. The WebUI of a server of the network cannot be opened from the host now |
 | Named volumes (Section 6.8 rule 1) | Not taken: the data folders are bind mounts in `.dev/devnet/`, as in production, so the overlay does not replace the mounts of `docker-compose.yml`. The reason of the design (Docker Desktop) is not verified here: only Linux ran |
 | Copy job of the service key (Section 6.6) | Not needed with bind mounts: the sidecar mounts `data/auth/fedify_service.key` as in production |
 | Gateway path rules and the Nginx example of EXTERNAL_ACCESS.md from one file (Section 6.5 rule 1) | The edge service (unit GL3) has the rules in production now; the gateway has only TLS and the server selection. EXTERNAL_ACCESS.md is not made from `gateway.conf` |
@@ -96,4 +98,3 @@ Memory (`docker stats`): idle, each server about 450 MiB (api about 115 MiB, eac
 | Full toolbox of phase DE1 (Deno, Node.js, Playwright, multi-architecture builds, `scripts/ci.sh` in the toolbox) and phase DE3 | Not implemented. The toolbox of the network has Python and pytest only |
 | macOS and Windows with WSL2 (criteria of DE2 and DE4), DrFed in the toolbox, finding F12 | Not done |
 | Bootstrap: a shared knowledge base with fixture texts, and the switch `federation` (Section 6.6) | The switch was removed by decision GD4. The readiness test makes a shared knowledge base when a server has none |
-| Contributor documents (phase DE6) | Not written |

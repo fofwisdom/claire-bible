@@ -46,7 +46,7 @@ RUN if [ "$CLAIRE_BUILD_COMMIT" != "unknown" ] && [ -n "$CLAIRE_BUILD_COMMIT" ];
 # /host-bin gives optional host tools (for example ffmpeg) to the container, read-only.
 ENV CLAIRE_APP_ROOT=/app \
     HOME=/home/claire \
-    PATH="/app/.venv/bin:/host-bin:$PATH" \
+    PATH="/app/.venv/bin:$PATH:/host-bin" \
     SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_DIR=/etc/ssl/certs \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \

@@ -1,7 +1,7 @@
 # Common Development Environment for Contributors
 
 - **Document Identifier**: `DESIGN-CONTRIBUTOR-DEVELOPMENT-ENVIRONMENT-20261118`
-- **Status**: Planned (Rev. 2). On 2026-11-26 a Linux part of DE2 and DE4 was implemented (core project, server overlay, `./cb-manuscript dev devnet`, the tests of Section 8.4): [`DEVELOPMENT_NETWORK.md`](../implementation/DEVELOPMENT_NETWORK.md) tells what exists and what is different. DE1, DE3, DE5, DE6, and the `access` proxy are not implemented. Locked decisions: CD1 (Section 2, 2026-11-18) and CD4 (`DQ1: A`, `.test` HTTPS origin and DNS role rules implemented in `security.py` and `host_router.py`, 2026-11-19). All other content is a **proposal**. Open questions: DQ2 to DQ7 (Section 13). Decision GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) (owner, 2026-11-22) removed the switch `federation` and the variable `CB_FEDERATION`: the steps of this design that set them have no object, and the sidecar starts with the other services.
+- **Status**: Planned (Rev. 3). On 2026-11-26 a Linux part of DE2 and DE4 was implemented (core project, server overlay, `./cb-manuscript dev devnet`, the tests of Section 8.4): [`DEVELOPMENT_NETWORK.md`](../implementation/DEVELOPMENT_NETWORK.md) tells what exists and what is different. On 2026-11-27 owner decisions DQ2 to DQ7 were recorded and applied: the `access` proxy (`DQ2: A`), `CONTRIBUTING.md` with MIT and DCO `Signed-off-by` (`DQ3: B`), removal of tracked `scratch/` and adding `/scratch/` to `.gitignore` (`DQ4: A` now; `B` history rewrite before making the repository public), `.github/workflows/ci.yml` (`DQ5: A`), ASD-STE100 English contributor documents `CONTRIBUTING.md` and `docs/implementation/DEVELOPMENT_ENVIRONMENT.md` (`DQ6: A`), and moving `/host-bin` after `$PATH` in `Dockerfile` (`DQ7: A`). Standalone DE1 toolbox, DE3 Docker E2E runner, and DE5 fault profiles remain planned. Locked decisions: CD1 (Section 2, 2026-11-18), CD4 (`DQ1: A`, 2026-11-19), and `DQ2` to `DQ7` (Section 13, 2026-11-27). Decision GD4 of [`FEDERATION_GO_LIVE_DESIGN.md`](FEDERATION_GO_LIVE_DESIGN.md) (owner, 2026-11-22) removed the switch `federation` and the variable `CB_FEDERATION`: the steps of this design that set them have no object, and the sidecar starts with the other services.
 - **Date**: 2026-11-18
 - **Base commit**: `33748825`. At the time of the reading, the working tree had changes of other work (the expansion modules, schema version 35). The **[code]** facts come from the files at that time.
 - **Related Documents**:
@@ -318,7 +318,7 @@ Rules that exist now and that the contributor documents state:
 | CD6 | Each server is a Compose project of `docker-compose.yml` with one overlay; named volumes; no host ports (Sections 6.1, 6.8) | **[proposal]** |
 | CD7 | `devnet-edge` is internal; a sidecar is only on it; the Claire services also have `devnet-out` for ingestion (Section 6.1) | **[proposal]** |
 | CD8 | The gateway configuration is the one reference of the reverse proxy rules, and it has fault profiles for the tests (Section 6.5) | **[proposal]** |
-| CD9 | The browser of the host reaches the network through a loopback proxy that permits only `*.claire.test:443` (Section 6.7) | **[proposal]**, DQ2 |
+| CD9 | The browser of the host reaches the network through a loopback proxy that permits only `*.claire.test:443` (Section 6.7) | **[decision]** owner, 2026-11-27 (`DQ2: A`) |
 | CD10 | The toolbox has its own Python environment and `node_modules` and never writes the `.venv` or `e2e/node_modules` of the checkout (Section 6.1) | **[proposal]** |
 | CD11 | `scripts/e2e.sh` has the back ends `systemd` and `docker`, an explicit selection, and the same limits, files, and commands (Section 8.3) | **[proposal]** |
 | CD12 | Tests of the development network: marker `devnet`, gate `CB_DEVNET_TEST=1`, run in the toolbox on `devnet-edge`, only public routes and federation paths (Section 8.4) | **[proposal]** |
@@ -351,7 +351,7 @@ Rules that exist now and that the contributor documents state:
 
 **Answer (owner, 2026-11-19):** A (CD4). Implemented in `src/claire/api/security.py` and `src/claire/api/host_router.py`.
 
-### DQ2: Access from the Host (Section 6.7)
+### DQ2: Access from the Host (Section 6.7), Answered (CD9)
 
 | Option | Method | Effect |
 | :--- | :--- | :--- |
@@ -359,11 +359,11 @@ Rules that exist now and that the contributor documents state:
 | B | The gateway on `127.0.0.1:443`, the names in the hosts file, and the authority in the system trust store | Each browser works; needs administrator rights, changes the host, and collides with another service on port 443 |
 | C | A and B in the documents | More text; the contributor selects |
 
-**Recommendation:** A.
+**Answer (owner, 2026-11-27):** A (CD9). Implemented in `ops/dev/devnet/access_proxy.py`, `ops/dev/devnet/compose.core.yml`, `ops/devnet.py` (`ACCESS_PORT = "18443"` and `devnet info` browser flags), and `tests/test_devnet.py`.
 
-### DQ3: License of Contributions
+### DQ3: License of Contributions, Answered
 
-`LICENSE.md` is MIT with the copyright line "BlackAn and the Claire Bible Project Contributors" **[code]**. The repository has no rule for incoming contributions.
+`LICENSE.md` is MIT with the copyright line "BlackAn, FoW and the Claire Bible Project Contributors" **[code]**. The repository has no rule for incoming contributions.
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
@@ -371,9 +371,9 @@ Rules that exist now and that the contributor documents state:
 | B (proposal) | A, and each commit has a sign-off line of the Developer Certificate of Origin | A light record of the right of the author; a check of pull requests can examine the line |
 | C | A contributor license agreement | The strongest record; more work for contributors and for the owner |
 
-**Recommendation:** B.
+**Answer (owner, 2026-11-27):** B. Implemented in `CONTRIBUTING.md` (MIT license and DCO `Signed-off-by` requirement).
 
-### DQ4: Support Bundles in Git (`scratch/`, F17)
+### DQ4: Support Bundles in Git (`scratch/`, F17), Answered
 
 | Option | Action | Effect |
 | :--- | :--- | :--- |
@@ -381,9 +381,9 @@ Rules that exist now and that the contributor documents state:
 | B (proposal) | A, and remove the files from the history before the repository is public | No clone gets them; a rewrite of the history changes the commit IDs and needs a forced push by the owner |
 | C | Keep the files | Each contributor gets data of a server |
 
-**Recommendation:** B, before the repository opens to the community; A at once.
+**Answer (owner, 2026-11-27):** A now; B before making the repository public. Option A is applied (`git rm -r scratch/` and `/scratch/` in `.gitignore`). Option B (git history rewrite) remains for the owner before making the repository public.
 
-### DQ5: CI for Contributions
+### DQ5: CI for Contributions, Answered
 
 | Option | Method | Effect |
 | :--- | :--- | :--- |
@@ -391,9 +391,9 @@ Rules that exist now and that the contributor documents state:
 | B | The owner runs `scripts/ci.sh` before a merge | No hosted service; the owner does the work |
 | C | No CI | Not recommended |
 
-**Recommendation:** A.
+**Answer (owner, 2026-11-27):** A. Implemented in `.github/workflows/ci.yml` (`pull_request` and `push` to `main` run `scripts/ci.sh`; `workflow_dispatch` provides an optional `run_devnet` run).
 
-### DQ6: Language of the Contributor Documents (F20)
+### DQ6: Language of the Contributor Documents (F20), Answered
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
@@ -401,16 +401,16 @@ Rules that exist now and that the contributor documents state:
 | B | A, and COMMANDS.md §1 and §2 and EXTERNAL_ACCESS.md are translated now | Contributors can read the commands and the proxy rules at once |
 | C | Two languages for each contributor document | Two texts to keep the same |
 
-**Recommendation:** A.
+**Answer (owner, 2026-11-27):** A. Implemented in `CONTRIBUTING.md` and `docs/implementation/DEVELOPMENT_ENVIRONMENT.md` (ASD-STE100 English).
 
-### DQ7: Order of `/host-bin` in `PATH` (F3)
+### DQ7: Order of `/host-bin` in `PATH` (F3), Answered
 
 | Option | Rule | Effect |
 | :--- | :--- | :--- |
 | A (proposal) | `/host-bin` goes to the end of `PATH` in `Dockerfile` | A host program can no longer hide a tool of the image (host-CLI binaries `agy` and `codex` are retired under `AED8` and scheduled for cleanup in `AE8`). A change of the production image. |
 | B | No change | A program in `~/.local/bin` of a host can hide `ffmpeg`, `python3`, or another tool of the image |
 
-**Recommendation:** A.
+**Answer (owner, 2026-11-27):** A. Implemented in `Dockerfile` (`PATH="/app/.venv/bin:$PATH:/host-bin"`) and `tests/test_container_mounts.py`.
 
 ---
 

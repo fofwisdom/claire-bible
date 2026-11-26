@@ -64,10 +64,15 @@ def test_docker_compose_no_ubuntu_system_mounts():
 
 
 def test_dockerfile_path_contains_host_bin():
-    """Verify Dockerfile PATH contains /host-bin so optional host tools are executable."""
+    """Verify Dockerfile PATH places /host-bin after $PATH so host tools do not hide image tools."""
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "/host-bin" in dockerfile, "Dockerfile PATH must include /host-bin"
-    assert re.search(r'PATH="[^"]*/host-bin[^"]*"', dockerfile), "Dockerfile must define PATH containing /host-bin"
+    match = re.search(r'PATH="([^"]*)"', dockerfile)
+    assert match is not None, "Dockerfile must define PATH"
+    entries = match.group(1).split(":")
+    assert "/app/.venv/bin" in entries
+    assert "$PATH" in entries
+    assert "/host-bin" in entries
+    assert entries.index("$PATH") < entries.index("/host-bin"), "Dockerfile PATH must place /host-bin after $PATH"
 
 
 def test_dockerfile_installs_gosu():

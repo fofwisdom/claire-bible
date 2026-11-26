@@ -66,7 +66,7 @@
 
 ### 1.1 개발 절차 (평소 uv, 운영 조건 확인 docker)
 
-평소 개발은 현재 checkout을 uv로 직접 실행한다. docker 개발 스택(`./cb-manuscript dev …`)은 운영과 같은 조건(이미지 빌드, 컨테이너 사용자, Compose 포트 연결)을 확인할 때만 쓴다. docker 개발 스택은 소스를 마운트하지 않으므로 코드 변경은 이미지를 다시 빌드해야 반영된다(`pull_policy: build`라 `up`마다 빌드한다).
+평소 개발은 현재 checkout을 uv로 직접 실행한다. docker 개발 스택(`./cb-manuscript dev …`)은 운영과 같은 조건(이미지 빌드, 컨테이너 사용자, Compose 포트 연결)을 확인할 때만 쓴다. docker 개발 스택은 소스를 마운트하지 않으므로 코드 변경은 이미지를 다시 빌드해야 반영된다(`pull_policy: build`라 `up`마다 빌드한다). 개발 환경 전체 안내와 기여 규칙은 [`DEVELOPMENT_ENVIRONMENT.md`](DEVELOPMENT_ENVIRONMENT.md) 및 [`CONTRIBUTING.md`](../../CONTRIBUTING.md)를 본다.
 
 **설정 로딩.** 애플리케이션(`Settings`)은 저장소 루트의 `.env` 하나만 dotenv로 읽고, 프로세스 환경변수가 그 값보다 우선한다. `.env.dev`는 애플리케이션이 직접 읽지 않는다(`cb-manuscript`와 Compose가 `.env` 뒤에 겹쳐 쓴다). uv에서 같은 겹침을 만들려면 `uv run --env-file .env.dev`로 `.env.dev` 값을 프로세스 환경변수로 넣는다. 우선순위는 셸에서 직접 준 변수 > `.env.dev` > `.env`다. Compose가 컨테이너에 따로 넣는 `CLAIRE_INJECT_HOST`·`CLAIRE_INJECT_PORT`와 데이터 경로(`CB_DATA_DIR` → `/app/data`)는 셸에서 직접 준다. `.env`(운영 템플릿)는 `CLAIRE_DB_PATH=data/claire.db`를 두므로 `CLAIRE_DB_PATH`를 빼면 저장소 `data/`의 DB를 쓰게 된다.
 
