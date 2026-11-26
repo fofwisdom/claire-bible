@@ -71,3 +71,58 @@ test('an ingest with 간결 makes two renditions, the picker opens each page, an
 
   expect(errors).toEqual([]);
 });
+
+// A rendition of another Claire server (phase E5c). The E2E server has no other Claire server to read, so the test gives the page the data of one cached copy (the server part is in tests/test_silvercord_rendering.py and tests/test_remote_renditions.py) and checks the page: the picker group, the sandbox frame in the body area, the address, and the way back.
+test('a rendition of another server opens in a sandbox frame inside the page and the address keeps the choice', async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const errors = watchErrors(page);
+  const DOC_PATH = '/silvercord/23456789abcdefgh';
+  const FRAME_PATH = `${DOC_PATH}/renditions/remote/0123456789abcdef`;
+  await page.route((u) => u.pathname === DOC_PATH, async (route) => {
+    const res = await route.fetch();
+    const text = await res.text();
+    const match = text.match(/<script id="docdata" type="application\/json">([\s\S]*?)<\/script>/);
+    const doc = JSON.parse(match[1]);
+    doc.silvercord.renditions = [{ template: 'standard', version: 'standard-v1', updated_at: 1800000000, primary: true, url: DOC_PATH }];
+    doc.silvercord.rendition = 'standard';
+    doc.silvercord.remote_renditions = [{ key: '0123456789abcdef', template: 'concise', version: 'concise-v1', updated: '2027-01-15T08:05:20Z', account: '@bob@b.example', domain: 'b.example', origin_url: 'https://b.example/silvercord/tok/renditions/concise', frame_url: FRAME_PATH }];
+    const json = JSON.stringify(doc).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+    return route.fulfill({ status: res.status(), contentType: 'text/html; charset=utf-8', body: text.replace(match[0], `<script id="docdata" type="application/json">${json}</script>`) });
+  });
+  await page.route((u) => u.pathname === FRAME_PATH, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox" }, body: '<!DOCTYPE html><html lang="ko"><body><article><h2>핵심</h2><p>다른 서버의 간결 정리본.</p></article></body></html>' }));
+
+  await page.goto(DOC_PATH, { waitUntil: 'domcontentloaded' });
+  const select = page.locator('#sc-rendition-select');
+  await expect(select).toBeVisible();
+  await expect(select.locator('optgroup')).toHaveCount(2);
+  await expect(select.locator('optgroup').nth(1)).toHaveAttribute('label', '같은 출처 · 다른 서버');
+  const remoteOption = select.locator('option[data-group="other-servers"]');
+  await expect(remoteOption).toContainText('간결');
+  await expect(remoteOption).toContainText('@bob@b.example');
+  const localText = await page.locator('#sc-rendition-body').innerText();
+  await expectNoRawKeys(page);
+
+  // The choice changes the body area to the frame; the page does not navigate, and the address keeps the choice.
+  await select.selectOption('remote:0123456789abcdef');
+  const frame = page.locator('#sc-rendition-body iframe.sc-rendition-frame');
+  await expect(frame).toBeVisible();
+  await expect(frame).toHaveAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
+  await expect(frame).toHaveAttribute('title', '@bob@b.example의 간결 정리본');
+  await expect(page.frameLocator('#sc-rendition-body iframe.sc-rendition-frame').locator('h2')).toHaveText('핵심');
+  expect(new URL(page.url()).search).toBe('?rendition=0123456789abcdef');
+  await expect(page.locator('#sc-rendition-info')).toContainText('간결 · concise-v1 · @bob@b.example · 2027-01-15 · b.example');
+  await expect(page.locator('#sc-rendition-info a')).toHaveAttribute('href', 'https://b.example/silvercord/tok/renditions/concise');
+
+  // The address with the choice opens the frame at once.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#sc-rendition-body iframe.sc-rendition-frame')).toBeVisible();
+  await expect(page.locator('#sc-rendition-select')).toHaveValue('remote:0123456789abcdef');
+
+  // The rendition of the document comes back in the same page.
+  await page.locator('#sc-rendition-select').selectOption(DOC_PATH);
+  await expect(page.locator('#sc-rendition-body iframe')).toHaveCount(0);
+  expect((await page.locator('#sc-rendition-body').innerText()).trim()).toBe(localText.trim());
+  expect(new URL(page.url()).search).toBe('');
+  // The service worker block of this test (test.use) runs a script in each frame; in a sandbox frame without allow-same-origin that script fails. It is not a script of the page.
+  expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed'))).toEqual([]);
+});

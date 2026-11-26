@@ -131,7 +131,8 @@ def _build_content_security_policy(
             " https://*.googletagmanager.com https://googletagmanager.com"
             " https://stats.g.doubleclick.net https://*.doubleclick.net https://*.g.doubleclick.net"
         )
-    frame_src_part = f"frame-src {usercontent_origin}; " if usercontent_origin else ""
+    # ``'self'``: the sandbox frame of a rendition of another server is a page of this origin with its own ``sandbox`` policy (``/silvercord/{token}/renditions/remote/{key}``). Without a usercontent host, ``default-src 'self'`` gives the same rule.
+    frame_src_part = f"frame-src 'self' {usercontent_origin}; " if usercontent_origin else ""
     media_origin_part = f" {media_origin}" if media_origin else ""
     return (
         "default-src 'self'; "
@@ -594,6 +595,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/silvercord/{token}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/graph"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}/graph"): _system("public", "none"),
+    ("GET", "/silvercord/{token}/renditions/remote/{key}"): _system("public", "none"),
+    ("HEAD", "/silvercord/{token}/renditions/remote/{key}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/renditions/{template}"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}/renditions/{template}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/workspace"): _system("public", "none"),

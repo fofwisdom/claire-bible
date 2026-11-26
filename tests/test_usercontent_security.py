@@ -465,7 +465,8 @@ async def test_app_csp_reflects_frame_src_usercontent(tmp_path: Path):
     status, headers, _ = await _call_asgi(app, "/health", host=APP_HOST)
     assert status == 200
     app_csp = headers.get("content-security-policy", "")
-    assert f"frame-src {UC_ORIGIN}" in app_csp
+    # 'self': the sandbox frame of a rendition of another server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md phase E5c).
+    assert f"frame-src 'self' {UC_ORIGIN}" in app_csp
 
 
 # --- 10. 최소 1개 E2E 테스트: 전체 라이프사이클 렌더링 여정 -------------------

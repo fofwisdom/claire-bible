@@ -125,6 +125,7 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
         "missing_renditions": [],
         "rendition_account": "Alice In Wonderland",
         "same_source_renditions": [],
+        "remote_renditions": [],
     }
     assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/50123"/>' in r_anon.text
     # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7, phase E2): the preferred address, the account as the author, the time of the publication, and the actor of the account for the byline of a link preview.
@@ -221,6 +222,7 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
             "missing_renditions": [],
             "rendition_account": "",
             "same_source_renditions": [],
+            "remote_renditions": [],
         }
 
 
@@ -620,3 +622,53 @@ def test_the_picker_has_the_published_renditions_of_other_documents_with_the_sam
         assert [tuple(r) for r in conn.execute("SELECT kind, url, status FROM kf_remote_reads WHERE kind LIKE 'rendition_%'")] == [("rendition_index", f"{scheme}://c.example/ap/sources/{key}", "pending")]
     finally:
         conn.close()
+
+
+def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_gives_a_sandbox_page(tmp_path: Path) -> None:
+    """Remote renditions on the Silvercord page (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.8 rule 4 and 5.10 rule 4, phase E5c): the page data has the copies that the cache can show, and the frame route gives the body as a page without script, with the access rules of the document."""
+    import hashlib
+    import time as _time
+
+    from claire.ingest.source_key import source_key
+    from claire.store import document_renditions as renditions_store
+
+    s, env = _setup_network_env(tmp_path)
+    key = source_key("https://arxiv.org/abs/2101.00001")
+    iri = "https://b.example/ap/objects/9002"
+    body = "= 간결\n\n본문."
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        now = _time.time()
+        conn.execute("UPDATE documents SET source_key=?, source_id_version=1, detail='= 기본\n\n본문.' WHERE id='doc1'", (key,))
+        renditions_store.record_primary(conn, "doc1", 10, lineage={}, now=now)
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'b.example', ?, 'concise', 'concise-v1', NULL, 'https://b.example/ap/actors/7001', '@bob@b.example', 'Bob', 'Same paper', 'https://b.example/silvercord/tok/renditions/concise', '2027-01-15T08:05:20Z', ?, ?, ?, '<h2>핵심</h2><p>본문.</p><script>x</script>', ?, ?, ?)",
+            (iri, key, f"{iri}/body", digest, digest, body, now, now + 3600),
+        )
+        token = permalinks.ensure_document(conn, "doc1", 10)
+        conn.commit()
+    finally:
+        conn.close()
+    test_client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
+    anon = _make_caller(test_client, s.public_url.rstrip("/"))
+    sc = _extract_docdata(anon("GET", f"/silvercord/{token}").text)["silvercord"]
+    remote_key = hashlib.sha256(iri.encode()).hexdigest()[:16]
+    assert sc["remote_renditions"] == [{"key": remote_key, "template": "concise", "version": "concise-v1", "updated": "2027-01-15T08:05:20Z", "account": "@bob@b.example", "domain": "b.example", "origin_url": "https://b.example/silvercord/tok/renditions/concise", "frame_url": f"/silvercord/{token}/renditions/remote/{remote_key}"}]
+    frame = anon("GET", sc["remote_renditions"][0]["frame_url"])
+    assert frame.status_code == 200
+    csp = frame.headers["content-security-policy"]
+    assert "sandbox allow-popups allow-popups-to-escape-sandbox" in csp and "default-src 'none'" in csp and "frame-ancestors 'self'" in csp
+    assert frame.headers["x-frame-options"] == "SAMEORIGIN"
+    assert "<h2>핵심</h2>" in frame.text and "<script" not in frame.text
+    # A key that the cache does not have, and a document that the caller cannot read: the same 404.
+    assert anon("GET", f"/silvercord/{token}/renditions/remote/{'0' * 16}").status_code == 404
+    assert anon("GET", f"/silvercord/{token}/renditions/remote/not-a-key").status_code == 404
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("UPDATE documents SET hidden=1 WHERE id='doc1'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert anon("GET", sc["remote_renditions"][0]["frame_url"]).status_code == 404

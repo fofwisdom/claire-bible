@@ -4653,5 +4653,8 @@
   "reader.rendition.adding": "Making the {label} rendition…",
   "reader.rendition.add_failed": "The rendition was not made: {error}",
   "reader.rendition.version_pre_template": "body made before the templates",
-  "reader.rendition.group_same_server": "Same source · this server"
+  "reader.rendition.group_same_server": "Same source · this server",
+  "reader.rendition.group_other_servers": "Same source · other servers",
+  "reader.rendition.open_origin": "Open on the origin server",
+  "reader.rendition.remote_frame_title": "{label} rendition of {account}"
 }

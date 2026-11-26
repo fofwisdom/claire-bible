@@ -380,6 +380,17 @@ function renditionSectionHead(sc){
     });
     x += '</optgroup>';
   }
+  const remote = Array.isArray(sc.remote_renditions) ? sc.remote_renditions : [];
+  if(remote.length){
+    // The published renditions of other Claire servers with the same source (the cache of this server). A choice changes the body area to a sandbox frame; the page does not navigate.
+    x += '<optgroup label="'+esc(rtr('reader.rendition.group_other_servers'))+'">';
+    remote.forEach(r=>{
+      x += '<option value="remote:'+esc(r.key)+'" data-template="'+esc(r.template)+'" data-group="other-servers"><span class="ro-title">'+esc(renditionLabel(r.template))+'<span class="sr-only">.</span></span>'
+        + ' <span class="ro-account">'+esc(r.account||'')+'<span class="sr-only">.</span></span>'
+        + ' <span class="ro-meta">'+esc(String(r.updated||'').slice(0,10))+'</span></option>';
+    });
+    x += '</optgroup>';
+  }
   x += '</select>';
   if(sc.add_rendition_url && (sc.missing_renditions||[]).length){
     x += '<button type="button" class="sc-btn" id="sc-rendition-add-btn" popovertarget="sc-rendition-add"><span data-icon="plus"></span> '+esc(rtr('reader.rendition.add'))+'</button>';
@@ -394,7 +405,7 @@ function renditionSectionHead(sc){
 if(dc.detail_html){
   const purifier=window.DOMPurify;
   const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
-  h+=(scRend ? renditionSectionHead(scRend) : '<div class=sec>' + rtr("reader.section.detail") + '</div>') + '<div class="doc-content">'+cleanHtml+'</div>';
+  h+=(scRend ? renditionSectionHead(scRend) + '<div id="sc-rendition-body"><div class="doc-content">'+cleanHtml+'</div></div>' : '<div class=sec>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+cleanHtml+'</div>');
 }else if(dc.summary){
   h+='<div class=sec>' + rtr("reader.section.detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_detail', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>' })+'</div>';
 }
@@ -423,7 +434,61 @@ if(typeof window !== 'undefined' && typeof window.addEventListener === 'function
 // A local rendition is a page (Section 5.10 rule 3): the picker navigates, and the browser can animate the change with the cross-document view transition of silvercord.css.
 function bindRenditionBar(sc){
   const select = document.getElementById('sc-rendition-select');
-  if(select) select.addEventListener('change', ()=>{ if(select.value && select.value !== window.location.pathname) window.location.assign(select.value); });
+  const bodyEl = document.getElementById('sc-rendition-body');
+  const infoEl = document.getElementById('sc-rendition-info');
+  const localBody = bodyEl ? bodyEl.innerHTML : '';
+  const localInfo = infoEl ? infoEl.innerHTML : '';
+  const remoteList = Array.isArray(sc.remote_renditions) ? sc.remote_renditions : [];
+  // A rendition of another server (Section 5.10 rule 4): the body area changes inside the page. The transition is scoped to the body area where the browser has element-scoped view transitions; else the change is at once, with no document transition, so that the bottom bar and the popovers stay on top.
+  function swapBody(update){
+    if(bodyEl && 'startViewTransition' in Element.prototype){
+      const transition = bodyEl.startViewTransition(()=>{ update(); });
+      transition.ready.catch(()=>{});
+    }else{
+      update();
+    }
+  }
+  function showRemote(key, push){
+    const r = remoteList.find(x=>x.key===key);
+    if(!r || !bodyEl) return false;
+    swapBody(()=>{
+      const title = rtr('reader.rendition.remote_frame_title', { account: r.account||r.domain, label: renditionLabel(r.template) });
+      bodyEl.innerHTML = '<iframe class="sc-rendition-frame" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="'+esc(title)+'" src="'+esc(r.frame_url)+'"></iframe>';
+      if(infoEl){
+        const info = [renditionLabel(r.template), renditionVersion(r.version), r.account||'', String(r.updated||'').slice(0,10), r.domain].filter(Boolean).join(' · ');
+        infoEl.innerHTML = esc(info) + ' · <a href="'+esc(r.origin_url)+'" target="_blank" rel="noopener noreferrer">'+esc(rtr('reader.rendition.open_origin'))+'</a>';
+      }
+      if(typeof updateSharedRail === 'function') updateSharedRail();
+    });
+    if(push){
+      const url = new URL(window.location.href);
+      url.searchParams.set('rendition', key);
+      window.history.replaceState(null, '', url);
+    }
+    return true;
+  }
+  function showLocal(){
+    if(!bodyEl) return;
+    swapBody(()=>{
+      bodyEl.innerHTML = localBody;
+      if(infoEl) infoEl.innerHTML = localInfo;
+      applyMathRendering(bodyEl);
+      if(typeof updateSharedRail === 'function') updateSharedRail();
+    });
+    const url = new URL(window.location.href);
+    url.searchParams.delete('rendition');
+    window.history.replaceState(null, '', url);
+  }
+  const localValue = select ? select.value : '';
+  if(select) select.addEventListener('change', ()=>{
+    const value = select.value || '';
+    if(value.indexOf('remote:') === 0){ showRemote(value.slice(7), true); return; }
+    if(value === localValue){ showLocal(); return; }
+    if(value && value !== window.location.pathname) window.location.assign(value);
+  });
+  // The address keeps the choice of a rendition of another server (Section 5.8 rule 4).
+  const asked = new URLSearchParams(window.location.search).get('rendition');
+  if(asked && select && showRemote(asked, false)) select.value = 'remote:' + asked;
   const status = document.getElementById('sc-rendition-status');
   const base = '/silvercord/' + encodeURIComponent(sc.token);
   document.querySelectorAll('[data-add-rendition]').forEach(btn=>btn.addEventListener('click', async ()=>{

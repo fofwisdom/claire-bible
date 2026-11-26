@@ -6264,6 +6264,21 @@ def create_app(
             finally:
                 conn.close()
 
+        def _other_servers() -> list[dict[str, Any]]:
+            # The renditions of other Claire servers that the cache can show now (Section 5.4 rule 1, the picker group "같은 출처 · 다른 서버"). The body is not in the page: the frame route gives it.
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
+                if row is None or not row[0]:
+                    return []
+                return [
+                    {"key": r.key, "template": r.template, "version": r.template_version, "updated": r.updated, "account": r.account_handle or r.account_name or r.domain, "domain": r.domain, "origin_url": r.url or r.iri, "frame_url": f"{permalinks.permalink_path(found.token)}/renditions/remote/{r.key}"}
+                    for r in remote_renditions.renditions_of(conn, str(row[0]), now=time.time())
+                ]
+            finally:
+                conn.close()
+
+        other_servers = await asyncio.to_thread(_other_servers) if renditions else []
         if renditions:
             base_origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
             try:
@@ -6303,6 +6318,7 @@ def create_app(
             "rendition_account": owner_name or (f"@{owner_username}" if owner_username else ""),
             # Template order, then the newest first for the same template (Section 5.10 rule 10).
             "same_source_renditions": sorted(same_source, key=lambda r: (RENDITION_TEMPLATE_IDS.index(r["template"]), -float(r["updated_at"]))),
+            "remote_renditions": other_servers,
         }
         if selected is not None:
             doc_for_page["detail"] = selected.detail or ""
@@ -6353,6 +6369,46 @@ def create_app(
         if is_member or (readable_kb and not pending and not bool(doc_meta.get("hidden"))):
             return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=True)
         return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
+
+    async def permalink_remote_rendition_route(request: Request) -> Response:
+        """``GET /silvercord/{token}/renditions/remote/{key}``: the body of one rendition of another Claire server, as a page for the sandbox frame of the document page (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.5 and 5.8 rule 4, phase E5c). The access rules are the ones of the document; the page has no script and an opaque origin (``usercontent.remote_item_response``)."""
+        from . import usercontent
+
+        token = str(request.path_params.get("token", ""))
+        key = str(request.path_params.get("key", ""))
+        if not permalinks.plausible_token(token) or not re.fullmatch(r"[0-9a-f]{16}", key):
+            return PlainTextResponse("Not Found", status_code=404)
+        found, doc_meta, gone, pending = await asyncio.to_thread(_load_document_permalink, token, with_detail=False)
+        if found is None or found.kind != "document":
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.alias is not None:
+            return RedirectResponse(f"{permalinks.permalink_path(found.token)}/renditions/remote/{key}", status_code=308)
+        if found.gone_at is not None or gone or doc_meta is None:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        is_member = await _caller_is_member(request, kb)
+        if not is_member and (pending or bool(doc_meta.get("hidden"))):
+            return PlainTextResponse("Not Found", status_code=404)
+        if not is_member and _kb_decide(request, kb, "read") != "allow" and not found.link_access:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        def _body() -> str | None:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
+                if row is None or not row[0]:
+                    return None
+                return next((r.body_html for r in remote_renditions.renditions_of(conn, str(row[0]), now=time.time()) if r.key == key), None)
+            finally:
+                conn.close()
+
+        body = await asyncio.to_thread(_body)
+        if body is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return usercontent.remote_item_response(content_html=body, attachments=[], language="ko", frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN", "x-robots-tag": "noindex, nofollow"})
 
     async def permalink_graph_route(request: Request) -> Response:
         """``GET /silvercord/{token}/graph``: document-scoped Ring 1 + Ring 2 local graph JSON (SILVERCORD_RENDERING_DESIGN.md SD2)."""
@@ -7335,6 +7391,7 @@ def create_app(
         Route("/silvercord/{token}/workspace", permalink_workspace_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/graph", permalink_graph_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/renditions/{template}", permalink_rendition_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/renditions/remote/{key}", permalink_remote_rendition_route, methods=["GET", "HEAD"]),
         Route("/entity/{token}", entity_address_route, methods=["GET", "HEAD"]),
         Route("/entities/{entity_id}/share", entity_share_route, methods=["POST", "DELETE"]),
         Route("/p", shared_doc_page, methods=["GET"]),

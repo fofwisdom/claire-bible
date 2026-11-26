@@ -4653,5 +4653,8 @@
   "reader.rendition.adding": "{label} 정리본을 만드는 중…",
   "reader.rendition.add_failed": "정리본을 만들지 못했습니다: {error}",
   "reader.rendition.version_pre_template": "템플릿 이전 본문",
-  "reader.rendition.group_same_server": "같은 출처 · 이 서버"
+  "reader.rendition.group_same_server": "같은 출처 · 이 서버",
+  "reader.rendition.group_other_servers": "같은 출처 · 다른 서버",
+  "reader.rendition.open_origin": "원 서버에서 열기",
+  "reader.rendition.remote_frame_title": "{account}의 {label} 정리본"
 }
