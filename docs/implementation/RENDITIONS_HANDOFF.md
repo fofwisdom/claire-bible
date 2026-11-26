@@ -164,3 +164,16 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 2. Change the row of the phase in design Section 9 ("Changes", "Added after the phase") and the implementation page of the area in the same commit.
 3. Add the commit to Section 7 (or Section 2 for a new phase). A commit cannot have its own hash in its text: write "(this commit)" and put the hash in with the next commit.
 4. When an open item of Section 8 is done, move it to Section 7. When an owner decision replaces an AD entry, keep the entry and add "Replaced by owner decision O.." with the date.
+
+## 10. Same Server as Other Servers (RD30, in progress)
+
+Owner decision RD30 (2026-11-26, `FEDERATION_REMOTE_READING_DESIGN.md` Section 6.7): an account of this server is an actor as an actor of another server in each interaction of the federation client. The agent decisions AD25, AD27, and AD38 made special paths for the same server; RD30 replaces them. Why the distinction was there: the remote reading design named only remote actors, and the code refused addresses of its own origin since FP2-2 (an input guard); this work added workarounds and did not remove the gap.
+
+Plan (each step with tests; mark the state here):
+
+| Step | Content | State |
+| :--- | :--- | :--- |
+| L1 | Sidecar loopback: a request to the canonical origin goes to the request handler of the sidecar in the same process (reads, deliveries, WebFinger). The own-origin refusals of the sidecar loaders go. | open |
+| L2 | Claire accepts an actor of this server in inbound activities (inbox events, timeline events, quote events), and an own-origin object only from its own local author. | open |
+| L3 | Remove the special paths: the like of a post (AD25) becomes a `Like`; a reply to a published object (AD27) mentions the author; the note-route notification (AD38) goes, because the delivery makes it; the walk of the opinions of an own object can start from the object (AD17). | open |
+| L4 | End-to-end test with one Claire process and its real sidecar: two local accounts follow, post, reply, like, boost, and quote. | open |

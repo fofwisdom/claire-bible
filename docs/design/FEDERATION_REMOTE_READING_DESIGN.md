@@ -336,6 +336,18 @@ Two-way communication needs the answers of remote users who are not followed.
 
 ---
 
+### 6.7 Accounts of the Same Server (RD30)
+
+Facts before RD30 (2026-11-26): this design names only remote actors. The code refused an address on the origin of this server in each inbound path (`_remote_host` of the internal API, since FP2-2), and the sidecar made no request to its own origin. Thus two accounts of one server could not follow each other, and a reply, a like, a boost, or a quote between them did not arrive. Phase E7 of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) added special paths for the same server (its handoff AD25, AD27, AD38).
+
+Rules:
+
+1. **One path.** An activity between two accounts of this server goes through the same code as an activity with another server: the sidecar signs it, the inbox of the sidecar verifies it, and Claire applies the same inbound rules. No special path for the same server.
+2. **Loopback in the sidecar.** A request of the sidecar to the canonical origin of its server (a read of a document, a delivery to an inbox, a WebFinger lookup) does not go to the network: the sidecar gives it to its own request handler in the same process. The HTTP signature, the public paths, and the access rules are the same as for a request from the network.
+3. **Inbound rules.** Claire accepts an actor of this server as the actor of a verified inbound activity. An object or an address on the origin of this server is accepted only when the verified actor is an actor of this server and the object is its own object (author and actor are the same). Another server cannot use an address of this server.
+4. **The knowledge federation is not changed.** It is an exchange between servers; a server does not exchange with itself.
+5. **The special paths go.** The like of a post, the reply to a published object, and the notification of a local reply use the activities of the federation client.
+
 ## 7. Data Model
 
 ### 7.1 Client Tables (`client.db`, RD27)
@@ -648,6 +660,7 @@ Not covered: the display of an approved quote on a Mastodon-compatible server. T
 | RD27 | Database files | Database files by the kind of data, each with its own version: `claire.db` (shared assets), `client.db` (communication data of accounts), `auth.db`, `fedify.db` ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md)). Section 7.1 uses it. | Locked 2026-11-13 |
 | RD28 | Knowledge data of accounts | One knowledge database now, with triggers for one file for each account ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md) Section 4). | Locked 2026-11-13 |
 | RD29 | Service of themes of accounts | Collaborator ingest only after an invitation; one admin ingest limit; a public theme is visible outside only through its account actor ([`DATA_STORE_LAYOUT_DESIGN.md`](DATA_STORE_LAYOUT_DESIGN.md) Section 5). | Locked 2026-11-13 |
+| RD30 | Accounts of the same server | An account of this server is an actor as an actor of another server, in each interaction of the federation client: follow, delivery of posts, reply, mention, favourite, boost, quote, and the thread fetch (owner, 2026-11-26: "같은 서버와 다른 서버 … 서로 동일하게 동작해야죠"). Approach: Section 6.7. | Locked 2026-11-26 |
 
 ---
 
