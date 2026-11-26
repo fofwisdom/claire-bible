@@ -21,7 +21,7 @@ from typing import Any
 
 from ..accounts.provider_policy import ProviderPolicyError, context_of, split_gemini_model_and_effort
 from ..extract.provider import LineageCollector, Provider, RelationCandidate, _accepts_kwarg, emit_progress
-from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
+from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES, PRIMARY_RENDITION_TEMPLATE
 from ..extract.resolver import _call_provider_embed, resolve_or_create
 from ..ontology.base import Document, Entity, Relation
 from ..ontology.registry import (
@@ -491,6 +491,12 @@ def ingest(
     return report
 
 
+def _clear_stale_additional_renditions(conn: sqlite3.Connection, document_id: str, kb_id: int) -> None:
+    """Remove additional renditions when raw source text changes on an existing document."""
+    for template in ADDITIONAL_RENDITION_TEMPLATES:
+        renditions_store.delete_additional(conn, document_id, kb_id, template)
+
+
 def _complete_server_extraction(
     *,
     conn: sqlite3.Connection,
@@ -766,6 +772,7 @@ def _ingest_core(
                     if stage_only and force:
                         if not _store_doc_attachments_or_report(conn, inbox_id, doc, bundled_id, data_dir, report, kb_id=tid):
                             return report
+                        doc.meta["renditions_stale"] = True
                         dbm.update_document_content(
                             conn, bundled_id, title=doc.title, raw_text=doc.raw_text,
                             content_hash=doc.content_hash, fetched_at=doc.fetched_at,
@@ -819,6 +826,7 @@ def _ingest_core(
                 if not _store_doc_attachments_or_report(conn, inbox_id, doc, existing, data_dir, report, kb_id=tid):
                     return report
                 if stage_only and force:
+                    doc.meta["renditions_stale"] = True
                     dbm.update_document_content(
                         conn, existing, title=doc.title, raw_text=doc.raw_text,
                         content_hash=doc.content_hash, fetched_at=doc.fetched_at,
@@ -924,6 +932,8 @@ def _ingest_core(
                     preserve_presentation_history(old_meta, doc)
                 if not _store_doc_attachments_or_report(conn, inbox_id, doc, same_url, data_dir, report, kb_id=tid):
                     return report
+                if stage_only:
+                    doc.meta["renditions_stale"] = True
                 dbm.update_document_content(
                     conn, same_url, title=doc.title, raw_text=doc.raw_text,
                     content_hash=doc.content_hash, fetched_at=doc.fetched_at,
@@ -932,6 +942,9 @@ def _ingest_core(
                     raw_chars=raw_chars_val,
                     clear_claim=True,
                 )
+                if not stage_only:
+                    _clear_stale_additional_renditions(conn, same_url, tid)
+                    conn.commit()
                 report.document_id = same_url
                 report.updated = True
                 if stage_only:
@@ -985,6 +998,7 @@ def _ingest_core(
                         preserve_presentation_history(old_near_meta, doc)
                     if not _store_doc_attachments_or_report(conn, inbox_id, doc, near_id, data_dir, report, kb_id=tid):
                         return report
+                    doc.meta["renditions_stale"] = True
                     dbm.update_document_content(
                         conn, near_id, title=doc.title, raw_text=doc.raw_text,
                         content_hash=doc.content_hash, fetched_at=doc.fetched_at,

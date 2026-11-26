@@ -6688,11 +6688,16 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str,
     """
     losers = {x for x in loser_ids if x and x != keeper_id}
     if not losers:
-        return {"keeper": keeper_id, "losers": [], "deleted": 0}
+        return {"keeper": keeper_id, "losers": [], "deleted": 0, "renditions_migrated": 0}
     ph = ",".join("?" * len(losers))
     lo = list(losers)
     out = {"keeper": keeper_id, "losers": lo}
     try:
+        from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
+        from . import federation as federation_store
+        from . import permalinks
+
+        now = time.time()
         out["entities_repointed"] = _repoint_sources_json(conn, "entities", keeper_id, losers, kb_id=kb_id)
         out["relations_repointed"] = _repoint_sources_json(conn, "relations", keeper_id, losers, kb_id=kb_id)
         where_theme = f" AND kb_id={kb_id}" if kb_id is not None else ""
@@ -6711,12 +6716,38 @@ def merge_documents(conn: sqlite3.Connection, keeper_id: str,
             conn.execute(
                 f"UPDATE same_subject_shadow SET {col}=? WHERE {col} IN ({ph}){where_theme}",
                 (keeper_id, *lo))
+
+        # Retract published losers and move missing additional renditions before deleting loser document rows (cascade deletes remaining loser renditions).
+        keeper_row = conn.execute("SELECT kb_id FROM documents WHERE id=?", (keeper_id,)).fetchone()
+        loser_rows = conn.execute(f"SELECT id, kb_id FROM documents WHERE id IN ({ph}){where_theme}", lo).fetchall()
+        losers_by_kb: dict[int, list[str]] = {}
+        for lr in loser_rows:
+            losers_by_kb.setdefault(int(lr[1]), []).append(str(lr[0]))
+        for l_kb, l_ids in losers_by_kb.items():
+            federation_store.retract_objects(conn, kb_id=l_kb, document_ids=l_ids, now=now)
+
+        migrated = 0
+        if keeper_row is not None:
+            keeper_kb_id = int(keeper_row[0])
+            same_kb_losers = losers_by_kb.get(keeper_kb_id, [])
+            if same_kb_losers:
+                l_ph = ",".join("?" * len(same_kb_losers))
+                existing_templates = {str(r[0]) for r in conn.execute("SELECT template FROM document_renditions WHERE document_id=? AND kb_id=?", (keeper_id, keeper_kb_id)).fetchall()}
+                cand_rows = conn.execute(f"SELECT template, template_version, detail, detail_html, model_lineage, created_at, updated_at FROM document_renditions WHERE document_id IN ({l_ph}) AND kb_id=? AND template != ? ORDER BY updated_at DESC", (*same_kb_losers, keeper_kb_id, PRIMARY_RENDITION_TEMPLATE)).fetchall()
+                for cr in cand_rows:
+                    tpl = str(cr[0])
+                    if tpl in existing_templates:
+                        continue
+                    conn.execute("INSERT INTO document_renditions (document_id, kb_id, template, template_version, detail, detail_html, model_lineage, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (keeper_id, keeper_kb_id, tpl, str(cr[1]), cr[2], cr[3], str(cr[4] or "{}"), float(cr[5]), float(cr[6])))
+                    existing_templates.add(tpl)
+                    migrated += 1
+                if migrated > 0:
+                    federation_store.sync_rendition_objects(conn, kb_id=keeper_kb_id, document_id=keeper_id, now=now)
+        out["renditions_migrated"] = migrated
+
         out["deleted"] = conn.execute(
             f"DELETE FROM documents WHERE id IN ({ph}){where_theme}", lo).rowcount
         # The permalinks of the losers become aliases of the permalink of the keeper (PERMALINK_UNIFICATION_DESIGN.md Section 7).
-        from . import permalinks
-
-        keeper_row = conn.execute("SELECT kb_id FROM documents WHERE id=?", (keeper_id,)).fetchone()
         if keeper_row is not None:
             permalinks.merge_documents(conn, keeper_id, list(lo), kb_id=int(keeper_row[0]))
         conn.commit()

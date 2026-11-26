@@ -30,9 +30,11 @@ from .schemas import (
     DeleteFeedRequest,
     DeleteFeedResponse,
     DeleteKnowledgeBaseResponse,
+    DeleteRenditionResponse,
     DeleteSupportBundleResponse,
     DocumentDetailResponse,
     DocumentListResponse,
+    DocumentRenditionsResponse,
     EntityDetailResponse,
     EntityNeighborsResponse,
     ExtractionClaimRequest,
@@ -140,6 +142,12 @@ _ENTITY_ID_PARAM = V1ParamSpec(
     location="path",
     required=True,
     description="Entity identifier (e.g. ent_0123456789ab).",
+)
+_RENDITION_TEMPLATE_PARAM = V1ParamSpec(
+    name="template",
+    location="path",
+    required=True,
+    description="Additional rendition template identifier ('concise' or 'academic').",
 )
 
 V1_ROUTE_SPECS: tuple[V1RouteSpec, ...] = (
@@ -381,6 +389,20 @@ V1_ROUTE_SPECS: tuple[V1RouteSpec, ...] = (
         extra_statuses=(400, 403, 404, 422),
     ),
     V1RouteSpec(
+        method="GET",
+        path="/api/v1/kbs/{kb}/documents/{doc_id}/renditions",
+        handler_key="list_document_renditions",
+        operation_id="v1ListDocumentRenditions",
+        tag="Documents & Ingest",
+        summary="List renditions of a document",
+        description="Return all stored renditions of a document, including the primary standard rendition body and any additional renditions.",
+        access="read",
+        capability="read",
+        response_model=DocumentRenditionsResponse,
+        params=(_KB_PARAM, _DOC_ID_PARAM),
+        extra_statuses=(400, 404),
+    ),
+    V1RouteSpec(
         method="POST",
         path="/api/v1/kbs/{kb}/documents/{doc_id}/renditions",
         handler_key="add_document_rendition",
@@ -394,6 +416,20 @@ V1_ROUTE_SPECS: tuple[V1RouteSpec, ...] = (
         response_model=AddRenditionResponse,
         params=(_KB_PARAM, _DOC_ID_PARAM),
         extra_statuses=(400, 403, 404, 409, 422, 429),
+    ),
+    V1RouteSpec(
+        method="DELETE",
+        path="/api/v1/kbs/{kb}/documents/{doc_id}/renditions/{template}",
+        handler_key="delete_document_rendition",
+        operation_id="v1DeleteDocumentRendition",
+        tag="Documents & Ingest",
+        summary="Delete an additional rendition of a document",
+        description="Delete an additional rendition (`concise` or `academic`) of a document and retract its published rendition object if present. The primary `standard` rendition cannot be deleted.",
+        access="owner",
+        capability="curate",
+        response_model=DeleteRenditionResponse,
+        params=(_KB_PARAM, _DOC_ID_PARAM, _RENDITION_TEMPLATE_PARAM),
+        extra_statuses=(400, 403, 404),
     ),
     V1RouteSpec(
         method="DELETE",

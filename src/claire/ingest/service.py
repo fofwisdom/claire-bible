@@ -948,6 +948,10 @@ class IngestService:
             from .pipeline import _download_doc_images
 
             _download_doc_images(conn, doc, self.s.data_dir, kb_id=self.kb_id)
+            if client_staging:
+                if doc.meta is None:
+                    doc.meta = {}
+                doc.meta["renditions_stale"] = True
             # 같은 id 로 갱신(신규가 아니라 복원이므로 sources 연결 유지). meta(이미지 포함) 보존.
             dbm.update_document_content(
                 conn, document_id, title=doc.title, raw_text=doc.raw_text,
@@ -956,6 +960,13 @@ class IngestService:
                 extraction_status=("pending" if client_staging else None),
                 raw_chars=len(doc.raw_text or ""),
                 clear_claim=True)
+            if not client_staging:
+                from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES
+                from ..store import document_renditions as renditions_store
+
+                for template in ADDITIONAL_RENDITION_TEMPLATES:
+                    renditions_store.delete_additional(conn, document_id, self.kb_id, template)
+                conn.commit()
             try:
                 from ..store.raw import save_artifact
 
@@ -1347,6 +1358,7 @@ class IngestService:
         force: bool = False,
         effort: str | None = None,
         format: str | None = None,
+        include_renditions: bool = False,
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> dict:
@@ -1666,6 +1678,8 @@ class IngestService:
                                 info["actions"].append("regenerate_summary")
                             if do_detail and not do_graph:
                                 info["actions"].append("regenerate_detail")
+                            if do_detail and include_renditions and not do_refetch:
+                                info["actions"].append("regenerate_renditions")
 
                             if not force:
                                 targets_info.append(info)
@@ -1680,6 +1694,7 @@ class IngestService:
                                 title=doc.title or "(제목 없음)",
                                 url=doc.canonical_url or doc.url or "",
                             ) as step_cb:
+                                cleared_on_refetch = False
                                 if do_refetch:
                                     step_msg = (
                                         "원문 전체 재수집 (Refetching full content from source)..."
@@ -1719,6 +1734,13 @@ class IngestService:
                                                 meta=new_doc.meta,
                                                 kb_id=self.kb_id,
                                             )
+                                            from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES
+                                            from ..store import document_renditions as renditions_store
+
+                                            for template in ADDITIONAL_RENDITION_TEMPLATES:
+                                                renditions_store.delete_additional(conn, did, self.kb_id, template)
+                                            conn.commit()
+                                            cleared_on_refetch = True
                                             try:
                                                 save_artifact(self.s.data_dir, did, new_doc.raw_text)
                                             except Exception:
@@ -1736,6 +1758,7 @@ class IngestService:
                                             info["refetch_error"] = str(e)
 
                                 target_fmt = format or "adoc"
+                                detail_succeeded = False
 
                                 if do_graph:
                                     # 엔티티/노드 추출, 지식 그래프 해소/적재, 벡터 임베딩, 관계 적재
@@ -1770,6 +1793,7 @@ class IngestService:
                                         info["linked_entity_names"] = report.linked_entity_names
                                         info["relations_added"] = report.relations_added
                                         info["detail_format"] = target_fmt
+                                        detail_succeeded = bool(report.detail_rendered)
 
                                         if self.s.auto_expand and self.s.expand_max > 0 and not doc.partial:
                                              dbm.enqueue_expand(conn, did, kb_id=self.kb_id)
@@ -1863,11 +1887,26 @@ class IngestService:
                                         conn.commit()
                                         if detail_ok:
                                             info["detail_format"] = target_fmt
+                                            detail_succeeded = True
                                         else:
                                             err_detail = detail_err_box[0] if detail_err_box else "타임아웃 또는 모델 오류"
                                             info["detail_error"] = f"가독 상세(detail) 생성 실패 ({err_detail})"
                                             if not (do_summary and info.get("new_summary")):
                                                 info["error"] = info["detail_error"]
+
+                                if do_detail and include_renditions and not cleared_on_refetch and detail_succeeded:
+                                    from ..store import document_renditions as renditions_store
+                                    from .pipeline import render_additional_rendition
+
+                                    existing_additional = [r.template for r in renditions_store.list_renditions(conn, did, self.kb_id) if not r.primary]
+                                    if existing_additional:
+                                        rendition_results: list[dict[str, str]] = []
+                                        for tpl in existing_additional:
+                                            r_errors: list[str] = []
+                                            r_ok = render_additional_rendition(conn, self.provider, doc, template=tpl, kb_id=self.kb_id, effort=effort, settings=self.s, out_error=r_errors)
+                                            conn.commit()
+                                            rendition_results.append({"template": tpl, "state": "made" if r_ok else "failed", "error": "" if r_ok else scrub_text(r_errors[0] if r_errors else "model error")})
+                                        info["renditions"] = rendition_results
 
                             if not info.get("error"):
                                 info["updated"] = True

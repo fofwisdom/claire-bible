@@ -389,6 +389,36 @@ class AddRenditionResponse(SealedModel):
     rendition: RenditionRunItem
 
 
+class DocumentRenditionItem(SealedModel):
+    """One stored rendition entry in `GET /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."""
+
+    template: str
+    template_version: str
+    primary: bool
+    detail: str
+    detail_html: str
+    model_lineage: dict[str, Any] = Field(default_factory=dict)
+    created_at: float
+    updated_at: float
+
+
+class DocumentRenditionsResponse(SealedModel):
+    """Response for `GET /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."""
+
+    document_id: str
+    kb_number: str | None
+    renditions: list[DocumentRenditionItem] = Field(default_factory=list)
+
+
+class DeleteRenditionResponse(SealedModel):
+    """Response for `DELETE /api/v1/kbs/{kb}/documents/{doc_id}/renditions/{template}`."""
+
+    document_id: str
+    kb_number: str | None
+    template: str
+    deleted: bool
+
+
 class SearchRequest(InputModel):
     """Request body for `POST /api/v1/kbs/{kb}/search`."""
 

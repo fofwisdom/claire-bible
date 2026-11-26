@@ -446,3 +446,91 @@ def test_ingest_detail_failure_recorded():
     assert stored is not None
     assert dbm.get_document_detail(conn, rep.document_id) is None
 
+
+def test_merge_documents_migrates_renditions_and_retracts_published_losers():
+    """merge_documents retracts published losers and migrates missing additional renditions by updated_at DESC."""
+    from claire.federation.knowledge import outbox as kf_outbox
+    from claire.store import accounts as accounts_store
+    from claire.store import document_renditions as renditions_store
+    from claire.store import federation as federation_store
+    from claire.store import plus_ones
+
+    conn = _db()
+    acct = accounts_store.AccountStore(conn).create_member(username="alice", display_name="Alice")
+    salt = accounts_store.AccountStore(conn).id_salt()
+    now = 1800000100.0
+    for did, title in (("doc_keep", "Keeper"), ("doc_lose_1", "Loser 1"), ("doc_lose_2", "Loser 2")):
+        dbm.insert_document(conn, Document(id=did, url=f"https://example.org/{did}", canonical_url=f"https://example.org/{did}", title=title, raw_text="Body " * 80, source_type="web", content_hash=f"h_{did}"), kb_id=0)
+        dbm.set_document_detail(conn, did, f"= {title}\n\nStandard body.", format="adoc", html=f"<p>{title}</p>", kb_id=0)
+        renditions_store.record_primary(conn, did, 0, lineage={"provider": "mock", "model": "m"}, now=now)
+
+    renditions_store.store_additional(conn, "doc_keep", 0, template="concise", detail="= Keeper concise\n\nKeep me.", lineage={"provider": "mock"}, now=now + 1)
+    renditions_store.store_additional(conn, "doc_lose_1", 0, template="concise", detail="= Loser1 concise\n\nSkip me.", lineage={"provider": "mock"}, now=now + 50)
+    renditions_store.store_additional(conn, "doc_lose_1", 0, template="academic", detail="= Loser1 academic\n\nOlder academic.", lineage={"provider": "mock"}, now=now + 10)
+    renditions_store.store_additional(conn, "doc_lose_2", 0, template="academic", detail="= Loser2 academic\n\nNewer academic.", lineage={"provider": "mock"}, now=now + 30)
+
+    keep_obj, _, _ = federation_store.publish_document(conn, account_id=acct.id, kb_id=0, document_id="doc_keep", published_by_account_id=acct.id, salt=salt, now=now + 60)
+    lose1_obj, _, _ = federation_store.publish_document(conn, account_id=acct.id, kb_id=0, document_id="doc_lose_1", published_by_account_id=acct.id, salt=salt, now=now + 61)
+    lose2_obj, _, _ = federation_store.publish_document(conn, account_id=acct.id, kb_id=0, document_id="doc_lose_2", published_by_account_id=acct.id, salt=salt, now=now + 62)
+
+    lose1_rends = {r.template: r.public_id for r in federation_store.rendition_objects_of(conn, lose1_obj.public_id)}
+    lose2_rends = {r.template: r.public_id for r in federation_store.rendition_objects_of(conn, lose2_obj.public_id)}
+    federation_store.record_body_reader(conn, lose1_rends["concise"], "https://remote.example/ap/actors/server", now=now + 65)
+    plus_ones.add(conn, lose1_obj.public_id, actor_iri="https://remote.example/ap/actors/1", actor_host="remote.example", activity_iri="https://remote.example/a/1", now=now + 66)
+    plus_ones.add(conn, lose1_rends["concise"], actor_iri="https://remote.example/ap/actors/1", actor_host="remote.example", activity_iri="https://remote.example/a/2", now=now + 67)
+    conn.commit()
+
+    res = dbm.merge_documents(conn, "doc_keep", ["doc_lose_1", "doc_lose_2"], kb_id=0)
+    assert res["deleted"] == 2
+    assert res["renditions_migrated"] == 1
+
+    keep_renditions = {r.template: r for r in renditions_store.list_renditions(conn, "doc_keep", 0)}
+    assert sorted(keep_renditions) == ["academic", "concise", "standard"]
+    assert "Keep me." in (keep_renditions["concise"].detail or "")
+    assert "Newer academic." in (keep_renditions["academic"].detail or "")
+
+    assert federation_store.get_tombstone(conn, lose1_obj.public_id) is not None
+    assert federation_store.get_tombstone(conn, lose2_obj.public_id) is not None
+    assert federation_store.get_tombstone(conn, lose1_rends["concise"]) is not None
+    assert federation_store.get_tombstone(conn, lose2_rends["academic"]) is not None
+    assert plus_ones.counts(conn, lose1_obj.public_id)["total"] == 0
+    assert plus_ones.counts(conn, lose1_rends["concise"])["total"] == 0
+
+    del_tasks = conn.execute("SELECT object_public_id FROM federation_outbox WHERE kind='delete' ORDER BY object_public_id").fetchall()
+    assert sorted(int(r[0]) for r in del_tasks) == sorted([lose1_obj.public_id, lose2_obj.public_id])
+
+    kf_outbox.sync(conn, origin="https://claire.example.com", now=now + 70)
+    dr_tasks = conn.execute("SELECT kind, recipient FROM kf_outbox WHERE kind='delete_rendition'").fetchall()
+    assert any(r[1] == "https://remote.example/ap/actors/server" for r in dr_tasks)
+
+    keep_pub_renditions = {r.template for r in federation_store.rendition_objects_of(conn, keep_obj.public_id)}
+    assert keep_pub_renditions == {"concise", "academic"}
+    conn.close()
+
+
+def test_reingest_same_canonical_url_clears_stale_additional_renditions():
+    """Overwriting raw_text via same canonical_url clears stale additional renditions and tombstones published rendition objects."""
+    from claire.store import accounts as accounts_store
+    from claire.store import document_renditions as renditions_store
+    from claire.store import federation as federation_store
+
+    conn = _db()
+    acct = accounts_store.AccountStore(conn).create_member(username="bob", display_name="Bob")
+    salt = accounts_store.AccountStore(conn).id_salt()
+    vstore = VectorStore(conn, "brute")
+    d1 = Document(url="https://x.test/article", canonical_url="https://x.test/article", title="V1", raw_text="First version body text " * 10, source_type="web", content_hash="h_v1")
+    r1 = ingest("https://x.test/article", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(d1))
+    assert r1.document_id is not None
+    doc_id = r1.document_id
+    renditions_store.store_additional(conn, doc_id, 0, template="concise", detail="= V1 concise\n\nOld concise.", lineage={"provider": "mock"}, now=1800000200.0)
+    obj, _, _ = federation_store.publish_document(conn, account_id=acct.id, kb_id=0, document_id=doc_id, published_by_account_id=acct.id, salt=salt, now=1800000210.0)
+    old_concise_pub_id = federation_store.rendition_objects_of(conn, obj.public_id)[0].public_id
+    conn.commit()
+
+    d2 = Document(url="https://x.test/article", canonical_url="https://x.test/article", title="V2", raw_text="Second version completely changed text " * 10, source_type="web", content_hash="h_v2")
+    r2 = ingest("https://x.test/article", conn=conn, provider=MockProvider(), vstore=vstore, fetch_fn=_fetch_doc(d2))
+    assert r2.updated is True and r2.document_id == doc_id
+    assert [r.template for r in renditions_store.list_renditions(conn, doc_id, 0)] == ["standard"]
+    assert federation_store.get_tombstone(conn, old_concise_pub_id) is not None
+    conn.close()
+

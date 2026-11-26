@@ -891,6 +891,52 @@ paths:
             default: markdown
           description: "Export format."
   "/api/v1/kbs/{kb}/documents/{doc_id}/renditions":
+    get:
+      tags:
+        - "Documents & Ingest"
+      summary: "List renditions of a document"
+      description: "Return all stored renditions of a document, including the primary standard rendition body and any additional renditions."
+      operationId: v1ListDocumentRenditions
+      x-claire-access: read
+      x-claire-surface: system
+      x-claire-capability: read
+      security:
+        - OAuth2:
+            - readonly
+        - BearerAuth: []
+        - SessionCookie: []
+      responses:
+        "200":
+          description: "List renditions of a document"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DocumentRenditionsResponse"
+        "400":
+          description: "Invalid request parameters or JSON body."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: "Resource not found or inaccessible."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+      parameters:
+        - name: kb
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Knowledge base selector: 'personal' for the authenticated caller's personal KB, or an 18-digit external KB number."
+        - name: doc_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Document identifier (e.g. doc_0123456789ab)."
     post:
       tags:
         - "Documents & Ingest"
@@ -965,6 +1011,63 @@ paths:
           application/json:
             schema:
               "$ref": "#/components/schemas/AddRenditionRequest"
+  "/api/v1/kbs/{kb}/documents/{doc_id}/renditions/{template}":
+    delete:
+      tags:
+        - "Documents & Ingest"
+      summary: "Delete an additional rendition of a document"
+      description: "Delete an additional rendition (`concise` or `academic`) of a document and retract its published rendition object if present. The primary `standard` rendition cannot be deleted."
+      operationId: v1DeleteDocumentRendition
+      x-claire-access: owner
+      x-claire-surface: system
+      x-claire-capability: curate
+      security:
+        - BearerAuth: []
+        - SessionCookie: []
+      responses:
+        "200":
+          description: "Delete an additional rendition of a document"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DeleteRenditionResponse"
+        "400":
+          description: "Invalid request parameters or JSON body."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: "Insufficient scope or knowledge base capability."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: "Resource not found or inaccessible."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+      parameters:
+        - name: kb
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Knowledge base selector: 'personal' for the authenticated caller's personal KB, or an 18-digit external KB number."
+        - name: doc_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Document identifier (e.g. doc_0123456789ab)."
+        - name: template
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Additional rendition template identifier ('concise' or 'academic')."
   "/api/v1/kbs/{kb}/search":
     post:
       tags:
@@ -3757,6 +3860,31 @@ components:
         - would_delete
       title: DeleteKnowledgeBaseResponse
       type: object
+    DeleteRenditionResponse:
+      additionalProperties: false
+      description: "Response for `DELETE /api/v1/kbs/{kb}/documents/{doc_id}/renditions/{template}`."
+      properties:
+        document_id:
+          title: "Document Id"
+          type: string
+        kb_number:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: "Kb Number"
+        template:
+          title: Template
+          type: string
+        deleted:
+          title: Deleted
+          type: boolean
+      required:
+        - document_id
+        - kb_number
+        - template
+        - deleted
+      title: DeleteRenditionResponse
+      type: object
     DeleteSupportBundleResponse:
       additionalProperties: false
       description: "Response for `DELETE /api/v1/support/bundles/{bundle_id}`."
@@ -4030,6 +4158,67 @@ components:
         - next_cursor
         - total
       title: DocumentListResponse
+      type: object
+    DocumentRenditionItem:
+      additionalProperties: false
+      description: "One stored rendition entry in `GET /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."
+      properties:
+        template:
+          title: Template
+          type: string
+        template_version:
+          title: "Template Version"
+          type: string
+        primary:
+          title: Primary
+          type: boolean
+        detail:
+          title: Detail
+          type: string
+        detail_html:
+          title: "Detail Html"
+          type: string
+        model_lineage:
+          additionalProperties: true
+          title: "Model Lineage"
+          type: object
+        created_at:
+          title: "Created At"
+          type: number
+        updated_at:
+          title: "Updated At"
+          type: number
+      required:
+        - template
+        - template_version
+        - primary
+        - detail
+        - detail_html
+        - created_at
+        - updated_at
+      title: DocumentRenditionItem
+      type: object
+    DocumentRenditionsResponse:
+      additionalProperties: false
+      description: "Response for `GET /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."
+      properties:
+        document_id:
+          title: "Document Id"
+          type: string
+        kb_number:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: "Kb Number"
+        renditions:
+          items:
+            "$ref": "#/components/schemas/DocumentRenditionItem"
+          title: Renditions
+          type: array
+      required:
+        - document_id
+        - kb_number
+      title: DocumentRenditionsResponse
       type: object
     EntityDetailResponse:
       additionalProperties: false

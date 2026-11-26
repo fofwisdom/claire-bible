@@ -617,6 +617,7 @@ def restage_existing_source(
             doc.meta = {}
         if full_content:
             doc.meta["full_content"] = True
+        doc.meta["renditions_stale"] = True
         doc.id = doc_id
         try:
             _store_required_doc_attachments(doc, data_dir)
@@ -1412,11 +1413,13 @@ def submit_client_extraction(
             raw_payload=payload,
         )
         rendition_bodies: dict[str, str] = {}
+        renditions_stale = False
         if validated is not None:
             try:
                 doc_meta = json.loads(doc_row["meta"] or "{}")
             except ValueError:
                 doc_meta = {}
+            renditions_stale = bool(doc_meta.get("renditions_stale"))
             wanted = requested_client_renditions(doc_meta)
             if sorted(validated.renditions) != sorted(wanted):
                 errors.append({"field": "renditions", "code": "renditions_mismatch", "message": f"renditions must have exactly the templates {wanted} of rendition_prompts."})
@@ -1512,6 +1515,10 @@ def submit_client_extraction(
         renditions_store.record_primary(atomic_conn, doc_id, int(kb_id), lineage={"provider": "agent_client", "model": cleaned_model or ""}, now=commit_ts)
         for template, body in rendition_bodies.items():
             renditions_store.store_additional(atomic_conn, doc_id, int(kb_id), template=template, detail=body, lineage={"provider": "agent_client", "model": cleaned_model or ""}, now=commit_ts)
+        if renditions_stale:
+            for template in ADDITIONAL_RENDITION_TEMPLATES:
+                if template not in rendition_bodies:
+                    renditions_store.delete_additional(atomic_conn, doc_id, int(kb_id), template)
 
         dbm.rollback_document_graph_contributions(atomic_conn, [doc_id], prune_orphans=True, kb_id=int(kb_id))
         atomic_conn.execute("DELETE FROM extractions WHERE document_id=? AND kb_id=?", (doc_id, int(kb_id)))
@@ -1674,6 +1681,8 @@ def submit_client_extraction(
         if rendition_bodies:
             # The requests are done; a later re-extraction does not ask for them again.
             meta_patch[RENDITION_REQUESTS_META_KEY] = []
+        if renditions_stale:
+            meta_patch["renditions_stale"] = False
         if validated.focus and validated.focus.strip():
             meta_patch["focus"] = validated.focus.strip()
         if validated.lang and validated.lang.strip():

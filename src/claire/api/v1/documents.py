@@ -19,11 +19,12 @@ from ...collaboration import contributions
 from ...core.ports import get_document_renderer
 from ...core.secret_scrub import scrub_exception
 from ...extract.provider import set_progress_callback
+from ...extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES, PRIMARY_RENDITION_TEMPLATE
 from ...ingest.active import purge_active_matrix
 from ...ingest.extraction_mode import parse_extraction_mode
 from ...ingest.renditions import run_ingest_renditions
 from ...ingest.report_json import report_to_dict
-from ...store import db as dbm, kb_collab, permalinks
+from ...store import db as dbm, document_renditions as renditions_store, kb_collab, permalinks
 from ...store.queries import DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, document_detail, documents_list, documents_page
 from ...telegram.bot import parse_message_focus
 from ._context import (
@@ -47,10 +48,13 @@ from .schemas import (
     AddRenditionRequest,
     AddRenditionResponse,
     DeleteDocumentResponse,
+    DeleteRenditionResponse,
     DocumentDetailResponse,
     DocumentEntityItem,
     DocumentListItem,
     DocumentListResponse,
+    DocumentRenditionItem,
+    DocumentRenditionsResponse,
     IngestRequest,
     IngestResponse,
     UpdateDocumentRequest,
@@ -572,6 +576,56 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
         return JSONResponse(result.model_dump())
 
     @v1_endpoint
+    async def list_document_renditions(request: Request) -> JSONResponse:
+        kb = resolve_kb(ctx, request, capability="read")
+        _, kb_settings, _ = kb_runtime_context(ctx, request, kb)
+        doc_id = str(request.path_params.get("doc_id") or "").strip()
+        if not doc_id:
+            raise V1Error(400, "invalid_document_id", "Document id is required")
+        include_hidden = sees_hidden(ctx, request, kb)
+
+        def _load() -> DocumentRenditionsResponse | None:
+            conn = dbm.connect_existing(kb_settings.db_file, readonly=True)
+            try:
+                row = dbm.get_document_row(conn, doc_id, kb_id=kb.id)
+                if row is None:
+                    return None
+                doc_status = str(row["extraction_status"] or "extracted") if "extraction_status" in row.keys() else "extracted"
+                if not include_hidden and (bool(row["hidden"]) or doc_status == "pending"):
+                    return None
+                listed = renditions_store.list_renditions(conn, doc_id, kb.id)
+                items: list[DocumentRenditionItem] = []
+                for r in listed:
+                    if r.primary:
+                        detail_val = str(row["detail"] or "")
+                        detail_html_val = str(row["detail_html"] or "")
+                        if detail_val.strip() and not detail_html_val:
+                            detail_html_val = get_document_renderer().render_to_html(detail_val, format=str(row["detail_format"] or "adoc"))
+                    else:
+                        detail_val = str(r.detail or "")
+                        detail_html_val = str(r.detail_html or "")
+                    items.append(
+                        DocumentRenditionItem(
+                            template=r.template,
+                            template_version=r.template_version,
+                            primary=r.primary,
+                            detail=detail_val,
+                            detail_html=detail_html_val,
+                            model_lineage=dict(r.model_lineage),
+                            created_at=r.created_at,
+                            updated_at=r.updated_at,
+                        )
+                    )
+                return DocumentRenditionsResponse(document_id=doc_id, kb_number=kb_number_str(kb), renditions=items)
+            finally:
+                conn.close()
+
+        result = await asyncio.to_thread(_load)
+        if result is None:
+            raise not_found_error("Document not found")
+        return JSONResponse(result.model_dump())
+
+    @v1_endpoint
     async def add_document_rendition(request: Request) -> JSONResponse:
         """정리본 추가: one more rendition of a stored document, from its stored raw text, with the server API (Section 5.3 rule 2)."""
         kb = resolve_kb(ctx, request, capability="curate")
@@ -589,6 +643,40 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
         except ValueError as exc:
             raise V1Error(409, "document_not_extracted", "The document waits for an agent client; add renditions after its extraction") from exc
         return JSONResponse(AddRenditionResponse.model_validate({"document_id": doc_id, "rendition": items[0]}).model_dump())
+
+    @v1_endpoint
+    async def delete_document_rendition(request: Request) -> JSONResponse:
+        kb = resolve_kb(ctx, request, capability="curate")
+        _, kb_settings, _ = kb_runtime_context(ctx, request, kb)
+        doc_id = str(request.path_params.get("doc_id") or "").strip()
+        if not doc_id:
+            raise V1Error(400, "invalid_document_id", "Document id is required")
+        template = str(request.path_params.get("template") or "").strip()
+        if template == PRIMARY_RENDITION_TEMPLATE:
+            raise V1Error(400, "primary_rendition_protected", "The primary standard rendition cannot be deleted")
+        if template not in ADDITIONAL_RENDITION_TEMPLATES:
+            raise V1Error(400, "invalid_rendition_template", f"Unknown rendition template: {template}")
+
+        def _delete() -> DeleteRenditionResponse | str:
+            conn = dbm.connect_existing(kb_settings.db_file)
+            try:
+                row = dbm.get_document_row(conn, doc_id, kb_id=kb.id)
+                if row is None:
+                    return "doc_not_found"
+                if not renditions_store.delete_additional(conn, doc_id, kb.id, template):
+                    return "rendition_not_found"
+                conn.commit()
+                return DeleteRenditionResponse(document_id=doc_id, kb_number=kb_number_str(kb), template=template, deleted=True)
+            finally:
+                conn.close()
+
+        result = await asyncio.to_thread(_delete)
+        if result == "doc_not_found":
+            raise not_found_error("Document not found")
+        if result == "rendition_not_found":
+            raise not_found_error("Rendition not found")
+        assert isinstance(result, DeleteRenditionResponse)
+        return JSONResponse(result.model_dump())
 
     @v1_endpoint
     async def ingest_personal(request: Request) -> JSONResponse:
@@ -713,7 +801,9 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
         "get_document_raw": get_document_raw,
         "export_document": export_document,
         "update_document": update_document,
+        "list_document_renditions": list_document_renditions,
         "add_document_rendition": add_document_rendition,
+        "delete_document_rendition": delete_document_rendition,
         "delete_document": delete_document,
         "ingest_personal": ingest_personal,
         "ingest_personal_stream": ingest_personal_stream,

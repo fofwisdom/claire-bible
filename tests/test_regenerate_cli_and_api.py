@@ -37,6 +37,7 @@ def test_cli_regenerate_parser_options():
     args_alias = parser.parse_args([
         "regen", "doc_123",
         "--detail",
+        "--renditions",
         "--apply",
         "-y",
         "--effort", "high",
@@ -45,6 +46,7 @@ def test_cli_regenerate_parser_options():
     ])
     assert args_alias.target == "doc_123"
     assert args_alias.detail is True
+    assert args_alias.renditions is True
     assert args_alias.apply is True
     assert args_alias.yes is True
     assert args_alias.effort == "high"
@@ -212,5 +214,78 @@ def test_api_regenerate_and_stream(tmp_path: Path, monkeypatch):
     last_event = json.loads(lines[-1])
     assert last_event.get("done") is True
     assert last_event["result"].get("count") == 1
+
+
+def test_regenerate_include_renditions_and_refetch_clears_stale_renditions(tmp_path: Path, monkeypatch):
+    """--renditions re-renders existing additional renditions; --refetch clears stale additional renditions and tombstones published objects."""
+    from claire.ingest.service import IngestService
+    from claire.store import accounts as accounts_store, document_renditions as renditions_store, federation as federation_store
+
+    db_file = tmp_path / "claire_rend.db"
+    vault_dir = tmp_path / "vault"
+    data_dir = tmp_path / "data"
+    vault_dir.mkdir(parents=True)
+    data_dir.mkdir(parents=True)
+
+    monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
+    monkeypatch.setenv("CLAIRE_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("CLAIRE_VAULT_DIR", str(vault_dir))
+    monkeypatch.setenv("CLAIRE_ENVIRONMENT", "development")
+    monkeypatch.setenv("CLAIRE_FQDN", "127.0.0.1:8765")
+
+    from claire.core.config import get_settings
+
+    get_settings.cache_clear()
+    settings = get_settings()
+
+    conn = dbm.connect(db_file)
+    dbm.init_db(conn)
+    acct = accounts_store.AccountStore(conn).create_member(username="alice", display_name="Alice")
+    salt = accounts_store.AccountStore(conn).id_salt()
+    prov = MockProvider()
+    vstore = make_vector_store(conn, "brute")
+    url = "https://example.com/regen-renditions"
+    doc_v1 = Document(url=url, canonical_url=url, title="Regen Renditions", raw_text="Initial text body " * 20, source_type="web", content_hash=content_hash("Initial text body " * 20))
+    rep = ingest(payload=url, conn=conn, provider=prov, vstore=vstore, data_dir=data_dir, source="unit-test", fetch_fn=lambda _: doc_v1)
+    assert rep.document_id is not None
+    doc_id = rep.document_id
+    renditions_store.store_additional(conn, doc_id, 0, template="concise", detail="= Old Concise\n\nOld.", lineage={"provider": "mock"}, now=1800000100.0)
+    renditions_store.store_additional(conn, doc_id, 0, template="academic", detail="= Old Academic\n\nOld.", lineage={"provider": "mock"}, now=1800000100.0)
+    obj, _, _ = federation_store.publish_document(conn, account_id=acct.id, kb_id=0, document_id=doc_id, published_by_account_id=acct.id, salt=salt, now=1800000110.0)
+    pub_rends = {r.template: r.public_id for r in federation_store.rendition_objects_of(conn, obj.public_id)}
+    federation_store.record_body_reader(conn, pub_rends["concise"], "https://remote.example/ap/actors/server", now=1800000115.0)
+    conn.commit()
+    conn.close()
+
+    svc = IngestService(settings, kb_id=0)
+    res_regen = svc.regenerate_components(doc_id=doc_id, detail=True, include_renditions=True, force=True)
+    assert res_regen["targets"][0]["updated"] is True
+    assert [(r["template"], r["state"]) for r in res_regen["targets"][0]["renditions"]] == [("concise", "made"), ("academic", "made")]
+
+    conn = dbm.connect_existing(db_file, readonly=True)
+    try:
+        concise = renditions_store.get_rendition(conn, doc_id, 0, "concise")
+        academic = renditions_store.get_rendition(conn, doc_id, 0, "academic")
+        assert concise is not None and "[mock-detail-adoc] [template: concise]" in (concise.detail or "")
+        assert academic is not None and "[mock-detail-adoc] [template: academic]" in (academic.detail or "")
+    finally:
+        conn.close()
+
+    # Refetch overwrites raw_text -> clears stale additional renditions and tombstones published rendition objects.
+    doc_v2 = Document(url=url, canonical_url=url, title="Regen Renditions v2", raw_text="Completely updated raw text " * 20, source_type="web", content_hash=content_hash("Completely updated raw text " * 20))
+    with patch("claire.ingest.service.default_fetch", return_value=doc_v2):
+        res_refetch = svc.regenerate_components(doc_id=doc_id, detail=True, include_renditions=True, refetch=True, force=True)
+    assert res_refetch["targets"][0]["refetched"] is True
+    assert "renditions" not in res_refetch["targets"][0]
+
+    conn = dbm.connect_existing(db_file, readonly=True)
+    try:
+        assert [r.template for r in renditions_store.list_renditions(conn, doc_id, 0)] == ["standard"]
+        assert federation_store.get_tombstone(conn, pub_rends["concise"]) is not None
+        assert federation_store.get_tombstone(conn, pub_rends["academic"]) is not None
+        gone_at = conn.execute("SELECT gone_at FROM federation_body_readers WHERE object_public_id=?", (pub_rends["concise"],)).fetchone()[0]
+        assert gone_at is not None
+    finally:
+        conn.close()
 
 

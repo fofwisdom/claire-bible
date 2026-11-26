@@ -1123,3 +1123,54 @@ def test_additional_renditions_go_with_the_staged_task_and_its_submit(tmp_path: 
         assert ce.requested_client_renditions(json.loads(need(dbm.get_document_row(post_conn, doc_id, kb_id=world.alice_kb.id))["meta"])) == []
     finally:
         post_conn.close()
+
+
+def test_client_extraction_submit_after_refetch_clears_unsubmitted_stale_renditions(tmp_path: Path) -> None:
+    """After refetch=True overwrites raw_text, extract_submit keeps freshly submitted renditions and deletes stale ones."""
+    from claire.store import accounts as accounts_store, federation as federation_store
+
+    world = _setup_world(tmp_path)
+    url = "https://example.org/client-refetch-renditions"
+    doc_v1 = Document(url=url, canonical_url=url, title="Client V1", raw_text="First version text. " * 20, source_type="web", content_hash=ce.compute_content_hash("First version text. " * 20))
+    doc_v2 = Document(url=url, canonical_url=url, title="Client V2", raw_text="Second version text with new facts. " * 20, source_type="web", content_hash=ce.compute_content_hash("Second version text with new facts. " * 20))
+
+    conn = dbm.connect_existing(world.settings.db_file)
+    try:
+        staged = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text=url, settings=world.settings, fetch_fn=lambda _u, **_kw: doc_v1)
+        doc_id = staged["document_id"]
+        ce.request_client_renditions(conn, kb_id=world.alice_kb.id, document_id=doc_id, templates=["concise", "academic"])
+        conn.commit()
+        c1 = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+    finally:
+        conn.close()
+
+    bodies_v1 = {"concise": "= 간결 V1\n\n== 핵심\n\n* 첫 번째 버전.\n", "academic": "= 학술 V1\n\n== 개요\n\n첫 번째 버전 분석.\n"}
+    done1 = ce.submit_client_extraction(world.settings.db_file, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, claim_token=c1["claim_token"], expected_content_hash=c1["content_hash"], payload={**_valid_payload(), "renditions": bodies_v1}, kb_settings=world.settings, root_settings=world.settings)
+    assert done1["committed"] is True
+
+    conn = dbm.connect_existing(world.settings.db_file)
+    try:
+        salt = accounts_store.AccountStore(conn).id_salt()
+        obj, _, _ = federation_store.publish_document(conn, account_id=world.alice.id, kb_id=world.alice_kb.id, document_id=doc_id, published_by_account_id=world.alice.id, salt=salt, now=1800000300.0)
+        pub_before = {r.template: r.public_id for r in federation_store.rendition_objects_of(conn, obj.public_id)}
+        ce.restage_existing_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, refetch=True, settings=world.settings, fetch_fn=lambda _u, **_kw: doc_v2)
+        ce.request_client_renditions(conn, kb_id=world.alice_kb.id, document_id=doc_id, templates=["concise"])
+        conn.commit()
+        c2 = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+    finally:
+        conn.close()
+
+    bodies_v2 = {"concise": "= 간결 V2\n\n== 핵심\n\n* 두 번째 버전.\n"}
+    done2 = ce.submit_client_extraction(world.settings.db_file, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, claim_token=c2["claim_token"], expected_content_hash=c2["content_hash"], payload={**_valid_payload(), "renditions": bodies_v2}, kb_settings=world.settings, root_settings=world.settings)
+    assert done2["committed"] is True
+
+    post_conn = dbm.connect_existing(world.settings.db_file, readonly=True)
+    try:
+        listed = renditions_store.list_renditions(post_conn, doc_id, world.alice_kb.id)
+        assert [r.template for r in listed] == ["standard", "concise"]
+        assert "두 번째 버전" in need(listed[1].detail)
+        pub_after = {r.template: r.public_id for r in federation_store.rendition_objects_of(post_conn, obj.public_id)}
+        assert pub_after == {"concise": pub_before["concise"]}
+        assert federation_store.get_tombstone(post_conn, pub_before["academic"]) is not None
+    finally:
+        post_conn.close()

@@ -106,6 +106,21 @@ def copy_document(conn: sqlite3.Connection, *, source_document_id: str, source_k
         "INSERT INTO extractions (kb_id, document_id, provider, model, prompt_version, raw_response, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (int(target_kb_id), target_id, extraction["provider"], extraction["model"], extraction["prompt_version"], extraction["raw_response"], time.time()),
     )
+    if str(values.get("detail") or "").strip():
+        from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
+        from ..store import document_renditions as renditions_store
+
+        primary = renditions_store.get_rendition(conn, source_document_id, int(source_kb_id), PRIMARY_RENDITION_TEMPLATE)
+        if primary is not None:
+            now_ts = time.time()
+            conn.execute(
+                "INSERT INTO document_renditions (document_id, kb_id, template, template_version, detail, detail_html, model_lineage, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?) "
+                "ON CONFLICT(document_id, template) DO UPDATE SET template_version=excluded.template_version, model_lineage=excluded.model_lineage, updated_at=excluded.updated_at",
+                (target_id, int(target_kb_id), PRIMARY_RENDITION_TEMPLATE, primary.template_version, json.dumps(primary.model_lineage, ensure_ascii=False, sort_keys=True), now_ts, now_ts),
+            )
+        else:
+            renditions_store.record_primary(conn, target_id, int(target_kb_id), lineage={})
     return target_id
 
 
@@ -1265,6 +1280,10 @@ def copy_remote_document(conn: sqlite3.Connection, *, article: dict[str, Any], s
         "INSERT INTO extractions (kb_id, document_id, provider, model, prompt_version, raw_response, created_at) VALUES (?, ?, ?, NULL, NULL, ?, ?)",
         (int(target_kb_id), target_id, REMOTE_SOURCE_TYPE, json.dumps(result, ensure_ascii=False), ts),
     )
+    if str(sanitized_html or "").strip():
+        from ..store import document_renditions as renditions_store
+
+        renditions_store.record_primary(conn, target_id, int(target_kb_id), lineage={}, now=ts)
     return target_id
 
 

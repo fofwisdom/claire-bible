@@ -566,3 +566,85 @@ def test_e2e_refresh_of_the_root_document_revises_its_copies(world, monkeypatch:
     # A refresh without a change makes no revision.
     assert service.refresh_document(document, "https://example.org/admin-page")["status"] == "nochange"
     assert len(client.get(f"{world.base}/contributions", headers=world.ann).json()["contributions"][0]["revisions"]) == 1
+
+
+def test_copy_document_copies_only_primary_standard_rendition_metadata(world) -> None:
+    from claire.extract.rendition_templates import PRE_TEMPLATE_VERSION
+    from claire.store import document_renditions as renditions_store
+
+    document = _personal_document(world.settings, world.manager, 3, "Rendition isolation in shared KB. " * 3, extraction=EXTRACTION)
+    personal_kb_id = world.manager.personal_kb_for(3).id
+    conn = dbm.connect(world.settings.db_file)
+    try:
+        conn.execute(
+            "INSERT INTO document_renditions (document_id, kb_id, template, template_version, detail, detail_html, model_lineage, created_at, updated_at) "
+            "VALUES (?, ?, 'standard', ?, NULL, NULL, ?, 100.0, 100.0) "
+            "ON CONFLICT(document_id, template) DO UPDATE SET template_version=excluded.template_version, model_lineage=excluded.model_lineage",
+            (document, personal_kb_id, PRE_TEMPLATE_VERSION, json.dumps({"provider": "gemini", "model": "gemini-test"})),
+        )
+        renditions_store.store_additional(conn, document, personal_kb_id, template="concise", detail="= Concise\n\n* Short.", lineage={"provider": "gemini", "model": "gemini-test"})
+        renditions_store.store_additional(conn, document, personal_kb_id, template="academic", detail="= Academic\n\nLong.", lineage={"provider": "gemini", "model": "gemini-test"})
+        conn.commit()
+    finally:
+        conn.close()
+
+    made = _contribute(world, world.ben, document)
+    assert made.status_code == 201, made.text
+    copy_id = made.json()["contribution"]["document"]
+    conn = _db(world)
+    try:
+        copied = renditions_store.list_renditions(conn, copy_id, world.kb["id"])
+        assert [(r.template, r.template_version, r.model_lineage) for r in copied] == [
+            ("standard", PRE_TEMPLATE_VERSION, {"provider": "gemini", "model": "gemini-test"}),
+        ]
+    finally:
+        conn.close()
+
+
+def test_copy_remote_document_records_primary_standard_rendition(world) -> None:
+    from claire.extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE, rendition_template
+
+    article = {
+        "id": "https://remote.example/ap/documents/1",
+        "type": "Article",
+        "name": "Remote Note",
+        "published": "2026-10-01T00:00:00Z",
+        "url": "https://remote.example/p/1",
+        "claire:extraction": {
+            "summary": "Remote summary.",
+            "claire:keyClaims": [],
+            "claire:entities": [],
+            "claire:relations": [],
+        },
+    }
+    conn = dbm.connect(world.settings.db_file)
+    try:
+        copy_with_body = contributions.copy_remote_document(
+            conn,
+            article=article,
+            sanitized_html="<p>Remote body content.</p>",
+            canonical_url=article["url"],
+            credit="https://remote.example/ap/actors/alice",
+            root=article["id"],
+            target_kb_id=world.kb["id"],
+            hidden=True,
+            now=1800000000.0,
+        )
+        copy_empty = contributions.copy_remote_document(
+            conn,
+            article=article,
+            sanitized_html="   ",
+            canonical_url=None,
+            credit="https://remote.example/ap/actors/alice",
+            root=article["id"],
+            target_kb_id=world.kb["id"],
+            hidden=True,
+            now=1800000001.0,
+        )
+        conn.commit()
+        rows_with = conn.execute("SELECT template, template_version FROM document_renditions WHERE document_id=? AND kb_id=?", (copy_with_body, world.kb["id"])).fetchall()
+        rows_empty = conn.execute("SELECT template FROM document_renditions WHERE document_id=? AND kb_id=?", (copy_empty, world.kb["id"])).fetchall()
+        assert [(r[0], r[1]) for r in rows_with] == [(PRIMARY_RENDITION_TEMPLATE, rendition_template(PRIMARY_RENDITION_TEMPLATE).version)]
+        assert rows_empty == []
+    finally:
+        conn.close()

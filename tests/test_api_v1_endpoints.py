@@ -563,3 +563,102 @@ def test_e2e_v1_kb_and_document_lifecycle_round_trip(v1_world: _World) -> None:
         headers=_bearer(v1_world.alice_oauth_readonly),
     )
     assert r_doc_after.status_code == 404
+
+
+def test_api_v1_document_renditions_get_and_delete(v1_world: _World) -> None:
+    from claire.store import document_renditions as renditions_store, federation as federation_store
+
+    session_hdrs = {**_cookie(v1_world.alice_session), "Origin": "http://127.0.0.1:8765"}
+    doc_id = v1_world.doc_personal_id
+    conn = dbm.connect_existing(v1_world.settings.db_file)
+    try:
+        alice_kb_id = int(conn.execute("SELECT kb_id FROM documents WHERE id=?", (doc_id,)).fetchone()[0])
+        alice_acct_id = int(conn.execute("SELECT id FROM accounts WHERE username='alice'").fetchone()[0])
+        salt = accounts_store.AccountStore(conn).id_salt()
+        renditions_store.record_primary(conn, doc_id, alice_kb_id, lineage={"provider": "mock", "model": "mock-std"}, now=1800000100.0)
+        renditions_store.store_additional(conn, doc_id, alice_kb_id, template="concise", detail="= Concise\n\n== 핵심\n* One.", lineage={"provider": "mock", "model": "mock-c"}, now=1800000110.0)
+        renditions_store.store_additional(conn, doc_id, alice_kb_id, template="academic", detail="= Academic\n\n== 개요\nFull analysis.", lineage={"provider": "mock", "model": "mock-a"}, now=1800000120.0)
+        obj, _, _ = federation_store.publish_document(conn, account_id=alice_acct_id, kb_id=alice_kb_id, document_id=doc_id, published_by_account_id=alice_acct_id, salt=salt, now=1800000130.0)
+        pub_rends = {r.template: r.public_id for r in federation_store.rendition_objects_of(conn, obj.public_id)}
+        conn.commit()
+    finally:
+        conn.close()
+
+    r_list = v1_world.client.get(
+        f"/api/v1/kbs/personal/documents/{doc_id}/renditions",
+        headers=_bearer(v1_world.alice_oauth_readonly),
+    )
+    assert r_list.status_code == 200
+    body = r_list.json()
+    assert body["document_id"] == doc_id
+    assert body["kb_number"] == v1_world.alice_personal_number
+    assert [r["template"] for r in body["renditions"]] == ["standard", "concise", "academic"]
+    std_item = body["renditions"][0]
+    assert std_item["primary"] is True
+    assert "Detailed text." in std_item["detail"]
+    assert "<p>Alice First Doc</p>" in std_item["detail_html"]
+    assert std_item["model_lineage"] == {"provider": "mock", "model": "mock-std"}
+
+    assert v1_world.client.head(
+        f"/api/v1/kbs/personal/documents/{doc_id}/renditions",
+        headers=_bearer(v1_world.alice_oauth_readonly),
+    ).status_code == 200
+
+    assert v1_world.client.get(
+        "/api/v1/kbs/personal/documents/doc_missing/renditions",
+        headers=_bearer(v1_world.alice_oauth_readonly),
+    ).status_code == 404
+
+    # Readonly token cannot DELETE (403 scope_insufficient).
+    r_ro_del = v1_world.client.delete(
+        f"/api/v1/kbs/personal/documents/{doc_id}/renditions/concise",
+        headers=_bearer(v1_world.alice_oauth_readonly),
+    )
+    assert r_ro_del.status_code == 403
+
+    # Cannot delete primary standard rendition (400 primary_rendition_protected).
+    r_std_del = v1_world.client.delete(
+        f"/api/v1/kbs/personal/documents/{doc_id}/renditions/standard",
+        headers=session_hdrs,
+    )
+    assert r_std_del.status_code == 400
+    assert r_std_del.json()["error"]["code"] == "primary_rendition_protected"
+
+    # Unknown template returns 400 invalid_rendition_template.
+    r_bad_del = v1_world.client.delete(
+        f"/api/v1/kbs/personal/documents/{doc_id}/renditions/bogus",
+        headers=session_hdrs,
+    )
+    assert r_bad_del.status_code == 400
+    assert r_bad_del.json()["error"]["code"] == "invalid_rendition_template"
+
+    # Delete concise rendition succeeds and tombstones its published rendition object.
+    r_del = v1_world.client.delete(
+        f"/api/v1/kbs/personal/documents/{doc_id}/renditions/concise",
+        headers=session_hdrs,
+    )
+    assert r_del.status_code == 200
+    assert r_del.json() == {
+        "document_id": doc_id,
+        "kb_number": v1_world.alice_personal_number,
+        "template": "concise",
+        "deleted": True,
+    }
+
+    # Repeat delete or missing doc returns 404.
+    assert v1_world.client.delete(f"/api/v1/kbs/personal/documents/{doc_id}/renditions/concise", headers=session_hdrs).status_code == 404
+    assert v1_world.client.delete("/api/v1/kbs/personal/documents/doc_missing/renditions/academic", headers=session_hdrs).status_code == 404
+
+    v1_world.client.cookies.clear()
+    r_after = v1_world.client.get(
+        f"/api/v1/kbs/personal/documents/{doc_id}/renditions",
+        headers=_bearer(v1_world.alice_oauth_readonly),
+    )
+    assert [r["template"] for r in r_after.json()["renditions"]] == ["standard", "academic"]
+
+    conn = dbm.connect_existing(v1_world.settings.db_file, readonly=True)
+    try:
+        assert federation_store.get_tombstone(conn, pub_rends["concise"]) is not None
+        assert federation_store.get_tombstone(conn, pub_rends["academic"]) is None
+    finally:
+        conn.close()

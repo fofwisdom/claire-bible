@@ -2727,6 +2727,7 @@ def cmd_regenerate(args) -> int:
     apply = getattr(args, "apply", False)
     effort = getattr(args, "effort", None)
     fmt = getattr(args, "format", None)
+    include_renditions = bool(getattr(args, "renditions", False))
 
     def _run_service_regen(svc: IngestService, *, force_apply: bool, reporter: Any | None = None) -> dict[str, Any]:
         return svc.regenerate_components(
@@ -2748,6 +2749,7 @@ def cmd_regenerate(args) -> int:
             force=force_apply,
             effort=effort,
             format=fmt,
+            include_renditions=include_renditions,
             reporter=reporter,
         )
 
@@ -2858,6 +2860,8 @@ def cmd_regenerate(args) -> int:
             hint_parts.append(f"--since {args.since}")
         comp_hint = "--detail" if detail else ("--summary" if summary else ("--graph" if graph else "--all"))
         hint_parts.append(comp_hint)
+        if include_renditions:
+            hint_parts.append("--renditions")
         hint_parts.append("--apply")
         print("  " + " ".join(hint_parts))
         return 0
@@ -2914,6 +2918,9 @@ def cmd_regenerate(args) -> int:
             print(f"    Relations stored: {t.get('relations_added')}")
         if t.get("new_summary"):
             print(f"    New summary: {t['new_summary']}")
+        if t.get("renditions"):
+            parts = [f"{r['template']} ({r['state']})" for r in t["renditions"]]
+            print(f"    Renditions: {', '.join(parts)}")
     print("=" * 60)
     return 0
 
@@ -6028,6 +6035,7 @@ def build_parser() -> argparse.ArgumentParser:
                       help="component to regenerate: all, summary, detail, graph, format")
     preg.add_argument("--summary", action="store_true", help="regenerate summary only (default if no component specified)")
     preg.add_argument("--detail", action="store_true", help="regenerate readable detail text only")
+    preg.add_argument("--renditions", action="store_true", help="also regenerate existing additional renditions when regenerating detail")
     preg.add_argument("--graph", action="store_true", help="re-extract entities and relations, updating knowledge graph")
     preg.add_argument("--all", action="store_true", help="regenerate all components (summary, detail, graph nodes)")
     preg.add_argument("--corrupted", action="store_true",
