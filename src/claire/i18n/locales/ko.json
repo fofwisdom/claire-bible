@@ -4644,5 +4644,13 @@
   "rendition.template.concise.label": "간결",
   "rendition.template.concise.desc": "A4 한 장 안팎. 핵심, 내용, 결과와 수치, 한계 순서로 씁니다.",
   "rendition.template.academic.label": "학술",
-  "rendition.template.academic.desc": "원문의 표와 수식을 모두 보존합니다."
+  "rendition.template.academic.desc": "원문의 표와 수식을 모두 보존합니다.",
+  "reader.section.rendition": "정리본",
+  "reader.rendition.group_document": "이 문서",
+  "reader.rendition.primary": "대표 정리본",
+  "reader.rendition.add": "정리본 추가",
+  "reader.rendition.add_cost": "정리본 하나에 모델 호출이 한 번 듭니다. 저장된 원문으로 만듭니다.",
+  "reader.rendition.adding": "{label} 정리본을 만드는 중…",
+  "reader.rendition.add_failed": "정리본을 만들지 못했습니다: {error}",
+  "reader.rendition.version_pre_template": "템플릿 이전 본문"
 }

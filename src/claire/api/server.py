@@ -61,6 +61,8 @@ from ..collaboration import auto_contribution
 from ..notifications import events as notification_events
 from ..accounts import kb_access
 from ..store import permalinks
+from ..store import document_renditions as renditions_store
+from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES, PRIMARY_RENDITION_TEMPLATE, RENDITION_TEMPLATE_IDS
 from ..accounts import user_home as user_home_mod
 from ..store import accounts as accounts_store
 from ..store import auth_db
@@ -6149,6 +6151,20 @@ def create_app(
 
     async def permalink_route(request: Request) -> Response:
         """``GET /silvercord/{token}``: the one address of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md Section 6)."""
+        return await _document_permalink_page(request, rendition=None)
+
+    async def permalink_rendition_route(request: Request) -> Response:
+        """``GET /silvercord/{token}/renditions/{template}``: one other rendition of the document (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.8). The template ``standard`` is the 대표 정리본, whose address is the document: 308. A template outside the set, or one that the document does not have, gives 404."""
+        token = str(request.path_params.get("token", ""))
+        template = str(request.path_params.get("template", ""))
+        if not permalinks.plausible_token(token) or template not in RENDITION_TEMPLATE_IDS:
+            return PlainTextResponse("Not Found", status_code=404)
+        if template == PRIMARY_RENDITION_TEMPLATE:
+            return RedirectResponse(permalinks.permalink_path(token), status_code=308)
+        return await _document_permalink_page(request, rendition=template)
+
+    async def _document_permalink_page(request: Request, *, rendition: str | None) -> Response:
+        """The page of a permalink. ``rendition``: a template that is not the 대표 정리본 (the sub-path of Section 5.8), else ``None``."""
         token = str(request.path_params.get("token", ""))
         if not permalinks.plausible_token(token):
             return PlainTextResponse("Not Found", status_code=404)
@@ -6159,9 +6175,12 @@ def create_app(
         if found is None:
             return PlainTextResponse("Not Found", status_code=404)
         if found.alias is not None:
-            return RedirectResponse(permalinks.permalink_path(found.token), status_code=308)
+            # A sub-path takes the alias of the document token (Section 5.8 rule 2).
+            return RedirectResponse(permalinks.permalink_path(found.token) + (f"/renditions/{rendition}" if rendition else ""), status_code=308)
         if found.gone_at is not None or gone:
             return PlainTextResponse("Gone", status_code=410)
+        if found.kind == "note" and rendition is not None:
+            return PlainTextResponse("Not Found", status_code=404)
         if found.kind == "note":
             if _wants_activitypub_only(request):
                 # An ActivityPub client at the permalink goes to the object ID (design U11). 303: the permalink did not move.
@@ -6193,6 +6212,22 @@ def create_app(
                 conn.close()
 
         object_id, published_at, owner_username, owner_name = await asyncio.to_thread(_publication) if (is_member or readable_kb) else (None, None, "", "")
+
+        def _renditions() -> list[Any]:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                return renditions_store.list_renditions(conn, found.target, kb.id)
+            finally:
+                conn.close()
+
+        # The renditions are parts of the document: each reader of the page sees them (Section 5.8 rule 1).
+        renditions = await asyncio.to_thread(_renditions)
+        selected = next((r for r in renditions if r.template == rendition), None) if rendition is not None else None
+        if rendition is not None and selected is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        if rendition is not None and _wants_activitypub_only(request):
+            # A rendition gets its own object in phase E4; until then it has no ActivityPub form.
+            return PlainTextResponse("Not Acceptable", status_code=406, headers={"Vary": "Accept"})
         if object_id is not None and _wants_activitypub_only(request):
             # An ActivityPub client at the permalink goes to the object ID (design U11).
             return RedirectResponse(f"/ap/objects/{object_id}", status_code=303, headers={"Vary": "Accept"})
@@ -6211,7 +6246,17 @@ def create_app(
             "object_id": object_id,
             "entity_count": len(document.get("nodes") or []),
             "link_only": bool(not is_member and not readable_kb and found.link_access),
+            # The renditions of the document in the template order, for the section "정리본" (Section 5.10 rules 9 and 10). Only the owner gets the route of 정리본 추가 (Section 5.3 rule 2).
+            "renditions": [{"template": r.template, "version": r.template_version, "updated_at": r.updated_at, "primary": r.primary, "url": permalinks.permalink_path(found.token) + ("" if r.primary else f"/renditions/{r.template}")} for r in renditions],
+            "rendition": selected.template if selected is not None else (PRIMARY_RENDITION_TEMPLATE if any(r.primary for r in renditions) else None),
+            # The page route is public and has no validated credential: the session of the owner of a personal knowledge base shows the control, and the route of API v1 decides the request.
+            "add_rendition_url": (f"/api/v1/kbs/{ids.format_public_id(kb.number)}/documents/{found.target}/renditions" if (is_member and kb.is_personal and viewer_principal is not None and viewer_principal.scope == "owner" and viewer_principal.account_id == kb.account_id) else None),
+            "missing_renditions": [t for t in ADDITIONAL_RENDITION_TEMPLATES if t not in {r.template for r in renditions}] if renditions else [],
+            "rendition_account": owner_name or (f"@{owner_username}" if owner_username else ""),
         }
+        if selected is not None:
+            doc_for_page["detail"] = selected.detail or ""
+            doc_for_page["detail_html"] = selected.detail_html or ""
         page = get_web_ui_renderer().shared_html(doc_for_page, s, base_url=base_url, share_token=found.token, can_access_raw=False)
         headers = {"Referrer-Policy": "strict-origin-when-cross-origin", "Vary": "Accept, Cookie"}
         if viewer_principal is not None or is_member or not readable_kb:
@@ -6221,7 +6266,8 @@ def create_app(
         # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7). The author is the account of a personal knowledge base; the date is the publication, else the ingest. The text of a document is Korean (EXTRACTION.md Section 2.2).
         cited_at = published_at if published_at is not None else document.get("fetched_at")
         citation = render_citation_tags(
-            permalink_url=f"{base_url}{permalinks.permalink_path(found.token)}",
+            # The address of a rendition page is the address of the rendition (Section 5.10 rule 11).
+            permalink_url=f"{base_url}{permalinks.permalink_path(found.token)}" + (f"/renditions/{rendition}" if rendition else ""),
             title=str(document.get("title") or ""),
             author_name=owner_name or (f"@{owner_username}" if owner_username else ""),
             publication_date=datetime.fromtimestamp(float(cited_at), tz=timezone.utc).strftime("%Y/%m/%d") if cited_at else "",
@@ -7238,6 +7284,7 @@ def create_app(
         Route("/silvercord/{token}", permalink_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/workspace", permalink_workspace_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/graph", permalink_graph_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/renditions/{template}", permalink_rendition_route, methods=["GET", "HEAD"]),
         Route("/entity/{token}", entity_address_route, methods=["GET", "HEAD"]),
         Route("/entities/{entity_id}/share", entity_share_route, methods=["POST", "DELETE"]),
         Route("/p", shared_doc_page, methods=["GET"]),

@@ -592,6 +592,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/silvercord/{token}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/graph"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}/graph"): _system("public", "none"),
+    ("GET", "/silvercord/{token}/renditions/{template}"): _system("public", "none"),
+    ("HEAD", "/silvercord/{token}/renditions/{template}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/workspace"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}/workspace"): _system("public", "none"),
     # The address of an entity. It opens the graph of its knowledge base with the entity selected.

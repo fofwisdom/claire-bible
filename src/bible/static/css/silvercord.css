@@ -160,3 +160,32 @@ dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hi
 .op-post-foot { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--muted); }
 .op-private-box { border: 1px solid var(--border); border-left: 4px solid var(--warn); background: var(--warn-bg); border-radius: 8px; padding: 12px 14px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; line-height: 1.55; }
 .op-private-box strong { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Renditions (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.10). A local rendition is a page: the change is a cross-document view transition where the browser has it, and a plain navigation elsewhere. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition { navigation: auto; }
+}
+.sc-rendition-sec label { cursor: pointer; }
+.sc-rendition-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 2px; }
+.sc-rendition-select { min-width: min(100%, 300px); min-height: 36px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); color: var(--fg); font-size: 13px; }
+/* The customizable select: the select and its picker opt in together. A browser without it shows the native list with the plain text of each option. */
+.sc-rendition-select, .sc-rendition-select::picker(select) { appearance: base-select; }
+.sc-rendition-select::picker(select) { border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); padding: 4px; }
+.sc-rendition-select option { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: 4px; }
+.sc-rendition-select option:hover { background: var(--hover); }
+/* The selected option is visible in the open list: a background and a bold title, not only a check mark. */
+.sc-rendition-select option:checked { background: var(--active); }
+.sc-rendition-select option:checked .ro-title { font-weight: 700; }
+.sc-rendition-select selectedcontent .ro-meta { display: none; }
+.sc-rendition-select .ro-badge { font-size: 11px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 999px; padding: 0 6px; }
+.sc-rendition-select .ro-meta, .sc-rendition-add .ro-meta { font-size: 11.5px; color: var(--muted); }
+.sc-rendition-add { border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); color: var(--fg); padding: 10px; max-width: min(92vw, 360px); }
+.sc-rendition-add-list { display: grid; gap: 6px; }
+.sc-rendition-add-list .sc-btn { justify-content: flex-start; white-space: normal; text-align: start; min-height: 44px; }
+.sc-rendition-cost { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.sc-rendition-info { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.sc-rendition-status:empty { display: none; }
+.sc-rendition-status { margin: 0 0 8px; font-size: 12.5px; }
+@media (max-width: 819px) {
+  .sc-rendition-select { flex: 1 1 100%; }
+}

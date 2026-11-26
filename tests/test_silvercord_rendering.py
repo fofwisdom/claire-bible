@@ -118,6 +118,12 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
         "object_id": 50123,
         "entity_count": 2,
         "link_only": False,
+        # The document has no rendition row (a body written without a body run), so the section "정리본" is not shown.
+        "renditions": [],
+        "rendition": None,
+        "add_rendition_url": None,
+        "missing_renditions": [],
+        "rendition_account": "Alice In Wonderland",
     }
     assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/50123"/>' in r_anon.text
     # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7, phase E2): the preferred address, the account as the author, the time of the publication, and the actor of the account for the byline of a link preview.
@@ -208,6 +214,11 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
             "object_id": None,
             "entity_count": 2,
             "link_only": True,
+            "renditions": [],
+            "rendition": None,
+            "add_rendition_url": None,
+            "missing_renditions": [],
+            "rendition_account": "",
         }
 
 
@@ -502,3 +513,53 @@ def test_silvercord_graph_link_only_scope_opaque_ids_and_blocked_docs(tmp_path: 
     finally:
         conn.close()
     assert anon("GET", f"/silvercord/{tok_doc1}/graph").status_code == 410
+
+
+def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> None:
+    """The renditions of a document on the Silvercord page (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.8 and 5.10, phase E3c): one sub-path for each rendition that is not the 대표 정리본, the same access rules as the document, and the route of 정리본 추가 only for the owner."""
+    from claire.store import document_renditions as renditions_store
+
+    s, env = _setup_network_env(tmp_path)
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        alice_session = accounts_store.create_account_session(conn, account_id=env["alice_id"], scope="owner")
+        dbm.set_document_detail(conn, "doc1", "= 기본\n\n기본 본문.", kb_id=10)
+        renditions_store.record_primary(conn, "doc1", 10, lineage={"provider": "mock", "model": "m"}, now=1800000000.0)
+        renditions_store.store_additional(conn, "doc1", 10, template="concise", detail="= 간결\n\n== 핵심\n\n* 간결 본문.", lineage={"provider": "mock", "model": "m"}, now=1800000100.0)
+        token = permalinks.ensure_document(conn, "doc1", 10)
+        conn.commit()
+    finally:
+        conn.close()
+    test_client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
+    origin = s.public_url.rstrip("/")
+    anon = _make_caller(test_client, origin)
+    alice = _make_caller(test_client, origin, alice_session)
+
+    page = anon("GET", f"/silvercord/{token}")
+    sc = _extract_docdata(page.text)["silvercord"]
+    assert [(r["template"], r["primary"], r["url"]) for r in sc["renditions"]] == [("standard", True, f"/silvercord/{token}"), ("concise", False, f"/silvercord/{token}/renditions/concise")]
+    assert (sc["rendition"], sc["add_rendition_url"], sc["missing_renditions"]) == ("standard", None, ["academic"])
+    owner_sc = _extract_docdata(alice("GET", f"/silvercord/{token}").text)["silvercord"]
+    assert owner_sc["add_rendition_url"].startswith("/api/v1/kbs/") and owner_sc["add_rendition_url"].endswith("/documents/doc1/renditions")
+
+    concise = anon("GET", f"/silvercord/{token}/renditions/concise")
+    assert concise.status_code == 200
+    data = _extract_docdata(concise.text)
+    assert data["silvercord"]["rendition"] == "concise" and "간결 본문" in data["detail_html"] and "기본 본문" not in data["detail_html"]
+    assert f'<link rel="cite-as" href="{origin}/silvercord/{token}/renditions/concise"/>' in concise.text
+    # The 대표 정리본 has the address of the document; a template outside the set or one that the document does not have is not a page.
+    standard = anon("GET", f"/silvercord/{token}/renditions/standard")
+    assert (standard.status_code, standard.headers["location"]) == (308, f"/silvercord/{token}")
+    assert anon("GET", f"/silvercord/{token}/renditions/academic").status_code == 404
+    assert anon("GET", f"/silvercord/{token}/renditions/default").status_code == 404
+    # A rendition has no ActivityPub object before phase E4.
+    test_client.cookies.clear()
+    assert test_client.get(f"/silvercord/{token}/renditions/concise", headers={"Accept": "application/activity+json"}).status_code == 406
+    # A sub-path takes the access rules of the document: a hidden document is not found for another caller.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("UPDATE documents SET hidden=1 WHERE id='doc1'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert anon("GET", f"/silvercord/{token}/renditions/concise").status_code == 404

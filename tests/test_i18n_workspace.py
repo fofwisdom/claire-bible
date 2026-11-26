@@ -40,7 +40,7 @@ def test_the_share_page_gets_only_the_keys_of_the_document_view() -> None:
         page = pages.shared_html(doc)
     assert '<html lang="en" class="shared-page">' in page and not SLOT.search(page)
     catalog = json.loads(re.search(r'<script id="claire-i18n-catalog" type="application/json">(.*?)</script>', page, re.S).group(1))
-    assert catalog and all(key.startswith(("reader.", "share.")) for key in catalog)
+    assert catalog and all(key.startswith(("reader.", "share.", "rendition.")) for key in catalog)
     assert catalog["share.brand"] == "Claire Bible · Shared document"
     with use_locale("ko"):
         page = pages.shared_html(doc)

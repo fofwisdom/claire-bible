@@ -352,10 +352,36 @@ if(dc.summary){
 }else if(dc.detail_html){
   h+='<div class=sec>' + rtr("reader.section.summary") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_summary', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --summary --apply</code>' })+'</div>';
 }
+// The renditions of the document (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.10 rules 1, 9, 10): the rendition bar is the first element of the section "정리본".
+const scRend = (dc.silvercord && Array.isArray(dc.silvercord.renditions) && dc.silvercord.renditions.length) ? dc.silvercord : null;
+function renditionLabel(t){ return rtr('rendition.template.'+t+'.label'); }
+function renditionDate(ts){ const d = new Date(Number(ts||0)*1000); return isNaN(d.getTime()) ? '' : d.toISOString().slice(0,10); }
+function renditionVersion(v){ return v==='pre-template' ? rtr('reader.rendition.version_pre_template') : String(v||''); }
+function renditionSectionHead(sc){
+  const sel = sc.renditions.find(r=>r.template===sc.rendition) || sc.renditions[0];
+  let x = '<div class="sec sc-rendition-sec"><label for="sc-rendition-select">'+rtr('reader.section.rendition')+'</label></div><div class="sc-rendition-bar">';
+  // A customizable select: the text of each option makes sense alone (a browser without it shows the plain text), and no option has a control inside.
+  x += '<select id="sc-rendition-select" class="sc-rendition-select" name="rendition"><button type="button"><selectedcontent></selectedcontent></button><optgroup label="'+esc(rtr('reader.rendition.group_document'))+'">';
+  sc.renditions.forEach(r=>{
+    x += '<option value="'+esc(r.url)+'" data-template="'+esc(r.template)+'"'+(r===sel?' selected':'')+'><span class="ro-title">'+esc(renditionLabel(r.template))+'<span class="sr-only">.</span></span>'
+      + (r.primary ? ' <span class="ro-badge">'+esc(rtr('reader.rendition.primary'))+'<span class="sr-only">.</span></span>' : '')
+      + ' <span class="ro-meta">'+esc(renditionDate(r.updated_at))+'</span></option>';
+  });
+  x += '</optgroup></select>';
+  if(sc.add_rendition_url && (sc.missing_renditions||[]).length){
+    x += '<button type="button" class="sc-btn" id="sc-rendition-add-btn" popovertarget="sc-rendition-add"><span data-icon="plus"></span> '+esc(rtr('reader.rendition.add'))+'</button>';
+    x += '<div id="sc-rendition-add" class="sc-rendition-add" popover><p class="sc-rendition-cost">'+esc(rtr('reader.rendition.add_cost'))+'</p><div class="sc-rendition-add-list">';
+    sc.missing_renditions.forEach(t=>{ x += '<button type="button" class="sc-btn" data-add-rendition="'+esc(t)+'"><span class="ro-title">'+esc(renditionLabel(t))+'</span> <span class="ro-meta">'+esc(rtr('rendition.template.'+t+'.desc'))+'</span></button>'; });
+    x += '</div></div>';
+  }
+  const info = [renditionLabel(sel.template), renditionVersion(sel.version), sc.rendition_account||'', renditionDate(sel.updated_at)].filter(Boolean).join(' · ');
+  x += '</div><p class="sc-rendition-info" id="sc-rendition-info">'+esc(info)+'</p><p id="sc-rendition-status" class="sc-rendition-status" role="status" aria-live="polite"></p>';
+  return x;
+}
 if(dc.detail_html){
   const purifier=window.DOMPurify;
   const cleanHtml=(purifier && typeof purifier.sanitize==='function')?purifier.sanitize(dc.detail_html, DOMPURIFY_OPTS):dc.detail_html;
-  h+='<div class=sec>' + rtr("reader.section.detail") + '</div><div class="doc-content">'+cleanHtml+'</div>';
+  h+=(scRend ? renditionSectionHead(scRend) : '<div class=sec>' + rtr("reader.section.detail") + '</div>') + '<div class="doc-content">'+cleanHtml+'</div>';
 }else if(dc.summary){
   h+='<div class=sec>' + rtr("reader.section.detail") + '</div><div class="doc-content stt-trunc-banner" style="margin-top:.5em"><span data-icon="warning"></span> '+rtr('reader.banner.no_detail', { command: '<code>./cb-manuscript app regenerate '+esc(dc.id||'')+' --detail --apply</code>' })+'</div>';
 }
@@ -364,8 +390,48 @@ if(!dc.summary && !dc.detail_html){
 }
 h+='<div class=foot>' + rtr("share.foot") + '</div>';
 document.getElementById('wrap').innerHTML=h;
+if(scRend) bindRenditionBar(scRend);
 applyMathRendering(document.getElementById('wrap'));
 updateSharedRail();
+
+// silvercord.css opts in to cross-document view transitions for the change of a rendition. A page that does not opt in (the workspace) makes the browser abort the transition with an error, so the old page skips each transition whose destination is not a document or rendition page of Silvercord.
+if(typeof window !== 'undefined' && typeof window.addEventListener === 'function'){
+  window.addEventListener('pageswap', (e)=>{
+    const vt = e && e.viewTransition;
+    if(!vt) return;
+    vt.ready.catch(()=>{});
+    vt.finished.catch(()=>{});
+    let path = '';
+    try{ path = new URL(e.activation && e.activation.entry ? e.activation.entry.url : '').pathname; }catch(_){ path = ''; }
+    if(!/^\/silvercord\/[2-9a-z]+(\/renditions\/[a-z]+)?$/.test(path)) vt.skipTransition();
+  });
+}
+
+// A local rendition is a page (Section 5.10 rule 3): the picker navigates, and the browser can animate the change with the cross-document view transition of silvercord.css.
+function bindRenditionBar(sc){
+  const select = document.getElementById('sc-rendition-select');
+  if(select) select.addEventListener('change', ()=>{ if(select.value && select.value !== window.location.pathname) window.location.assign(select.value); });
+  const status = document.getElementById('sc-rendition-status');
+  const base = '/silvercord/' + encodeURIComponent(sc.token);
+  document.querySelectorAll('[data-add-rendition]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const template = btn.getAttribute('data-add-rendition');
+    document.querySelectorAll('[data-add-rendition]').forEach(b=>{ b.disabled = true; });
+    const popover = document.getElementById('sc-rendition-add');
+    if(popover && typeof popover.hidePopover === 'function'){ try{ popover.hidePopover(); }catch(_){} }
+    if(status) status.textContent = rtr('reader.rendition.adding', { label: renditionLabel(template) });
+    try{
+      const resp = await fetch(sc.add_rendition_url, { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ template: template }) });
+      const data = await resp.json().catch(()=>null);
+      const item = data && data.rendition;
+      if(resp.ok && item && (item.state==='made' || item.state==='existing')){ window.location.assign(base + '/renditions/' + encodeURIComponent(template)); return; }
+      const err = (item && item.error) || (data && data.error && (data.error.code || data.error)) || resp.status;
+      if(status) status.textContent = rtr('reader.rendition.add_failed', { error: String(err) });
+    }catch(_){
+      if(status) status.textContent = rtr('reader.rendition.add_failed', { error: 'network_error' });
+    }
+    document.querySelectorAll('[data-add-rendition]').forEach(b=>{ b.disabled = false; });
+  }));
+}
 
 // --- Heading navigation rail of the share page ---
 function _sClsAdd(el, c){ if(el && el.classList && el.classList.add) el.classList.add(c); else if(el && el.className!==undefined && !el.className.includes(c)) el.className = (el.className+' '+c).trim(); }

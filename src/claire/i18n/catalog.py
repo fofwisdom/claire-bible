@@ -50,7 +50,7 @@ CONSOLE_SCRIPT_KEY_PREFIX = "console.js."
 CONSOLE_ADMIN_SCRIPT_KEY_PREFIX = "console.js.admin."
 
 # The public share page (/p, share.html) has no workspace and no console: it gets only the keys of the document view.
-SHARE_KEY_PREFIXES = ("reader.", "share.")
+SHARE_KEY_PREFIXES = ("reader.", "share.", "rendition.")
 PRIVATE_PROFILE_KEY_PREFIXES = ("home.",)
 
 BrowserCatalogScope = Literal["page", "console", "console_admin", "share", "private_profile"]

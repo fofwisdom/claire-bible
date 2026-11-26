@@ -4644,5 +4644,13 @@
   "rendition.template.concise.label": "Concise",
   "rendition.template.concise.desc": "About one A4 page: key points, content, results and numbers, limits.",
   "rendition.template.academic.label": "Academic",
-  "rendition.template.academic.desc": "Keeps all tables and formulas of the source."
+  "rendition.template.academic.desc": "Keeps all tables and formulas of the source.",
+  "reader.section.rendition": "Rendition",
+  "reader.rendition.group_document": "This document",
+  "reader.rendition.primary": "Primary rendition",
+  "reader.rendition.add": "Add rendition",
+  "reader.rendition.add_cost": "Each rendition costs one model call. It is made from the stored source text.",
+  "reader.rendition.adding": "Making the {label} rendition…",
+  "reader.rendition.add_failed": "The rendition was not made: {error}",
+  "reader.rendition.version_pre_template": "body made before the templates"
 }
