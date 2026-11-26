@@ -25,7 +25,7 @@ def seal_env(tmp_path: Path, monkeypatch):
 
     def spy(self, doc, format="adoc", focus=None, **kwargs):
         seen.append(focus)
-        return original(self, doc, format=format, focus=focus)
+        return original(self, doc, format=format, focus=focus, **kwargs)
 
     monkeypatch.setattr(MockProvider, "render_detail", spy)
     settings = Settings(

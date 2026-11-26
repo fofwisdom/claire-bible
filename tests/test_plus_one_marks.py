@@ -9,6 +9,7 @@ import hashlib
 import json
 import time
 from pathlib import Path
+from typing import Any, cast
 
 from starlette.testclient import TestClient
 
@@ -88,7 +89,7 @@ def test_e2e_an_account_gives_a_plus_one_to_a_rendition_of_this_server_and_takes
     assert _mark(callers["bob"], tokens["doc2"], "standard", True).json() == {"error": "rendition_not_found"}
     assert _plus(callers["bob"], tokens["doc2"])["renditions"][0]["plus"] is None
     assert _mark(callers["bob"], token, "academic", True).status_code == 404
-    assert _mark(callers["bob"], token, "concise", "yes").status_code == 400
+    assert _mark(callers["bob"], token, "concise", cast(Any, "yes")).status_code == 400
     assert _mark(callers["bob"], token, "concise", False).json() == {"on": False, "score": 0}
 
     # An account gives at most 60 marks in one hour.

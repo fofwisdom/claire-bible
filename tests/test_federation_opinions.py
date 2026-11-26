@@ -12,6 +12,7 @@ from claire.store import client_db
 from claire.store import federation_opinions as opinions_store
 from claire.store import db as dbm
 from tests.test_federation_routes import GONE_OBJECT_ID, NOW, OBJECT_ID, _isolate, internal  # noqa: F401  (pytest fixtures)
+from tests.typing_helpers import need
 
 ORIGIN = "https://claire.example.com"
 OBJECT = f"{ORIGIN}/ap/objects/{OBJECT_ID}"
@@ -52,7 +53,7 @@ def test_opinion_endpoints_agree_with_the_fixtures_and_store_the_opinions(intern
     try:
         stored = opinions_store.opinions_of(client, OBJECT)
         assert [(o.opinion_iri, o.parent_iri, o.kind, o.source) for o in stored] == [(CAROL, OBJECT, "reply", "delivered"), (DAN_QUOTE, OBJECT, "quote", "fetched"), (ERIN, CAROL, "reply", "fetched")]
-        fetch = opinions_store.get_fetch(client, OBJECT)
+        fetch = need(opinions_store.get_fetch(client, OBJECT))
         assert (fetch.status, fetch.result_count) == ("finished", 3)
     finally:
         client.close()
@@ -92,18 +93,18 @@ def test_a_fetch_is_due_only_for_an_object_older_than_five_minutes_and_after_fif
     client = _client(internal)
     try:
         assert opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 60.0, now=NOW) is None
-        first = opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 600.0, now=NOW)
+        first = need(opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 600.0, now=NOW))
         # A fetch that waits is the answer of the next request; no second row.
-        assert opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 600.0, now=NOW + 5).id == first.id
+        assert need(opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 600.0, now=NOW + 5)).id == first.id
         opinions_store.finish(client, first.id, result_count=0, now=NOW + 10)
         assert opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 600.0, now=NOW + 60) is None
-        again = opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 600.0, now=NOW + opinions_store.FETCH_INTERVAL_SECONDS + 1)
+        again = need(opinions_store.request_fetch(client, OBJECT, own=True, object_published=NOW - 600.0, now=NOW + opinions_store.FETCH_INTERVAL_SECONDS + 1))
         assert again.status == "pending"
         # A fetch that the sidecar leased three times without an end fails.
         for step in range(opinions_store.MAX_ATTEMPTS):
             assert len(opinions_store.lease(client, now=NOW + 2000 + step * 400, limit=5)) == 1
         assert opinions_store.lease(client, now=NOW + 4000, limit=5) == []
-        assert opinions_store.get_fetch(client, OBJECT).status == "failed"
+        assert need(opinions_store.get_fetch(client, OBJECT)).status == "failed"
     finally:
         client.close()
 
@@ -182,7 +183,7 @@ def test_the_daily_refresh_asks_for_the_objects_with_activity_in_seven_days(inte
     client = _client(internal)
     try:
         assert [(f.object_iri, f.status, f.own) for f in (opinions_store.get_fetch(client, iri) for iri in (OBJECT, f"{ORIGIN}/ap/objects/{SECOND_OBJECT_ID}")) if f is not None] == [(OBJECT, "pending", True)]
-        opinions_store.finish(client, opinions_store.get_fetch(client, OBJECT).id, result_count=0, now=at + 60)
+        opinions_store.finish(client, need(opinions_store.get_fetch(client, OBJECT)).id, result_count=0, now=at + 60)
         client.commit()
     finally:
         client.close()

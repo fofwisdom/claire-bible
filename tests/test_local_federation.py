@@ -31,6 +31,7 @@ def _run_tasks(a: _Server) -> list[str]:
     """Run the sidecar for the tasks that wait, and return its traffic to its own origin."""
     sock = federation_socket_path(a.data_dir)
     env = {**_clean_env(), "NO_COLOR": "1", "CLAIRE_A_SOCKET": str(sock), "CLAIRE_A_KEY_FILE": str(service_key_path(a.data_dir))}
+    assert DENO is not None
     command = [DENO, "test", "--frozen", f"--allow-net=claire.internal:80,unix:{sock}", "--allow-env", f"--allow-read={SIDECAR_DIR},{a.data_dir}", f"--allow-write={sock}", "e2e/local_federation_e2e.ts"]
     run = subprocess.run(command, cwd=SIDECAR_DIR, env=env, capture_output=True, text=True, timeout=300)
     assert run.returncode == 0, run.stdout[-6000:] + run.stderr[-3000:]

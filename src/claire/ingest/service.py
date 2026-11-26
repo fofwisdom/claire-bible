@@ -1151,7 +1151,7 @@ class IngestService:
         try:
             row = dbm.get_document_row(conn, document_id, kb_id=self.kb_id)
             doc = dbm.get_document(conn, document_id, kb_id=self.kb_id) if row is not None else None
-            if doc is None:
+            if row is None or doc is None:
                 raise LookupError(document_id)
             if (row["extraction_status"] or "extracted") == "pending":
                 raise ValueError("the document waits for an agent client")

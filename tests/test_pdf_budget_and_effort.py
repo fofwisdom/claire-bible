@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -362,7 +363,8 @@ def test_fixed_effort_gemini_model_clamps_adaptive_and_explicit_effort(monkeypat
             detail_efforts.append(effort)
             return "= Detail\n\nBody text"
 
-    prov = _FixedGeminiDouble()
+    # A test double with the methods that the pipeline calls; it is not a full Provider.
+    prov: Any = _FixedGeminiDouble()
     doc_paper = Document(id="doc_fixed_1", title="arXiv Paper", raw_text="Abstract\n" + "A" * 500, source_type="pdf", content_hash="h_fixed_1")
     report = ingest("dummy", conn=conn, provider=prov, vstore=vstore, prefetched=doc_paper)
     assert report.error is None

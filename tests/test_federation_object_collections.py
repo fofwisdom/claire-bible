@@ -10,6 +10,7 @@ from claire.federation import object_collections
 from claire.store import client_db
 from claire.store import db as dbm
 from tests.test_federation_routes import E6_FIXTURES, OBJECT_ID, _isolate, fixture, internal  # noqa: F401  (pytest fixtures)
+from tests.typing_helpers import need
 
 ORIGIN = "https://claire.example.com"
 OBJECT = f"{ORIGIN}/ap/objects/{OBJECT_ID}"
@@ -79,9 +80,9 @@ def test_pages_of_replies_have_the_page_size_and_the_next_link():
     iri = f"{OBJECT}/replies"
     collection = object_collections.replies_collection(iri, own, others)
     assert (collection["totalItems"], collection["first"]["items"], collection["first"]["next"]) == (37, own[:5], f"{iri}?page=true")
-    first = object_collections.replies_page(iri, own, others, 0)
+    first = need(object_collections.replies_page(iri, own, others, 0))
     assert first["items"] == [*own[5:], *others[:18]] and first["next"] == f"{iri}?page=true&cursor=20"
-    last = object_collections.replies_page(iri, own, others, 20)
+    last = need(object_collections.replies_page(iri, own, others, 20))
     assert last["items"] == others[18:] and "next" not in last
     assert object_collections.replies_page(iri, own, others, 40) is None
     empty = object_collections.replies_collection(iri, [], [])

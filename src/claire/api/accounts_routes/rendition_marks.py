@@ -99,7 +99,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     if not rendition.startswith("remote:"):
                         return 400, {"error": "invalid_request"}
                     row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (document_id, kb_id)).fetchone()
-                    copy = None if row is None or not row[0] else next((r for r in remote_renditions.renditions_of(conn, str(row[0]), now=now) if r.key == rendition[7:]), None)
+                    remote_key = rendition[7:]
+                    copy = None if row is None or not row[0] else next((r for r in remote_renditions.renditions_of(conn, str(row[0]), now=now) if r.key == remote_key), None)
                     if copy is None:
                         return 404, {"error": "rendition_not_found"}
                     if on:

@@ -28,6 +28,7 @@ from claire.store import auth_db
 from claire.store import db as dbm
 from claire.store.knowledge_base import KnowledgeBaseManager
 from claire.store.vectors import ensure_embedding_space, make_vector_store
+from tests.typing_helpers import need
 
 
 ORIGIN = "http://127.0.0.1:8765"
@@ -471,7 +472,7 @@ def test_option_b_embedding_failure_rolls_back_atomically_and_dual_embeds_aed7(t
         assert meta["extraction_origin"] == "agent_client"
         # The body is the 대표 정리본 of the template standard; the model is the model of the payload (claire.db version 50).
         primary = renditions_store.get_rendition(post_conn, doc_id, world.alice_kb.id, "standard")
-        assert (primary.template_version, primary.model_lineage["provider"], primary.detail) == (rendition_template("standard").version, "agent_client", None)
+        assert (need(primary).template_version, need(primary).model_lineage["provider"], need(primary).detail) == (rendition_template("standard").version, "agent_client", None)
         assert meta["client_extraction"]["oauth_client_id"] == "oauth-cid-1"
         assert meta["client_extraction"]["expected_content_hash"] == chash
 
@@ -1117,8 +1118,8 @@ def test_additional_renditions_go_with_the_staged_task_and_its_submit(tmp_path: 
     try:
         listed = renditions_store.list_renditions(post_conn, doc_id, world.alice_kb.id)
         assert [(r.template, r.model_lineage["provider"]) for r in listed] == [("standard", "agent_client"), ("concise", "agent_client"), ("academic", "agent_client")]
-        assert "핵심" in listed[1].detail
+        assert "핵심" in need(listed[1].detail)
         # The requests are done: a later re-extraction asks for no rendition.
-        assert ce.requested_client_renditions(json.loads(dbm.get_document_row(post_conn, doc_id, kb_id=world.alice_kb.id)["meta"])) == []
+        assert ce.requested_client_renditions(json.loads(need(dbm.get_document_row(post_conn, doc_id, kb_id=world.alice_kb.id))["meta"])) == []
     finally:
         post_conn.close()

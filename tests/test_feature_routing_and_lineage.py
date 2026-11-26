@@ -310,7 +310,7 @@ def test_feature_routed_provider_fixed_effort_and_per_document_isolation(monkeyp
         CLAIRE_PROVIDER="gemini",
         CLAIRE_ENVIRONMENT="development",
         GEMINI_API_KEY="test-key",
-        GEMINI_MODEL="gemini-3.8-flash-medium",
+        gemini_model="gemini-3.8-flash-medium",
         feature_routing={
             "extract_graph": {"provider": "gemini", "model": "gemini-3.8-flash-medium"},
             "classify": {"provider": "gemini", "model": "gemini-3.8-flash-low"},
@@ -409,8 +409,9 @@ def test_direct_provider_lineage_completeness_and_gate1_embed_skip(monkeypatch: 
     vstore.put(existing.id, [0.80, 0.60, 0.0], "gemini-embedding-001")
     vstore.put(rel_cand.id, [0.58, 0.81, 0.0], "gemini-embedding-001")
 
-    prov = _DirectProvider()
-    settings = Settings(_env_file=None, CLAIRE_PROVIDER="gemini", GEMINI_API_KEY="k", GEMINI_MODEL="gemini-3.8-flash-medium", GEMINI_EMBED_MODEL="gemini-embedding-001", CLAIRE_ENVIRONMENT="development")
+    # A test double with the methods that the pipeline calls; it is not a full Provider.
+    prov: Any = _DirectProvider()
+    settings = Settings(_env_file=None, CLAIRE_PROVIDER="gemini", GEMINI_API_KEY="k", gemini_model="gemini-3.8-flash-medium", gemini_embed_model="gemini-embedding-001", CLAIRE_ENVIRONMENT="development")
 
     # Doc 1: Gate 1 exact match skips embed(); render_detail raises -> recorded with status="error".
     doc1 = Document(id="doc_gate1", title="arXiv Paper", raw_text="Abstract\n" + "X" * 300, source_type="pdf", content_hash="h_d1")

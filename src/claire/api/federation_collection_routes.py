@@ -148,7 +148,7 @@ def collection_internal_routes(*, origin: Callable[[], str], open_store: Callabl
             rendition = renditions_store.get_rendition(store.conn, obj.document_id, obj.kb_id, template)
             document = dbm.get_document_row(store.conn, obj.document_id, kb_id=obj.kb_id)
             source = rendition_body_text(document, rendition)
-            if not source:
+            if document is None or not source:
                 return _not_found()
             compiled = (document["detail_html"] if rendition is None or rendition.primary else rendition.detail_html) or ""
         finally:

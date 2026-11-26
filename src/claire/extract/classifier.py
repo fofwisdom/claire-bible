@@ -64,6 +64,11 @@ get_free_or_default_provider = get_lowest_effort_provider
 class PaperClassificationResult(tuple):
     """(is_paper, reason) 2개 튜플과 하위 호환되면서 .author 및 .title 속성을 제공."""
 
+    is_paper: bool
+    reason: str
+    author: str | None
+    title: str | None
+
     def __new__(
         cls,
         is_paper: bool,

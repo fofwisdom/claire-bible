@@ -16,6 +16,7 @@ from claire.store import client_db
 from claire.store import db as dbm
 from claire.store import permalinks
 from tests.test_public_directory import _setup_network_env
+from tests.typing_helpers import need
 
 
 def _extract_docdata(html_text: str) -> dict:
@@ -678,7 +679,7 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     assert (first["object"], first["counts"], first["actions"], first["moderation"], first["refresh"]["status"]) == (iri, {"replies": 0, "quotes": 0, "likes": None, "shares": None}, None, None, "running")
     client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
     try:
-        assert opinions_store.get_fetch(client, iri).own is False
+        assert need(opinions_store.get_fetch(client, iri)).own is False
         reply = {"object_iri": "https://c.example/notes/1", "url": None, "type": "Note", "author": {"iri": "https://c.example/users/dora", "name": "Dora", "handle": "@dora@c.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>On the concise one</p>", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": iri, "quote": None}
         assert opinions_store.store_objects(client, iri, [reply], quoting=set(), delivered=set(), now=1800000001.0) == 1
         client.commit()

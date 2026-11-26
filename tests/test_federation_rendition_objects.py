@@ -12,6 +12,7 @@ from claire.store import db as dbm
 from claire.store import document_renditions as renditions_store
 from claire.store import federation as federation_store
 from tests.test_federation_routes import ALICE_THEME_ID, OBJECT_ID, _isolate, fixture, internal  # noqa: F401  (pytest fixtures)
+from tests.typing_helpers import need
 
 RENDITION_ID = 816412345678901260
 FIXTURES = ["object_rendition", "object_collection_renditions", "object_body", "object_body_unsigned", "source_index", "source_index_unsigned"]
@@ -96,7 +97,7 @@ def test_rendition_objects_follow_the_renditions_of_a_published_document(interna
     try:
         renditions_store.store_additional(conn, "doc-published", ALICE_THEME_ID, template="concise", detail="= 간결\n\n본문.", lineage={}, now=1800000600.0)
         concise = federation_store.rendition_objects_of(conn, OBJECT_ID)[0]
-        federation_store.retract_object(conn, federation_store.get_object(conn, OBJECT_ID), now=1800000700.0)
+        federation_store.retract_object(conn, need(federation_store.get_object(conn, OBJECT_ID)), now=1800000700.0)
         conn.commit()
     finally:
         conn.close()

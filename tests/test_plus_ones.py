@@ -6,6 +6,7 @@ The interface with the other server (the handlers of the activities ``plus_one``
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -15,12 +16,13 @@ from claire.store import federation as federation_store
 from claire.store import plus_ones
 from tests.test_federation_rendition_objects import RENDITION_ID, _seed
 from tests.test_federation_routes import OBJECT_ID, _isolate, internal  # noqa: F401  (pytest fixtures)
+from tests.typing_helpers import need
 
 ORIGIN = "https://claire.example.com"
 RENDITION = f"{ORIGIN}/ap/objects/{RENDITION_ID}"
 
 
-def _entry(actor: str) -> SimpleNamespace:
+def _entry(actor: str) -> Any:
     return SimpleNamespace(actor=actor, actor_domain=actor.split("/")[2])
 
 
@@ -62,7 +64,7 @@ def test_marks_of_other_servers_make_the_counts_of_the_object_and_of_the_collect
                 handlers.plus_one(ctx, _entry("https://b.example/ap/actors/3"), {"id": "https://b.example/x", "object": other})
             assert refusal.value.code == "not_a_rendition", other
         # The retraction of the document deletes the marks of its rendition objects.
-        federation_store.retract_object(conn, federation_store.get_object(conn, OBJECT_ID), now=1800000700.0)
+        federation_store.retract_object(conn, need(federation_store.get_object(conn, OBJECT_ID)), now=1800000700.0)
         assert plus_ones.counts(conn, RENDITION_ID)["total"] == 0
         conn.commit()
     finally:

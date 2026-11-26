@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -153,9 +154,9 @@ def test_the_delete_of_the_origin_removes_the_copy_and_only_its_account_can_send
     ctx = journal.HandlerContext(conn=conn, origin=A, now=T0 + 5)
     activity = {"object": {"id": CONCISE, "type": "Tombstone", "formerType": "Article", "claire:template": "concise"}}
     with pytest.raises(journal.HandlerRefusal):
-        handlers.delete_rendition(ctx, SimpleNamespace(actor=f"{B}/ap/actors/7002"), activity)
+        handlers.delete_rendition(ctx, cast(Any, SimpleNamespace(actor=f"{B}/ap/actors/7002")), activity)
     assert len(remote_renditions.renditions_of(conn, KEY, now=T0 + 5)) == 2
-    handlers.delete_rendition(ctx, SimpleNamespace(actor=BOB), activity)
+    handlers.delete_rendition(ctx, cast(Any, SimpleNamespace(actor=BOB)), activity)
     assert [r.iri for r in remote_renditions.renditions_of(conn, KEY, now=T0 + 5)] == [PRIMARY]
     # A Delete for a rendition that this server does not have changes nothing.
-    handlers.delete_rendition(ctx, SimpleNamespace(actor=BOB), activity)
+    handlers.delete_rendition(ctx, cast(Any, SimpleNamespace(actor=BOB)), activity)

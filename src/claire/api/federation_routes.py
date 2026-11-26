@@ -19,7 +19,7 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlsplit
 
 import html as _html
@@ -992,7 +992,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         if obj is None and public_id is not None:
             # An own note of an account (unit FP4-9): the same counters, in the same number space (RT7).
             return _note_reaction(store, public_id, event, kind, undo)
-        if obj is None:
+        if obj is None or public_id is None:
             return missing
         if not undo:
             # A new reaction needs an object that is public now: its account is an actor and its theme is public. An ``Undo`` removes the row in all states.
@@ -1589,7 +1589,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 likes=reactions["like"],
                 shares=reactions["announce"],
                 rendition_of=None if rendition_object is None else str(obj.public_id),
-                template=None if rendition is None else rendition.template,
+                template=None if rendition is None else cast(Literal["standard", "concise", "academic"], rendition.template),
                 template_version=None if rendition is None else rendition.template_version,
                 body_hash=None if not body else hashlib.sha256(body.encode("utf-8")).hexdigest(),
                 source_key=source_key,

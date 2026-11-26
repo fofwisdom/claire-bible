@@ -6343,7 +6343,7 @@ def create_app(
             "plus_one": {"url": "/api/renditions/plus-one" if viewer_is_actor else None, "sign_in": None if viewer_principal is not None else "/login?next=" + quote(permalinks.permalink_path(found.token) + (f"/renditions/{rendition}" if rendition else ""), safe="")},
             "rendition": selected.template if selected is not None else (PRIMARY_RENDITION_TEMPLATE if any(r.primary for r in renditions) else None),
             # The page route is public and has no validated credential: the session of the owner of a personal knowledge base shows the control, and the route of API v1 decides the request.
-            "add_rendition_url": (f"/api/v1/kbs/{ids.format_public_id(kb.number)}/documents/{found.target}/renditions" if (is_member and kb.is_personal and viewer_principal is not None and viewer_principal.scope == "owner" and viewer_principal.account_id == kb.account_id) else None),
+            "add_rendition_url": (f"/api/v1/kbs/{ids.format_public_id(kb.number)}/documents/{found.target}/renditions" if (is_member and kb.is_personal and kb.number is not None and viewer_principal is not None and viewer_principal.scope == "owner" and viewer_principal.account_id == kb.account_id) else None),
             "missing_renditions": [t for t in ADDITIONAL_RENDITION_TEMPLATES if t not in {r.template for r in renditions}] if renditions else [],
             "rendition_account": owner_name or (f"@{owner_username}" if owner_username else ""),
             # Template order, then the newest first for the same template (Section 5.10 rule 10).
@@ -6438,7 +6438,13 @@ def create_app(
                     return {"published": False, "object": None, "opinions": [], "counts": None, "refresh": None}
                 public_id, author_account_id = target
                 obj = federation_store.get_object(conn, public_id)
-                published = obj.published_at if obj is not None else (federation_store.get_rendition_object(conn, public_id).created_at)  # type: ignore[union-attr]
+                rendition_object = None if obj is not None else federation_store.get_rendition_object(conn, public_id)
+                if obj is not None:
+                    published = obj.published_at
+                elif rendition_object is not None:
+                    published = rendition_object.created_at
+                else:
+                    return {"published": False, "object": None, "opinions": [], "counts": None, "refresh": None}
                 object_iri = f"{origin}/ap/objects/{public_id}"
                 if opinions_store.request_fetch(client, object_iri, own=True, object_published=published, now=time.time()) is not None:
                     client.commit()

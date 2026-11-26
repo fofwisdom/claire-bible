@@ -14,6 +14,7 @@ from claire.store import db as dbm
 from claire.store import federation_notes as notes_store
 from claire.store import federation_quotes as quotes_store
 from tests.test_federation_routes import FP49Q_FIXTURES, _isolate, fixture, internal  # noqa: F401  (pytest fixtures)
+from tests.typing_helpers import need
 
 ORIGIN = "https://claire.example.com"
 BOB = "https://remote.example/users/bob"
@@ -196,7 +197,7 @@ def test_version_49_drops_the_document_quote_policy_and_approves_document_reques
             conn.close()
         client = client_db.connect_client_db(client_db.client_db_path(path))
         try:
-            states = {name: quotes_store.get_authorization(client, row_id).state for name, row_id in rows.items()}
+            states = {name: need(quotes_store.get_authorization(client, row_id)).state for name, row_id in rows.items()}
             assert states == {"waits": "approved", "refused": "approved", "revoked": "revoked", "approved": "approved", "note": "pending"}
             assert sorted((r[0], r[1]) for r in client.execute("SELECT kind, ref_id FROM federation_client_outbox")) == sorted([("quote_authorize", rows["waits"]), ("quote_authorize", rows["refused"])])
         finally:

@@ -984,7 +984,8 @@ class FeatureRoutedProvider:
     def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str, effort: str | None = None) -> str:
         def _invoke(p: Provider) -> str:
             if effort is not None and _accepts_kwarg(p.render_detail, "effort"):
-                return p.render_detail(doc, format=format, focus=focus, template=template, effort=effort)
+                render: Any = p.render_detail
+                return render(doc, format=format, focus=focus, template=template, effort=effort)
             return p.render_detail(doc, format=format, focus=focus, template=template)
 
         return self._call_stage("render_detail", _invoke, effort_override=effort)

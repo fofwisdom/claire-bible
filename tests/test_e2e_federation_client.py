@@ -20,6 +20,7 @@ from claire.store import client_db
 from tests.test_e2e_federation_following import _client_rows, _Sidecar
 from tests.test_e2e_federation_timeline import CAROL, STRANGER, _event, _object
 from tests.test_federation_console import PUBLIC_URL, _Client, _db, _isolate, _prepare, _session  # noqa: F401  (_isolate is an autouse fixture)
+from tests.typing_helpers import need
 
 TIMELINE = "/api/federation/timeline"
 USERCONTENT = "127.0.0.1:8767"
@@ -128,7 +129,7 @@ def test_e2e_the_posts_of_one_actor_include_the_posts_of_the_fill(env):
     try:
         fill = fills_store.request_fill(client, env.alpha, CAROL, now=1800000000.0)
         old = {**_object(f"{CAROL}/notes/0", CAROL, content_html="<p>before the follow</p>"), "published_at": 1700000000.0}
-        assert fills_store.store_objects(client, fill, [old], followed={CAROL}, retention_days=0, now=1800000000.0) == 1
+        assert fills_store.store_objects(client, need(fill), [old], followed={CAROL}, retention_days=0, now=1800000000.0) == 1
         client.commit()
     finally:
         client.close()

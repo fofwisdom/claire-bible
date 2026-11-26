@@ -39,6 +39,7 @@ from claire.store import federation_fills as fills_store
 from claire.store import federation_opinions as opinions_store
 from claire.store import permalinks
 from tests.test_fedify_sidecar import _clean_env, _free_port, _stop
+from tests.typing_helpers import need
 
 DENO = shutil.which("deno")
 pytestmark = pytest.mark.skipif(DENO is None, reason="deno is not installed")
@@ -99,7 +100,7 @@ class _Server:
 
 def _account(conn, username: str, public_id: int) -> int:
     conn.execute("INSERT INTO accounts (public_id, username, role, status, display_name, profile_public, created_at, activated_at, updated_at) VALUES (?, ?, 'member', 'active', ?, 1, 0, 1, 0)", (public_id, username, username.title()))
-    return accounts_store.AccountStore(conn).find_by_username(username).id
+    return need(accounts_store.AccountStore(conn).find_by_username(username)).id
 
 
 def _prepare(a: _Server, b: _Server) -> dict[str, int]:
@@ -142,6 +143,7 @@ def _prepare(a: _Server, b: _Server) -> dict[str, int]:
 def _phase(a: _Server, b: _Server, phase: str, **extra: str) -> None:
     sockets = [federation_socket_path(a.data_dir), federation_socket_path(b.data_dir)]
     env = {**_clean_env(), "NO_COLOR": "1", "E2E_PHASE": phase, "CLAIRE_A_SOCKET": str(sockets[0]), "CLAIRE_A_KEY_FILE": str(service_key_path(a.data_dir)), "CLAIRE_B_SOCKET": str(sockets[1]), "CLAIRE_B_KEY_FILE": str(service_key_path(b.data_dir)), **extra}
+    assert DENO is not None
     command = [DENO, "test", "--frozen", "--allow-net=claire.internal:80," + ",".join(f"unix:{s}" for s in sockets), "--allow-env", f"--allow-read={SIDECAR_DIR},{a.data_dir},{b.data_dir}", "--allow-write=" + ",".join(str(s) for s in sockets), "e2e/renditions_exchange_e2e.ts"]
     run = subprocess.run(command, cwd=SIDECAR_DIR, env=env, capture_output=True, text=True, timeout=300)
     assert run.returncode == 0, f"phase {phase}:\n" + run.stdout[-6000:] + run.stderr[-3000:]
@@ -254,7 +256,7 @@ def test_e2e_two_claire_servers_exchange_renditions_plus_ones_and_deletes(tmp_pa
         client = client_db.connect_client_existing(client_db.client_db_path(a.data_dir / "claire.db"))
         try:
             client.execute("INSERT INTO federation_following (account_id, request, actor_iri, state, created_at, updated_at) VALUES (?, '@carol@b.claire.test', ?, 'accepted', ?, ?)", (ids["alice"], carol_iri, time.time(), time.time()))
-            assert fills_store.request_fill(client, ids["alice"], carol_iri, now=time.time()).status == "pending"
+            assert need(fills_store.request_fill(client, ids["alice"], carol_iri, now=time.time())).status == "pending"
             client.commit()
         finally:
             client.close()
@@ -285,7 +287,7 @@ def test_e2e_two_claire_servers_exchange_renditions_plus_ones_and_deletes(tmp_pa
         # 4. alice of A retracts the document: B, the reader of the two bodies, gets one Delete for each object and removes its copies.
         conn = a.db()
         try:
-            federation_store.retract_object(conn, federation_store.get_object(conn, ids["document"]), now=time.time())
+            federation_store.retract_object(conn, need(federation_store.get_object(conn, ids["document"])), now=time.time())
             conn.commit()
         finally:
             conn.close()

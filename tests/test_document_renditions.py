@@ -15,6 +15,7 @@ from claire.ingest.pipeline import ensure_document_detail
 from claire.ontology.base import Document
 from claire.store import db as dbm
 from claire.store import document_renditions as renditions_store
+from tests.typing_helpers import need
 
 
 def _doc(conn, doc_id: str, *, detail: str | None, detail_format: str = "adoc") -> Document:
@@ -59,8 +60,8 @@ def test_the_primary_body_run_uses_the_template_standard_and_records_its_version
         doc = _doc(conn, "doc-1", detail=None)
         conn.execute("INSERT INTO document_renditions (document_id, kb_id, template, template_version, model_lineage, created_at, updated_at) VALUES ('doc-1', 0, 'standard', ?, '{}', 1, 1)", (PRE_TEMPLATE_VERSION,))
         assert ensure_document_detail(conn, MockProvider(), doc, force=True) is True
-        assert dbm.get_document_detail(conn, "doc-1").startswith("[mock-detail-adoc] [template: standard]")
-        primary = renditions_store.get_rendition(conn, "doc-1", 0, "standard")
+        assert need(dbm.get_document_detail(conn, "doc-1")).startswith("[mock-detail-adoc] [template: standard]")
+        primary = need(renditions_store.get_rendition(conn, "doc-1", 0, "standard"))
         assert (primary.template_version, primary.detail, primary.model_lineage["provider"], primary.created_at) == (rendition_template("standard").version, None, "mock", 1.0)
         assert primary.updated_at > 1.0
     finally:
@@ -77,7 +78,7 @@ def test_the_other_renditions_keep_their_bodies_in_the_template_order(tmp_path: 
         renditions_store.store_additional(conn, "doc-1", 0, template="concise", detail="= 간결\n\n== 핵심\n* 하나", lineage={"provider": "mock", "model": "m"})
         listed = renditions_store.list_renditions(conn, "doc-1", 0)
         assert [(r.template, r.template_version, r.primary) for r in listed] == [("standard", "standard-v1", True), ("concise", "concise-v1", False), ("academic", "academic-v1", False)]
-        assert "핵심" in listed[1].detail_html
+        assert "핵심" in need(listed[1].detail_html)
         with pytest.raises(ValueError):
             renditions_store.store_additional(conn, "doc-1", 0, template="standard", detail="x", lineage={})
         # The deletion of the document deletes its renditions.

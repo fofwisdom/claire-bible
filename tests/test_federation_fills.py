@@ -8,6 +8,7 @@ from __future__ import annotations
 from claire.store import client_db
 from claire.store import federation_fills as fills_store
 from tests.test_federation_routes import NOW, _isolate, internal  # noqa: F401  (pytest fixtures)
+from tests.typing_helpers import need
 
 DAN = "https://remote.example/users/dan"
 FRANK = "https://remote.example/users/frank"
@@ -24,7 +25,7 @@ def _items(client, account_id: int, author: str) -> list[tuple[str, int, int]]:
 def test_fill_endpoints_agree_with_the_fixtures_and_store_the_posts_out_of_the_home_stream(internal):  # noqa: F811
     client = _client(internal)
     try:
-        assert fills_store.request_fill(client, internal.alice, DAN, now=NOW - 10.0).status == "pending"
+        assert need(fills_store.request_fill(client, internal.alice, DAN, now=NOW - 10.0)).status == "pending"
         client.commit()
     finally:
         client.close()
@@ -34,7 +35,7 @@ def test_fill_endpoints_agree_with_the_fixtures_and_store_the_posts_out_of_the_h
     try:
         # A post of dan and his reply to his own post stay; his reply to zoe and the post of zoe do not. The items are not in the home stream.
         assert _items(client, internal.alice, DAN) == [(f"{DAN}/statuses/1", 0, 1), (f"{DAN}/statuses/2", 0, 1)]
-        fill = fills_store.get_fill(client, 1)
+        fill = need(fills_store.get_fill(client, 1))
         assert (fill.status, fill.stored) == ("finished", 2)
     finally:
         client.close()
@@ -57,14 +58,14 @@ def test_the_accept_of_a_follow_asks_for_one_fill(internal):  # noqa: F811
 def test_a_fill_of_another_account_in_the_last_hour_is_copied_and_old_posts_are_not_stored(internal):  # noqa: F811
     client = _client(internal)
     try:
-        fill = fills_store.request_fill(client, internal.alice, DAN, now=NOW)
+        fill = need(fills_store.request_fill(client, internal.alice, DAN, now=NOW))
         post = {"object_iri": f"{DAN}/statuses/7", "url": None, "type": "Note", "author": {"iri": DAN, "name": "Dan", "handle": "@dan@remote.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>x</p>", "language": "en", "published_at": NOW - 100.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": None, "quote": None}
         old = {**post, "object_iri": f"{DAN}/statuses/6", "published_at": NOW - 40 * 86400.0}
         assert fills_store.store_objects(client, fill, [post, old], followed={DAN}, retention_days=30, now=NOW) == 1
         fills_store.finish(client, fill.id, now=NOW + 5.0)
         # A second account of this server follows dan 10 minutes later: it gets a copy and the sidecar reads nothing.
         other = internal.alice + 1000
-        copied = fills_store.request_fill(client, other, DAN, now=NOW + 600.0)
+        copied = need(fills_store.request_fill(client, other, DAN, now=NOW + 600.0))
         assert (copied.status, copied.stored) == ("copied", 1)
         assert _items(client, other, DAN) == [(f"{DAN}/statuses/7", 0, 1)]
         assert fills_store.lease(client, now=NOW + 601.0, limit=5, account_ids={internal.alice, other}) == []
