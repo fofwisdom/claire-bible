@@ -157,7 +157,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | Prefetch of the other renditions; `content-visibility` of long bodies and opinion trees | 5.10 rules 5 and 6; measurement 6 | `96900bf2` | AD36, AD37. Measurement 6: headless Chromium 153 uses a prefetched answer also with `Cache-Control: private, no-store`. |
 | Notification for a reply of an account of this server | owner decision O22 | `f0fb8944` | The note route gives the owner of the target (another account of this server) an item with `mention` 1 and `ap_mention`, as a reply of another server does. Applies to each reply of the federation client, not only the 의견 tab. A like still makes no notification (no notification kind for likes, also for remote likes). AD38. |
 | "답글" on a reply of this server in the 의견 tab | 5.11 D4 | `48e183c8` | AD27 (extended). The reply goes to the address of the note with `in_reply_to_object`; its author gets the notification of O22. |
-| Same server as other servers (RD30): loopback, inbound rule, removal of the special paths, all controls on each opinion | owner decision RD30 | (this commit) | Section 10; AD39 to AD42; AD25 and AD38 replaced, AD27 changed. |
+| Same server as other servers (RD30): loopback, inbound rule, removal of the special paths, all controls on each opinion | owner decision RD30 | `4aff60c7` | Section 10; AD39 to AD42; AD25 and AD38 replaced, AD27 changed. |
 
 ## 8. Open Items
 
@@ -178,9 +178,9 @@ Owner decision RD30 (2026-11-26, `FEDERATION_REMOTE_READING_DESIGN.md` Section 6
 
 | Step | Content | State |
 | :--- | :--- | :--- |
-| L1 | Sidecar loopback (AD39); the own-origin refusals of the sidecar loaders and of the parent chain go. | done (this commit) |
-| L2 | Claire accepts an actor of this server in inbox, timeline, and quote events, and an own object only from its own author (AD40); this server is never a blocked domain for the note tasks. | done (this commit) |
-| L3 | The special paths go: the like route (AD25), the note-route notification (AD38); a reply to an object mentions its author (AD27); replies of this server become opinions (AD41); the tab gives the same controls to each opinion. | done (this commit) |
-| L4 | `tests/test_local_federation.py`: one Claire process and its real sidecar code; follow, note, reply, like, boost, reply and like from the 의견 tab, opinion fetch and hide of a local reply, quote. | done (this commit) |
+| L1 | Sidecar loopback (AD39); the own-origin refusals of the sidecar loaders and of the parent chain go. | done (`4aff60c7`) |
+| L2 | Claire accepts an actor of this server in inbox, timeline, and quote events, and an own object only from its own author (AD40); this server is never a blocked domain for the note tasks. | done (`4aff60c7`) |
+| L3 | The special paths go: the like route (AD25), the note-route notification (AD38); a reply to an object mentions its author (AD27); replies of this server become opinions (AD41); the tab gives the same controls to each opinion. | done (`4aff60c7`) |
+| L4 | `tests/test_local_federation.py`: one Claire process and its real sidecar code; follow, note, reply, like, boost, reply and like from the 의견 tab, opinion fetch and hide of a local reply, quote. | done (`4aff60c7`) |
 
 Not changed: the opinion fetch of an own object still starts from the known replies and quote posts (AD17); since RD30 the sidecar could start from the object (design rule B4), but the start set gives the same result and also the replies that the `replies` collection hides.
