@@ -127,3 +127,19 @@ def test_the_readers_of_a_body_get_one_delete_when_the_rendition_is_gone(interna
         assert conn.execute("SELECT COUNT(*) FROM federation_body_readers").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+def test_a_like_and_an_announce_of_a_rendition_object_are_counted_with_its_own_number(internal):  # noqa: F811
+    """Section 5.6 rule 2: a rendition object is not a post, but a reaction to it is stored as for each object, and its record shows the counts."""
+    _seed(internal)
+    like = {**fixture("inbox_event_like")["request"]["body"], "object_iri": f"https://claire.example.com/ap/objects/{RENDITION_ID}"}
+    for kind, event_id in (("Like", "https://remote.example/activities/301"), ("Announce", "https://remote.example/activities/302")):
+        answer = internal.call({"method": "POST", "path": "/internal/federation/v1/inbox-events", "body": {**like, "type": kind, "event_id": event_id}})
+        assert answer.json()["decision"] == "accepted", answer.json()
+    record = internal.get(f"/objects/{RENDITION_ID}").json()
+    assert (record["likes"], record["shares"]) == (1, 1)
+    assert (internal.get(f"/objects/{OBJECT_ID}").json()["likes"]) == 0
+    # The Undo removes the like of the rendition object.
+    undo = {**like, "type": "Undo", "object_type": "Like", "event_id": "https://remote.example/activities/303", "object_iri": f"https://claire.example.com/ap/objects/{RENDITION_ID}"}
+    assert internal.call({"method": "POST", "path": "/internal/federation/v1/inbox-events", "body": undo}).json()["decision"] == "accepted"
+    assert internal.get(f"/objects/{RENDITION_ID}").json()["likes"] == 0

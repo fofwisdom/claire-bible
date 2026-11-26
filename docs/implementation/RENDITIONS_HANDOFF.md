@@ -130,13 +130,19 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - Main tests of this work: `tests/test_federation_opinions.py`, `tests/test_federation_fills.py`, `tests/test_silvercord_rendering.py`, `tests/test_renditions_exchange.py`, `tests/test_plus_ones.py`, `tests/test_plus_one_marks.py`, `tests/test_federation_rendition_objects.py`, `e2e/renditions.spec.js`, `e2e/silvercord_rendering.spec.js`, `e2e/federation_client.spec.js`, `sidecar/fedify/tests/context_test.ts`.
 - For a visual check, a temporary spec in `e2e/` with the mocks of a real spec and `page.screenshot` works through `scripts/e2e.sh`; delete the spec after.
 
-## 7. Open Items
+## 7. Work After the Phases
+
+| Item | Design | Commit | Note |
+| :--- | :--- | :--- | :--- |
+| `Undo` of each +1 at an account purge | 5.12 rule 14 | `db88222b` | AD33. Two-server phase `unplus`. |
+| `Like` and `Announce` of a rendition object | 5.6 rule 2 | (this commit) | Stored with the number of the rendition object; its document object gives the account and the access rules. Test through the internal API only: no Claire function sends a `Like` of a remote rendition object, so the two-server test has no such phase. |
+
+## 8. Open Items
 
 | Item | Design | State | Note |
 | :--- | :--- | :--- | :--- |
 | `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no property. |
 | +1 counts in the published list of `/syndication` | 5.12 rule 13 | not done | |
-| `Like` and `Announce` of a rendition object | 5.6 rule 2 | not stored | The inbox handler knows document objects and notes only. |
 | Opinion fetch from the view of a published object in `/syndication` | 5.11 B1 | not done | |
 | Opinions of a remote rendition | 5.11 C2 | no trigger | The store and the sidecar can do it (`own` false). |
 | Notification to the author for a like or a reply from an account of this server | — | not done | Remote likes and replies notify; local ones do not. |

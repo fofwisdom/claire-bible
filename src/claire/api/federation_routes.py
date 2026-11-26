@@ -950,10 +950,13 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
 
     def _reaction(store: accounts_store.AccountStore, origin: str, event: InboxEventRequest, kind: Literal["like", "announce"], undo: bool) -> InboxEventResponse:
-        """``Like`` or ``Announce`` of an object of an account, or the ``Undo`` of one (Section 6.6 rule 3, unit FP4-8). Claire stores the actor one time for each object and kind; the counter of the object is the number of rows. No item is made."""
+        """``Like`` or ``Announce`` of an object of an account, or the ``Undo`` of one (Section 6.6 rule 3, unit FP4-8). Claire stores the actor one time for each object and kind; the counter of the object is the number of rows. No item is made.
+
+        A rendition object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.6 rule 2) is not a post, but a reaction to it is stored as for each object, with its own number: its document object gives the account and the access rules."""
         missing = InboxEventResponse(decision="ignored", reply=None, reason="no_object")
         public_id = _local_object_public_id(origin, event.object_iri)
-        obj = None if public_id is None else federation_store.get_object(store.conn, public_id)
+        owning = None if public_id is None else federation_store.owning_object(store.conn, public_id)
+        obj = None if owning is None else owning[0]
         if obj is None and public_id is not None:
             # An own note of an account (unit FP4-9): the same counters, in the same number space (RT7).
             return _note_reaction(store, public_id, event, kind, undo)
@@ -971,9 +974,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
         try:
             if undo:
-                client_store.remove_object_reaction(client, object_public_id=obj.public_id, kind=kind, actor_iri=event.actor.iri)
+                client_store.remove_object_reaction(client, object_public_id=int(public_id), kind=kind, actor_iri=event.actor.iri)
             else:
-                client_store.add_object_reaction(client, object_public_id=obj.public_id, account_id=obj.account_id, kind=kind, actor_iri=event.actor.iri, activity_iri=event.event_id, now=now())
+                client_store.add_object_reaction(client, object_public_id=int(public_id), account_id=obj.account_id, kind=kind, actor_iri=event.actor.iri, activity_iri=event.event_id, now=now())
             client.commit()
         finally:
             client.close()
