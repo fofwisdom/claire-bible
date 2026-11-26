@@ -6205,17 +6205,24 @@ def create_app(
         if not is_member and not readable_kb and not found.link_access:
             return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
 
-        def _publication() -> tuple[int | None, float | None, str, str]:
-            # The published object of the document while its knowledge base is public (its public ID and the time of the publication), and the account of a personal knowledge base (USERNAME, display name) for the citation tags.
+        def _publication() -> tuple[int | None, float | None, str, str, int | None]:
+            # The published object of the document while its knowledge base is public (its public ID and the time of the publication), the account of a personal knowledge base (USERNAME, display name) for the citation tags, and the published object of the selected rendition.
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 row = conn.execute("SELECT public_id, published_at FROM federation_objects WHERE kb_id=? AND document_id=?", (kb.id, found.target)).fetchone() if kb.is_public else None
                 account = conn.execute("SELECT username, display_name FROM accounts WHERE id=? AND status='active'", (kb.account_id,)).fetchone() if (kb.is_personal and kb.account_id is not None) else None
-                return (None if row is None else int(row[0]), None if row is None else float(row[1]), str((account[0] if account else "") or ""), str((account[1] if account else "") or ""))
+                rendition_object_id: int | None = None
+                if rendition is not None:
+                    from .accounts_routes import rendition_marks
+
+                    target = rendition_marks.local_rendition_object(conn, kb_id=kb.id, document_id=found.target, template=rendition)
+                    if target is not None:
+                        rendition_object_id = target[0]
+                return (None if row is None else int(row[0]), None if row is None else float(row[1]), str((account[0] if account else "") or ""), str((account[1] if account else "") or ""), rendition_object_id)
             finally:
                 conn.close()
 
-        object_id, published_at, owner_username, owner_name = await asyncio.to_thread(_publication) if (is_member or readable_kb) else (None, None, "", "")
+        object_id, published_at, owner_username, owner_name, rendition_object_id = await asyncio.to_thread(_publication) if (is_member or readable_kb) else (None, None, "", "", None)
 
         def _renditions() -> list[Any]:
             conn = dbm.connect_existing(s.db_file, readonly=True)
@@ -6226,6 +6233,9 @@ def create_app(
 
         def _same_source() -> list[dict[str, Any]]:
             # The published renditions of other documents of this server with the same source key (Section 5.4 rule 1, the picker group "같은 출처 · 이 서버"). An unpublished rendition of another account is never in the set (RD10 rule 2).
+            from .accounts_routes import rendition_marks
+            from ..store import plus_ones
+
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
@@ -6245,7 +6255,8 @@ def create_app(
                         continue
                     base = permalinks.permalink_path(token)
                     for r in renditions_store.list_renditions(conn, str(document_id), int(document_kb)):
-                        items.append({"template": r.template, "version": r.template_version, "updated_at": r.updated_at, "primary": r.primary, "url": base + ("" if r.primary else f"/renditions/{r.template}"), "account": str(display_name or f"@{username}")})
+                        target = rendition_marks.local_rendition_object(conn, kb_id=int(document_kb), document_id=str(document_id), template=r.template)
+                        items.append({"template": r.template, "version": r.template_version, "updated_at": r.updated_at, "primary": r.primary, "url": base + ("" if r.primary else f"/renditions/{r.template}"), "account": str(display_name or f"@{username}"), "plus": None if target is None else {"score": plus_ones.counts(conn, target[0])["score"]}})
                 return items
             finally:
                 conn.close()
@@ -6314,17 +6325,28 @@ def create_app(
         selected = next((r for r in renditions if r.template == rendition), None) if rendition is not None else None
         if rendition is not None and selected is None:
             return PlainTextResponse("Not Found", status_code=404)
-        if rendition is not None and _wants_activitypub_only(request):
-            # A rendition gets its own object in phase E4; until then it has no ActivityPub form.
-            return PlainTextResponse("Not Acceptable", status_code=406, headers={"Vary": "Accept"})
-        if object_id is not None and _wants_activitypub_only(request):
-            # An ActivityPub client at the permalink goes to the object ID (design U11).
-            return RedirectResponse(f"/ap/objects/{object_id}", status_code=303, headers={"Vary": "Accept"})
+        if _wants_activitypub_only(request):
+            if rendition is not None:
+                if rendition_object_id is not None:
+                    # An ActivityPub client at the rendition permalink goes to its rendition object ID.
+                    return RedirectResponse(f"/ap/objects/{rendition_object_id}", status_code=303, headers={"Vary": "Accept"})
+                return PlainTextResponse("Not Acceptable", status_code=406, headers={"Vary": "Accept"})
+            if object_id is not None:
+                # An ActivityPub client at the permalink goes to the object ID (design U11).
+                return RedirectResponse(f"/ap/objects/{object_id}", status_code=303, headers={"Vary": "Accept"})
+
+        from ..ingest.source_key import source_identifier
 
         base_url = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
         doc_for_page = dict(document)
         if not readable_kb:
             doc_for_page.pop("nodes", None)
+        source_id = source_identifier(document.get("url")) or source_identifier(document.get("canonical_url"))
+        if source_id:
+            doc_for_page["source_identifier"] = source_id
+        active_rendition = selected if selected is not None else next((r for r in renditions if r.primary), None)
+        if active_rendition is not None:
+            doc_for_page["rendition_version"] = f"{active_rendition.template}/{active_rendition.template_version}" if active_rendition.template_version else active_rendition.template
         doc_for_page["silvercord"] = {
             "token": found.token,
             "kb_label": (kb.label if (is_member or readable_kb) else ""),
@@ -6357,8 +6379,9 @@ def create_app(
         headers = {"Referrer-Policy": "strict-origin-when-cross-origin", "Vary": "Accept, Cookie"}
         if viewer_principal is not None or is_member or not readable_kb:
             headers["Cache-Control"] = "private, no-store"
-        if object_id is not None:
-            page = page.replace("</head>", f'<link rel="alternate" type="application/activity+json" href="{html.escape(base_url, quote=True)}/ap/objects/{object_id}"/></head>', 1)
+        active_object_id = rendition_object_id if rendition is not None else object_id
+        if active_object_id is not None:
+            page = page.replace("</head>", f'<link rel="alternate" type="application/activity+json" href="{html.escape(base_url, quote=True)}/ap/objects/{active_object_id}"/></head>', 1)
         # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7). The author is the account of a personal knowledge base; the date is the publication, else the ingest. The text of a document is Korean (EXTRACTION.md Section 2.2).
         cited_at = published_at if published_at is not None else document.get("fetched_at")
         citation = render_citation_tags(
@@ -6561,6 +6584,7 @@ def create_app(
                 actor_ids = {int(r[0]) for r in conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")}
                 view = opinions_mod.opinions_view(conn, client, object_iri=copy.iri, object_public_id=None, origin=origin, actor_ids=actor_ids, now=time.time())
                 view["actions"] = None
+                view["origin_url"] = copy.url or copy.iri
                 return view
             finally:
                 client.close()

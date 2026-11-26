@@ -392,6 +392,7 @@ function renditionSectionHead(sc){
       x += '<option value="'+esc(r.url)+'" data-template="'+esc(r.template)+'" data-group="same-server"><span class="ro-title">'+esc(renditionLabel(r.template))+'<span class="sr-only">.</span></span>'
         + ' <span class="ro-account">'+esc(r.account||'')+'<span class="sr-only">.</span></span>'
         + (r.primary ? ' <span class="ro-badge">'+esc(rtr('reader.rendition.primary'))+'<span class="sr-only">.</span></span>' : '')
+        + plusOptionHtml(r.plus)
         + ' <span class="ro-meta">'+esc(renditionDate(r.updated_at))+'</span></option>';
     });
     x += '</optgroup>';

@@ -430,7 +430,7 @@
       }
       box.appendChild(make("p", "", rtr("share.sc.op_reply_hint")));
       var row = make("div", "op-address-row");
-      var address = window.location.origin + window.location.pathname;
+      var address = (state.data && state.data.origin_url) || (window.location.origin + window.location.pathname);
       row.appendChild(make("code", "op-address", address));
       if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
         var copy = make("button", "sc-btn", rtr("share.sc.op_copy_address"));

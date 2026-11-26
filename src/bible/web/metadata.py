@@ -191,8 +191,22 @@ def render_open_graph_tags(doc: dict, base_url: str = "", share_token: str = "",
         author = ""
     published_at = str((doc or {}).get("published_at") or "").strip()
 
+    sc = (doc or {}).get("silvercord")
+    rendition_slug = ""
+    if isinstance(sc, dict):
+        active_tpl = str(sc.get("rendition") or "").strip()
+        if active_tpl:
+            rend_list = sc.get("renditions")
+            if isinstance(rend_list, list):
+                matched = next((r for r in rend_list if isinstance(r, dict) and r.get("template") == active_tpl), None)
+                if matched is not None and not matched.get("primary"):
+                    rendition_slug = active_tpl
+            elif active_tpl != "standard":
+                rendition_slug = active_tpl
+
     if share_token:
-        page_url = f"{base}/silvercord/{share_token}" if base else f"/silvercord/{share_token}"
+        path = f"/silvercord/{share_token}/renditions/{rendition_slug}" if rendition_slug else f"/silvercord/{share_token}"
+        page_url = f"{base}{path}" if base else path
     else:
         page_url = f"{base}/p" if base else "/p"
 
@@ -272,6 +286,20 @@ def render_open_graph_tags(doc: dict, base_url: str = "", share_token: str = "",
     source_url = str((doc or {}).get("url") or "").strip()
     if source_url.lower().startswith(("http://", "https://")):
         json_ld["isBasedOn"] = {"@type": "CreativeWork", "url": source_url}
+    source_id = str((doc or {}).get("source_identifier") or (sc.get("source_identifier") if isinstance(sc, dict) else "") or "").strip()
+    if source_id.lower().startswith(("http://", "https://")):
+        json_ld["exampleOfWork"] = {"@type": "CreativeWork", "url": source_id}
+    rendition_version_label = str((doc or {}).get("rendition_version") or (sc.get("rendition_version") if isinstance(sc, dict) else "") or "").strip()
+    if not rendition_version_label and isinstance(sc, dict):
+        active_tpl = str(sc.get("rendition") or "").strip()
+        rend_list = sc.get("renditions")
+        if active_tpl and isinstance(rend_list, list):
+            matched = next((r for r in rend_list if isinstance(r, dict) and r.get("template") == active_tpl), None)
+            if matched is not None:
+                ver = str(matched.get("version") or "").strip()
+                rendition_version_label = f"{active_tpl}/{ver}" if ver else active_tpl
+    if rendition_version_label:
+        json_ld["version"] = rendition_version_label
     json_ld_str = _json.dumps(json_ld, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
     tags.append(f'<script type="application/ld+json">{json_ld_str}</script>')
 

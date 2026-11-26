@@ -25,6 +25,12 @@ def _extract_docdata(html_text: str) -> dict:
     return json.loads(match.group(1))
 
 
+def _extract_json_ld(html_text: str) -> dict:
+    match = re.search(r'<script type="application/ld\+json">(.*?)</script>', html_text, re.S)
+    assert match is not None, "missing JSON-LD script"
+    return json.loads(match.group(1))
+
+
 def _make_caller(test_client: TestClient, origin: str, session_token: str | None = None):
     def _call(method: str, path: str, **kwargs):
         headers = {"Origin": origin} if method not in ("GET", "HEAD") else {}
@@ -529,11 +535,13 @@ def test_silvercord_graph_link_only_scope_opaque_ids_and_blocked_docs(tmp_path: 
 def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> None:
     """The renditions of a document on the Silvercord page (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.8 and 5.10, phase E3c): one sub-path for each rendition that is not the 대표 정리본, the same access rules as the document, and the route of 정리본 추가 only for the owner."""
     from claire.store import document_renditions as renditions_store
+    from claire.store import federation as federation_store
 
     s, env = _setup_network_env(tmp_path)
     conn = dbm.connect_existing(env["db_file"])
     try:
         alice_session = accounts_store.create_account_session(conn, account_id=env["alice_id"], scope="owner")
+        conn.execute("UPDATE documents SET url='https://arxiv.org/abs/2101.00001v2?utm_source=feed' WHERE id='doc1'")
         dbm.set_document_detail(conn, "doc1", "= 기본\n\n기본 본문.", kb_id=10)
         renditions_store.record_primary(conn, "doc1", 10, lineage={"provider": "mock", "model": "m"}, now=1800000000.0)
         renditions_store.store_additional(conn, "doc1", 10, template="concise", detail="= 간결\n\n== 핵심\n\n* 간결 본문.", lineage={"provider": "mock", "model": "m"}, now=1800000100.0)
@@ -550,6 +558,14 @@ def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> 
     sc = _extract_docdata(page.text)["silvercord"]
     assert [(r["template"], r["primary"], r["url"]) for r in sc["renditions"]] == [("standard", True, f"/silvercord/{token}"), ("concise", False, f"/silvercord/{token}/renditions/concise")]
     assert (sc["rendition"], sc["add_rendition_url"], sc["missing_renditions"]) == ("standard", None, ["academic"])
+    assert '<link rel="alternate" type="application/activity+json"' not in page.text
+    assert f'<link rel="canonical" href="{origin}/silvercord/{token}"/>' in page.text
+    assert f'<meta property="og:url" content="{origin}/silvercord/{token}"/>' in page.text
+    page_ld = _extract_json_ld(page.text)
+    assert page_ld["mainEntityOfPage"]["@id"] == f"{origin}/silvercord/{token}"
+    assert page_ld["isBasedOn"] == {"@type": "CreativeWork", "url": "https://arxiv.org/abs/2101.00001v2?utm_source=feed"}
+    assert page_ld["exampleOfWork"] == {"@type": "CreativeWork", "url": "https://arxiv.org/abs/2101.00001"}
+    assert page_ld["version"] == "standard/standard-v1"
     owner_sc = _extract_docdata(alice("GET", f"/silvercord/{token}").text)["silvercord"]
     assert owner_sc["add_rendition_url"].startswith("/api/v1/kbs/") and owner_sc["add_rendition_url"].endswith("/documents/doc1/renditions")
 
@@ -560,14 +576,43 @@ def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> 
     # The 의견 tab of a rendition page asks for the opinions of the rendition object.
     assert data["silvercord"]["opinions_url"] == f"/silvercord/{token}/renditions/concise/opinions"
     assert f'<link rel="cite-as" href="{origin}/silvercord/{token}/renditions/concise"/>' in concise.text
+    assert f'<link rel="canonical" href="{origin}/silvercord/{token}/renditions/concise"/>' in concise.text
+    assert f'<meta property="og:url" content="{origin}/silvercord/{token}/renditions/concise"/>' in concise.text
+    assert '<link rel="alternate" type="application/activity+json"' not in concise.text
+    concise_ld = _extract_json_ld(concise.text)
+    assert concise_ld["mainEntityOfPage"]["@id"] == f"{origin}/silvercord/{token}/renditions/concise"
+    assert concise_ld["exampleOfWork"] == {"@type": "CreativeWork", "url": "https://arxiv.org/abs/2101.00001"}
+    assert concise_ld["version"] == "concise/concise-v1"
     # The 대표 정리본 has the address of the document; a template outside the set or one that the document does not have is not a page.
     standard = anon("GET", f"/silvercord/{token}/renditions/standard")
     assert (standard.status_code, standard.headers["location"]) == (308, f"/silvercord/{token}")
     assert anon("GET", f"/silvercord/{token}/renditions/academic").status_code == 404
     assert anon("GET", f"/silvercord/{token}/renditions/default").status_code == 404
-    # A rendition has no ActivityPub object before phase E4.
+    # An unpublished rendition returns 406 for ActivityPub requests.
     test_client.cookies.clear()
-    assert test_client.get(f"/silvercord/{token}/renditions/concise", headers={"Accept": "application/activity+json"}).status_code == 406
+    unpub_ap = test_client.get(f"/silvercord/{token}/renditions/concise", headers={"Accept": "application/activity+json"})
+    assert unpub_ap.status_code == 406 and unpub_ap.headers["vary"] == "Accept"
+
+    # A published rendition redirects ActivityPub requests with 303 to its own rendition object ID and emits <link rel="alternate">.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        salt = accounts_store.AccountStore(conn).id_salt()
+        doc_obj, _task, _made = federation_store.publish_document(conn, account_id=env["alice_id"], kb_id=10, document_id="doc1", published_by_account_id=env["alice_id"], salt=salt, now=1800000200.0)
+        rend_obj = next(r for r in federation_store.rendition_objects_of(conn, doc_obj.public_id) if r.template == "concise")
+        conn.commit()
+    finally:
+        conn.close()
+    test_client.cookies.clear()
+    pub_ap_doc = test_client.get(f"/silvercord/{token}", headers={"Accept": "application/activity+json"})
+    assert (pub_ap_doc.status_code, pub_ap_doc.headers["location"], pub_ap_doc.headers["vary"]) == (303, f"/ap/objects/{doc_obj.public_id}", "Accept")
+    pub_ap_concise = test_client.get(f"/silvercord/{token}/renditions/concise", headers={"Accept": "application/activity+json"})
+    assert (pub_ap_concise.status_code, pub_ap_concise.headers["location"], pub_ap_concise.headers["vary"]) == (303, f"/ap/objects/{rend_obj.public_id}", "Accept")
+    pub_page = anon("GET", f"/silvercord/{token}")
+    assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/{doc_obj.public_id}"/>' in pub_page.text
+    pub_concise = anon("GET", f"/silvercord/{token}/renditions/concise")
+    assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/{rend_obj.public_id}"/>' in pub_concise.text
+    assert f"/ap/objects/{doc_obj.public_id}" not in pub_concise.text
+
     # A sub-path takes the access rules of the document: a hidden document is not found for another caller.
     conn = dbm.connect_existing(env["db_file"])
     try:
@@ -591,6 +636,7 @@ def test_the_picker_has_the_published_renditions_of_other_documents_with_the_sam
     key = source_key("https://arxiv.org/abs/2101.00001")
     conn = dbm.connect_existing(env["db_file"])
     try:
+        alice_session = accounts_store.create_account_session(conn, account_id=env["alice_id"], scope="owner")
         now = _time.time()
         conn.execute("INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) VALUES (12, 12, ?, 'Bob Public', ?, 1, 1, ?, ?)", (_ids.timestamp_id("knowledge_bases", salt=b"x", unix_ms=int(now * 1000) + 99), env["bob_id"], now, now))
         for doc_id, kb_id in (("doc1", 10), ("bob-published", 12), ("bob-unpublished", 12)):
@@ -609,9 +655,12 @@ def test_the_picker_has_the_published_renditions_of_other_documents_with_the_sam
     finally:
         conn.close()
     test_client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
-    anon = _make_caller(test_client, s.public_url.rstrip("/"))
+    origin = s.public_url.rstrip("/")
+    anon = _make_caller(test_client, origin)
+    alice = _make_caller(test_client, origin, alice_session)
+    assert alice("POST", "/api/renditions/plus-one", json={"token": bob_token, "rendition": "academic", "on": True}).status_code == 200
     sc = _extract_docdata(anon("GET", f"/silvercord/{token}").text)["silvercord"]
-    assert [(r["template"], r["url"], r["primary"]) for r in sc["same_source_renditions"]] == [("standard", f"/silvercord/{bob_token}", True), ("academic", f"/silvercord/{bob_token}/renditions/academic", False)]
+    assert [(r["template"], r["url"], r["primary"], r["plus"]) for r in sc["same_source_renditions"]] == [("standard", f"/silvercord/{bob_token}", True, {"score": 0}), ("academic", f"/silvercord/{bob_token}/renditions/academic", False, {"score": 1})]
     assert all(r["account"] for r in sc["same_source_renditions"])
 
     # The page asks each known server for its renditions of the source, one time in the lifetime (phase E5b). The sidecar does the read later.
@@ -676,7 +725,7 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     from claire.store import federation_opinions as opinions_store
 
     first = anon("GET", sc["remote_renditions"][0]["opinions_url"]).json()
-    assert (first["object"], first["counts"], first["actions"], first["moderation"], first["refresh"]["status"]) == (iri, {"replies": 0, "quotes": 0, "likes": None, "shares": None}, None, None, "running")
+    assert (first["object"], first["origin_url"], first["counts"], first["actions"], first["moderation"], first["refresh"]["status"]) == (iri, "https://b.example/silvercord/tok/renditions/concise", {"replies": 0, "quotes": 0, "likes": None, "shares": None}, None, None, "running")
     client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
     try:
         assert need(opinions_store.get_fetch(client, iri)).own is False
