@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.21";
+export const CONTRACT_VERSION = "1.22";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -325,6 +325,10 @@ export interface ObjectRecord {
   body_hash: string | null;
   source_key: string | null;
   source_id_version: number | null;
+  // Contract 1.22 (Section 5.12, phase E9a): the +1 counts of the rendition.
+  plus_ones: number;
+  plus_one_servers: number;
+  plus_one_score: number;
 }
 
 // The quote policy of an own object (FEDERATION_REMOTE_READING_DESIGN.md Section 5.4 rule 6).
@@ -614,7 +618,7 @@ const outboxTasksShape = sealed({
 });
 const ackShape = sealed({ id: int, status: oneOf("pending", "handed_off", "rejected") });
 const quotePolicy = oneOf("public", "followers", "manual", "nobody");
-const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num, likes: int, shares: int, rendition_of: nullable(str), template: nullable(oneOf("standard", "concise", "academic")), template_version: nullable(str), body_hash: nullable(str), source_key: nullable(str), source_id_version: nullable(int) });
+const objectShape = sealed({ public_id: str, actor_public_id: str, type: oneOf("Article"), name: str, content: str, url: nullable(str), published_at: num, updated_at: num, likes: int, shares: int, rendition_of: nullable(str), template: nullable(oneOf("standard", "concise", "academic")), template_version: nullable(str), body_hash: nullable(str), source_key: nullable(str), source_id_version: nullable(int), plus_ones: int, plus_one_servers: int, plus_one_score: int });
 const objectCollectionShape = sealed({ document: jsonObject });
 const goneShape = sealed({ error: oneOf("gone"), gone_at: num });
 const actorOutboxShape = sealed({ public_id: str, total: int, items: list(sealed({ id: str, published_at: num, updated_at: num })), next_max_id: nullable(str) });
@@ -894,7 +898,7 @@ export class InternalApi {
   }
 
   // One collection document of an own object, or one page of `replies` (contract 1.19, phase E6). null: the object has no collection now (404).
-  async objectCollection(publicId: string, name: "replies" | "likes" | "shares" | "renditions", query: { page?: string; cursor?: string }): Promise<Record<string, unknown> | null> {
+  async objectCollection(publicId: string, name: "replies" | "likes" | "shares" | "renditions" | "plus-ones", query: { page?: string; cursor?: string }): Promise<Record<string, unknown> | null> {
     const params = new URLSearchParams();
     if (query.page !== undefined) params.set("page", query.page);
     if (query.cursor !== undefined) params.set("cursor", query.cursor);

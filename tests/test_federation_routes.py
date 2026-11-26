@@ -50,6 +50,8 @@ E6_FIXTURES = ["object_collection_replies", "object_collection_replies_page", "o
 E4B_FIXTURES = ["object_rendition", "object_collection_renditions", "object_body", "object_body_unsigned"]
 # Contract 1.21 (phase E5a): the source index. ``tests/test_federation_rendition_objects.py`` tests it.
 E5A_FIXTURES = ["source_index", "source_index_unsigned"]
+# Contract 1.22 (phase E9a): the +1 counts. ``tests/test_plus_ones.py`` tests them.
+E9A_FIXTURES = ["object_collection_plus_ones"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
 GONE_OBJECT_ID = 816412345678901239
@@ -281,7 +283,7 @@ def test_thread_fetch_agrees_with_fixtures(internal):
 
 
 def test_fixture_files_all_have_a_test(internal):
-    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "server_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES, *E6_FIXTURES, *E4B_FIXTURES, *E5A_FIXTURES}
+    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "server_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES, *E6_FIXTURES, *E4B_FIXTURES, *E5A_FIXTURES, *E9A_FIXTURES}
     assert {p.stem for p in FIXTURES.glob("*.json")} == covered
     for path in FIXTURES.glob("*.json"):
         assert set(json.loads(path.read_text())) == {"request", "status", "response"}
@@ -766,7 +768,7 @@ def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_ren
     assert (second["name"], second["url"]) == ("Second", None)
     # RD21: the object has the summary (here the title, because the document has no extraction) and the share link, never the body. The second document has no share, so it has no link.
     assert second["content"] == "<p>Second</p>" and "body" not in second["content"]
-    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at", "likes", "shares", "rendition_of", "template", "template_version", "body_hash", "source_key", "source_id_version"}
+    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at", "likes", "shares", "rendition_of", "template", "template_version", "body_hash", "source_key", "source_id_version", "plus_ones", "plus_one_servers", "plus_one_score"}
 
 
 @pytest.mark.parametrize(

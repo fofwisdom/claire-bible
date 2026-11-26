@@ -278,6 +278,10 @@ Deno.test("the body of a rendition goes to a request that a server actor signed,
     assert.ok((article["@context"] as unknown[]).includes("https://w3id.org/claire-bible/ns/v2"));
     assert.deepEqual([article.type, article.url, article["claire:renditionOf"], article["claire:template"], article["claire:templateVersion"], article["claire:body"], article["claire:bodyHash"], article["claire:sourceKey"], article["claire:sourceIdVersion"]], ["Article", record.url, `${ORIGIN}/ap/objects/816412345678901234`, "concise", "concise-v1", `${ORIGIN}/ap/objects/816412345678901260/body`, record.body_hash, record.source_key, 1]);
     assert.ok(!("claire:renditions" in article));
+    // The +1 counts (phase E9a): a collection without items, and its path gives the document of Claire.
+    assert.deepEqual(article["claire:plusOnes"], { id: `${ORIGIN}/ap/objects/816412345678901260/plus-ones`, type: "Collection", totalItems: 0, "claire:servers": 0, "claire:score": 0 });
+    const marks = await sidecar.handle(new Request(`${ORIGIN}/ap/objects/816412345678901260/plus-ones`, { headers: { accept: AS2 } }));
+    assert.deepEqual(await marks.json(), (fixture("object_collection_plus_ones").response as { document: unknown }).document);
     // The document object has the collection of its renditions; a document without a rendition row has no template and no source key.
     const primary = await (await sidecar.handle(new Request(`${ORIGIN}/ap/objects/816412345678901234`, { headers: { accept: AS2 } }))).json();
     assert.deepEqual([primary["claire:renditions"], primary["claire:body"], "claire:template" in primary, "claire:sourceKey" in primary], [`${ORIGIN}/ap/objects/816412345678901234/renditions`, `${ORIGIN}/ap/objects/816412345678901234/body`, false, false]);

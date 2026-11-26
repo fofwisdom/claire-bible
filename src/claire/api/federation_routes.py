@@ -39,6 +39,7 @@ from ..store import permalinks
 from ..core import ids
 from ..store import db as dbm
 from ..store import document_renditions as renditions_store
+from ..store import plus_ones as plus_ones_store
 from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
 from ..federation import media_proxy
 from ..store import client_db
@@ -84,7 +85,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.21"
+CONTRACT_VERSION = "1.22"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -527,6 +528,10 @@ class ObjectRecord(_Sealed):
     body_hash: str | None = Field(pattern=r"^[0-9a-f]{64}$")
     source_key: str | None = Field(pattern=r"^[0-9a-f]{64}$")
     source_id_version: int | None = Field(ge=1)
+    # Contract 1.22 (Section 5.12, phase E9a): the +1 counts of the rendition. The sidecar writes them in ``claire:plusOnes``.
+    plus_ones: int = Field(ge=0)
+    plus_one_servers: int = Field(ge=0)
+    plus_one_score: int = Field(ge=0)
 
 
 class OutboxItem(_Sealed):
@@ -1512,6 +1517,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             finally:
                 client.close()
             source_key = document["source_key"] if "source_key" in document.keys() else None
+            marks = plus_ones_store.counts(conn, public_id)
             record = ObjectRecord(
                 public_id=str(public_id),
                 actor_public_id=str(account.public_id),
@@ -1529,6 +1535,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 body_hash=None if not body else hashlib.sha256(body.encode("utf-8")).hexdigest(),
                 source_key=source_key,
                 source_id_version=document["source_id_version"] if source_key else None,
+                plus_ones=marks["total"],
+                plus_one_servers=marks["servers"],
+                plus_one_score=marks["score"],
             )
         finally:
             store.conn.close()

@@ -336,7 +336,8 @@ def receive(conn: sqlite3.Connection, *, activity: Any, signer: str, verified_by
     # Two deliveries of the same activity at the same time: the second insert does nothing, and that delivery is a duplicate.
     cursor = conn.execute(
         "INSERT INTO kf_inbox_journal (activity_iri, activity_type, actor, actor_domain, recipient, verified_by, payload, status, received_at, quota_domain, payload_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, 'received', ?, ?, ?) ON CONFLICT(activity_iri) DO NOTHING",
-        (activity_iri, raw_type if isinstance(raw_type, str) else "", actor if isinstance(actor, str) else signer, signer_domain, recipient, verified_by, payload, now, quota, size),
+        # A type array (a +1 is ``["Activity", "claire:PlusOne"]``) gives its last, most specific type.
+        (activity_iri, raw_type if isinstance(raw_type, str) else (raw_type[-1] if isinstance(raw_type, list) and raw_type and isinstance(raw_type[-1], str) else ""), actor if isinstance(actor, str) else signer, signer_domain, recipient, verified_by, payload, now, quota, size),
     )
     # The row is in the database before the processing starts (design Section 13 rule 1).
     conn.commit()

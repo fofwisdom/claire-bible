@@ -28,6 +28,9 @@ from urllib.parse import urlsplit
 from ...collaboration import contributions, reputation
 from ...notifications import events as notification_events
 from ...store import kb_collab
+from ...core import ids
+from ...store import federation as federation_store
+from ...store import plus_ones
 from . import access, actors, grants, journal, known_servers, offers, outbox, remote_documents, remote_kbs, vocabulary
 
 __all__ = ["HANDLERS", "install"]
@@ -262,6 +265,48 @@ def delete_rendition(ctx: journal.HandlerContext, entry: journal.JournalEntry, a
     remote_renditions.forget(ctx.conn, iri)
 
 
+def _own_rendition(ctx: journal.HandlerContext, iri: str) -> int:
+    """The number of an own rendition object that is public now (a document object is its 대표 정리본). Refusal ``not_a_rendition`` for each other address."""
+    prefix = f"{ctx.origin}/ap/objects/"
+    try:
+        public_id = ids.parse_public_id(iri[len(prefix):]) if iri.startswith(prefix) else None
+    except ValueError:
+        public_id = None
+    owning = None if public_id is None else federation_store.owning_object(ctx.conn, public_id)
+    if owning is None:
+        raise journal.HandlerRefusal("not_a_rendition")
+    obj = owning[0]
+    row = ctx.conn.execute(
+        "SELECT 1 FROM documents d JOIN knowledge_bases k ON k.id = d.kb_id JOIN accounts a ON a.id = ? WHERE d.id=? AND d.kb_id=? AND COALESCE(d.hidden, 0)=0 AND k.is_public=1 AND a.status='active' AND a.username IS NOT NULL",
+        (obj.account_id, obj.document_id, obj.kb_id),
+    ).fetchone()
+    if row is None:
+        raise journal.HandlerRefusal("not_a_rendition")
+    assert public_id is not None
+    return public_id
+
+
+def plus_one(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:
+    """An account of another Claire server gives a +1 to a rendition object of this server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rules 2, 6, and 12). Refusals: ``not_a_rendition`` (the object is not an own published rendition), ``rate_limited`` (the marks of the domain in one hour). A second +1 of the same actor changes nothing. No notification."""
+    public_id = _own_rendition(ctx, str(activity["object"]))
+    if plus_ones.recent_from_host(ctx.conn, entry.actor_domain, since=ctx.now - 3600.0) >= plus_ones.DOMAIN_HOURLY_LIMIT:
+        raise journal.HandlerRefusal("rate_limited")
+    plus_ones.add(ctx.conn, public_id, actor_iri=entry.actor, actor_host=entry.actor_domain, activity_iri=str(activity["id"]), now=ctx.now)
+
+
+def undo_plus_one(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:
+    """The account takes its +1 back (Section 5.12 rule 4). The row of this actor goes away; an ``Undo`` without a row changes nothing."""
+    prefix = f"{ctx.origin}/ap/objects/"
+    iri = str(activity["object"]["object"])
+    try:
+        public_id = ids.parse_public_id(iri[len(prefix):]) if iri.startswith(prefix) else None
+    except ValueError:
+        public_id = None
+    if public_id is None:
+        raise journal.HandlerRefusal("not_a_rendition")
+    plus_ones.remove(ctx.conn, public_id, actor_iri=entry.actor)
+
+
 HANDLERS: dict[str, journal.Handler] = {
     "follow": follow,
     "undo_follow": undo_follow,
@@ -276,6 +321,8 @@ HANDLERS: dict[str, journal.Handler] = {
     "grant": grant,
     "revoke": revoke,
     "delete_rendition": delete_rendition,
+    "plus_one": plus_one,
+    "undo_plus_one": undo_plus_one,
 }
 
 

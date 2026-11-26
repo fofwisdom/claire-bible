@@ -1,0 +1,21 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/claire-bible/ns/v2"
+  ],
+  "id": "https://b.example/ap/actors/1846000000000000002#plus-ones/1846000000000000700/undo",
+  "type": "Undo",
+  "actor": "https://b.example/ap/actors/1846000000000000002",
+  "object": {
+    "id": "https://b.example/ap/actors/1846000000000000002#plus-ones/1846000000000000700",
+    "type": [
+      "Activity",
+      "claire:PlusOne"
+    ],
+    "actor": "https://b.example/ap/actors/1846000000000000002",
+    "object": "https://a.example/ap/objects/1846000000000000700"
+  },
+  "to": [
+    "https://a.example/ap/actors/1846000000000000001"
+  ]
+}

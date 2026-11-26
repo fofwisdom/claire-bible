@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 54
+SCHEMA_VERSION = 55
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -910,6 +910,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v52_rendition_objects(conn)
     _migrate_v53_body_readers(conn)
     _migrate_v54_remote_renditions(conn)
+    _migrate_v55_plus_ones(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -2287,6 +2288,13 @@ def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
     """v23 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5): ``federation_objects.content_digest`` is the digest of the summary and the share link that the followers got last. NULL for an object from before this version: the first comparison stores the digest and sends nothing (rule 7). Idempotent (A3)."""
     if _table_exists(conn, "federation_objects") and "content_digest" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
+
+
+def _migrate_v55_plus_ones(conn: sqlite3.Connection) -> None:
+    """v55 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12, phase E9a): the +1 marks of the rendition objects of this server (``rendition_plus_ones``, module ``store.plus_ones``). Idempotent; it runs at each start and changes no row."""
+    from . import plus_ones
+
+    plus_ones.ensure_schema(conn)
 
 
 def _migrate_v54_remote_renditions(conn: sqlite3.Connection) -> None:

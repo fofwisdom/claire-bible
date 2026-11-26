@@ -6,10 +6,10 @@
 
 import { Collection } from "@fedify/fedify/vocab";
 
-export type ObjectCollectionName = "replies" | "likes" | "shares" | "renditions";
+export type ObjectCollectionName = "replies" | "likes" | "shares" | "renditions" | "plus-ones";
 
 // The public path of a collection of an own object.
-export const OBJECT_COLLECTION_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})\/(replies|likes|shares|renditions)$/;
+export const OBJECT_COLLECTION_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})\/(replies|likes|shares|renditions|plus-ones)$/;
 
 // The body of a rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5, phase E4b): only for the server actor of another Claire server, with a valid HTTP signature.
 export const RENDITION_BODY_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})\/body$/;

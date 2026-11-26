@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["AS2_CONTEXT", "COLLECTION_NAMES", "REPLIES_FIRST_PAGE_SIZE", "REPLIES_PAGE_SIZE", "count_collection", "rendition_body_document", "renditions_collection", "source_index", "replies_collection", "replies_page"]
+__all__ = ["AS2_CONTEXT", "COLLECTION_NAMES", "REPLIES_FIRST_PAGE_SIZE", "REPLIES_PAGE_SIZE", "count_collection", "plus_ones_collection", "rendition_body_document", "renditions_collection", "source_index", "replies_collection", "replies_page"]
 
 AS2_CONTEXT = "https://www.w3.org/ns/activitystreams"
-COLLECTION_NAMES: tuple[str, ...] = ("replies", "likes", "shares", "renditions")
+COLLECTION_NAMES: tuple[str, ...] = ("replies", "likes", "shares", "renditions", "plus-ones")
 REPLIES_FIRST_PAGE_SIZE = 5
 REPLIES_PAGE_SIZE = 20
 
@@ -72,3 +72,10 @@ def source_index(iri: str, items: list[str]) -> dict[str, Any]:
     from .knowledge.vocabulary import WIRE_CONTEXT_V2
 
     return {"@context": list(WIRE_CONTEXT_V2), "id": iri, "type": "OrderedCollection", "totalItems": len(items), "orderedItems": list(items)}
+
+
+def plus_ones_collection(iri: str, marks: dict[str, int]) -> dict[str, Any]:
+    """The collection ``claire:plusOnes`` of a rendition object (Section 5.12 rule 7): the counts only. Who gave a +1 is not public."""
+    from .knowledge.vocabulary import SCORE, SERVERS, WIRE_CONTEXT_V2
+
+    return {"@context": list(WIRE_CONTEXT_V2), "id": iri, "type": "Collection", "totalItems": marks["total"], SERVERS: marks["servers"], SCORE: marks["score"]}

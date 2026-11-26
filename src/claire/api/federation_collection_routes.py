@@ -26,6 +26,7 @@ from ..federation import object_collections
 from ..federation.knowledge import access as knowledge_access
 from ..store import db as dbm
 from ..store import document_renditions as renditions_store
+from ..store import plus_ones as plus_ones_store
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
@@ -91,6 +92,11 @@ def collection_internal_routes(*, origin: Callable[[], str], open_store: Callabl
             if target is None:
                 return _not_found()
             iri = f"{origin()}/ap/objects/{public_id}/{name}"
+            if name == "plus-ones":
+                # The +1 counts of a rendition object (phase E9a); a note has none.
+                if federation_store.owning_object(store.conn, public_id) is None:
+                    return _not_found()
+                return _json(ObjectCollectionResponse(document=object_collections.plus_ones_collection(iri, plus_ones_store.counts(store.conn, public_id))))
             if name == "renditions":
                 # Only a document object has the collection of its renditions (phase E4b).
                 obj = federation_store.get_object(store.conn, public_id)

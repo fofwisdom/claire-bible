@@ -20,6 +20,9 @@
     "template_version": null,
     "body_hash": "4a4d703f889a040d277b01a4629323e55241a3dfe3ad4c972f70401e705a97c3",
     "source_key": null,
-    "source_id_version": null
+    "source_id_version": null,
+    "plus_ones": 0,
+    "plus_one_servers": 0,
+    "plus_one_score": 0
   }
 }

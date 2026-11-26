@@ -415,7 +415,10 @@ def record_body_reader(conn: sqlite3.Connection, object_public_id: int, server_a
 
 
 def _readers_gone(conn: sqlite3.Connection, object_public_id: int, *, template: str, account_id: int, now: float) -> None:
-    """The object is gone: its readers get the mark that the knowledge outbox reads (one ``Delete`` to these readers only)."""
+    """The object is gone: its readers get the mark that the knowledge outbox reads (one ``Delete`` to these readers only), and its +1 marks go away (Section 5.12 rule 14)."""
+    from . import plus_ones
+
+    plus_ones.delete_for_object(conn, object_public_id)
     conn.execute("UPDATE federation_body_readers SET gone_at=?, template=?, account_id=? WHERE object_public_id=? AND gone_at IS NULL", (now, template, account_id, object_public_id))
 
 

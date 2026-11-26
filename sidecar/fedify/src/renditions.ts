@@ -24,6 +24,8 @@ export function renditionFields(id: URL, record: ObjectRecord, objectUri: (publi
     fields["claire:body"] = `${id.href}/body`;
     fields["claire:bodyHash"] = record.body_hash;
   }
+  // The +1 counts (Section 5.12 rule 7): a collection without items.
+  fields["claire:plusOnes"] = { id: `${id.href}/plus-ones`, type: "Collection", totalItems: record.plus_ones, "claire:servers": record.plus_one_servers, "claire:score": record.plus_one_score };
   if (record.source_key !== null && record.source_id_version !== null) {
     fields["claire:sourceKey"] = record.source_key;
     fields["claire:sourceIdVersion"] = record.source_id_version;

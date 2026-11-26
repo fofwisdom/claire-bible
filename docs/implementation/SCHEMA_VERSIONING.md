@@ -502,3 +502,11 @@ Basis: phase E5b of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/
 - **[code]** `SCHEMA_VERSION` is 54. `_migrate_v54_remote_renditions` calls `federation.remote_renditions.ensure_schema`, which makes `remote_renditions` (one row for each rendition of another server: its address, domain, source key, template, account, title, page address, body address, the hash that the object names, the hash and the content of the stored body, `fetched_at`, `expires_at`) and `remote_rendition_indexes` (the last request of the source index of one server for one key and its result).
 - **[code] [decision]** The cache is in `claire.db`: it is of the server and not of an account, and its reads are rows of `kf_remote_reads` in the same file.
 - **[test]** `tests/test_remote_renditions.py`.
+
+## v55 (+1 marks of renditions)
+
+Basis: phase E9a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.12 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 55. `_migrate_v55_plus_ones` calls `store.plus_ones.ensure_schema`, which makes `rendition_plus_ones`: (`object_public_id`, `actor_iri`) is the key, with `actor_host`, `activity_iri`, and `created_at`, and an index on (`actor_host`, `created_at`) for the hourly limit of a domain.
+- **[code]** The counts of an object come from the rows; a gone object loses its rows (`federation._readers_gone`).
+- **[test]** `tests/test_plus_ones.py`.

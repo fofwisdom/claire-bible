@@ -41,6 +41,8 @@ __all__ = [
     "KNOWLEDGE_TYPES",
     "LIMIT_REACHED",
     "MAX_SIGNATURE_ENTITIES",
+    "PLUS_ONE_SERVER_LIMIT",
+    "PLUS_ONE_TYPES",
     "OBJECT_KINDS",
     "REASON_CODES",
     "REJECT_REASON_CODES",
@@ -63,9 +65,11 @@ __all__ = [
     "build_grant",
     "build_knowledge_base",
     "build_offer",
+    "build_plus_one",
     "build_reject_offer",
     "build_revoke",
     "build_undo_follow",
+    "build_undo_plus_one",
     "build_update_document",
     "build_update_knowledge_base",
     "context_document",
@@ -190,6 +194,10 @@ PLUS_ONES = "claire:plusOnes"
 SERVERS = "claire:servers"
 SCORE = "claire:score"
 TEMPLATES = ("standard", "concise", "academic")
+# The type of a +1 on the wire: the base type first (Section 5.12 rule 5).
+PLUS_ONE_TYPES = ("Activity", PLUS_ONE)
+# The marks of the accounts of one server count at most this number in ``claire:score`` (Section 5.12 rule 9, owner decision O15: the estimated number of accounts that one Claire server can serve now).
+PLUS_ONE_SERVER_LIMIT = 1000
 
 TERMS_V2: tuple[dict[str, Any], ...] = (
     {"term": RENDITION_BODY, "kind": "class", "base": "Object", "definition": None, "text": "The body of a rendition: the compiled HTML in \"content\" and the AsciiDoc text in \"source\". The origin gives it only to the server actor of another Claire server, with a valid HTTP signature."},
@@ -211,12 +219,12 @@ TERMS_V2: tuple[dict[str, Any], ...] = (
 # The ActivityStreams 2.0 terms that the wire form uses. The ActivityStreams context defines them.
 AS2_TERMS = frozenset({
     "id", "type", "actor", "object", "target", "result", "context", "origin", "to", "name", "summary", "content", "url", "attributedTo", "published", "updated", "endTime", "inbox", "outbox", "followers", "formerType",
-    "Group", "Article", "Object", "Tombstone", "Follow", "Accept", "Reject", "Undo", "Update", "Delete", "Offer",
+    "Group", "Article", "Object", "Tombstone", "Follow", "Accept", "Reject", "Undo", "Update", "Delete", "Offer", "Activity",
 })
 
 OBJECT_KINDS = ("knowledge_base", "document", "extraction", "contribution")
 # ``delete_rendition`` (version 2, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4): the ``Delete`` of a rendition object for the server actors that read its body.
-ACTIVITY_KINDS = ("follow", "accept_follow", "undo_follow", "update_knowledge_base", "delete_knowledge_base", "update_document", "delete_document", "offer_contribution", "accept_offer", "reject_offer", "grant", "revoke", "delete_rendition")
+ACTIVITY_KINDS = ("follow", "accept_follow", "undo_follow", "update_knowledge_base", "delete_knowledge_base", "update_document", "delete_document", "offer_contribution", "accept_offer", "reject_offer", "grant", "revoke", "delete_rendition", "plus_one", "undo_plus_one")
 
 ERROR_CODES = (
     "not_an_object",  # The value is not a JSON object.
@@ -649,6 +657,12 @@ def _must_get(recipients: list[str], actor: str) -> None:
         raise ContractError("missing_recipient", "to")
 
 
+def _to_server_of(recipients: list[str], rendition: str) -> None:
+    """A +1 goes only to the server of its rendition (Section 5.12 rule 6): each recipient is an address of that server."""
+    for index, iri in enumerate(recipients):
+        _same_server(iri, rendition, f"to.{index}")
+
+
 def _embedded(activity: dict[str, Any]) -> dict[str, Any]:
     value = _need(activity, "object", "")
     if not isinstance(value, dict):
@@ -710,12 +724,28 @@ def validate_activity(value: Any) -> str:
     _check_context(activity)
     identifier = _iri(activity, "id", "")
     types = _types(activity, "")
-    if len(types) != 1:
+    # A +1 has the base type first (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 5): software that does not know the Claire term reads an activity that it does not know.
+    if len(types) != 1 and types != PLUS_ONE_TYPES:
         raise ContractError("unsupported_type", "type")
-    kind = types[0]
+    kind = types[-1]
     actor = _iri(activity, "actor", "")
     _same_server(identifier, actor, "id")
     recipients = _recipients(activity)
+
+    if types == PLUS_ONE_TYPES:
+        rendition = _reference(activity)
+        _to_server_of(recipients, rendition)
+        _time(activity, "published", "")
+        return "plus_one"
+    if kind == "Undo" and isinstance(activity.get("object"), dict) and _types(activity["object"], "object") == PLUS_ONE_TYPES:
+        mark = activity["object"]
+        for key in ("id", "actor", "object"):
+            _iri(mark, key, "object")
+        if mark["actor"] != actor:
+            raise ContractError("actor_mismatch", "object.actor")
+        _same_server(mark["id"], actor, "object.id")
+        _to_server_of(recipients, mark["object"])
+        return "undo_plus_one"
 
     if kind == "Follow":
         _must_get(recipients, _reference(activity))
@@ -963,6 +993,20 @@ def build_delete_document(*, activity_id: str, knowledge_base: str, followers: s
 def build_delete_rendition(*, activity_id: str, account_actor: str, rendition: str, template: str, readers: list[str]) -> dict[str, Any]:
     """Make the ``Delete`` of a rendition object for the server actors that read its body (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4). The object of a document is its 대표 정리본, with the template ``standard``. The activity has the context of version 2."""
     activity = {"@context": list(WIRE_CONTEXT_V2), "id": activity_id, "type": "Delete", "actor": account_actor, "object": {"id": rendition, "type": "Tombstone", "formerType": "Article", TEMPLATE: template}, "to": list(readers)}
+    validate_activity(activity)
+    return activity
+
+
+def build_plus_one(*, activity_id: str, account_actor: str, rendition: str, author: str, published: Any) -> dict[str, Any]:
+    """Make the +1 of an account for a rendition object of another Claire server, for the author of the rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 5). ``published`` is seconds or a wire time."""
+    activity = {"@context": list(WIRE_CONTEXT_V2), "id": activity_id, "type": list(PLUS_ONE_TYPES), "actor": account_actor, "object": rendition, "to": [author], "published": published if isinstance(published, str) else _iso(published, "published")}
+    validate_activity(activity)
+    return activity
+
+
+def build_undo_plus_one(*, activity_id: str, plus_one: dict[str, Any]) -> dict[str, Any]:
+    """Make the ``Undo`` of a +1: the mark is embedded with its ``id``, ``type``, ``actor``, and ``object``."""
+    activity = {"@context": list(WIRE_CONTEXT_V2), "id": activity_id, "type": "Undo", "actor": plus_one["actor"], "object": {key: plus_one[key] for key in ("id", "type", "actor", "object")}, "to": list(plus_one["to"])}
     validate_activity(activity)
     return activity
 

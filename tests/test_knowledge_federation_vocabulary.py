@@ -92,6 +92,8 @@ def built_activities() -> dict[str, Any]:
         "reject_offer": v.build_reject_offer(activity_id=f"{KB}#rejects/offers/1", knowledge_base=KB, offer=offer["id"], offer_actor=ALICE, reason_code="duplicate"),
         "grant": grant,
         "revoke": v.build_revoke(activity_id=f"{KB}#grants/1/revoke", knowledge_base=KB, account_actor=ALICE, grant=grant["id"]),
+        "plus_one": (plus_one := v.build_plus_one(activity_id=f"{B}/ap/actors/1846000000000000002#plus-ones/1846000000000000700", account_actor=f"{B}/ap/actors/1846000000000000002", rendition=f"{A}/ap/objects/1846000000000000700", author=ALICE, published=T0)),
+        "undo_plus_one": v.build_undo_plus_one(activity_id=f"{B}/ap/actors/1846000000000000002#plus-ones/1846000000000000700/undo", plus_one=plus_one),
         "delete_rendition": v.build_delete_rendition(activity_id=f"{A}/ap/objects/1846000000000000700#delete", account_actor=ALICE, rendition=f"{A}/ap/objects/1846000000000000700", template="concise", readers=[f"{B}/ap/actors/server"]),
     }
 
