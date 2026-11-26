@@ -140,3 +140,37 @@ def test_compose_model_mounts_only_socket_directory_database_directory_and_key_f
     expected_ports = [("127.0.0.1", host_port, 8790)] if host_port else []
     assert [(port["host_ip"], str(port["published"]), port["target"]) for port in fedify.get("ports", [])] == expected_ports
     assert fedify["depends_on"]["api"]["condition"] == "service_healthy"
+
+
+@pytest.mark.skipif(DOCKER is None, reason="docker is not installed")
+def test_compose_model_of_the_development_network_keeps_the_mount_rule_and_has_no_route_out_for_the_sidecar(tmp_path):
+    """The overlay of a server of the development network (ops/dev/devnet/compose.server.yml) with the environment of ``./cb-manuscript dev devnet up``: the sidecar keeps the mounts of FEDERATION.md Section 9.1 and gets only the certificate of the private authority; the sidecar has no route out; no service has a host port."""
+    from ops import devnet
+
+    assert DOCKER is not None
+    net = devnet.Devnet(REPO_ROOT)
+    net.run_dir = tmp_path / "devnet"
+    env = net._server_env("a")
+    net.run_dir.mkdir()
+    (net.run_dir / "a.env").write_text("CLAIRE_FQDN=a.claire.test\n", encoding="utf-8")
+    result = subprocess.run([DOCKER, "compose", "-f", str(REPO_ROOT / "docker-compose.yml"), "-f", str(net.ops / "compose.server.yml"), "--profile", "bot", "config", "--format", "json"], cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr[-4000:]
+    model = json.loads(result.stdout)
+    fedify = model["services"]["fedify"]
+    data = net.run_dir / "a" / "data"
+    mounts = {volume["target"]: volume for volume in fedify["volumes"]}
+    assert {target: volume["source"] for target, volume in mounts.items()} == {
+        "/data/run": str(data / "run"),
+        "/data/fedify": str(data / "fedify"),
+        "/data/auth/fedify_service.key": str(data / "auth" / "fedify_service.key"),
+        "/tls/ca.crt": str(net.run_dir / "tls" / "ca" / "ca.crt"),
+    }
+    assert mounts["/data/auth/fedify_service.key"]["read_only"] is True and mounts["/tls/ca.crt"]["read_only"] is True
+    assert "env_file" not in fedify and fedify["environment"]["DENO_CERT"] == "/tls/ca.crt"
+    # The sidecar is only on internal networks; the Claire services have the route out.
+    assert set(fedify["networks"]) == {"default", "edge"}
+    assert model["networks"]["default"]["internal"] is True and model["networks"]["edge"]["name"] == "claire-devnet-edge"
+    assert set(model["services"]["api"]["networks"]) == {"default", "edge", "out"}
+    assert model["services"]["edge"]["networks"]["edge"]["aliases"] == ["a-edge"]
+    assert all(not service.get("ports") for service in model["services"].values())
+    assert model["services"]["bot"]["profiles"] == ["bot"]

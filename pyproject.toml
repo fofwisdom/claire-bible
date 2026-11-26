@@ -54,3 +54,4 @@ baseline = "ty-baseline.json"
 testpaths = ["tests", "plugins"]
 asyncio_mode = "auto"
 pythonpath = [".", "src"]
+markers = ["devnet: a test of the development network (./cb-manuscript dev devnet test; gate CB_DEVNET_TEST=1)"]

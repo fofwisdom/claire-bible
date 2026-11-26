@@ -40,6 +40,7 @@ BEN_PUBLIC = 116412345678901236
 
 def _run(a: _Server, b: _Server, work: str) -> list[str]:
     """Run the queues of ``work`` (for example ``a:outbox,b:outbox``) until they are empty; return the traffic between the sidecars."""
+    assert DENO is not None
     sockets = [federation_socket_path(a.data_dir), federation_socket_path(b.data_dir)]
     env = {**_clean_env(), "NO_COLOR": "1", "E2E_WORK": work, "CLAIRE_A_SOCKET": str(sockets[0]), "CLAIRE_A_KEY_FILE": str(service_key_path(a.data_dir)), "CLAIRE_B_SOCKET": str(sockets[1]), "CLAIRE_B_KEY_FILE": str(service_key_path(b.data_dir))}
     command = [DENO, "test", "--frozen", "--allow-net=claire.internal:80," + ",".join(f"unix:{s}" for s in sockets), "--allow-env", f"--allow-read={SIDECAR_DIR},{a.data_dir},{b.data_dir}", "--allow-write=" + ",".join(str(s) for s in sockets), "e2e/two_servers_e2e.ts"]

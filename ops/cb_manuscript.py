@@ -4025,6 +4025,13 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
     dev, args = _split_dev_prefix(raw)
     layout = Layout((root or Path(__file__).resolve().parents[1]).resolve())
 
+    # The development network (docs/design/CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md): its own commands and its own run folder, not the env file of the checkout.
+    if dev and args[:1] == ["devnet"]:
+        import importlib
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        return importlib.import_module("devnet").main(layout.root, args[1:])
+
     try:
         if args and args[0] in PASSTHROUGH_COMMANDS:
             if args[0] != "app" and args[1:] in (["--help"], ["-h"]):

@@ -92,6 +92,7 @@
    curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8767/any/path  # 404 (P2의 usercontent 하위 앱은 비어 있다)
    ```
 4. 운영과 같은 조건 확인은 docker 개발 스택으로 한다: `./cb-manuscript dev up`, `./cb-manuscript dev health`, `./cb-manuscript dev logs -f api`, `./cb-manuscript dev down`(§2.4).
+5. Two servers with real sidecars, TLS, and DNS (the development network): `./cb-manuscript dev devnet up --servers a,b`, `./cb-manuscript dev devnet check`, `./cb-manuscript dev devnet test`, `./cb-manuscript dev devnet down`. [`DEVELOPMENT_NETWORK.md`](DEVELOPMENT_NETWORK.md) has the rules and the tests.
 
 ---
 

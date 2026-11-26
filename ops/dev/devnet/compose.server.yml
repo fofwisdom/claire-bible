@@ -1,0 +1,77 @@
+# Development network only (docs/design/CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md Sections 6.1, 6.5, 6.8): the overlay of a server project.
+# Use: docker compose -f docker-compose.yml -f ops/dev/devnet/compose.server.yml, project claire-devnet-{server}. The services are the ones of production (docker-compose.yml) with the edge service; only the networks, the host ports, the trust of the private authority, and the limits change.
+# ./cb-manuscript dev devnet up gives each variable:
+#   CB_DEVNET_SERVER       The server name (a or b): the alias {server}-edge of the edge service.
+#   CB_DEVNET_EDGE_PREFIX  The address prefix of the network claire-devnet-edge (the DNS is .3).
+#   CB_DEVNET_RUN_DIR      The run folder (.dev/devnet): tls/ca has the certificate of the private authority.
+# and the variables of docker-compose.yml: CB_PROJECT_NAME, CB_ENV_FILE, CB_DATA_DIR, CB_PLUGINS_DIR, CB_BIN_DIR, CB_CERTS_DIR, CB_IMAGE_TAG, CLAIRE_ENVIRONMENT, CB_API_BIND, CB_API_PORT, CB_EDGE_APP_HOST, CB_UID, CB_GID.
+
+x-devnet-claire: &devnet-claire
+  # The Claire services resolve the names below claire.test with the DNS of the network and reach the gateway on claire-devnet-edge; claire-devnet-out is their route to the internet.
+  dns:
+    - "${CB_DEVNET_EDGE_PREFIX:?CB_DEVNET_EDGE_PREFIX is required}.3"
+  networks:
+    default: {}
+    edge: {}
+    out: {}
+
+services:
+  api:
+    <<: *devnet-claire
+    mem_limit: 1g
+
+  refresh:
+    <<: *devnet-claire
+    mem_limit: 512m
+
+  recover:
+    <<: *devnet-claire
+    mem_limit: 512m
+
+  expand:
+    <<: *devnet-claire
+    mem_limit: 512m
+
+  # Without a registered bot the bot waits; option --bot of devnet up starts it.
+  bot:
+    <<: *devnet-claire
+    profiles: ["bot"]
+    mem_limit: 256m
+
+  # The sidecar has no route out: the project network and claire-devnet-edge are internal. It trusts the private authority with DENO_CERT (Section 6.4).
+  fedify:
+    dns:
+      - "${CB_DEVNET_EDGE_PREFIX:?CB_DEVNET_EDGE_PREFIX is required}.3"
+    environment:
+      DENO_CERT: /tls/ca.crt
+    volumes:
+      - type: bind
+        source: "${CB_DEVNET_RUN_DIR:?CB_DEVNET_RUN_DIR is required}/tls/ca/ca.crt"
+        target: /tls/ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      default: {}
+      edge: {}
+    mem_limit: 256m
+
+  # The gateway of the network is the external reverse proxy: the edge service has no host port.
+  edge:
+    ports: !reset []
+    networks:
+      default: {}
+      edge:
+        aliases:
+          - "${CB_DEVNET_SERVER:?CB_DEVNET_SERVER is required}-edge"
+    mem_limit: 64m
+
+networks:
+  default:
+    internal: true
+  edge:
+    name: claire-devnet-edge
+    external: true
+  out:
+    name: claire-devnet-out
+    external: true

@@ -1,0 +1,57 @@
+# Development network only (docs/design/CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md Section 6.1): the core project.
+# ./cb-manuscript dev devnet up starts it before the server projects and gives each variable; no variable has a default value.
+#   CB_DEVNET_RUN_DIR      The run folder (.dev/devnet).
+#   CB_DEVNET_EDGE_PREFIX  The first three parts of the address of the network claire-devnet-edge (for example 172.31.250).
+#   CB_DEVNET_IMAGE        The Claire image (it has openssl for the job certs).
+#   CB_UID, CB_GID         The user of the host: the files of the run folder belong to it.
+name: claire-devnet
+
+services:
+  certs:
+    image: "${CB_DEVNET_IMAGE:?CB_DEVNET_IMAGE is required}"
+    user: "${CB_UID:?CB_UID is required}:${CB_GID:?CB_GID is required}"
+    entrypoint: ["sh", "/devnet/certs.sh"]
+    network_mode: none
+    volumes:
+      - "./certs.sh:/devnet/certs.sh:ro"
+      - "${CB_DEVNET_RUN_DIR:?CB_DEVNET_RUN_DIR is required}/tls:/tls"
+
+  dns:
+    build:
+      context: .
+      dockerfile: dns.Dockerfile
+    image: claire-devnet-dns:1
+    restart: unless-stopped
+    # claire.test and each name below it: the gateway. Each other name: the resolver of Docker of this container (network claire-devnet-out).
+    command: ["dnsmasq", "--keep-in-foreground", "--no-resolv", "--no-hosts", "--log-facility=-", "--server=127.0.0.11", "--local=/claire.test/", "--address=/claire.test/${CB_DEVNET_EDGE_PREFIX:?CB_DEVNET_EDGE_PREFIX is required}.2"]
+    mem_limit: 64m
+    networks:
+      edge:
+        ipv4_address: "${CB_DEVNET_EDGE_PREFIX:?CB_DEVNET_EDGE_PREFIX is required}.3"
+      out: {}
+
+  gateway:
+    image: nginx:1.30.7-alpine
+    restart: unless-stopped
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    mem_limit: 64m
+    volumes:
+      - "./gateway.conf:/etc/nginx/nginx.conf:ro"
+      - "${CB_DEVNET_RUN_DIR:?CB_DEVNET_RUN_DIR is required}/tls/server:/tls:ro"
+    networks:
+      edge:
+        ipv4_address: "${CB_DEVNET_EDGE_PREFIX:?CB_DEVNET_EDGE_PREFIX is required}.2"
+
+networks:
+  # The gateway, the DNS, the sidecars, the Claire services, and the toolbox. No route out.
+  edge:
+    name: claire-devnet-edge
+    internal: true
+    ipam:
+      config:
+        - subnet: "${CB_DEVNET_EDGE_PREFIX:?CB_DEVNET_EDGE_PREFIX is required}.0/24"
+  # A route to the internet for the Claire services (ingestion of web pages) and the DNS. Never for a sidecar.
+  out:
+    name: claire-devnet-out
