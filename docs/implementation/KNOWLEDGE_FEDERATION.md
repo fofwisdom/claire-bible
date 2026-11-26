@@ -452,7 +452,7 @@ The sidecar reads the root, then each page (`first`, then `next`): at most 60 pa
 | `tests/test_knowledge_federation_remote.py` | The migration step v30, the leases and the day interval, a batch with refused items, a failed read, the end of a read, a domain block, the admin adjustments for a remote member, and the rule that a remote knowledge base makes no theme. |
 | `tests/test_knowledge_federation_kf2_e2e.py` | The completion criterion with two app objects and two databases: a shared knowledge base of B is read by A, is in a theme of A after a judgement run, and is in the data and the HTML of the root page of A; B has no entry for A. The sidecars and the network are simulated by direct calls to the internal routes. |
 
-Not verified: an exchange between two real sidecars over a network (signatures in the two directions, the reverse proxy, NodeInfo of a real server).
+`tests/test_knowledge_exchange.py` (Section 13.9) runs the read of KF2 with two real sidecars: A reads NodeInfo, the server actor, and the `/kb` collection of B with requests that its server actor signs, and B verifies each signature with the actor document of A. Not verified: the network itself (TLS, the reverse proxy) and NodeInfo of software that is not Claire.
 
 ## 12. Unit KF3: Knowledge Base Actors, Curation Across Servers, Revisions, Removal at the Origin
 
@@ -619,7 +619,7 @@ Code: `knowledge.ts` (`deliverKnowledgeTask`, `processKnowledgeOutbox`, `readRem
 | `tests/test_knowledge_federation_internal_contract.py` | The internal routes of Section 12.5 against their fixtures. |
 | `sidecar/fedify/tests/knowledge_test.ts` | The client calls against the fixtures; the actor paths; a delivery with the body unchanged and a signature that verifies with the actor document of the sidecar; the results of a delivery; a read for a curation. |
 
-Not verified: an exchange between two real sidecars over a network; the WebUI in a browser (no Playwright spec uses the new parts); a delivery to software that is not Claire.
+`tests/test_knowledge_exchange.py` (Section 13.9) sends the `Follow` of the server actor of A and the `Accept` of B with two real sidecars. Not verified: a revision and a removal with two real sidecars; the network itself (TLS, the reverse proxy); the WebUI in a browser (no Playwright spec uses the new parts); a delivery to software that is not Claire.
 
 ## 13. Unit KF4: Contributions and Remote Collaborators Across Servers
 
@@ -776,11 +776,12 @@ WebUI:
 | File | What it examines |
 | :--- | :--- |
 | `tests/test_knowledge_federation_kf4_e2e.py` | The completion criterion with two app objects and two databases (A and B, the mock provider): ben of A contributes to a theme of A that has Cities of B; `Offer` with the account actor as signer; a pending contribution on B with the remote credit; a reviewer of B approves; `Accept` with `result`; the submission page on A shows `accepted`; a direct choice without a grant gets 403; a grant (step-up) and `Grant`; the next contribution is visible without approval; `Revoke` (step-up); an offer that still carries the capability waits for approval; a rejection with a reason code reaches the submission page; the reputation of the remote account on B. The sidecars and the network are simulated by direct calls to the internal routes (the docstring of the file says what is simulated). |
+| `tests/test_knowledge_exchange.py` with `sidecar/fedify/e2e/two_servers_e2e.ts` | Two Claire processes (`https://a.claire.test`, `https://b.claire.test`) with their real sidecar code; only the network between the two sidecars is in the Deno process (a request to the origin of one server goes to the request handler of its sidecar). The runner does the named queues of the two sidecars until they are empty, and fails on a refused delivery or a failed read. Steps: A reads B (KF2) and has Cities of B in a theme; ben of A contributes to the theme: `Offer` from the account actor of ben, and the `Follow` of the server actor of A with its `Accept` (KF3); a moderator of B approves, and the `Accept` with `result` reaches the submission page of A; the `Grant` reaches A (`/api/kb/remote-grants`); the next contribution of ben with `remote_knowledge_base` has the grant as its capability, and B accepts it without a moderator. |
 | `tests/test_knowledge_federation_kf4.py` | The migration step v32; the checks of an inbound `Offer` (refusals, `Reject` at once, duplicate); the limits for each remote account, each domain, and each day; answers and grants only from the actor that owns them; the end of a grant; the checks of the sender (no federation actor, duplicate, pending limit, blocked domain); `Delete` of a remote actor; the sanitizer of the HTML of an offer; the limits and the retention of received grants and inbound rows. |
 | `sidecar/fedify/tests/knowledge_test.ts` | An `Offer` task with the signer `account:{public ID}` goes to the inbox of the knowledge base actor with the body unchanged and a signature that verifies with the actor document of the account, in single mode; a task of an account without keys ends `no_actor_key`. |
 | `sidecar/fedify/tests/sidecar_test.ts`, `outbox_test.ts`, `inbox_test.ts`, `tests/test_federation_routes.py`, `tests/test_federation_readiness.py`, `tests/test_e2e_network_mode_transition.py` | Single mode (Section 13.7). |
 
-Not verified: an exchange between two real sidecars over a network; the WebUI parts in a browser (no Playwright spec for them); a delivery to software that is not Claire; the `Delete` of an account of A on B when no account of B follows that account (Fedify sends the `Delete` of an actor to its followers only).
+Not verified: `Reject` and `Revoke` with two real sidecars; the network itself (TLS, the reverse proxy); the WebUI parts in a browser (no Playwright spec for them); a delivery to software that is not Claire; the `Delete` of an account of A on B when no account of B follows that account (Fedify sends the `Delete` of an actor to its followers only).
 
 ### 13.10 Interfaces for Unit KF5
 
