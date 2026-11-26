@@ -2,19 +2,23 @@
 
 The network has a core project (``claire-devnet``: the private certificate authority, the DNS of the names below ``claire.test``, and the TLS gateway) and one project for each server (``claire-devnet-a``, ``claire-devnet-b``: the services of ``docker-compose.yml`` with the overlay ``ops/dev/devnet/compose.server.yml``). The run folder ``.dev/devnet`` has the certificates, the env file and the data folder of each server, and the state file with the admin credentials (mode 0600). No secret is in the repository; each new network has new secrets.
 
-Commands: ``up [--servers a|a,b] [--bot]``, ``check``, ``test [pytest arguments]``, ``info``, ``down``. Only the standard library: the host needs Python 3 and Docker with Compose.
+Commands: ``up [--servers a|a,b] [--bot]``, ``check``, ``test [pytest arguments]``, ``fault <profile>``, ``logs <server> [service]``, ``info``, ``down``. Only the standard library: the host needs Python 3 and Docker with Compose.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import secrets
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
+from types import ModuleType
 
 SERVERS = ("a", "b")
 # The address prefix of the network claire-devnet-edge: the gateway is .2 and the DNS is .3.
@@ -37,6 +41,16 @@ def _run(command: list[str], *, env: dict[str, str] | None = None, capture: bool
         detail = (done.stderr or done.stdout or "").strip()[-2000:] if capture else ""
         raise DevnetError(f"{' '.join(command[:6])} ... exited with {done.returncode}. {detail}")
     return done
+
+
+def _load_faults(ops_dir: Path) -> ModuleType:
+    path = ops_dir / "faults.py"
+    spec = importlib.util.spec_from_file_location("devnet_faults", path)
+    if spec is None or spec.loader is None:
+        raise DevnetError(f"cannot load fault profiles module: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class Devnet:
@@ -87,6 +101,16 @@ class Devnet:
                 found.append(server)
         return found
 
+    def _write_gateway_conf(self, profile: str) -> None:
+        faults = _load_faults(self.ops)
+        try:
+            conf = faults.render_gateway_conf(profile)
+        except ValueError as exc:
+            raise DevnetError(str(exc)) from exc
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        # Write in place so the bind-mounted file in the gateway container keeps its inode.
+        (self.run_dir / "gateway.conf").write_text(conf, encoding="utf-8")
+
     # Commands.
 
     def up(self, servers: list[str], *, bot: bool) -> int:
@@ -95,6 +119,7 @@ class Devnet:
         (self.run_dir / "tls").mkdir(parents=True, exist_ok=True)
         (self.run_dir / "empty-bin").mkdir(exist_ok=True)
         os.chmod(self.run_dir, 0o700)
+        self._write_gateway_conf("normal")
         print("devnet: build the images (tag devnet)")
         _run(self._server(servers[0]) + ["build", "api", "fedify", "edge"], env=self._server_env(servers[0]))
         _run(["docker", "build", "-q", "-t", TOOLBOX_IMAGE, "--build-arg", f"CLAIRE_IMAGE=claire-bible:{IMAGE_TAG}", "-f", str(self.ops / "toolbox.Dockerfile"), str(self.ops)], capture=True)
@@ -139,7 +164,7 @@ class Devnet:
         print(f"devnet: server {server}: first setup through the gateway")
         self._toolbox(["python", "/devnet-ops/bootstrap.py", "--server", server, "--link", link, "--state", "/devnet/state.json"], state_writable=True)
 
-    def _toolbox(self, command: list[str], *, state_writable: bool = False, workdir: str | None = None) -> int:
+    def _toolbox(self, command: list[str], *, state_writable: bool = False, workdir: str | None = None, fault_ctl_dir: Path | None = None) -> int:
         run = [
             "docker", "run", "--rm", "--network", "claire-devnet-edge", "--dns", f"{EDGE_PREFIX}.3",
             "--memory", "4g", "--memory-swap", "4g",
@@ -151,6 +176,8 @@ class Devnet:
             run += ["-v", f"{self.run_dir}:/devnet"]
         else:
             run += ["-v", f"{self.state}:/devnet/state.json:ro", "-v", f"{self.root}:/src:ro"]
+        if fault_ctl_dir is not None:
+            run += ["-e", "CB_DEVNET_FAULT_CTL=/devnet-ctl", "-v", f"{fault_ctl_dir}:/devnet-ctl"]
         if workdir:
             run += ["-w", workdir]
         run += [TOOLBOX_IMAGE] + command
@@ -169,11 +196,67 @@ class Devnet:
                     failed += 1
         return 1 if failed else 0
 
+    def fault(self, profile: str) -> int:
+        self._write_gateway_conf(profile)
+        _run(self._core() + ["exec", "-T", "gateway", "nginx", "-s", "reload"], env=self._base_env())
+        print(f"devnet: gateway fault profile {profile} is active")
+        return 0
+
+    def logs(self, server: str, service: str | None = None) -> int:
+        if server not in SERVERS:
+            raise DevnetError(f"unknown server: {server}")
+        command = self._server(server) + ["logs", "--tail", "200"]
+        if service:
+            command.append(service)
+        _run(command, env=self._server_env(server))
+        return 0
+
     def test(self, pytest_args: list[str]) -> int:
         if not self.state.exists():
             raise DevnetError("no state file: run ./cb-manuscript dev devnet up first")
         args = pytest_args or ["tests/test_devnet.py"]
-        return self._toolbox(["python", "-m", "pytest", "-p", "no:cacheprovider", "-m", "devnet", *args], workdir="/src")
+        ctl_dir = self.run_dir / "fault-ctl"
+        ctl_dir.mkdir(parents=True, exist_ok=True)
+        for stale in ("request", "response", "response.tmp"):
+            (ctl_dir / stale).unlink(missing_ok=True)
+        stop_event = threading.Event()
+        fault_state = {"changed": False}
+
+        def _watch_fault_ctl() -> None:
+            req_path = ctl_dir / "request"
+            resp_path = ctl_dir / "response"
+            tmp_path = ctl_dir / "response.tmp"
+            while not stop_event.is_set():
+                if req_path.is_file():
+                    raw = req_path.read_text(encoding="utf-8").strip()
+                    parts = raw.split(None, 1)
+                    if len(parts) == 2:
+                        seq, profile = parts
+                        try:
+                            if profile != "normal":
+                                fault_state["changed"] = True
+                            self.fault(profile)
+                            answer = f"{seq} ok\n"
+                        except Exception as exc:  # noqa: BLE001
+                            answer = f"{seq} err {exc}\n"
+                        req_path.unlink(missing_ok=True)
+                        tmp_path.write_text(answer, encoding="utf-8")
+                        os.replace(tmp_path, resp_path)
+                time.sleep(0.05)
+
+        watcher = threading.Thread(target=_watch_fault_ctl, daemon=True)
+        watcher.start()
+        try:
+            return self._toolbox(["python", "-m", "pytest", "-p", "no:cacheprovider", "-m", "devnet", *args], workdir="/src", fault_ctl_dir=ctl_dir)
+        finally:
+            stop_event.set()
+            watcher.join(timeout=2)
+            if fault_state["changed"]:
+                try:
+                    self.fault("normal")
+                except DevnetError:
+                    pass
+            shutil.rmtree(ctl_dir, ignore_errors=True)
 
     def info(self) -> int:
         running = self._running_servers()
@@ -200,6 +283,7 @@ class Devnet:
 
 
 def main(root: Path, argv: list[str]) -> int:
+    faults = _load_faults(root / "ops" / "dev" / "devnet")
     parser = argparse.ArgumentParser(prog="cb-manuscript dev devnet", description="The development network of Claire servers.")
     sub = parser.add_subparsers(dest="action", required=True)
     up = sub.add_parser("up", help="Start the network and the servers, and do the first setup of each server")
@@ -208,6 +292,11 @@ def main(root: Path, argv: list[str]) -> int:
     sub.add_parser("check", help="Readiness report of each server (claire server check --federation)")
     test = sub.add_parser("test", help="Run the tests with the marker devnet in the toolbox")
     test.add_argument("pytest_args", nargs=argparse.REMAINDER)
+    fault = sub.add_parser("fault", help="Apply a gateway fault profile and reload nginx")
+    fault.add_argument("profile", choices=faults.PROFILES, help=", ".join(faults.PROFILES))
+    logs = sub.add_parser("logs", help="Show the last 200 log lines of one server or one service")
+    logs.add_argument("server", choices=SERVERS, help="a or b")
+    logs.add_argument("service", nargs="?", help="Optional service name")
     sub.add_parser("info", help="Names, the access proxy, the authority file, and the state file")
     sub.add_parser("down", help="Remove the network, the servers, their data, and .dev/devnet")
     args = parser.parse_args(argv)
@@ -222,6 +311,10 @@ def main(root: Path, argv: list[str]) -> int:
             return devnet.check()
         if args.action == "test":
             return devnet.test(args.pytest_args)
+        if args.action == "fault":
+            return devnet.fault(args.profile)
+        if args.action == "logs":
+            return devnet.logs(args.server, args.service)
         if args.action == "info":
             return devnet.info()
         return devnet.down()

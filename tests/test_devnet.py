@@ -8,10 +8,13 @@ The tests act only through the public routes and the federation paths of the ser
 from __future__ import annotations
 
 import asyncio
+import ast
 import importlib.util
 import json
 import os
 import secrets
+import shutil
+import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -146,6 +149,144 @@ def test_devnet_info_and_base_env(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert "chromium" in out and "--proxy-server=http://127.0.0.1:18443" in out
     assert "firefox" in out and "--profile" in out
     assert "not implemented" not in out
+
+
+def test_f12_drfed_stack_generate_actors_uses_server_id() -> None:
+    from tests import drfed_stack
+
+    source = (REPO_ROOT / "tests" / "drfed_stack.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    assert "instance_id" not in names
+
+    seen: list[tuple[str, dict[str, Any] | None]] = []
+
+    class _FakeStack(drfed_stack.DrFedStack):
+        def graphql(self, query: str, variables: dict[str, Any] | None = None, *, token: bool = True) -> dict[str, Any]:
+            seen.append((query, variables))
+            return {
+                "generateActors": {
+                    "__typename": "CreateActorsSuccess",
+                    "actors": [{"id": "act-1", "iri": "https://a.drfed.test/actors/1", "handle": "@a@a.drfed.test", "inboxUrl": "https://a.drfed.test/actors/1/inbox"}],
+                }
+            }
+
+    fake = _FakeStack(run_dir="/tmp/drfed", project="p", edge_prefix="172.31.251", backend_prefix="172.31.252", loopback_port=0, email="t@drfed.test")
+    actors = drfed_stack.generate_actors(fake, "srv-123", 1)
+    assert seen and seen[0][1] == {"instance": "srv-123", "size": 1}
+    assert actors == [drfed_stack.DrFedActor(id="act-1", iri="https://a.drfed.test/actors/1", handle="@a@a.drfed.test", inbox="https://a.drfed.test/actors/1/inbox")]
+
+
+def _load_faults():
+    spec = importlib.util.spec_from_file_location("devnet_faults", REPO_ROOT / "ops" / "dev" / "devnet" / "faults.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_render_gateway_conf_normal_matches_gateway_conf_and_rejects_unknown() -> None:
+    faults = _load_faults()
+    assert faults.PROFILES == ("normal", "gf8", "gf9", "gf10", "gf14", "gf15", "gf16", "gf17")
+    normal_conf = faults.render_gateway_conf("normal")
+    assert normal_conf == (REPO_ROOT / "ops" / "dev" / "devnet" / "gateway.conf").read_text(encoding="utf-8")
+    assert "events {" not in normal_conf and "http {" not in normal_conf
+    assert "server {" in normal_conf and "location / {" in normal_conf
+    compose_core = (REPO_ROOT / "ops" / "dev" / "devnet" / "compose.core.yml").read_text(encoding="utf-8")
+    assert "/gateway.conf:/etc/nginx/conf.d/default.conf:ro" in compose_core
+    assert "./gateway.conf:/etc/nginx/nginx.conf:ro" not in compose_core
+
+    for bad in ("unknown", "", "gf1", "GF8"):
+        with pytest.raises(ValueError, match="unknown gateway fault profile"):
+            faults.render_gateway_conf(bad)
+
+
+@pytest.mark.parametrize(
+    ("profile", "expected_snippet"),
+    [
+        ("gf8", "location = /ap/kb/0"),
+        ("gf9", "proxy_set_header Host $devnet_edge;"),
+        ("gf10", "client_max_body_size 64k;"),
+        ("gf14", "location = /nodeinfo/2.1"),
+        ("gf15", "location ~ ^/ap/kb/[1-9][0-9]*$"),
+        ("gf16", "location = /ap/kb"),
+        ("gf17", "proxy_hide_header Access-Control-Allow-Origin;"),
+    ],
+)
+def test_render_gateway_conf_fault_profiles(profile: str, expected_snippet: str) -> None:
+    faults = _load_faults()
+    rendered = faults.render_gateway_conf(profile)
+    assert expected_snippet in rendered
+    assert "location / {" in rendered
+    assert rendered != faults.render_gateway_conf("normal")
+
+
+def test_devnet_up_fault_logs_and_cli_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ops import devnet
+
+    faults_dir = tmp_path / "ops" / "dev" / "devnet"
+    faults_dir.mkdir(parents=True)
+    shutil.copy2(REPO_ROOT / "ops" / "dev" / "devnet" / "faults.py", faults_dir / "faults.py")
+    faults = _load_faults()
+
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    def fake_run(command: list[str], *, env: dict[str, str] | None = None, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess[str]:
+        calls.append((list(command), env))
+        if "compose.core.yml" in " ".join(command) and "up" in command:
+            assert (tmp_path / ".dev" / "devnet" / "gateway.conf").read_text(encoding="utf-8") == faults.render_gateway_conf("normal")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(devnet, "_run", fake_run)
+
+    net = devnet.Devnet(tmp_path)
+    assert net.fault("gf10") == 0
+    assert (net.run_dir / "gateway.conf").read_text(encoding="utf-8") == faults.render_gateway_conf("gf10")
+    assert calls[-1][0] == ["docker", "compose", "-f", str(net.ops / "compose.core.yml"), "exec", "-T", "gateway", "nginx", "-s", "reload"]
+
+    with pytest.raises(devnet.DevnetError):
+        net.fault("invalid")
+
+    assert net.logs("a") == 0
+    assert calls[-1][0][-3:] == ["logs", "--tail", "200"]
+    assert calls[-1][1] is not None and calls[-1][1]["CB_DEVNET_SERVER"] == "a"
+
+    assert net.logs("b", "fedify") == 0
+    assert calls[-1][0][-4:] == ["logs", "--tail", "200", "fedify"]
+    assert calls[-1][1] is not None and calls[-1][1]["CB_DEVNET_SERVER"] == "b"
+
+    with pytest.raises(devnet.DevnetError):
+        net.logs("c")
+
+    assert devnet.main(tmp_path, ["fault", "gf17"]) == 0
+    assert (net.run_dir / "gateway.conf").read_text(encoding="utf-8") == faults.render_gateway_conf("gf17")
+    assert devnet.main(tmp_path, ["logs", "a", "api"]) == 0
+    assert calls[-1][0][-4:] == ["logs", "--tail", "200", "api"]
+
+    with pytest.raises(SystemExit):
+        devnet.main(tmp_path, ["fault", "unknown"])
+    with pytest.raises(SystemExit):
+        devnet.main(tmp_path, ["logs", "c"])
+
+    monkeypatch.setattr(devnet.shutil, "which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(net, "_bootstrap", lambda server: None)
+    monkeypatch.setattr(net, "info", lambda: 0)
+    assert net.up(["a"], bot=False) == 0
+    assert any("compose.core.yml" in " ".join(cmd) and "up" in cmd for cmd, _env in calls)
+
+    net.run_dir.mkdir(parents=True, exist_ok=True)
+    net.state.write_text("{}", encoding="utf-8")
+
+    def fake_toolbox(command: list[str], *, state_writable: bool = False, workdir: str | None = None, fault_ctl_dir: Path | None = None) -> int:
+        assert fault_ctl_dir is not None
+        monkeypatch.setenv("CB_DEVNET_FAULT_CTL", str(fault_ctl_dir))
+        _apply_gateway_fault("gf8")
+        assert (net.run_dir / "gateway.conf").read_text(encoding="utf-8") == faults.render_gateway_conf("gf8")
+        return 0
+
+    monkeypatch.setattr(net, "_toolbox", fake_toolbox)
+    assert net.test([]) == 0
+    assert (net.run_dir / "gateway.conf").read_text(encoding="utf-8") == faults.render_gateway_conf("normal")
 
 # The loops of the sidecar run each 5 or 60 seconds: a wait has three intervals of the slow loop.
 WAIT_SECONDS = 200
@@ -560,3 +701,198 @@ def test_ka3_kf1_servers_know_each_other_a_blocked_server_gets_404_and_the_singl
     # Without the block, the next read of A gets the collection again.
     read_b_again(a)
     wait_for("the read of B by A after the block", lambda: record_of(a, world["kb_actor"]))
+
+
+@_devnet_only
+def test_ka3_kf5_switch_off_stops_and_resumes(admins: dict[str, Session], world: dict[str, Any]) -> None:
+    """KF5 switch off on B blocks automatic offers; turning it on and re-reading resumes them, and switch off on A pauses sending until turned on."""
+    a, b = admins["a"], admins["b"]
+    sfx = secrets.token_hex(3)
+    prev_a = a.ok("GET", "/api/admin/auto-contribution")["state"]
+    prev_b = b.ok("GET", "/api/admin/auto-contribution")["state"]
+    rule_body = {"state": "active", "memberships": False, "mutual": False, "include_uploads": False, "themes": [world["theme"]]}
+    try:
+        assert a.ok("PUT", "/api/admin/auto-contribution", {"state": "on"})["state"] == "on"
+        assert b.ok("PUT", "/api/admin/auto-contribution", {"state": "off"})["state"] == "off"
+        assert a.ok("PUT", "/api/auto-rule", rule_body)["rule"]["state"] == "active"
+
+        page = _Page()
+        try:
+            doc_b_off = add_document(
+                a,
+                f"AutoSwitchOff {sfx}",
+                world["names"][:3],
+                url=page.set(f"/auto-sw-off-{sfx}", f"AutoSwitchOff {sfx}", f"A guide to {', '.join(world['names'][:3])}."),
+            )
+            doc_a_off = add_document(
+                a,
+                f"AutoSenderOff {sfx}",
+                world["names"][1:4],
+                url=page.set(f"/auto-a-off-{sfx}", f"AutoSenderOff {sfx}", f"A guide to {', '.join(world['names'][1:4])}."),
+            )
+        finally:
+            page.server.shutdown()
+
+        villages = b.ok("POST", "/kb", {"label": f"Villages {sfx}", "knowledge_type": "real"})["knowledge_base"]
+        fill_shared_kb(b, villages["number"], world["names"], f"Villages {sfx}")
+        b.ok("POST", "/api/admin/themes/judge", {})
+        villages_actor = f"https://b.claire.test/ap/kb/{villages['number']}"
+
+        read_b_again(a)
+        wait_for("the record of Villages on A while B switch is off", lambda: record_of(a, villages_actor))
+        a.ok("POST", "/api/admin/themes/judge", {})
+
+        dry_closed = a.ok("POST", "/api/auto-rule/dry-run", rule_body)
+        target_closed = next((t for t in dry_closed["targets"] if t.get("actor") == villages_actor), None)
+        assert target_closed is not None and (target_closed["mode"], target_closed["documents"]) == ("closed", []), target_closed
+        assert not [c for c in b.ok("GET", f"/kb/{villages['number']}/contributions?state=pending")["contributions"] if c["title"] == f"AutoSwitchOff {sfx}"]
+
+        assert b.ok("PUT", "/api/admin/auto-contribution", {"state": "on"})["state"] == "on"
+        read_b_again(a)
+
+        def target_open() -> dict | None:
+            dry = a.ok("POST", "/api/auto-rule/dry-run", rule_body)
+            target = next((t for t in dry["targets"] if t.get("actor") == villages_actor), None)
+            return target if target is not None and target["mode"] == "pending" else None
+
+        wait_for("Villages target mode pending on A after B turns switch on", target_open)
+        a.ok("POST", "/api/admin/themes/judge", {})
+        wait_for(
+            "automatic offers on Villages after B turns switch on",
+            lambda: [c for c in b.ok("GET", f"/kb/{villages['number']}/contributions?state=pending")["contributions"] if c["title"] == f"AutoSwitchOff {sfx}"],
+        )
+
+        # Turn A off, add a fresh matching web page, verify judgement does not offer it while off, then turn A on to resume.
+        assert a.ok("PUT", "/api/admin/auto-contribution", {"state": "off"})["state"] == "off"
+        page2 = _Page()
+        try:
+            doc_paused = add_document(
+                a,
+                f"AutoPaused {sfx}",
+                world["names"][2:5],
+                url=page2.set(f"/auto-paused-{sfx}", f"AutoPaused {sfx}", f"A guide to {', '.join(world['names'][2:5])}."),
+            )
+        finally:
+            page2.server.shutdown()
+        a.ok("POST", "/api/admin/themes/judge", {})
+        dry_a_off = a.ok("POST", "/api/auto-rule/dry-run", rule_body)
+        assert dry_a_off["server_switch"] is False, dry_a_off
+        assert not [c for c in a.ok("GET", "/api/contributions?origin=auto")["contributions"] if c["document"] == doc_paused and (c.get("remote_target") or {}).get("actor") == villages_actor]
+
+        assert a.ok("PUT", "/api/admin/auto-contribution", {"state": "on"})["state"] == "on"
+        a.ok("POST", "/api/admin/themes/judge", {})
+        wait_for(
+            "paused document delivered to Villages after A turns switch on",
+            lambda: [c for c in b.ok("GET", f"/kb/{villages['number']}/contributions?state=pending")["contributions"] if c["title"] == f"AutoPaused {sfx}"],
+        )
+        assert [c for c in a.ok("GET", "/api/contributions?origin=auto")["contributions"] if c["document"] in (doc_b_off, doc_a_off, doc_paused)]
+    finally:
+        a.ok("PUT", "/api/admin/auto-contribution", {"state": prev_a})
+        b.ok("PUT", "/api/admin/auto-contribution", {"state": prev_b})
+
+
+@_devnet_only
+def test_ka3_failed_activity_replay(admins: dict[str, Session], world: dict[str, Any]) -> None:
+    """Admin inbox journal and replay routes on a live server: inspect entries, replay any failed row, and verify 409/404/400 guards."""
+    a, b = admins["a"], admins["b"]
+    entries = b.ok("GET", "/api/admin/federation/journal")["entries"]
+    if not entries:
+        sfx = secrets.token_hex(3)
+        doc = add_document(a, f"JournalSeed {sfx}", world["names"][:3])
+        a.ok("POST", "/submissions", {"documents": [doc], "theme": world["theme"]})
+        entries = wait_for("an inbox journal entry on B", lambda: b.ok("GET", "/api/admin/federation/journal")["entries"])
+
+    failed_entries = b.ok("GET", "/api/admin/federation/journal?status=failed")["entries"]
+    for failed_entry in failed_entries:
+        replayed = b.ok("POST", f"/api/admin/federation/journal/{failed_entry['id']}/replay", {})
+        assert replayed["entry"]["id"] == failed_entry["id"]
+
+    processed = next((e for e in b.ok("GET", "/api/admin/federation/journal")["entries"] if e["status"] == "processed"), None)
+    assert processed is not None, entries
+    detail = b.ok("GET", f"/api/admin/federation/journal/{processed['id']}")["entry"]
+    assert detail["id"] == processed["id"] and isinstance(detail["payload"], dict) and detail["replayable"] is False
+
+    conflict = b("POST", f"/api/admin/federation/journal/{processed['id']}/replay", {})
+    assert (conflict.status_code, conflict.json()) == (409, {"error": "journal_entry_not_replayable", "states": ["failed", "received"]}), conflict.text
+    missing = b("POST", "/api/admin/federation/journal/999999999/replay", {})
+    assert (missing.status_code, missing.json()) == (404, {"error": "journal_entry_not_found"}), missing.text
+    bad_body = b("POST", f"/api/admin/federation/journal/{processed['id']}/replay", {"extra": 1})
+    assert bad_body.status_code == 400 and bad_body.json()["error"] == "invalid_request", bad_body.text
+    with httpx.Client(timeout=30, follow_redirects=False) as anon:
+        unauth = anon.post(f"{b.origin}/api/admin/federation/journal/{processed['id']}/replay", json={}, headers={"Origin": b.origin})
+        assert unauth.status_code == 404
+
+
+_FAULT_TARGETS: tuple[tuple[str, str], ...] = (
+    ("gf8", "GF8"),
+    ("gf9", "GF9"),
+    ("gf10", "GF10"),
+    ("gf14", "GF14"),
+    ("gf15", "GF15"),
+    ("gf16", "GF16"),
+    ("gf17", "GF17"),
+)
+_FAULT_CTL_SEQ = 0
+
+
+def _apply_gateway_fault(profile: str) -> None:
+    global _FAULT_CTL_SEQ
+    ctl_dir = os.environ.get("CB_DEVNET_FAULT_CTL")
+    if ctl_dir:
+        _FAULT_CTL_SEQ += 1
+        seq = str(_FAULT_CTL_SEQ)
+        ctl = Path(ctl_dir)
+        req_tmp = ctl / "request.tmp"
+        req = ctl / "request"
+        resp = ctl / "response"
+        resp.unlink(missing_ok=True)
+        req_tmp.write_text(f"{seq} {profile}\n", encoding="utf-8")
+        os.replace(req_tmp, req)
+        deadline = time.monotonic() + 30.0
+        while time.monotonic() < deadline:
+            if resp.is_file():
+                text = resp.read_text(encoding="utf-8").strip()
+                if text.startswith(f"{seq} "):
+                    resp.unlink(missing_ok=True)
+                    if text == f"{seq} ok":
+                        return
+                    raise RuntimeError(f"gateway fault {profile} failed: {text}")
+            time.sleep(0.05)
+        raise TimeoutError(f"gateway fault control timed out for {profile}")
+    if shutil.which("docker") is not None:
+        from ops import devnet
+
+        devnet.Devnet(REPO_ROOT).fault(profile)
+        return
+    pytest.skip("gateway fault control requires CB_DEVNET_FAULT_CTL or docker")
+
+
+@_devnet_only
+def test_de5_kf6_fault_profiles_and_recovery(admins: dict[str, Session], world: dict[str, Any]) -> None:
+    """DE5 / KF6: each gateway fault profile fails only its target readiness check, and restoring normal recovers all checks."""
+    a = admins["a"]
+    target_ids = tuple(gf for _profile, gf in _FAULT_TARGETS)
+
+    def all_ready() -> dict[str, dict] | None:
+        items = _readiness(a)
+        return items if all(items[gf]["applies"] and items[gf]["passed"] for gf in target_ids) else None
+
+    wait_for("all target GF checks passing before fault injection", all_ready)
+    for profile, target_gf in _FAULT_TARGETS:
+        def target_failed(gf: str = target_gf) -> dict[str, dict] | None:
+            items = _readiness(a)
+            return items if not items[gf]["passed"] else None
+
+        def all_recovered() -> dict[str, dict] | None:
+            items = _readiness(a)
+            return items if all(items[gf]["passed"] for gf in target_ids) else None
+
+        try:
+            _apply_gateway_fault(profile)
+            items = wait_for(f"{target_gf} fails under gateway fault {profile}", target_failed)
+            assert items[target_gf]["passed"] is False, items[target_gf]
+            extra_failures = [gf for gf in target_ids if gf != target_gf and not items[gf]["passed"]]
+            assert extra_failures == [], f"fault {profile} broke extra checks: {extra_failures}"
+        finally:
+            _apply_gateway_fault("normal")
+            wait_for(f"readiness recovery after gateway fault {profile}", all_recovered)

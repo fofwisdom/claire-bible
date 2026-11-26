@@ -208,7 +208,7 @@ def create_server(stack: DrFedStack, slug: str) -> str:
 
 
 def generate_actors(stack: DrFedStack, server_id: str, size: int) -> list[DrFedActor]:
-    data = stack.graphql("mutation($instance: ID!, $size: Int!) { generateActors(instance: $instance, size: $size) { __typename ... on CreateActorsSuccess { actors { id iri handle inboxUrl } } ... on CreateActorsError { type message } } }", {"instance": instance_id, "size": size})["generateActors"]
+    data = stack.graphql("mutation($instance: ID!, $size: Int!) { generateActors(instance: $instance, size: $size) { __typename ... on CreateActorsSuccess { actors { id iri handle inboxUrl } } ... on CreateActorsError { type message } } }", {"instance": server_id, "size": size})["generateActors"]
     if data["__typename"] != "CreateActorsSuccess":
         raise DrFedStackError(f"DrFed did not make the actors: {data}")
     return [DrFedActor(id=a["id"], iri=a["iri"], handle=a["handle"] or "", inbox=a["inboxUrl"]) for a in data["actors"]]
