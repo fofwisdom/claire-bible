@@ -403,10 +403,10 @@ test('the formatted body of an opinion opens in a sandbox frame of a modal dialo
   await expect(frame).toHaveAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
   await expect(frame).toHaveAttribute('title', 'Carol의 의견: 서식과 첨부');
   await expect(page.frameLocator('#op-frame-dialog iframe').locator('strong')).toHaveText('Formatted');
-  // Escape closes the dialog, and the frame loses its address.
+  // Escape closes the dialog, and the frame loses its address. The dialog fires its close event after it is hidden, so the test waits for the address to go.
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
-  expect(await frame.getAttribute('src')).toBeNull();
+  await expect.poll(() => frame.getAttribute('src')).toBeNull();
   await expectNoRawKeys(page);
   // Playwright puts its scripts into each frame; a sandbox frame without scripts refuses them. These messages are of the test tool, not of the page.
   expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed') && !(e.includes('Blocked script execution') && (e.includes('/opinions/') || e.includes('about:blank'))))).toEqual([]);
