@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,6 +26,7 @@ __all__ = [
     "Fetch",
     "Opinion",
     "add_attachments_column",
+    "count_visible_opinions",
     "delete_for_object",
     "delete_opinion",
     "ensure_schema",
@@ -212,6 +214,31 @@ def opinions_of(conn: sqlite3.Connection, object_iri: str, *, include_hidden: bo
     hidden = "" if include_hidden else " AND hidden_at IS NULL"
     rows = conn.execute(f"SELECT {_COLUMNS} FROM federation_opinions WHERE object_iri=?{hidden} ORDER BY COALESCE(published, fetched_at), opinion_iri", (object_iri,)).fetchall()
     return [_opinion(row) for row in rows]
+
+
+def count_visible_opinions(conn: sqlite3.Connection, object_public_ids: Sequence[int], *, origin: str | None = None) -> dict[int, int]:
+    """Return the count of non-hidden opinions for each object public ID."""
+    ids = [int(public_id) for public_id in object_public_ids]
+    counts = {public_id: 0 for public_id in ids}
+    if not ids:
+        return counts
+    if origin is not None:
+        prefix = f"{origin.rstrip('/')}/ap/objects/"
+        by_iri = {f"{prefix}{public_id}": public_id for public_id in counts}
+        iri_list = list(by_iri)
+        for start in range(0, len(iri_list), 500):
+            part = iri_list[start : start + 500]
+            marks = ",".join("?" for _ in part)
+            for object_iri, number in conn.execute(f"SELECT object_iri, COUNT(*) FROM federation_opinions WHERE hidden_at IS NULL AND object_iri IN ({marks}) GROUP BY object_iri", part):
+                counts[by_iri[str(object_iri)]] = int(number)
+        return counts
+    for object_iri, number in conn.execute("SELECT object_iri, COUNT(*) FROM federation_opinions WHERE hidden_at IS NULL AND object_iri LIKE '%/ap/objects/%' GROUP BY object_iri"):
+        tail = str(object_iri).rsplit("/ap/objects/", 1)[-1]
+        if tail.isascii() and tail.isdigit():
+            public_id = int(tail)
+            if public_id in counts:
+                counts[public_id] += int(number)
+    return counts
 
 
 def store_objects(conn: sqlite3.Connection, object_iri: str, objects: list[dict[str, Any]], *, quoting: set[str], delivered: set[str], now: float) -> int:

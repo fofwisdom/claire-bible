@@ -165,10 +165,22 @@
       if (!result.ok || !Array.isArray(result.data.items)) break;
       result.data.items.forEach((item) => {
         keys.add(`${item.kb_id}:${item.document_id}`);
-        // The +1 score of each rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 13): the renditions with a score, else the total 0.
-        const marked = (Array.isArray(item.plus_ones) ? item.plus_ones : []).filter((r) => Number(r.score) > 0);
-        const plus = marked.length ? tr("synd.kb.plus_ones", { list: marked.map((r) => `${tr(`rendition.template.${r.template}.label`)} ${Number(r.score)}`).join(", ") }) : tr("synd.kb.plus_ones", { list: "0" });
-        reactions[`${item.kb_id}:${item.document_id}`] = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })} · ${plus}`;
+        const base = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })}`;
+        if (Array.isArray(item.renditions) && item.renditions.length) {
+          const rendLabels = item.renditions.map((r) => {
+            const label = tr(`rendition.template.${r.template}.label`);
+            return Number(r.score) > 0 ? tr("synd.kb.rendition_plus", { label, score: Number(r.score) }) : label;
+          }).join(", ");
+          const opinions = tr("synd.kb.opinions_count", { count: Number(item.opinions) || 0 });
+          const renditions = tr("synd.kb.renditions", { list: rendLabels });
+          reactions[`${item.kb_id}:${item.document_id}`] = `${base} · ${opinions} · ${renditions}`;
+        } else {
+          // Keep fallback formatting for mocks that send only plus_ones without renditions.
+          const marked = (Array.isArray(item.plus_ones) ? item.plus_ones : []).filter((r) => Number(r.score) > 0);
+          const plus = marked.length ? tr("synd.kb.plus_ones", { list: marked.map((r) => `${tr(`rendition.template.${r.template}.label`)} ${Number(r.score)}`).join(", ") }) : tr("synd.kb.plus_ones", { list: "0" });
+          const opinions = item.opinions != null ? ` · ${tr("synd.kb.opinions_count", { count: Number(item.opinions) || 0 })}` : "";
+          reactions[`${item.kb_id}:${item.document_id}`] = `${base}${opinions} · ${plus}`;
+        }
         objects[`${item.kb_id}:${item.document_id}`] = { id: item.id };
       });
       maxId = result.data.next_max_id;
@@ -263,12 +275,15 @@
     const notActor = C.actor && !C.actor.is_actor;
     notice.hidden = !(notActor || C.error);
     notice.textContent = C.error ? tr("synd.error.request", { error: C.error }) : notActor ? tr("synd.client.not_actor") : "";
+    const actorBar = C.stream === "actor" && C.actorView
+      ? `<div class="synd-actor-bar"><div class="synd-actor-bar-info"><b class="synd-actor-bar-name">${esc(tr("synd.client.stream.actor", { name: C.actorView.name }))}</b><span class="synd-actor-bar-note">${esc(tr("synd.client.actor_fill_note"))}</span></div><button type="button" class="tt-btn synd-mini" data-client-stream="home">${esc(tr("synd.client.back_to_home"))}</button></div>`
+      : "";
     if (!C.loaded && C.loading) {
-      el.innerHTML = `<div class="synd-empty">${esc(tr("synd.client.loading"))}</div>`;
+      el.innerHTML = `${actorBar}<div class="synd-empty">${esc(tr("synd.client.loading"))}</div>`;
       return;
     }
     if (!C.items.length) {
-      el.innerHTML = `<div class="synd-empty">${esc(tr(C.stream === "home" ? "synd.client.empty_home" : C.stream === "actor" ? "synd.client.empty_actor" : "synd.client.empty"))}</div>`;
+      el.innerHTML = `${actorBar}<div class="synd-empty">${esc(tr(C.stream === "home" ? "synd.client.empty_home" : C.stream === "actor" ? "synd.client.empty_actor" : "synd.client.empty"))}</div>`;
       return;
     }
     const rows = C.items.map((item) => {
@@ -292,7 +307,7 @@
       </article>`;
     }).join("");
     const more = C.nextMaxId ? `<div class="synd-more"><button type="button" class="tt-btn" id="client-load-more" ${C.loading ? "disabled" : ""}>${esc(tr("synd.client.load_more"))}</button></div>` : "";
-    el.innerHTML = rows + more;
+    el.innerHTML = actorBar + rows + more;
   }
 
   // --- Reader and thread ---------------------------------------------------
@@ -458,7 +473,10 @@
     if (C.following === null) { el.innerHTML = ""; return; }
     const items = C.following.items || [];
     el.innerHTML = items.length
-      ? items.map((f) => `<div class="synd-follow-row">${f.state === "accepted" && f.actor_iri ? `<button type="button" class="synd-follow-name synd-follow-open" data-follow-view="${esc(f.id)}" title="${esc(tr("synd.client.follow_open", { name: f.display_name || f.request }))}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</button>` : `<span class="synd-follow-name" title="${esc(f.actor_iri || f.request)}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</span>`}<span class="tt-count-pill ${f.state === "accepted" ? "fresh" : ""}">${esc(tr(`synd.client.follow_state.${f.state}`))}</span><button type="button" class="tt-icon-btn" data-unfollow="${esc(f.id)}" title="${esc(tr("synd.client.unfollow"))}" aria-label="${esc(tr("synd.client.unfollow_name", { name: f.display_name || f.request }))}">✕</button></div>`).join("")
+      ? items.map((f) => {
+        const active = C.stream === "actor" && C.actorView && C.actorView.iri === f.actor_iri;
+        return `<div class="synd-follow-row ${active ? "is-active" : ""}">${f.state === "accepted" && f.actor_iri ? `<button type="button" class="synd-follow-name synd-follow-open" data-follow-view="${esc(f.id)}" title="${esc(tr("synd.client.follow_open", { name: f.display_name || f.request }))}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</button>` : `<span class="synd-follow-name" title="${esc(f.actor_iri || f.request)}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</span>`}<span class="tt-count-pill ${f.state === "accepted" ? "fresh" : ""}">${esc(tr(`synd.client.follow_state.${f.state}`))}</span><button type="button" class="tt-icon-btn" data-unfollow="${esc(f.id)}" title="${esc(tr("synd.client.unfollow"))}" aria-label="${esc(tr("synd.client.unfollow_name", { name: f.display_name || f.request }))}">✕</button></div>`;
+      }).join("")
       : `<div class="synd-note">${esc(tr("synd.client.following_empty"))}</div>`;
   }
 
@@ -694,6 +712,7 @@
   }
   if (Feeds) Feeds.init({ setStage, renderStageBar, renderClient, stage: () => C.stage, selectTimelineItem: (id) => { renderClient(); selectItem(id); } });
   bridge.onRender = renderStageBar;
+  bridge.onPublished = () => loadPublished().then(renderStageBar);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pollTimeline(); });
   setInterval(pollTimeline, POLL_MS);
 

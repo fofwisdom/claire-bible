@@ -579,11 +579,24 @@ body[data-stage="collect"] .kb-only, body:not([data-stage="collect"]) .client-on
 .synd-empty { padding: 42px 20px; text-align: center; color: var(--muted); font-size: 13px; }
 .synd-follow-form { display: flex; gap: 4px; padding: 4px 8px 2px 18px; }
 .synd-follow-form input { flex: 1; min-width: 0; height: 26px; }
-.synd-follow-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12.5px; }
+.synd-follow-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 4px; font-size: 12.5px; }
+.synd-follow-row.is-active { background: var(--active); font-weight: 700; }
+.synd-follow-row.is-active .synd-follow-open { color: var(--accent); font-weight: 700; }
 .synd-follow-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A follow row that opens the posts of the actor (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 6). */
 .synd-follow-open { background: none; border: 0; padding: 0; min-height: 24px; color: var(--accent); font: inherit; text-align: start; cursor: pointer; }
 .synd-follow-open:hover { text-decoration: underline; }
+.synd-actor-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--card-bg); font-size: 12.5px; }
+.synd-actor-bar-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.synd-actor-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.synd-actor-bar-note { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.tt-link-dot.synd-badge-filled, .synd-badge-filled { padding: 1px 6px; border: 1px dashed var(--border); background: var(--panel-bg); color: var(--muted); font-size: 10.5px; }
+.synd-publish-renditions { display: flex; flex-direction: column; gap: 5px; }
+.synd-publish-rendition-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.synd-publish-rendition-label { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.synd-publish-rendition-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-bg); color: var(--fg); font-size: 11.5px; font-weight: 600; }
+.synd-publish-rendition-chip.is-primary { border-color: rgba(26, 127, 55, 0.4); background: rgba(26, 127, 55, 0.12); color: var(--accent2); }
+.synd-publish-rendition-note { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
 /* Feed view (FP4-F3) */
 .synd-feed-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; padding: 4px 8px 2px 18px; }
 .synd-feed-form input[type="text"] { width: 100%; min-width: 0; height: 26px; box-sizing: border-box; }

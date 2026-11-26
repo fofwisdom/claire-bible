@@ -643,11 +643,31 @@
       ${nativeActor ? `<fieldset id="dispatch-native" style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
         <legend style="font-size:12px;font-weight:700;padding:0 4px">${ic("home")} ${esc(tr("synd.kb.publish.action"))}</legend>
         <div style="font-size:12.5px">${esc(tr("synd.kb.publish.target"))}: <b data-native-handle>${esc(nativeActor.handle)}</b> · ${esc(tr("synd.kb.publish.format"))}</div>
+        <div id="dispatch-native-renditions" class="synd-publish-renditions"></div>
         <div style="font-size:11.5px;color:var(--muted)">${esc(tr(theme.isPublic ? "synd.kb.publish.public_note" : "synd.kb.publish.private_note"))}</div>
         <div id="dispatch-native-msg" style="font-size:12px;color:var(--muted)"></div>
         <div style="display:flex;justify-content:flex-end"><button type="button" id="btn-native-publish" class="tt-btn tt-btn-pri" ${theme.isPublic ? "" : "disabled"}>${ic("home")} ${esc(tr("synd.kb.publish.action"))}</button></div>
       </fieldset>` : ""}
     `;
+
+    const renditionsEl = document.getElementById("dispatch-native-renditions");
+    if (renditionsEl) {
+      const renderPublishRenditions = (templates) => {
+        if (!renditionsEl.isConnected) return;
+        const order = { standard: 0, concise: 1, academic: 2 };
+        const ordered = Array.from(new Set(templates)).sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
+        const chips = ordered.map((tpl) => `<span class="synd-publish-rendition-chip ${tpl === "standard" ? "is-primary" : ""}" data-publish-rendition="${esc(tpl)}">${esc(tr(`rendition.template.${tpl}.label`))}</span>`).join("");
+        renditionsEl.innerHTML = `<div class="synd-publish-rendition-chips"><span class="synd-publish-rendition-label">${esc(tr("synd.kb.publish.renditions_label"))}:</span>${chips}</div><div class="synd-publish-rendition-note">${esc(tr("synd.kb.publish.renditions_note"))}</div>`;
+      };
+      renderPublishRenditions(["standard"]);
+      fetch(`/api/v1/kbs/${encodeURIComponent(themeRefOf(theme.id))}/documents/${encodeURIComponent(doc.id)}/renditions`, { headers: { Accept: "application/json" } })
+        .then((resp) => (resp.ok ? resp.json() : null))
+        .then((data) => {
+          const listed = data && Array.isArray(data.renditions) ? data.renditions.map((r) => r && r.template).filter(Boolean) : [];
+          if (listed.length) renderPublishRenditions(listed);
+        })
+        .catch(() => {});
+    }
 
     const nativeBtn = document.getElementById("btn-native-publish");
     if (nativeBtn) {
@@ -671,6 +691,7 @@
           }
           modal.close();
           ticker(tr(data.created ? "synd.kb.publish.created" : "synd.kb.publish.updated", { id: doc.id, handle: nativeActor.handle }));
+          if (typeof bridge.onPublished === "function") bridge.onPublished();
         } catch (err) {
           if (msgEl) msgEl.textContent = tr("synd.kb.network_error", { error: err.message || err });
           nativeBtn.disabled = false;
@@ -1296,7 +1317,8 @@
       renderAll();
     },
     onRender: null,
-    onOpenDocument: null
+    onOpenDocument: null,
+    onPublished: null
   };
   window.ClaireSyndication = bridge;
 
