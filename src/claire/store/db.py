@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 50
+SCHEMA_VERSION = 51
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -906,6 +906,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v48_anonymous_readonly(conn)
     _migrate_v49_document_quotes_always_permitted(conn)
     _migrate_v50_document_renditions(conn)
+    _migrate_v51_document_source_keys(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -2285,6 +2286,26 @@ def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
 
 
+def _migrate_v51_document_source_keys(conn: sqlite3.Connection) -> None:
+    """v51 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rules 4 to 6): the source key of each document and the version of its rules (``ingest.source_key``). Idempotent; it runs at each start. When the step adds the columns, it computes the key of each document that exists. Later starts change nothing: ``insert_document`` writes the key."""
+    from ..ingest.source_key import SOURCE_ID_VERSION, source_key_of
+
+    if not _table_exists(conn, "documents"):
+        return
+    added = "source_key" not in _column_names(conn, "documents")
+    _ensure_column(conn, "documents", "source_key", "TEXT")
+    _ensure_column(conn, "documents", "source_id_version", "INTEGER")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_source_key ON documents(source_key)")
+    if not added:
+        return
+    rows = conn.execute("SELECT rowid, url, canonical_url, source_type FROM documents").fetchall()
+    for rowid, url, canonical_url, source_type in rows:
+        # A copy of a document of another server (``remote``) has the address of the remote object, not of its source.
+        key = None if source_type == "remote" else source_key_of(url, canonical_url)
+        if key is not None:
+            conn.execute("UPDATE documents SET source_key=?, source_id_version=? WHERE rowid=?", (key, SOURCE_ID_VERSION, rowid))
+
+
 def _migrate_v50_document_renditions(conn: sqlite3.Connection) -> None:
     """v50 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.1 and 6): the renditions (정리본) of each document. Idempotent; it runs at each start.
 
@@ -2968,16 +2989,21 @@ def insert_document(conn: sqlite3.Connection, doc: Document, kb_id: int = 0, *, 
     if status_val not in DOCUMENT_EXTRACTION_STATUSES:
         raise ValueError(f"invalid extraction_status: {extraction_status!r}")
     char_count = len(doc.raw_text or "") if raw_chars is None else int(raw_chars)
+    from ..ingest.source_key import SOURCE_ID_VERSION, source_key_of
+
+    # The source key (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3): None for a document without a source identifier.
+    key = source_key_of(doc.url, doc.canonical_url)
     conn.execute(
         """INSERT OR REPLACE INTO documents
         (id,kb_id,url,canonical_url,title,author,published_at,fetched_at,raw_text,
-         source_type,content_hash,lang,partial,meta,minhash,seen,extraction_status,raw_chars)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)""",
+         source_type,content_hash,lang,partial,meta,minhash,seen,extraction_status,raw_chars,source_key,source_id_version)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)""",
         (
             doc.id, kb_id, doc.url, doc.canonical_url, doc.title, doc.author,
             doc.published_at, doc.fetched_at, doc.raw_text, doc.source_type,
             doc.content_hash, doc.lang, int(doc.partial), json.dumps(doc.meta),
             _document_minhash_json(doc), status_val, char_count,
+            key, SOURCE_ID_VERSION if key is not None else None,
         ),
     )
     conn.commit()

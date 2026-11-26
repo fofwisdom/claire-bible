@@ -31,7 +31,9 @@ __all__ = [
     "AS2_CONTEXT",
     "AS2_TERMS",
     "CLAIRE_CONTEXT",
+    "CLAIRE_CONTEXT_V2",
     "CLAIRE_NS",
+    "CONTEXT_V2_LOCAL_PATH",
     "CONTEXT_LOCAL_PATH",
     "CONTEXT_MEDIA_TYPE",
     "ERROR_CODES",
@@ -44,8 +46,10 @@ __all__ = [
     "REJECT_REASON_CODES",
     "ROLE_COLLABORATOR",
     "TERMS",
+    "TERMS_V2",
     "VOCABULARY_LOCAL_PATH",
     "WIRE_CONTEXT",
+    "WIRE_CONTEXT_V2",
     "ContractError",
     "build_accept_follow",
     "build_accept_offer",
@@ -64,7 +68,9 @@ __all__ = [
     "build_update_document",
     "build_update_knowledge_base",
     "context_document",
+    "context_document_v2",
     "context_json",
+    "context_json_v2",
     "is_content_hash",
     "is_iri",
     "iso_time",
@@ -82,9 +88,13 @@ CLAIRE_CONTEXT = "https://w3id.org/claire-bible/ns/v1"
 CLAIRE_NS = "https://w3id.org/claire-bible/ns#"
 FORGEFED_NS = "https://forgefed.org/ns#"
 WIRE_CONTEXT = (AS2_CONTEXT, CLAIRE_CONTEXT)
+# Version 2 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5): the terms of version 1 and the terms of renditions and +1. The document of version 1 does not change.
+CLAIRE_CONTEXT_V2 = "https://w3id.org/claire-bible/ns/v2"
+WIRE_CONTEXT_V2 = (AS2_CONTEXT, CLAIRE_CONTEXT_V2)
 
-# Each Claire server serves the two documents at these local paths (Section 9.1 rules 1 and 3).
+# Each Claire server serves the documents at these local paths (Section 9.1 rules 1 and 3).
 CONTEXT_LOCAL_PATH = "/ns/v1"
+CONTEXT_V2_LOCAL_PATH = "/ns/v2"
 VOCABULARY_LOCAL_PATH = "/ns"
 CONTEXT_MEDIA_TYPE = "application/ld+json"
 
@@ -163,6 +173,40 @@ TERMS: tuple[dict[str, Any], ...] = (
     {"term": ROLE_COLLABORATOR, "kind": "individual", "definition": None, "text": "The role of an account whose contributions to a shared knowledge base need no approval."},
 )
 
+# Version 2: renditions (정리본) and +1 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.5 and 5.12). The rows have the form of ``TERMS``.
+RENDITION_BODY = "claire:RenditionBody"
+PLUS_ONE = "claire:PlusOne"
+RENDITION = "claire:rendition"
+RENDITION_OF = "claire:renditionOf"
+RENDITIONS = "claire:renditions"
+TEMPLATE = "claire:template"
+TEMPLATE_VERSION = "claire:templateVersion"
+SOURCE_KEY = "claire:sourceKey"
+SOURCE_ID_VERSION = "claire:sourceIdVersion"
+BODY = "claire:body"
+BODY_HASH = "claire:bodyHash"
+PLUS_ONES = "claire:plusOnes"
+SERVERS = "claire:servers"
+SCORE = "claire:score"
+TEMPLATES = ("standard", "concise", "academic")
+
+TERMS_V2: tuple[dict[str, Any], ...] = (
+    {"term": RENDITION_BODY, "kind": "class", "base": "Object", "definition": None, "text": "The body of a rendition: the compiled HTML in \"content\" and the AsciiDoc text in \"source\". The origin gives it only to the server actor of another Claire server, with a valid HTTP signature."},
+    {"term": PLUS_ONE, "kind": "class", "base": "Activity", "definition": None, "text": "A +1 of an account for a rendition. Only Claire servers send it and read it."},
+    {"term": RENDITION, "kind": "property", "definition": {"@id": RENDITION, "@type": "@id"}, "text": "The rendition of a rendition body."},
+    {"term": RENDITION_OF, "kind": "property", "definition": {"@id": RENDITION_OF, "@type": "@id"}, "text": "The document object of a rendition that is not the primary rendition. The document object is also the primary rendition."},
+    {"term": RENDITIONS, "kind": "property", "definition": {"@id": RENDITIONS, "@type": "@id"}, "text": "The ordered collection of the published renditions of a document, the primary rendition first."},
+    {"term": TEMPLATE, "kind": "property", "definition": {"@id": TEMPLATE}, "text": "The rendition template of a rendition: \"standard\", \"concise\", or \"academic\". A new template is a new value; a value never changes its meaning."},
+    {"term": TEMPLATE_VERSION, "kind": "property", "definition": {"@id": TEMPLATE_VERSION}, "text": "The version of the rendition template of a rendition, for example \"standard-v1\". \"pre-template\" is a body that was made before the templates and counts as \"standard\"."},
+    {"term": SOURCE_KEY, "kind": "property", "definition": {"@id": SOURCE_KEY}, "text": "The SHA-256 of the source identifier of a document (a DOI, an arXiv address, or a normalized web address), as 64 lowercase hexadecimal characters. Documents with the same key have the same source."},
+    {"term": SOURCE_ID_VERSION, "kind": "property", "definition": {"@id": SOURCE_ID_VERSION, "@type": _XSD_COUNT}, "text": "The version of the rules that made the source identifier of a source key."},
+    {"term": BODY, "kind": "property", "definition": {"@id": BODY, "@type": "@id"}, "text": "The address of the body of a rendition (a claire:RenditionBody)."},
+    {"term": BODY_HASH, "kind": "property", "definition": {"@id": BODY_HASH}, "text": "The SHA-256 of the AsciiDoc text of a rendition body, as 64 lowercase hexadecimal characters. A reader compares it before it gets the body again. It is not claire:contentHash, which is the hash of the source text."},
+    {"term": PLUS_ONES, "kind": "property", "definition": {"@id": PLUS_ONES}, "text": "The collection of the +1 marks of a rendition, with \"totalItems\", claire:servers, and claire:score."},
+    {"term": SERVERS, "kind": "property", "definition": {"@id": SERVERS, "@type": _XSD_COUNT}, "text": "The number of servers of the accounts that gave a +1 to a rendition."},
+    {"term": SCORE, "kind": "property", "definition": {"@id": SCORE, "@type": _XSD_COUNT}, "text": "The +1 count of a rendition with the limit for one server."},
+)
+
 # The ActivityStreams 2.0 terms that the wire form uses. The ActivityStreams context defines them.
 AS2_TERMS = frozenset({
     "id", "type", "actor", "object", "target", "result", "context", "origin", "to", "name", "summary", "content", "url", "attributedTo", "published", "updated", "endTime", "inbox", "outbox", "followers", "formerType",
@@ -208,8 +252,8 @@ class ContractError(ValueError):
 
 
 def term_iri(term: str) -> str:
-    """Give the full IRI of a term of ``TERMS``."""
-    for row in TERMS:
+    """Give the full IRI of a term of ``TERMS`` or ``TERMS_V2``."""
+    for row in (*TERMS, *TERMS_V2):
         if row["term"] == term:
             definition = row["definition"]
             if definition is None:
@@ -233,6 +277,20 @@ def context_json() -> str:
     return json.dumps(context_document(), indent=2, ensure_ascii=False) + "\n"
 
 
+def context_document_v2() -> dict[str, Any]:
+    """Give the context document of version 2: the entries of version 1 and the entries of ``TERMS_V2``. A document with this context needs no other Claire context."""
+    document = context_document()
+    for row in TERMS_V2:
+        if row["definition"] is not None:
+            document["@context"][row["term"]] = row["definition"]
+    return document
+
+
+def context_json_v2() -> str:
+    """Give the text of the file ``static/ns/v2.jsonld``: the body of ``/ns/v2``."""
+    return json.dumps(context_document_v2(), indent=2, ensure_ascii=False) + "\n"
+
+
 _KIND_TITLES = (("class", "Types"), ("property", "Properties"), ("individual", "Values"))
 
 
@@ -250,20 +308,20 @@ def vocabulary_page() -> str:
         "<body>",
         "<h1>Claire Bible vocabulary</h1>",
         "<p>Claire Bible servers use these terms when they exchange shared knowledge with ActivityPub. The terms are for Claire Bible only.</p>",
-        f"<p>Namespace: <code>{html.escape(CLAIRE_NS)}</code> (prefix <code>claire</code>). JSON-LD context: <a href=\"{html.escape(CLAIRE_CONTEXT)}\"><code>{html.escape(CLAIRE_CONTEXT)}</code></a>. The context of version 1 does not change. A new term goes to a new version.</p>",
+        f"<p>Namespace: <code>{html.escape(CLAIRE_NS)}</code> (prefix <code>claire</code>). JSON-LD context: <a href=\"{html.escape(CLAIRE_CONTEXT)}\"><code>{html.escape(CLAIRE_CONTEXT)}</code></a>. The context of version 1 does not change. A new term goes to a new version: version 2 (<a href=\"{html.escape(CLAIRE_CONTEXT_V2)}\"><code>{html.escape(CLAIRE_CONTEXT_V2)}</code></a>) has the terms of version 1 and the terms of renditions and +1.</p>",
         f"<p>A document uses this context together with the ActivityStreams context <code>{html.escape(AS2_CONTEXT)}</code>. The terms <code>Grant</code>, <code>Revoke</code>, and <code>capability</code> have the identifiers of the ForgeFed vocabulary (<code>{html.escape(FORGEFED_NS)}</code>). Claire Bible claims no conformance to ForgeFed.</p>",
     ]
     for kind, title in _KIND_TITLES:
         parts.append(f"<h2>{title}</h2>")
         parts.append("<table>")
-        parts.append("<tr><th>Term</th><th>Identifier</th>" + ("<th>Base type</th>" if kind == "class" else "") + "<th>Definition</th></tr>")
-        for row in TERMS:
+        parts.append("<tr><th>Term</th><th>Identifier</th>" + ("<th>Base type</th>" if kind == "class" else "") + "<th>Since</th><th>Definition</th></tr>")
+        for row, since in [*((r, "v1") for r in TERMS), *((r, "v2") for r in TERMS_V2)]:
             if row["kind"] != kind:
                 continue
             iri = term_iri(row["term"])
             anchor = iri.rsplit("#", 1)[1]
             base = f"<td><code>{html.escape(row['base'])}</code></td>" if kind == "class" else ""
-            parts.append(f'<tr id="{html.escape(anchor)}"><td><code>{html.escape(row["term"])}</code></td><td><code>{html.escape(iri)}</code></td>{base}<td>{html.escape(row["text"])}</td></tr>')
+            parts.append(f'<tr id="{html.escape(anchor)}"><td><code>{html.escape(row["term"])}</code></td><td><code>{html.escape(iri)}</code></td>{base}<td>{since}</td><td>{html.escape(row["text"])}</td></tr>')
         parts.append("</table>")
     parts += ["</body>", "</html>"]
     return "\n".join(parts) + "\n"

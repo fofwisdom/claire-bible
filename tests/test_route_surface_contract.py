@@ -54,7 +54,7 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        # Agent-driven client extraction routes (AE5)
        "/api/client-extraction/stage", "/api/client-extraction/sources", "/api/client-extraction/sources/{document_id}/claim", "/api/client-extraction/sources/{document_id}/renew", "/api/client-extraction/spec", "/api/client-extraction/sources/{document_id}", "/api/client-extraction/sources/{document_id}/submit"}
 SYSTEM = {
-    "/health", "/robots.txt", "/ns", "/ns/v1", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
+    "/health", "/robots.txt", "/ns", "/ns/v1", "/ns/v2", "/sitemap.xml", "/favicon.ico", "/favicon.svg", "/apple-touch-icon.png",
     "/apple-touch-icon-precomposed.png", "/manifest.json", "/site.webmanifest", "/browserconfig.xml",
     "/sw.js",
     "/icon", "/font", "/fonts/NotoSansKR-Regular.woff2", "/fonts/NotoSansKR-Bold.woff2",

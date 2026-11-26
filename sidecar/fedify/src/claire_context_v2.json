@@ -1,0 +1,114 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "claire": "https://w3id.org/claire-bible/ns#",
+    "Grant": "https://forgefed.org/ns#Grant",
+    "Revoke": "https://forgefed.org/ns#Revoke",
+    "claire:knowledgeType": {
+      "@id": "claire:knowledgeType"
+    },
+    "claire:documentCount": {
+      "@id": "claire:documentCount",
+      "@type": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+    },
+    "claire:entityCount": {
+      "@id": "claire:entityCount",
+      "@type": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+    },
+    "claire:relationCount": {
+      "@id": "claire:relationCount",
+      "@type": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+    },
+    "claire:signature": {
+      "@id": "claire:signature",
+      "@type": "@json"
+    },
+    "claire:documents": {
+      "@id": "claire:documents",
+      "@type": "@id"
+    },
+    "claire:contentHash": {
+      "@id": "claire:contentHash"
+    },
+    "claire:root": {
+      "@id": "claire:root",
+      "@type": "@id"
+    },
+    "claire:extraction": {
+      "@id": "claire:extraction",
+      "@type": "@id"
+    },
+    "claire:keyClaims": {
+      "@id": "claire:keyClaims",
+      "@container": "@list"
+    },
+    "claire:entities": {
+      "@id": "claire:entities",
+      "@type": "@json"
+    },
+    "claire:relations": {
+      "@id": "claire:relations",
+      "@type": "@json"
+    },
+    "claire:document": {
+      "@id": "claire:document",
+      "@type": "@id"
+    },
+    "claire:reasonCode": {
+      "@id": "claire:reasonCode"
+    },
+    "claire:automatic": {
+      "@id": "claire:automatic"
+    },
+    "claire:acceptsAutomatic": {
+      "@id": "claire:acceptsAutomatic"
+    },
+    "capability": {
+      "@id": "https://forgefed.org/ns#capability",
+      "@type": "@id"
+    },
+    "claire:rendition": {
+      "@id": "claire:rendition",
+      "@type": "@id"
+    },
+    "claire:renditionOf": {
+      "@id": "claire:renditionOf",
+      "@type": "@id"
+    },
+    "claire:renditions": {
+      "@id": "claire:renditions",
+      "@type": "@id"
+    },
+    "claire:template": {
+      "@id": "claire:template"
+    },
+    "claire:templateVersion": {
+      "@id": "claire:templateVersion"
+    },
+    "claire:sourceKey": {
+      "@id": "claire:sourceKey"
+    },
+    "claire:sourceIdVersion": {
+      "@id": "claire:sourceIdVersion",
+      "@type": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+    },
+    "claire:body": {
+      "@id": "claire:body",
+      "@type": "@id"
+    },
+    "claire:bodyHash": {
+      "@id": "claire:bodyHash"
+    },
+    "claire:plusOnes": {
+      "@id": "claire:plusOnes"
+    },
+    "claire:servers": {
+      "@id": "claire:servers",
+      "@type": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+    },
+    "claire:score": {
+      "@id": "claire:score",
+      "@type": "http://www.w3.org/2001/XMLSchema#nonNegativeInteger"
+    }
+  }
+}

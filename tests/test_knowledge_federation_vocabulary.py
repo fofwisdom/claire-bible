@@ -327,10 +327,26 @@ def test_context_file_is_json_ld_and_defines_each_term_of_the_builders() -> None
         assert v.term_iri(row["term"]).startswith((v.CLAIRE_NS, v.FORGEFED_NS))
 
 
+def test_context_v2_has_each_entry_of_v1_and_the_terms_of_renditions() -> None:
+    """Version 2 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5): a document with the context of version 2 needs no other Claire context. The file of version 1 does not change."""
+    text = (STATIC_NS / "v2.jsonld").read_text(encoding="utf-8")
+    assert text == v.context_json_v2()
+    v1 = v.context_document()["@context"]
+    v2 = json.loads(text)["@context"]
+    assert {key: v2[key] for key in v1} == v1
+    assert v.CLAIRE_CONTEXT_V2 == "https://w3id.org/claire-bible/ns/v2" and v.WIRE_CONTEXT_V2 == (v.AS2_CONTEXT, v.CLAIRE_CONTEXT_V2)
+    for row in v.TERMS_V2:
+        assert row["term"] not in {r["term"] for r in v.TERMS}, row["term"]
+        assert row["definition"] is None or v2[row["term"]] == row["definition"]
+        assert v.term_iri(row["term"]).startswith(v.CLAIRE_NS)
+    # The hash of a rendition body is not the hash of the source text of version 1: one term for each concept.
+    assert v.BODY_HASH != v.CONTENT_HASH and v.TEMPLATES == ("standard", "concise", "academic")
+
+
 def test_vocabulary_page_file_has_each_term() -> None:
     page = (STATIC_NS / "index.html").read_text(encoding="utf-8")
     assert page == v.vocabulary_page()
-    for row in v.TERMS:
+    for row in (*v.TERMS, *v.TERMS_V2):
         assert f'id="{v.term_iri(row["term"]).rsplit("#", 1)[1]}"' in page
 
 
@@ -368,3 +384,5 @@ def test_e2e_server_serves_the_context_and_the_vocabulary_page(tmp_path) -> None
         assert context.text == vocabulary.context_json() and "@context" in context.json()
         page = client.get("/ns")
         assert page.status_code == 200 and page.headers["content-type"].startswith("text/html") and page.text == vocabulary.vocabulary_page()
+        context_v2 = client.get("/ns/v2")
+        assert context_v2.status_code == 200 and context_v2.headers["content-type"].startswith("application/ld+json") and context_v2.text == vocabulary.context_json_v2()

@@ -469,3 +469,11 @@ Basis: phase E3a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/
 - **[code] [decision]** When the step makes the table, each AsciiDoc body that exists gets a row `standard` with the version `pre-template` (owner decision O21: a body of before the templates is the rendition 기본). Later starts add no such row; each body run writes its row (`document_renditions.record_primary`).
 - **[code]** `_recompile_stale_detail_html` renders the bodies of the renditions again too.
 - **[test]** `tests/test_document_renditions.py`.
+
+## v51 (the source key of a document)
+
+Basis: phase E4a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.3 rules 4 to 6 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 51. `_migrate_v51_document_source_keys` (`src/claire/store/db.py`) runs at each start and adds `documents.source_key` (SHA-256 of the source identifier, 64 lowercase hexadecimal characters) and `documents.source_id_version` (the version of the rules, now 1), with the index `idx_documents_source_key`.
+- **[code]** When the step adds the columns, it computes the key of each document from its address (`ingest.source_key.source_key_of`: a DOI, then arXiv, then the normalized web address). A document without an `http` or `https` address and a copy of a remote document (`source_type` `remote`) get no key. Later starts change nothing; `insert_document` writes the key of each new document, and a copy of a document (`contributions.copy_document`) copies it.
+- **[test]** `tests/test_source_key.py`.

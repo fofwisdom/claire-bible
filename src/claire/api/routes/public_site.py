@@ -49,6 +49,16 @@ def build_public_site_routes(
             headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"},
         )
 
+    async def ns_context_v2_route(_request: Request) -> Response:
+        """`GET /ns/v2`: JSON-LD context of version 2 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5): version 1 and the terms of renditions and +1."""
+        from ...federation.knowledge import vocabulary
+
+        return Response(
+            vocabulary.context_json_v2(),
+            media_type=vocabulary.CONTEXT_MEDIA_TYPE,
+            headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"},
+        )
+
     async def ns_vocabulary_route(_request: Request) -> Response:
         """`GET /ns`: vocabulary page with one anchor per term."""
         from ...federation.knowledge import vocabulary
@@ -341,6 +351,7 @@ def build_public_site_routes(
         Route("/robots.txt", robots_txt_route, methods=["GET"]),
         Route("/ns", ns_vocabulary_route, methods=["GET"]),
         Route("/ns/v1", ns_context_route, methods=["GET"]),
+        Route("/ns/v2", ns_context_v2_route, methods=["GET"]),
         Route("/sitemap.xml", sitemap_xml_route, methods=["GET"]),
         Route("/favicon.ico", favicon_ico_route, methods=["GET"]),
         Route("/favicon.svg", favicon_svg_route, methods=["GET"]),

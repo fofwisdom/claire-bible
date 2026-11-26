@@ -149,3 +149,5 @@ def test_each_answer_of_the_internal_app_is_its_fixture(tmp_path: Path) -> None:
 def test_the_sidecar_has_a_copy_of_the_context_document() -> None:
     """The sidecar gives the context document to the document loaders of Fedify from this file, so that it never comes from the network (design Section 9.1 rule 2)."""
     assert SIDECAR_CONTEXT.read_text(encoding="utf-8") == vocabulary.context_json()
+    # Version 2 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5): the sidecar has its copy for the rendition objects.
+    assert SIDECAR_CONTEXT.with_name("claire_context_v2.json").read_text(encoding="utf-8") == vocabulary.context_json_v2()

@@ -1,7 +1,7 @@
 # Renditions of Published Documents, +1 Between Claire Servers, Opinions from Other Servers, and ActivityPub Publication (`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN`)
 
 - **Document Identifier**: `DESIGN-DOC-RENDITIONS-20261125`
-- **Status**: Proposal, revision 11. Phases done: E0, E1, E2, E3 (E3a, E3b, E3c), E6. Implemented before the phases: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; each body run uses them since E3a) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O21 are given (Section 11). The glossary has the terms of Section 4 since Rev. 10 ([`GLOSSARY.md`](../implementation/GLOSSARY.md) Sections 1.4, 1.13, 1.14), with their state. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
+- **Status**: Proposal, revision 11. Phases done: E0, E1, E2, E3 (E3a, E3b, E3c), E4a, E6. Implemented before the phases: the texts of the three rendition templates (`src/claire/extract/rendition_templates.py`, test `tests/test_rendition_templates.py`; each body run uses them since E3a) and the term 초록 for the document summary in the Korean prompts and texts (commit `0dc44a6d`, [`GLOSSARY.md`](../implementation/GLOSSARY.md) Section 1.3). Owner decisions O1 to O7 and O9 to O21 are given (Section 11). The glossary has the terms of Section 4 since Rev. 10 ([`GLOSSARY.md`](../implementation/GLOSSARY.md) Sections 1.4, 1.13, 1.14), with their state. O8 is on hold for the reputation of a publisher. The Silvercord view has a visual prototype; other screens are rules only (Section 9.1).
 - **Date**: 2026-11-25
 - **Base commit**: `8e6b0723`
 - **Visual prototype**: [`prototypes/document_renditions_prototype.html`](prototypes/document_renditions_prototype.html) (Silvercord view: rendition picker, +1, remote rendition, `의견` tab with likes, mobile; mock data)
@@ -276,7 +276,7 @@ Reasons:
 | Field | Value |
 | :--- | :--- |
 | `claire:template`, `claire:templateVersion` | The template of the primary rendition. |
-| `claire:body`, `claire:contentHash` | Link to the body representation; SHA-256 of the AsciiDoc body. |
+| `claire:body`, `claire:bodyHash` | Link to the body representation; SHA-256 of the AsciiDoc body. (E4a: not `claire:contentHash`, which version 1 defines as the SHA-256 of the source text of a document: one term for each concept.) |
 | `claire:sourceKey`, `claire:sourceIdVersion` | Section 5.3. Absent for a document without a source identifier. |
 | `claire:renditions` | IRI of an `OrderedCollection` of all published rendition objects of the document, the primary rendition first. |
 | `claire:plusOnes` | The +1 count (Section 5.12). |
@@ -302,7 +302,7 @@ Reasons:
   "claire:templateVersion": "concise-v1",
   "claire:sourceKey": "9f2c…(64 hexadecimal characters)",
   "claire:sourceIdVersion": 1,
-  "claire:contentHash": "41ab…(64 hexadecimal characters)",
+  "claire:bodyHash": "41ab…(64 hexadecimal characters)",
   "claire:body": "https://a.example/ap/objects/1043/body",
   "claire:plusOnes": {"id": "https://a.example/ap/objects/1043/plus-ones", "type": "Collection", "totalItems": 9, "claire:servers": 4, "claire:score": 9},
   "replies": "https://a.example/ap/objects/1043/replies",
@@ -313,7 +313,7 @@ Reasons:
 ```
 
 - No `Create` of a rendition goes to followers (Section 5.4 rule 2). A fetch by URL from other software gives the 초록 and the link only.
-- A reader compares `claire:contentHash` before it gets the body again.
+- A reader compares `claire:bodyHash` before it gets the body again.
 
 **Body representation.** `GET {object ID}/body`. The sidecar answers only a request that a server actor of another server signed (KS1 controls). The answer is on the origin of the object (R11):
 
@@ -326,7 +326,7 @@ Reasons:
   "mediaType": "text/html",
   "content": "<h2>…</h2><p>…</p>",
   "source": {"mediaType": "text/asciidoc", "content": "== …"},
-  "claire:contentHash": "41ab…"
+  "claire:bodyHash": "41ab…"
 }
 ```
 
@@ -334,7 +334,7 @@ Reasons:
 - `source` is the Activity Streams property for the original format (also FEP-b2b8).
 - The body is not secret: the Silvercord page of a published document shows it. The signed access makes the body a channel between Claire servers, with blocks, quotas, logs, and the exact delete list of Section 5.4 rule 4.
 
-**Vocabulary.** New terms go to `https://w3id.org/claire-bible/ns/v2`: `claire:RenditionBody`, `claire:rendition`, `claire:renditionOf`, `claire:renditions`, `claire:template` (closed values `standard`, `concise`, `academic`), `claire:templateVersion`, `claire:sourceKey`, `claire:sourceIdVersion`, `claire:body`, and the +1 terms of Section 5.12 (`claire:PlusOne`, `claire:plusOnes`, `claire:servers`, `claire:score`). `v1` does not change. The contract of the internal federation API goes from 1.17 to the next version.
+**Vocabulary.** New terms go to `https://w3id.org/claire-bible/ns/v2`: `claire:RenditionBody`, `claire:rendition`, `claire:renditionOf`, `claire:renditions`, `claire:template` (closed values `standard`, `concise`, `academic`), `claire:templateVersion`, `claire:sourceKey`, `claire:sourceIdVersion`, `claire:body`, `claire:bodyHash`, and the +1 terms of Section 5.12 (`claire:PlusOne`, `claire:plusOnes`, `claire:servers`, `claire:score`). `v1` does not change. The contract of the internal federation API goes from 1.17 to the next version.
 
 ### 5.6 ED6: Likes (revised in Rev. 6)
 
@@ -606,7 +606,8 @@ Intent: an account that follows a remote actor sees some posts of that actor at 
 | E3a | **Done (2026-11-26, claire.db v50).** Templates in each body run: the 대표 정리본 uses `standard` on the server path and in the agent client task (`prompt_template` and `template_version`); `document_renditions`; bodies of before E3 recorded as `standard` with `pre-template` (O21); the old body prompt and `DEFAULT_EXTRACTION_TEMPLATE` removed (Section 5.2 rules 5, 6, 10). | — | S |
 | E3b | **Done (2026-11-26).** Additional renditions: the required request field `renditions` of `/ingest`, `/ingest-stream`, and the personal ingest of API v1; the selection in the ingest dialog; `claire ingest --rendition`; `extract_stage(renditions=...)`; `rendition_prompts` and `payload.renditions` of the agent client task (agent bundles 0.0.15); "정리본 추가" as `POST /api/v1/kbs/{kb}/documents/{doc_id}/renditions` with the server API (Section 5.3 rules 1 to 3). | E3a | M |
 | E3c | **Done (2026-11-26).** The section "정리본" of the Silvercord page with the picker of the renditions of the document (group "이 문서"), the info line, and "정리본 추가" for the owner of a personal knowledge base; the sub-path `/silvercord/{token}/renditions/{template}` (308 for `standard`, 406 for a request that accepts only ActivityPub until E4); the cross-document view transition; the template choice of the ingest dialog came with E3b (Sections 5.8, 5.10). Not in E3c: prefetch (Section 10 measurement 6), `content-visibility` of long bodies, and the rendition switch in the workspace reader (Section 9.1: not designed). | E3b | M |
-| E4 | Vocabulary `v2`, the source identifier and `documents.source_key` (Section 5.3 rules 4 to 6, moved from E3 because only published renditions use it), the picker group "같은 출처 · 이 서버", rendition objects, `claire:renditions`, body path (Section 5.5). | E3 | M |
+| E4a | **Done (2026-11-26, claire.db v51).** Vocabulary `v2` (`/ns/v2`, the terms of Section 5.5 and 5.12, with `claire:bodyHash` for the hash of a rendition body) and the source identifier with `documents.source_key` and `documents.source_id_version` (Section 5.3 rules 4 to 6; moved from E3 because only published renditions use it). | E3 | S |
+| E4b | Rendition objects, the `claire:` fields of the document object, `claire:renditions`, the body path (Section 5.5). The picker group "같은 출처 · 이 서버". | E4a | M |
 | E5 | Source index, remote rendition cache, exact delete list, remote renditions in the picker and in the sandbox frame (Section 5.4). | E4 | M |
 | E6 | **Done (2026-11-26, contract 1.19, client.db v10).** `replies`, `likes`, `shares` on published objects and own notes (Section 5.11 A). | — | S |
 | E7 | Opinion fetch, store, refresh state, the `의견` tab with the like of the post, hide (Section 5.11 B to D, Section 5.6), the change of the client thread fetch (Section 5.11 F). | E6 | M |

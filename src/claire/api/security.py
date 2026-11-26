@@ -353,6 +353,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/ns"): _system("public", "none"),
     ("GET", "/ns/v1"): _system("public", "none"),
     ("HEAD", "/ns/v1"): _system("public", "none"),
+    ("GET", "/ns/v2"): _system("public", "none"),
+    ("HEAD", "/ns/v2"): _system("public", "none"),
     ("GET", "/sitemap.xml"): _system("public", "none"),
     ("HEAD", "/sitemap.xml"): _system("public", "none"),
     ("GET", "/favicon.ico"): _system("public", "none"),

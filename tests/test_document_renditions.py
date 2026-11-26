@@ -43,7 +43,7 @@ def test_version_50_records_the_bodies_of_before_the_templates_as_the_rendition_
                 # A body that a later version writes without its row is not labelled at the next start.
                 _doc(conn, "later", detail="= 나중\n\n본문")
             conn.commit()
-            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION == 50
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION
             rows = [tuple(r) for r in conn.execute("SELECT document_id, template, template_version, detail FROM document_renditions ORDER BY document_id")]
             assert rows == [("with-body", "standard", PRE_TEMPLATE_VERSION, None)]
             assert [r.template for r in renditions_store.list_renditions(conn, "with-body", 0)] == ["standard"]

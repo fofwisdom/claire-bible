@@ -252,6 +252,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/robots.txt",
         "/ns",
         "/ns/v1",
+        "/ns/v2",
         "/sitemap.xml",
         "/favicon.ico",
         "/favicon.svg",

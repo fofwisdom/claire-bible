@@ -14,6 +14,7 @@ Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 | Builders and validators of each object and activity | Implemented |
 | Contract fixtures | Implemented |
 | Routes `/ns/v1` and `/ns` | Implemented (`server.py`: `ns_context_route`, `ns_vocabulary_route`) |
+| Route `/ns/v2` ([`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) phase E4a) | Implemented (`ns_context_v2_route`): the context of version 2 has each entry of version 1 and the terms of renditions and +1 (`TERMS_V2`). The vocabulary page shows the version of each term. |
 | Vocabulary in the sidecar | The context document, the handoff of inbound activities (Section 10.6), and the outbound activities as the JSON of the builders (Section 12.7) are implemented |
 | Known servers, admin controls, inbox journal, single mode root (KF1) | Implemented (Section 10; the sidecar part in Section 10.6) |
 | `/kb` collections of other servers, store of remote knowledge bases, themes across servers, root page (KF2) | Implemented (Section 11) |
@@ -31,6 +32,7 @@ Since 2026-11-22 federation has no switch (owner decision GD4 of [`FEDERATION_GO
 | :--- | :--- |
 | `src/claire/federation/knowledge/vocabulary.py` | Identifiers, the table `TERMS`, `context_document`, `vocabulary_page`, builders, validators. No database access and no network access. |
 | `src/bible/static/ns/v1.jsonld` | The context document of version 1. It is the text of `context_json()`. |
+| `src/bible/static/ns/v2.jsonld`, `sidecar/fedify/src/claire_context_v2.json` | The context document of version 2: the text of `context_json_v2()`. A test compares the two files with the function. |
 | `src/bible/static/ns/index.html` | The page of the vocabulary terms. It is the text of `vocabulary_page()`. Each term has an anchor. |
 | `tests/fixtures/knowledge_federation/` | The contract fixtures: `objects/`, `activities/`, `invalid/`. |
 | `tests/test_knowledge_federation_vocabulary.py` | The tests, and `write_fixtures()` that writes the fixture files from the builders. |
