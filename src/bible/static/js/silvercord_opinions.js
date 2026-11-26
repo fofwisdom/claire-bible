@@ -66,7 +66,7 @@
     var rtr = opts.rtr;
     var live = opts.live;
     var reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
-    var state = { started: false, phase: "loading", data: null, known: null, fresh: {}, polls: 0, timer: null, running: false };
+    var state = { started: false, phase: "loading", data: null, known: null, fresh: {}, polls: 0, timer: null, running: false, items: {} };
 
     function announce(text) {
       if (!live) return;
@@ -109,10 +109,176 @@
         article.appendChild(body);
       }
       var actions = make("div", "op-post-actions");
+      if (!opinion.local && !opinion.hidden && state.data && state.data.actions) clientButtons(opinion).forEach(function (btn) { actions.appendChild(btn); });
       if (opinion.frame_url && String(opinion.frame_url).charAt(0) === "/") actions.appendChild(frameButton(opinion));
       if (state.data && state.data.moderation && !opinion.local) actions.appendChild(moderationButton(opinion));
       if (actions.childElementCount > 0) article.appendChild(actions);
       return article;
+    }
+
+    function postJson(url, method, body) {
+      return fetch(url, { method: method, credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: body === null ? undefined : JSON.stringify(body) })
+        .then(function (resp) {
+          return resp.json().catch(function () { return {}; }).then(function (answer) {
+            if (!resp.ok) throw new Error(String((answer && answer.error) || resp.status));
+            return answer;
+          });
+        });
+    }
+
+    // The opinion as an item of the timeline of the account (phase E7d): the functions of the federation client work on the item.
+    function ensureItem(opinion) {
+      var known = state.items[opinion.iri];
+      if (known && known.item_id) return Promise.resolve(known);
+      return postJson(state.data.actions.item_url, "POST", { object: state.data.object, opinion: opinion.iri }).then(function (answer) {
+        state.items[opinion.iri] = answer;
+        return answer;
+      });
+    }
+
+    function failed(error) {
+      announce(rtr("share.sc.op_action_failed", { error: String((error && error.message) || error) }));
+    }
+
+    // Reply, like, boost, and quote of one opinion (rule D4). Like and boost are toggle buttons with aria-pressed.
+    function clientButtons(opinion) {
+      var itemState = state.items[opinion.iri] || {};
+      var reply = make("button", "sc-btn op-act-reply", rtr("share.sc.op_reply"));
+      reply.type = "button";
+      reply.addEventListener("click", function () { openCompose({ kind: "reply", opinion: opinion }); });
+      var quote = make("button", "sc-btn op-act-quote", rtr("share.sc.op_quote"));
+      quote.type = "button";
+      quote.addEventListener("click", function () { openCompose({ kind: "quote", opinion: opinion }); });
+      var toggles = [["favourited", "favourite", "share.sc.op_like", "op-act-like"], ["boosted", "boost", "share.sc.op_boost", "op-act-boost"]].map(function (spec) {
+        var btn = make("button", "sc-btn " + spec[3], rtr(spec[2]));
+        btn.type = "button";
+        btn.setAttribute("aria-pressed", itemState[spec[0]] ? "true" : "false");
+        btn.addEventListener("click", function () {
+          btn.disabled = true;
+          ensureItem(opinion)
+            .then(function (item) { return postJson("/api/federation/timeline/" + encodeURIComponent(item.item_id) + "/" + spec[1], item[spec[0]] ? "DELETE" : "POST", null); })
+            .then(function (answer) {
+              var item = state.items[opinion.iri];
+              item.favourited = Boolean(answer.favourited);
+              item.boosted = Boolean(answer.boosted);
+              btn.setAttribute("aria-pressed", item[spec[0]] ? "true" : "false");
+            })
+            .catch(failed)
+            .then(function () { btn.disabled = false; });
+        });
+        return btn;
+      });
+      return [reply, toggles[0], toggles[1], quote];
+    }
+
+    // The like of the post of the page (Section 5.6 rule 4): a toggle button with the count of likes.
+    function likePostButton(data) {
+      var btn = make("button", "sc-btn op-like-post", rtr("share.sc.op_like_post"));
+      btn.type = "button";
+      btn.setAttribute("aria-pressed", data.actions.liked ? "true" : "false");
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        postJson(data.actions.like_url, "POST", { object: data.object, on: !data.actions.liked })
+          .then(function (answer) {
+            data.actions.liked = Boolean(answer.liked);
+            if (data.counts) data.counts.likes = Number(answer.likes) || 0;
+            render();
+          })
+          .catch(function (error) {
+            btn.disabled = false;
+            failed(error);
+          });
+      });
+      return btn;
+    }
+
+    // One compose dialog for a reply to an opinion, a quote of an opinion, and a reply to the object of the page (rules D4 and D9). The notes route of the federation client makes the note.
+    var composeDialog = null;
+    var composeTarget = null;
+    function openCompose(target) {
+      composeTarget = target;
+      if (composeDialog === null) {
+        composeDialog = make("dialog", "op-compose-dialog");
+        composeDialog.id = "op-compose-dialog";
+        composeDialog.setAttribute("closedby", "any");
+        var form = make("form", "op-compose-form");
+        var title = make("h2", "op-frame-title");
+        title.id = "op-compose-title";
+        composeDialog.setAttribute("aria-labelledby", title.id);
+        var textLabel = make("label", "op-compose-field");
+        textLabel.appendChild(make("span", "", rtr("share.sc.op_compose_text")));
+        var text = make("textarea", "op-compose-text");
+        text.name = "content";
+        text.required = true;
+        text.rows = 5;
+        textLabel.appendChild(text);
+        var cwLabel = make("label", "op-compose-field");
+        cwLabel.appendChild(make("span", "", rtr("share.sc.op_compose_cw")));
+        var cw = make("input", "op-compose-cw");
+        cw.type = "text";
+        cw.name = "summary";
+        cw.maxLength = 500;
+        cwLabel.appendChild(cw);
+        var error = make("p", "op-alert op-compose-error");
+        error.setAttribute("role", "alert");
+        error.hidden = true;
+        var row = make("div", "op-compose-buttons");
+        var cancel = make("button", "sc-btn", rtr("share.sc.op_cancel"));
+        cancel.type = "button";
+        cancel.addEventListener("click", function () { composeDialog.close(); });
+        var send = make("button", "sc-btn op-compose-send", rtr("share.sc.op_send"));
+        send.type = "submit";
+        row.appendChild(cancel);
+        row.appendChild(send);
+        [title, textLabel, cwLabel, error, row].forEach(function (node) { form.appendChild(node); });
+        form.addEventListener("submit", function (event) {
+          event.preventDefault();
+          submitCompose(text, cw, error, send);
+        });
+        composeDialog.appendChild(form);
+        document.body.appendChild(composeDialog);
+      }
+      var author = (target.opinion && target.opinion.author) || {};
+      var name = author.name || author.handle || "";
+      composeDialog.querySelector("#op-compose-title").textContent = target.kind === "object" ? rtr("share.sc.op_reply_object") : rtr(target.kind === "quote" ? "share.sc.op_compose_quote_title" : "share.sc.op_compose_reply_title", { name: name });
+      var field = composeDialog.querySelector(".op-compose-text");
+      field.value = target.kind === "reply" && author.handle ? author.handle + " " : "";
+      composeDialog.querySelector(".op-compose-cw").value = "";
+      composeDialog.querySelector(".op-compose-error").hidden = true;
+      composeDialog.showModal();
+      field.focus();
+    }
+
+    function submitCompose(text, cw, error, send) {
+      var target = composeTarget;
+      if (!target || !text.value.trim()) return;
+      send.disabled = true;
+      error.hidden = true;
+      var body = { content: text.value };
+      if (cw.value.trim()) {
+        body.summary = cw.value.trim();
+        body.sensitive = true;
+      }
+      var ready = target.kind === "object" ? Promise.resolve(null) : ensureItem(target.opinion);
+      ready
+        .then(function (item) {
+          if (target.kind === "object") body.in_reply_to_object = state.data.object;
+          else if (target.kind === "quote") body.quote_of = item.item_id;
+          else body.in_reply_to = item.item_id;
+          return postJson(state.data.actions.notes_url, "POST", body);
+        })
+        .then(function () {
+          composeDialog.close();
+          announce(rtr(target.kind === "quote" ? "share.sc.op_sent_quote" : "share.sc.op_sent_reply"));
+          // The reply of this server shows in the tree at once (the route lists the notes of this server).
+          state.polls = 0;
+          load();
+        })
+        .catch(function (err) {
+          error.textContent = rtr("share.sc.op_action_failed", { error: String((err && err.message) || err) });
+          error.hidden = false;
+        })
+        .then(function () { send.disabled = false; });
     }
 
     // "서식과 첨부 보기" (rule D2): the formatted body and the attachments of one opinion in a sandbox frame of this origin (no script, an opaque origin), in one modal dialog of the page.
@@ -248,6 +414,14 @@
 
     function hintNode() {
       var box = make("div", "op-reply-hint");
+      // A signed-in actor replies from this server (rule D9, second sentence).
+      if (state.data && state.data.actions) {
+        var replyObject = make("button", "sc-btn op-reply-object", rtr("share.sc.op_reply_object"));
+        replyObject.type = "button";
+        replyObject.addEventListener("click", function () { openCompose({ kind: "object", opinion: null }); });
+        box.appendChild(replyObject);
+        return box;
+      }
       box.appendChild(make("p", "", rtr("share.sc.op_reply_hint")));
       var row = make("div", "op-address-row");
       var address = window.location.origin + window.location.pathname;
@@ -278,7 +452,12 @@
         root.replaceChildren(box);
         return;
       }
-      if (data) box.appendChild(countsNode(data.counts));
+      if (data) {
+        var top = make("div", "op-top");
+        top.appendChild(countsNode(data.counts));
+        if (data.actions && data.actions.like_url) top.appendChild(likePostButton(data));
+        box.appendChild(top);
+      }
       var status = statusNode();
       if (status) box.appendChild(status);
       if (data) {
@@ -344,6 +523,13 @@
         }
       });
       state.fresh = fresh;
+      var states = data.actions && data.actions.states ? data.actions.states : {};
+      Object.keys(states).forEach(function (iri) {
+        var known = state.items[iri] || {};
+        known.favourited = Boolean(states[iri].favourited);
+        known.boosted = Boolean(states[iri].boosted);
+        state.items[iri] = known;
+      });
       // The first answer replaces the loading text at once; a later answer with new opinions comes with the transition.
       var animate = state.data !== null && freshCount > 0;
       state.data = data;

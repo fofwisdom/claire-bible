@@ -96,24 +96,27 @@ def text_segments(html: str) -> list[list[dict[str, str]]]:
     return out
 
 
-def _local_replies(client: sqlite3.Connection, conn: sqlite3.Connection, object_iri: str, origin: str, actor_ids: set[int]) -> list[dict[str, Any]]:
-    """The replies of the accounts of this server (their own notes) to the object."""
+def _local_replies(client: sqlite3.Connection, conn: sqlite3.Connection, parents: list[str], origin: str, actor_ids: set[int]) -> list[dict[str, Any]]:
+    """The replies of the accounts of this server (their own notes) to the object or to one of its opinions (``parents``), oldest first."""
     out = []
-    for public_id, account_id in notes_store.reply_notes(client, object_iri):
-        if account_id not in actor_ids:
-            continue
-        note = notes_store.get_note(client, public_id)
-        row = conn.execute("SELECT public_id, username, display_name FROM accounts WHERE id=?", (account_id,)).fetchone()
-        if note is None or row is None:
-            continue
-        actor = f"{origin}/ap/actors/{row[0]}"
-        host = urlsplit(origin).netloc
-        out.append({
-            "iri": f"{origin}/ap/objects/{public_id}", "parent": object_iri, "kind": "reply", "local": True,
-            "author": {"iri": actor, "name": row[2] or row[1], "handle": f"@{row[1]}@{host}"},
-            "url": f"{origin}/ap/objects/{public_id}", "summary": note.summary, "sensitive": bool(note.sensitive), "language": note.language,
-            "published": note.published_at, "text": text_segments(note.content_html),
-        })
+    host = urlsplit(origin).netloc
+    for start in range(0, len(parents), 500):
+        part = parents[start:start + 500]
+        rows = client.execute(f"SELECT public_id, account_id, in_reply_to_iri FROM federation_notes WHERE in_reply_to_iri IN ({', '.join('?' for _ in part)}) AND deleted_at IS NULL ORDER BY public_id", part).fetchall()
+        for public_id, account_id, parent in rows:
+            if int(account_id) not in actor_ids:
+                continue
+            note = notes_store.get_note(client, int(public_id))
+            row = conn.execute("SELECT public_id, username, display_name FROM accounts WHERE id=?", (int(account_id),)).fetchone()
+            if note is None or row is None:
+                continue
+            actor = f"{origin}/ap/actors/{row[0]}"
+            out.append({
+                "iri": f"{origin}/ap/objects/{public_id}", "parent": str(parent), "kind": "reply", "local": True,
+                "author": {"iri": actor, "name": row[2] or row[1], "handle": f"@{row[1]}@{host}"},
+                "url": f"{origin}/ap/objects/{public_id}", "summary": note.summary, "sensitive": bool(note.sensitive), "language": note.language,
+                "published": note.published_at, "text": text_segments(note.content_html),
+            })
     return out
 
 
@@ -130,7 +133,8 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
             "frame_url": None if frame_base is None else f"{frame_base}/{opinions_store.opinion_key(opinion.opinion_iri)}",
         })
     seen = {item["iri"] for item in opinions}
-    opinions += [item for item in _local_replies(client, conn, object_iri, origin, actor_ids) if item["iri"] not in seen]
+    parents = [object_iri, *(item["iri"] for item in opinions if not item.get("hidden"))]
+    opinions += [item for item in _local_replies(client, conn, parents, origin, actor_ids) if item["iri"] not in seen]
     opinions.sort(key=lambda item: (item["published"] or 0.0, item["iri"]))
     reactions = client_store.count_object_reactions(client, [object_public_id])[object_public_id]
     shown = [item for item in opinions if not item.get("hidden")]

@@ -139,6 +139,7 @@ dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hi
 
 /* The 의견 tab (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D, silvercord_opinions.js). Remote posts are text in the page: no style of a remote server enters it. */
 .op-root { display: flex; flex-direction: column; gap: 14px; }
+.op-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .op-counts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--muted); }
 .op-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; font-size: 13px; color: var(--muted); }
 .op-progress { inline-size: 120px; block-size: 6px; accent-color: var(--accent); }
@@ -152,6 +153,15 @@ dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hi
 .op-post.is-new { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
 .op-post.is-hidden { opacity: 0.7; border-style: dashed; }
 .op-post-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.op-post-actions .sc-btn, .op-like-post, .op-reply-object { min-height: 32px; }
+.op-root .sc-btn[aria-pressed="true"] { background: var(--active); border-color: var(--accent); color: var(--accent); }
+.op-reply-object { align-self: flex-start; }
+.op-compose-dialog { inline-size: min(560px, 94vw); padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg); color: var(--fg); }
+.op-compose-dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+.op-compose-form { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.op-compose-field { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.op-compose-field textarea, .op-compose-field input { inline-size: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-bg); color: var(--fg); font: inherit; font-size: 14px; }
+.op-compose-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .op-frame-dialog { inline-size: min(760px, 94vw); block-size: min(80vh, 760px); padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg); color: var(--fg); }
 .op-frame-dialog[open] { display: flex; flex-direction: column; }
 .op-frame-dialog::backdrop { background: rgb(0 0 0 / 0.45); }

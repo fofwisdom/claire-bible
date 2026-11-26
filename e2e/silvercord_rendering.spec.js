@@ -412,6 +412,82 @@ test('the formatted body of an opinion opens in a sandbox frame of a modal dialo
   expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed') && !(e.includes('Blocked script execution') && (e.includes('/opinions/') || e.includes('about:blank'))))).toEqual([]);
 });
 
+test('a signed-in actor likes the post, likes and boosts an opinion, replies, quotes, and replies to the rendition (phase E7d)', async ({ page }) => {
+  const errors = watchErrors(page);
+  const object = 'https://claire.example.com/ap/objects/1';
+  const carol = 'https://remote.example/notes/1';
+  const sent = [];
+  let loads = 0;
+  await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
+    loads += 1;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: [opinion(carol, object)], counts: { replies: 1, quotes: 0, likes: 4, shares: 0 }, refresh: null, moderation: null, actions: { item_url: '/api/federation/opinions/item', notes_url: '/api/federation/notes', like_url: '/api/federation/opinions/like', liked: false, states: {} } }) });
+  });
+  const answer = async (route, body, status = 200) => {
+    sent.push(`${route.request().method()} ${new URL(route.request().url()).pathname} ${route.request().postData() || ''}`);
+    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  };
+  await page.route((u) => u.pathname === '/api/federation/opinions/like', (route) => answer(route, { liked: route.request().postDataJSON().on, likes: route.request().postDataJSON().on ? 5 : 4 }));
+  await page.route((u) => u.pathname === '/api/federation/opinions/item', (route) => answer(route, { item_id: '77', favourited: false, boosted: false }));
+  await page.route((u) => u.pathname === '/api/federation/timeline/77/favourite', (route) => answer(route, { item_id: '77', favourited: route.request().method() === 'POST', boosted: false }));
+  await page.route((u) => u.pathname === '/api/federation/timeline/77/boost', (route) => answer(route, { item_id: '77', favourited: true, boosted: route.request().method() === 'POST' }));
+  await page.route((u) => u.pathname === '/api/federation/notes', (route) => answer(route, { note: { id: '9' }, item_id: '78' }, 201));
+  await page.goto(PUBLIC_DOC_PATH, { waitUntil: 'domcontentloaded' });
+  await page.locator('#tab-op-top').click();
+  const tab = page.locator('#sc-opinions-inner');
+
+  // The like of the post (Section 5.6 rule 4).
+  const likePost = tab.locator('.op-like-post');
+  await expect(likePost).toHaveAttribute('aria-pressed', 'false');
+  await likePost.click();
+  await expect(tab.locator('.op-like-post')).toHaveAttribute('aria-pressed', 'true');
+  await expect(tab.locator('.op-counts li').nth(2)).toHaveText('좋아요 5');
+
+  // Like and boost of an opinion: the opinion becomes an item first, then the routes of the federation client.
+  const post = tab.locator('article').first();
+  await post.locator('.op-act-like').click();
+  await expect(post.locator('.op-act-like')).toHaveAttribute('aria-pressed', 'true');
+  await post.locator('.op-act-boost').click();
+  await expect(post.locator('.op-act-boost')).toHaveAttribute('aria-pressed', 'true');
+  await post.locator('.op-act-like').click();
+  await expect(post.locator('.op-act-like')).toHaveAttribute('aria-pressed', 'false');
+
+  // A reply to the opinion: the dialog starts with the handle of the author.
+  await post.locator('.op-act-reply').click();
+  const dialog = page.locator('#op-compose-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('h2')).toHaveText('Carol에게 답글');
+  await expect(dialog.locator('textarea')).toHaveValue('@carol@remote.example ');
+  await dialog.locator('textarea').fill('@carol@remote.example Thanks');
+  await dialog.locator('.op-compose-send').click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#sc-live')).toHaveText('답글을 보냈습니다.');
+  await expect.poll(() => loads).toBe(2);
+
+  // A quote of the opinion, and a reply to the rendition of the page (rule D9).
+  await tab.locator('article').first().locator('.op-act-quote').click();
+  await expect(dialog.locator('h2')).toHaveText('Carol의 의견 인용');
+  await dialog.locator('textarea').fill('Worth a read');
+  await dialog.locator('input').fill('long');
+  await dialog.locator('.op-compose-send').click();
+  await expect(page.locator('#sc-live')).toHaveText('인용을 보냈습니다.');
+  await tab.locator('.op-reply-object').click();
+  await expect(dialog.locator('h2')).toHaveText('이 정리본에 답글');
+  await dialog.locator('textarea').fill('On the paper');
+  await dialog.locator('.op-compose-send').click();
+  await expect(dialog).toBeHidden();
+
+  const notes = sent.filter((line) => line.startsWith('POST /api/federation/notes')).map((line) => JSON.parse(line.slice('POST /api/federation/notes '.length)));
+  expect(notes).toEqual([
+    { content: '@carol@remote.example Thanks', in_reply_to: '77' },
+    { content: 'Worth a read', summary: 'long', sensitive: true, quote_of: '77' },
+    { content: 'On the paper', in_reply_to_object: object },
+  ]);
+  expect(sent.filter((line) => line.startsWith('POST /api/federation/opinions/item'))).toHaveLength(1);
+  expect(sent.filter((line) => line.includes('/favourite')).map((line) => line.split(' ')[0])).toEqual(['POST', 'DELETE']);
+  await expectNoRawKeys(page);
+  expect(errors).toEqual([]);
+});
+
 test('private link_access=1 renders opaque IDs e0..eN, blocks other documents, hides workspace link, and shows non-federated notice in Opinions', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1280, height: 800 });

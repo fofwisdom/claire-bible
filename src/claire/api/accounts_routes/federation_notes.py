@@ -2,7 +2,7 @@
 
 For the owner of the account, in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5). A note, an edit, a favourite, and a boost need an account that is an actor (409 ``not_actor``).
 
-- ``POST /api/federation/notes``: a new public note, or a reply to an item of the timeline (``in_reply_to`` is the item ID). ``quote_of`` is the ID of an item that the note quotes (FEP-044f, Section 5.4 rule 5, unit FP4-9Q); ``quote_policy`` is the quote policy of the note (rule 6).
+- ``POST /api/federation/notes``: a new public note, or a reply to an item of the timeline (``in_reply_to`` is the item ID). ``in_reply_to_object`` is the address of a published object of this server for a reply from its 의견 tab (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D9; 404 ``object_not_found`` when it is not one, and with ``in_reply_to``). ``quote_of`` is the ID of an item that the note quotes (FEP-044f, Section 5.4 rule 5, unit FP4-9Q); ``quote_policy`` is the quote policy of the note (rule 6).
 - ``PATCH /api/federation/notes/{note_id}``: change the text, the content warning, the language (Section 5.4 rule 12), or the quote policy.
 - ``DELETE /api/federation/notes/{note_id}``: delete an own note. The object path gives 410 from then on.
 - ``POST``, ``DELETE /api/federation/timeline/{item_id}/favourite`` and ``.../boost``: ``Like`` and ``Announce`` of the object of an item, and their ``Undo``.
@@ -36,9 +36,9 @@ from .console_federation_panels import actor_state
 FEDERATION_NOTES_API_PATH = "/api/federation/notes"
 FEDERATION_TIMELINE_API_PATH = "/api/federation/timeline"
 _NO_STORE = {"Cache-Control": "no-store"}
-_NOTE_FIELDS = {"content", "in_reply_to", "summary", "sensitive", "language", "quote_of", "quote_policy"}
+_NOTE_FIELDS = {"content", "in_reply_to", "in_reply_to_object", "summary", "sensitive", "language", "quote_of", "quote_policy"}
 # The fields that only a new note can have.
-_CREATE_ONLY_FIELDS = {"in_reply_to", "quote_of"}
+_CREATE_ONLY_FIELDS = {"in_reply_to", "in_reply_to_object", "quote_of"}
 # Route name: the item column, the task kind, and the task kind of the Undo (Section 5.4 rule 4).
 _INTERACTIONS = {"favourite": ("favourited", "like", "undo_like"), "boost": ("boosted", "announce", "undo_announce")}
 
@@ -210,6 +210,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
             parent_id = _digits(body["in_reply_to"]) if isinstance(body["in_reply_to"], str) else None
             if parent_id is None:
                 return json_error(404, "item_not_found")
+        # A reply to a published object of this server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D9, phase E7d): the address of a document object or a rendition object. It is not an item of the timeline.
+        own_parent = body.get("in_reply_to_object")
+        if own_parent is not None and (parent_id is not None or not isinstance(own_parent, str) or not own_parent.startswith(f"{origin}/ap/objects/") or not (own_parent[len(f"{origin}/ap/objects/"):].isascii() and own_parent[len(f"{origin}/ap/objects/"):].isdigit())):
+            return json_error(404, "object_not_found")
         quoted_id = None
         if body.get("quote_of") is not None:
             quoted_id = _digits(body["quote_of"]) if isinstance(body["quote_of"], str) else None
@@ -238,6 +242,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 parent = None if parent_id is None else client_store.get_timeline_item(client, account_id, parent_id)
                 if parent_id is not None and parent is None:
                     raise _Refused(404, "item_not_found")
+                if own_parent is not None and federation_store.owning_object(conn, int(own_parent[len(f"{origin}/ap/objects/"):])) is None:
+                    raise _Refused(404, "object_not_found")
                 if parent is not None and (_blocked(conn, federation_store.iri_host(parent.object_iri)) or _blocked(conn, federation_store.iri_host(parent.author_iri))):
                     raise _Refused(400, "blocked_domain")
                 rendered, mentions = _compose(conn, client, account, text=fields["content"], parent_author=None if parent is None else (parent.author_iri, parent.author.get("handle")), old_mentions=[], quote_url=None if quoted is None else quoted.object_iri)
@@ -248,7 +254,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     return conn.execute("SELECT 1 FROM federation_objects WHERE public_id=? UNION ALL SELECT 1 FROM federation_tombstones WHERE public_id=?", (number, number)).fetchone() is not None
 
                 note = notes_store.add_note(
-                    client, account_id=account_id, salt=store.id_salt(), taken=_taken, in_reply_to_iri=None if parent is None else parent.object_iri,
+                    client, account_id=account_id, salt=store.id_salt(), taken=_taken, in_reply_to_iri=own_parent if parent is None else parent.object_iri,
                     # A reply to a thread of a group also goes to the group (FEP-1b12, Section 5.4 rule 1).
                     audience_iri=None if parent is None else notes_store.group_audience(client, account_id, parent.announced_by_iri),
                     content_text=fields["content"], content_html=rendered.html, mentions=mentions, summary=fields["summary"], sensitive=fields["sensitive"], language=fields["language"], tags=list(rendered.tags), now=when,

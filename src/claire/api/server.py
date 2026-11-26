@@ -6404,7 +6404,7 @@ def create_app(
         """``GET /silvercord/{token}/opinions`` and ``GET /silvercord/{token}/renditions/{template}/opinions``: the opinions of the object of the page, with the refresh state of its fetch (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.8 and 5.11 B and D, phase E7a). A request starts a fetch when the conditions of Section 5.11 B2 hold; anonymous visitors too, because the conditions are of the object. The access rules are the ones of the document; a document that is not published gives ``{"published": false}`` (Section 5.11 D6)."""
         from ..federation import opinions as opinions_mod
         from ..store import federation_opinions as opinions_store
-        from .accounts_routes import rendition_marks
+        from .accounts_routes import opinion_actions, rendition_marks
 
         token = str(request.path_params.get("token", ""))
         template = request.path_params.get("template")
@@ -6445,7 +6445,19 @@ def create_app(
                 actor_ids = {int(row[0]) for row in conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")}
                 # The author of the object and a server admin can hide an opinion (Section 5.11 D5).
                 moderator = viewer is not None and viewer.scope == "owner" and (viewer.account_id == author_account_id or viewer.server_role == "admin")
-                return opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator, frame_base=request.url.path)
+                view = opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator, frame_base=request.url.path)
+                # A signed-in account that is an actor gets the routes of its actions (Sections 5.6 rule 4 and 5.11 D4 and D9, phase E7d). Only a document object is a post with a like; the author does not like an own post.
+                view["actions"] = None
+                if viewer is not None and viewer.scope == "owner" and viewer.account_id is not None and viewer.account_id in actor_ids:
+                    account = accounts_store.AccountStore(conn).get(viewer.account_id)
+                    is_post = template in (None, PRIMARY_RENDITION_TEMPLATE)
+                    view["actions"] = {
+                        "item_url": opinion_actions.OPINION_ITEM_PATH, "notes_url": "/api/federation/notes",
+                        "like_url": opinion_actions.POST_LIKE_PATH if is_post and viewer.account_id != author_account_id else None,
+                        "liked": bool(account is not None and is_post and opinion_actions.local_like(client, object_public_id=public_id, actor_iri=f"{origin}/ap/actors/{account.public_id}")),
+                        "states": opinion_actions.item_states(client, viewer.account_id, [o["iri"] for o in view["opinions"] if not o["local"]]),
+                    }
+                return view
             finally:
                 client.close()
                 conn.close()

@@ -763,3 +763,43 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert [(o["iri"], o["hidden"]) for o in admin("GET", f"/silvercord/{token}/opinions").json()["opinions"]] == [(reply["object_iri"], True)]
     assert admin("POST", "/api/federation/opinions/hide", json={**hide, "hidden": False}).json() == {"hidden": False}
     assert [o["iri"] for o in anon("GET", f"/silvercord/{token}/opinions").json()["opinions"]] == [reply["object_iri"]]
+
+    # Phase E7d (Sections 5.6 rule 4 and 5.11 D4 and D9): the actions of a signed-in actor. The author has no like of an own post; a visitor has no actions.
+    assert anon("GET", f"/silvercord/{token}/opinions").json()["actions"] is None
+    assert alice("GET", f"/silvercord/{token}/opinions").json()["actions"]["like_url"] is None
+    actions = bob("GET", f"/silvercord/{token}/opinions").json()["actions"]
+    assert actions == {"item_url": "/api/federation/opinions/item", "notes_url": "/api/federation/notes", "like_url": "/api/federation/opinions/like", "liked": False, "states": {}}
+    assert alice("POST", actions["like_url"], json={"object": object_iri, "on": True}).json() == {"error": "own_post"}
+    assert bob("POST", actions["like_url"], json={"object": object_iri, "on": True}).json() == {"liked": True, "likes": 1}
+    assert anon("GET", f"/silvercord/{token}/opinions").json()["counts"]["likes"] == 1
+    assert bob("GET", f"/silvercord/{token}/opinions").json()["actions"]["liked"] is True
+    assert bob("POST", actions["like_url"], json={"object": object_iri, "on": False}).json() == {"liked": False, "likes": 0}
+    # The purge of the account of bob removes its like of the post of alice.
+    assert bob("POST", actions["like_url"], json={"object": object_iri, "on": True}).json()["likes"] == 1
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        client_db.purge_account_of_claire_db(conn, env["bob_id"])
+        conn.commit()
+    finally:
+        conn.close()
+    assert anon("GET", f"/silvercord/{token}/opinions").json()["counts"]["likes"] == 0
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        sessions["bob"] = accounts_store.create_account_session(conn, account_id=env["bob_id"], scope="owner")
+        conn.commit()
+    finally:
+        conn.close()
+    bob = _make_caller(test_client, origin, sessions["bob"])
+    # An opinion becomes an item of the timeline of bob (not in the home stream); the favourite of the federation client works on it.
+    item = bob("POST", actions["item_url"], json={"object": object_iri, "opinion": reply["object_iri"]})
+    assert item.status_code == 200 and item.json()["favourited"] is False
+    assert bob("POST", actions["item_url"], json={"object": object_iri, "opinion": "https://remote.example/none"}).status_code == 404
+    assert bob("POST", f"/api/federation/timeline/{item.json()['item_id']}/favourite").json()["favourited"] is True
+    assert bob("POST", actions["item_url"], json={"object": object_iri, "opinion": reply["object_iri"]}).json() == {"item_id": item.json()["item_id"], "favourited": True, "boosted": False}
+    assert bob("GET", f"/silvercord/{token}/opinions").json()["actions"]["states"] == {reply["object_iri"]: {"favourited": True, "boosted": False}}
+    # A reply to the opinion (an item) and a reply to the object of the page (in_reply_to_object); the tab shows both as replies of this server.
+    assert bob("POST", actions["notes_url"], json={"content": "Bob answers Carol", "in_reply_to": item.json()["item_id"]}).status_code == 201
+    assert bob("POST", actions["notes_url"], json={"content": "Bob on the paper", "in_reply_to_object": object_iri}).status_code == 201
+    assert bob("POST", actions["notes_url"], json={"content": "x", "in_reply_to_object": "https://other.example/ap/objects/1"}).json()["error"] == "object_not_found"
+    local = [(o["parent"], o["text"]) for o in anon("GET", f"/silvercord/{token}/opinions").json()["opinions"] if o["local"]]
+    assert local == [(reply["object_iri"], [[{"text": "Bob answers Carol"}]]), (object_iri, [[{"text": "Bob on the paper"}]])]

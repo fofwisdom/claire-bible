@@ -32,6 +32,7 @@ from . import laboratory
 from . import plugins
 from . import federation_notes
 from . import federation_quotes
+from . import opinion_actions
 from . import opinion_moderation
 from . import rendition_marks
 from . import knowledge_federation
@@ -76,6 +77,7 @@ def build_account_routes(
         *federation_quotes.routes(ctx),
         *rendition_marks.routes(ctx),
         *opinion_moderation.routes(ctx),
+        *opinion_actions.routes(ctx),
         *knowledge_federation.routes(ctx),
         *idp.routes(ctx),
         *invites.routes(ctx),

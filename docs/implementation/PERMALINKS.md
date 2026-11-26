@@ -96,8 +96,9 @@ Test: `tests/test_silvercord_rendering.py` (`test_the_page_lists_the_renditions_
 5. `{"published": false}`: the notice that the document is not published.
 6. Since phase E7c, with `moderation` in the JSON (the author of the object or a server admin): each remote opinion has the button "이 페이지에서 숨기기" or "다시 보이기" (`POST` to `moderation.url`), a hidden opinion has the mark "숨김", and the live region says the result.
 7. Since phase E7e, each remote opinion with `frame_url` has the button "서식과 첨부 보기": it opens one modal `dialog` (`#op-frame-dialog`, `closedby="any"`) with a title and an `iframe` with `sandbox="allow-popups allow-popups-to-escape-sandbox"` and the same title. A close of the dialog removes the address of the frame.
+8. Since phase E7d, with `actions` in the JSON (a signed-in actor): the toggle "이 글에 좋아요" (`aria-pressed`) next to the counts on a document page; on each remote opinion that is not hidden, "답글", "좋아요" and "부스트" (toggles with `aria-pressed`), and "인용"; and "이 정리본에 답글" in place of the text with the page address. Reply, quote, and the reply to the rendition open one modal compose dialog (`#op-compose-dialog`: text, an optional content warning, a `role="alert"` error); a reply starts with the handle of the author. The first action on an opinion asks for its item (`actions.item_url`); then the routes of the federation client do the action. After a note, the tab asks for its JSON again.
 
-Test: `tests/test_silvercord_rendering.py`, E2E `e2e/silvercord_rendering.spec.js` (the tab with a controlled answer: no request before the first open, the progress, the second request, the live message, the tree and its limit, the text rules, the quotes; the failure with the retry; the hide control; and the frame dialog).
+Test: `tests/test_silvercord_rendering.py`, E2E `e2e/silvercord_rendering.spec.js` (the tab with a controlled answer: no request before the first open, the progress, the second request, the live message, the tree and its limit, the text rules, the quotes; the failure with the retry; the hide control; the frame dialog; and the actions of a signed-in actor).
 
 ### 3.2 Route `GET /silvercord/{token}/graph`
 

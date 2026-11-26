@@ -518,6 +518,10 @@ def purge_account_of_claire_db(claire_conn: sqlite3.Connection, account_id: int)
         # Each note of the account gets a tombstone in claire.db, as each published document does (unit FP4-9): the object path gives 410 after the purge. The caller commits claire.db.
         for public_id, deleted_at in conn.execute("SELECT public_id, deleted_at FROM federation_notes WHERE account_id=?", (account_id,)).fetchall():
             claire_conn.execute("INSERT INTO federation_tombstones (public_id, kind, gone_at) VALUES (?, 'object', ?) ON CONFLICT(public_id) DO NOTHING", (int(public_id), float(deleted_at) if deleted_at is not None else time.time()))
+        # The likes of the account for posts of this server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.6 rule 4, phase E7d) are reactions with the actor of the account; the account of such a row is the author of the post.
+        row = claire_conn.execute("SELECT public_id FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if row is not None and row[0] is not None:
+            conn.execute("DELETE FROM federation_object_reactions WHERE kind='like' AND activity_iri LIKE ?", (f"%/ap/actors/{int(row[0])}#likes/local-%",))
         purge_account(conn, account_id)
         conn.commit()
     finally:
