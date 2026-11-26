@@ -1,6 +1,6 @@
 # Handoff: Renditions, Publication, +1, and Opinions
 
-- **Design**: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) (Rev. 11). Its Section 9 is the phase table; Section 11 has the owner decisions O1 to O22.
+- **Design**: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) (Rev. 11). Its Section 9 is the phase table; Section 11 has the owner decisions O1 to O23.
 - **State (2026-11-26)**: phases E0 to E10 and the work after them (Section 7) are on `main`, not pushed. The last commit of the phases is `f977bf7d`; Section 7 lists the later commits. Section 8 lists what stays open.
 - **Purpose**: a person or an agent without the conversation of the implementation can find each decision that the agent made alone, each change from the design, its reason, the code, and the cost to change it back.
 
@@ -122,7 +122,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | :--- | :--- | :--- | :--- |
 | Fedify 2.4.6 | Compacts an outgoing activity and drops unknown terms. | `claire:` fields only on the object at its ID (AD10). | sidecar `renditions.ts` |
 | Fedify 2.4.6 | After a link that cannot load (for example the reply target on this server), the object instance keeps an empty value; `replyTargetId` became `null` for a start post, and no opinion was stored. | `@fedify/backfill` gets its own instance of each document; the normal form uses the first instance. Test: `context_test.ts` (the own-object walk asserts `in_reply_to`). | `context.ts` (`walkPosts`, `load`) |
-| Fedify 2.4.6 | No `attributionDomains` property. | Phase E2b waits. | design E2b |
+| Fedify 2.4.6 | No `attributionDomains` property; deliveries drop unknown terms. | An idea (O23). | `docs/ideas/ATTRIBUTION_DOMAINS_IDEAS.md` |
 | `@fedify/backfill` 2.4.6 | Follows `first` and `next` pages of `replies` and `context` (design R15 asked to verify). | None needed. Test: `context_test.ts`. | — |
 | Chromium | Aborts a cross-document view transition to a page that does not opt in, with a page error. | `pageswap` skip (AD4). | `share.html` |
 | Playwright | Puts its scripts into each frame; a sandbox frame refuses them and logs errors. | The specs filter these messages (`pageErrors` in `e2e/renditions.spec.js`; the frame test of `e2e/silvercord_rendering.spec.js`). | specs |
@@ -161,9 +161,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 
 ## 8. Open Items
 
-| Item | Design | State | Note |
-| :--- | :--- | :--- | :--- |
-| `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no such property of `Person` (latest release on JSR on 2026-11-26: 2.4.6, only 2.5.0 development builds). Probe of 2026-11-26 (a temporary sidecar test): a `Person` built with `Person.fromJsonLd` keeps `attributionDomains` at its ID, but a delivered `Update(Person)` loses it in both forms (a new `Update` with that person, and `Update.fromJsonLd` of the whole activity): Fedify serializes a delivery again from its typed model. The second route of the design ("a change of the two serialized forms in the sidecar") thus needs a delivery of `Update(Person)` outside Fedify (own signature, address check, retries, queue, for each follower inbox). Mastodon stores the list from each `Update`, so one delivery without it clears it. The agent did not take that route: it replaces a working delivery with retries for a byline label. Unverified option: an `Update` whose object is the actor address only, if each receiver fetches the actor document (Mastodon may; other software may not, and then profile updates stop). |
+None in this design. `attributionDomains` (the former phase E2b) is an idea since owner decision O23 (2026-11-26): [`ATTRIBUTION_DOMAINS_IDEAS.md`](../ideas/ATTRIBUTION_DOMAINS_IDEAS.md) has the facts of the probe and the ways to take it up.
 
 ## 9. How to Add to This Document
 
