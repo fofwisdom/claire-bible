@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["AS2_CONTEXT", "COLLECTION_NAMES", "REPLIES_FIRST_PAGE_SIZE", "REPLIES_PAGE_SIZE", "count_collection", "rendition_body_document", "renditions_collection", "replies_collection", "replies_page"]
+__all__ = ["AS2_CONTEXT", "COLLECTION_NAMES", "REPLIES_FIRST_PAGE_SIZE", "REPLIES_PAGE_SIZE", "count_collection", "rendition_body_document", "renditions_collection", "source_index", "replies_collection", "replies_page"]
 
 AS2_CONTEXT = "https://www.w3.org/ns/activitystreams"
 COLLECTION_NAMES: tuple[str, ...] = ("replies", "likes", "shares", "renditions")
@@ -65,3 +65,10 @@ def rendition_body_document(iri: str, rendition_iri: str, *, html: str, source: 
     from .knowledge.vocabulary import BODY_HASH, RENDITION, RENDITION_BODY, WIRE_CONTEXT_V2
 
     return {"@context": list(WIRE_CONTEXT_V2), "id": iri, "type": RENDITION_BODY, RENDITION: rendition_iri, "mediaType": "text/html", "content": html, "source": {"mediaType": "text/asciidoc", "content": source}, BODY_HASH: body_hash}
+
+
+def source_index(iri: str, items: list[str]) -> dict[str, Any]:
+    """The source index of one source key (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 3): the published rendition objects of this server, each document object followed by its rendition objects."""
+    from .knowledge.vocabulary import WIRE_CONTEXT_V2
+
+    return {"@context": list(WIRE_CONTEXT_V2), "id": iri, "type": "OrderedCollection", "totalItems": len(items), "orderedItems": list(items)}

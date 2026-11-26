@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.20";
+export const CONTRACT_VERSION = "1.21";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -910,6 +910,15 @@ export class InternalApi {
     const value = await this.#call("GET", `/objects/${encodeURIComponent(publicId)}/body${query}`);
     if (value === null) return null;
     objectCollectionShape(value, "rendition_body");
+    return (value as { document: Record<string, unknown> }).document;
+  }
+
+  // The source index of this server for another server (contract 1.21, phase E5a). signer as for renditionBody. null: no answer for this reader (404).
+  async sourceIndex(sourceKey: string, signer: string | undefined): Promise<Record<string, unknown> | null> {
+    const query = signer === undefined ? "" : `?${new URLSearchParams({ signer })}`;
+    const value = await this.#call("GET", `/sources/${encodeURIComponent(sourceKey)}${query}`);
+    if (value === null) return null;
+    objectCollectionShape(value, "source_index");
     return (value as { document: Record<string, unknown> }).document;
   }
 

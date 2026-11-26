@@ -25,6 +25,9 @@ from urllib.parse import urlsplit
 from ..core import ids
 
 __all__ = [
+    "forget_body_readers",
+    "gone_body_readers",
+    "record_body_reader",
     "DOCUMENT_QUOTE_POLICY",
     "DomainBlock",
     "FederationObject",
@@ -403,6 +406,31 @@ def _id_salt(conn: sqlite3.Connection) -> bytes:
     return bytes.fromhex(str(row[0]))
 
 
+def record_body_reader(conn: sqlite3.Connection, object_public_id: int, server_actor_iri: str, *, now: float) -> None:
+    """Record that the server actor of another server read the body of an own rendition object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4). The caller commits."""
+    conn.execute(
+        "INSERT INTO federation_body_readers (object_public_id, server_actor_iri, first_read_at, last_read_at) VALUES (?, ?, ?, ?) ON CONFLICT(object_public_id, server_actor_iri) DO UPDATE SET last_read_at=excluded.last_read_at",
+        (object_public_id, server_actor_iri, now, now),
+    )
+
+
+def _readers_gone(conn: sqlite3.Connection, object_public_id: int, *, template: str, account_id: int, now: float) -> None:
+    """The object is gone: its readers get the mark that the knowledge outbox reads (one ``Delete`` to these readers only)."""
+    conn.execute("UPDATE federation_body_readers SET gone_at=?, template=?, account_id=? WHERE object_public_id=? AND gone_at IS NULL", (now, template, account_id, object_public_id))
+
+
+def gone_body_readers(conn: sqlite3.Connection) -> list[tuple[int, str, int, list[str]]]:
+    """The gone objects with readers: (number, template, account, the server actors). The knowledge outbox sends one ``Delete`` for each, then calls ``forget_body_readers``."""
+    grouped: dict[tuple[int, str, int], list[str]] = {}
+    for public_id, actor, template, account_id in conn.execute("SELECT object_public_id, server_actor_iri, template, account_id FROM federation_body_readers WHERE gone_at IS NOT NULL ORDER BY object_public_id, server_actor_iri"):
+        grouped.setdefault((int(public_id), str(template), int(account_id)), []).append(str(actor))
+    return [(public_id, template, account_id, actors) for (public_id, template, account_id), actors in grouped.items()]
+
+
+def forget_body_readers(conn: sqlite3.Connection, object_public_id: int) -> None:
+    conn.execute("DELETE FROM federation_body_readers WHERE object_public_id=? AND gone_at IS NOT NULL", (object_public_id,))
+
+
 def _number_taken(conn: sqlite3.Connection, number: int) -> bool:
     return conn.execute(f"SELECT 1 FROM {_OBJECTS_TABLE} WHERE public_id=? UNION ALL SELECT 1 FROM federation_tombstones WHERE public_id=?", (number, number)).fetchone() is not None
 
@@ -422,6 +450,7 @@ def sync_rendition_objects(conn: sqlite3.Connection, *, kb_id: int, document_id:
         if rendition is None:
             add_tombstone(conn, rendition_object.public_id, "object", gone_at=now)
             conn.execute(f"DELETE FROM {_RENDITION_OBJECTS_TABLE} WHERE public_id=?", (rendition_object.public_id,))
+            _readers_gone(conn, rendition_object.public_id, template=rendition_object.template, account_id=obj.account_id, now=now)
         elif rendition.updated_at > rendition_object.updated_at:
             conn.execute(f"UPDATE {_RENDITION_OBJECTS_TABLE} SET updated_at=? WHERE public_id=?", (rendition.updated_at, rendition_object.public_id))
     for template, rendition in renditions.items():
@@ -524,6 +553,9 @@ def retract_object(conn: sqlite3.Connection, obj: FederationObject, *, now: floa
     for rendition_object in rendition_objects_of(conn, obj.public_id):
         add_tombstone(conn, rendition_object.public_id, "object", gone_at=now)
         conn.execute(f"DELETE FROM {_RENDITION_OBJECTS_TABLE} WHERE public_id=?", (rendition_object.public_id,))
+        _readers_gone(conn, rendition_object.public_id, template=rendition_object.template, account_id=obj.account_id, now=now)
+    # The document object is its 대표 정리본: the readers of its body get the Delete too.
+    _readers_gone(conn, obj.public_id, template="standard", account_id=obj.account_id, now=now)
     add_tombstone(conn, obj.public_id, "object", gone_at=now)
     conn.execute(f"DELETE FROM {_OBJECTS_TABLE} WHERE public_id=?", (obj.public_id,))
     return add_outbox_task(conn, account_id=obj.account_id, kind="delete", object_public_id=obj.public_id, now=now)

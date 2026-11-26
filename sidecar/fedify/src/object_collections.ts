@@ -14,6 +14,9 @@ export const OBJECT_COLLECTION_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})\/(repl
 // The body of a rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5, phase E4b): only for the server actor of another Claire server, with a valid HTTP signature.
 export const RENDITION_BODY_PATH = /^\/ap\/objects\/([1-9][0-9]{0,18})\/body$/;
 
+// The source index (Section 5.4 rule 3, phase E5a): the published rendition objects of this server for one source key, only for the server actor of another Claire server.
+export const SOURCE_INDEX_PATH = /^\/ap\/sources\/([0-9a-f]{64})$/;
+
 // The three properties of an own object. `id` is the object ID.
 export function objectCollections(id: URL, counts: { likes: number; shares: number }): { replies: URL; likes: Collection; shares: Collection } {
   return {

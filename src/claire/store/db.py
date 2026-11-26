@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 52
+SCHEMA_VERSION = 53
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -908,6 +908,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v50_document_renditions(conn)
     _migrate_v51_document_source_keys(conn)
     _migrate_v52_rendition_objects(conn)
+    _migrate_v53_body_readers(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -2285,6 +2286,25 @@ def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
     """v23 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5): ``federation_objects.content_digest`` is the digest of the summary and the share link that the followers got last. NULL for an object from before this version: the first comparison stores the digest and sends nothing (rule 7). Idempotent (A3)."""
     if _table_exists(conn, "federation_objects") and "content_digest" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
+
+
+def _migrate_v53_body_readers(conn: sqlite3.Connection) -> None:
+    """v53 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4, phase E5a): the server actors of other Claire servers that read the body of an own rendition object. When the object is gone, the row gets ``gone_at``, the template, and the account, and the outbox of the knowledge federation sends one ``Delete`` to these readers only (the exact delete list). Idempotent; it runs at each start."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_body_readers (
+            object_public_id INTEGER NOT NULL,
+            server_actor_iri TEXT NOT NULL,
+            first_read_at REAL NOT NULL,
+            last_read_at REAL NOT NULL,
+            gone_at REAL,
+            template TEXT,
+            account_id INTEGER,
+            PRIMARY KEY (object_public_id, server_actor_iri)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_body_readers_gone ON federation_body_readers(gone_at) WHERE gone_at IS NOT NULL")
 
 
 def _migrate_v52_rendition_objects(conn: sqlite3.Connection) -> None:

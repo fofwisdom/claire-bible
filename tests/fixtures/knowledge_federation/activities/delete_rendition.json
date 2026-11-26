@@ -1,0 +1,18 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/claire-bible/ns/v2"
+  ],
+  "id": "https://a.example/ap/objects/1846000000000000700#delete",
+  "type": "Delete",
+  "actor": "https://a.example/ap/actors/1846000000000000001",
+  "object": {
+    "id": "https://a.example/ap/objects/1846000000000000700",
+    "type": "Tombstone",
+    "formerType": "Article",
+    "claire:template": "concise"
+  },
+  "to": [
+    "https://b.example/ap/actors/server"
+  ]
+}

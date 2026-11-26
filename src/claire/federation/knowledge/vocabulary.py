@@ -56,6 +56,7 @@ __all__ = [
     "build_contribution",
     "build_delete_document",
     "build_delete_knowledge_base",
+    "build_delete_rendition",
     "build_document",
     "build_extraction",
     "build_follow",
@@ -214,7 +215,8 @@ AS2_TERMS = frozenset({
 })
 
 OBJECT_KINDS = ("knowledge_base", "document", "extraction", "contribution")
-ACTIVITY_KINDS = ("follow", "accept_follow", "undo_follow", "update_knowledge_base", "delete_knowledge_base", "update_document", "delete_document", "offer_contribution", "accept_offer", "reject_offer", "grant", "revoke")
+# ``delete_rendition`` (version 2, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4): the ``Delete`` of a rendition object for the server actors that read its body.
+ACTIVITY_KINDS = ("follow", "accept_follow", "undo_follow", "update_knowledge_base", "delete_knowledge_base", "update_document", "delete_document", "offer_contribution", "accept_offer", "reject_offer", "grant", "revoke", "delete_rendition")
 
 ERROR_CODES = (
     "not_an_object",  # The value is not a JSON object.
@@ -430,8 +432,9 @@ def _sealed(row: dict[str, Any], allowed: tuple[str, ...], path: str) -> None:
 
 
 def _check_context(value: dict[str, Any]) -> None:
+    """The ``@context`` array has the ActivityStreams context and the Claire context of version 1 or of version 2 (version 2 has each term of version 1)."""
     context = value.get("@context")
-    if not isinstance(context, list) or any(iri not in context for iri in WIRE_CONTEXT):
+    if not isinstance(context, list) or not any(all(iri in context for iri in wire) for wire in (WIRE_CONTEXT, WIRE_CONTEXT_V2)):
         raise ContractError("missing_context", "@context")
 
 
@@ -678,6 +681,14 @@ def _tombstone(activity: dict[str, Any], actor: str) -> str:
         raise ContractError("unsupported_object", "object.type")
     identifier = _iri(tombstone, "id", "object")
     former = _need(tombstone, "formerType", "object")
+    if former == "Article" and TEMPLATE in tombstone:
+        # A rendition object (version 2): an account actor deletes it for the server actors that read its body. No reason code: the owner removed it.
+        _same_server(identifier, actor, "object.id")
+        if tombstone[TEMPLATE] not in TEMPLATES:
+            raise ContractError("invalid_field", f"object.{TEMPLATE}")
+        if REASON_CODE in activity:
+            raise ContractError("unknown_field", REASON_CODE)
+        return "delete_rendition"
     if former == "Article":
         _same_server(identifier, actor, "object.id")
         if _need(activity, REASON_CODE, "") not in REASON_CODES:
@@ -947,6 +958,13 @@ def build_update_document(*, activity_id: str, knowledge_base: str, followers: s
 def build_delete_document(*, activity_id: str, knowledge_base: str, followers: str, document: str, reason_code: str) -> dict[str, Any]:
     """Make the ``Delete`` of a document for the followers of its knowledge base: a removal at the origin, with the reason code of the reviewers (Section 10.3)."""
     return _activity({"id": activity_id, "type": "Delete", "actor": knowledge_base, "object": {"id": document, "type": "Tombstone", "formerType": "Article"}, REASON_CODE: reason_code, "to": [followers]})
+
+
+def build_delete_rendition(*, activity_id: str, account_actor: str, rendition: str, template: str, readers: list[str]) -> dict[str, Any]:
+    """Make the ``Delete`` of a rendition object for the server actors that read its body (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4). The object of a document is its 대표 정리본, with the template ``standard``. The activity has the context of version 2."""
+    activity = {"@context": list(WIRE_CONTEXT_V2), "id": activity_id, "type": "Delete", "actor": account_actor, "object": {"id": rendition, "type": "Tombstone", "formerType": "Article", TEMPLATE: template}, "to": list(readers)}
+    validate_activity(activity)
+    return activity
 
 
 def build_offer(*, activity_id: str, contribution: dict[str, Any], capability: str | None) -> dict[str, Any]:

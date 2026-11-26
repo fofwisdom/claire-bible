@@ -486,3 +486,11 @@ Basis: phase E4b of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/
 - **[code] [decision]** A separate table and not rows of `federation_objects`: that table has `UNIQUE (kb_id, document_id)`, and SQLite changes a constraint only with a copy of the table. The number space of the objects is one (`/ap/objects/{public_id}`).
 - **[code]** When the step makes the table, each published document gets the objects of its renditions (`federation.sync_rendition_objects`). Later, the publication and each change of a rendition keep the rows ([FEDERATION.md](FEDERATION.md) §4.6).
 - **[test]** `tests/test_federation_rendition_objects.py`.
+
+## v53 (the readers of a rendition body)
+
+Basis: phase E5a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.4 rule 4 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 53. `_migrate_v53_body_readers` (`src/claire/store/db.py`) runs at each start and makes `federation_body_readers`: (`object_public_id`, `server_actor_iri`) is the key, with `first_read_at`, `last_read_at`, and, after the object is gone, `gone_at`, `template`, and `account_id` (partial index on `gone_at`).
+- **[code]** The body route writes a row for each read; the knowledge outbox sends one `Delete` to the readers of a gone object and removes its rows ([FEDERATION.md](FEDERATION.md) §4.6).
+- **[test]** `tests/test_federation_rendition_objects.py` (`test_the_readers_of_a_body_get_one_delete_when_the_rendition_is_gone`).

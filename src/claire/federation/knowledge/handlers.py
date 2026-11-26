@@ -251,6 +251,11 @@ def revoke(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: d
         _notify(ctx, notification_events.kf_grant, account_id=int(before[0]), kb_iri=entry.actor, given=False)
 
 
+def delete_rendition(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:
+    """The origin deleted a rendition object whose body this server read (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4): the copy goes away at once. The actor of the activity must be the actor of the object (the validator checks that the two are on one server). The cache of remote renditions comes with phase E5b; until then this server keeps no copy, and the activity changes nothing."""
+    del ctx, entry, activity
+
+
 HANDLERS: dict[str, journal.Handler] = {
     "follow": follow,
     "undo_follow": undo_follow,
@@ -264,6 +269,7 @@ HANDLERS: dict[str, journal.Handler] = {
     "reject_offer": reject_offer,
     "grant": grant,
     "revoke": revoke,
+    "delete_rendition": delete_rendition,
 }
 
 

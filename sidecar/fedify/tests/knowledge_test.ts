@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { exportJwk, exportSpki, generateCryptoKeyPair, getDocumentLoader, MemoryKvStore, signRequest, verifyRequest } from "@fedify/fedify";
 import { Application, CryptographicKey, Endpoints } from "@fedify/fedify/vocab";
 import { InternalApi } from "../src/internal_api.ts";
-import { CLAIRE_CONTEXT_DOCUMENT, CLAIRE_CONTEXT_IRI, deliverKnowledgeTask, kbBatches, KB_BATCH_ITEMS, type KnowledgeDeliveryDeps, processKnowledgeOutbox, processRemoteReads, readKbCollection, readRemoteDocument, readServer, REMOTE_READ_BYTES, withDeadline } from "../src/knowledge.ts";
+import { CLAIRE_CONTEXT_DOCUMENT, CLAIRE_CONTEXT_IRI, deliverKnowledgeTask, isKnowledgeDocument, kbBatches, KB_BATCH_ITEMS, type KnowledgeDeliveryDeps, processKnowledgeOutbox, processRemoteReads, readKbCollection, readRemoteDocument, readServer, REMOTE_READ_BYTES, withDeadline } from "../src/knowledge.ts";
 import { Sidecar } from "../src/sidecar.ts";
 import { fakeClaire, fixture, KEY, knowledgeFixture, knowledgeFixtureNames, wireFixture } from "./fixtures.ts";
 
@@ -283,6 +283,14 @@ Deno.test("the body of a rendition goes to a request that a server actor signed,
     assert.deepEqual([primary["claire:renditions"], primary["claire:body"], "claire:template" in primary, "claire:sourceKey" in primary], [`${ORIGIN}/ap/objects/816412345678901234/renditions`, `${ORIGIN}/ap/objects/816412345678901234/body`, false, false]);
     const collection = await sidecar.handle(new Request(`${ORIGIN}/ap/objects/816412345678901234/renditions`, { headers: { accept: AS2 } }));
     assert.deepEqual(await collection.json(), (fixture("object_collection_renditions").response as { document: unknown }).document);
+    // The source index (phase E5a): the same rule as the body.
+    const index = await signed("GET", "/ap/sources/c29fa68b67e1bf5c1e79f6a5129d9df583f0a5179b256ef98d1eb7e18be3f2e3", { actor: "https://remote.example/ap/actors/server" });
+    assert.deepEqual(await index.json(), (fixture("source_index").response as { document: unknown }).document);
+    const unsignedIndex = await sidecar.handle(new Request(`${ORIGIN}/ap/sources/c29fa68b67e1bf5c1e79f6a5129d9df583f0a5179b256ef98d1eb7e18be3f2e3`, { headers: { accept: AS2 } }));
+    assert.equal(unsignedIndex.status, 404);
+    assert.equal((await sidecar.handle(new Request(`${ORIGIN}/ap/sources/not-a-key`, { headers: { accept: AS2 } }))).status, 404);
+    // The Delete of a rendition object has the context of version 2: it is an activity of the knowledge federation.
+    assert.ok(isKnowledgeDocument({ "@context": ["https://www.w3.org/ns/activitystreams", "https://w3id.org/claire-bible/ns/v2"], type: "Delete" }));
   } finally {
     restore();
   }

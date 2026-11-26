@@ -41,7 +41,7 @@ import { buildNote, handOffInteraction, knownMentions } from "./notes.ts";
 // Quotes (contract 1.7, unit FP4-9Q).
 import { QuoteAuthorization } from "@fedify/fedify/vocab";
 import { buildQuoteAuthorization, quoteEventOf, quoteInteractionPolicy } from "./quotes.ts";
-import { OBJECT_COLLECTION_PATH, type ObjectCollectionName, objectCollections, RENDITION_BODY_PATH } from "./object_collections.ts";
+import { OBJECT_COLLECTION_PATH, type ObjectCollectionName, objectCollections, RENDITION_BODY_PATH, SOURCE_INDEX_PATH } from "./object_collections.ts";
 import { renditionFields, withRenditionFields } from "./renditions.ts";
 
 // The USERNAME of the server actor. Claire reserves this word, so no account can have it.
@@ -285,6 +285,8 @@ export class Sidecar {
     if (objectCollection !== null) return await this.#objectCollection(clean, objectCollection[1], objectCollection[2] as ObjectCollectionName);
     const renditionBody = inbox ? null : RENDITION_BODY_PATH.exec(path);
     if (renditionBody !== null) return await this.#renditionBody(clean, config, renditionBody[1]);
+    const sourceIndex = inbox ? null : SOURCE_INDEX_PATH.exec(path);
+    if (sourceIndex !== null) return await this.#signedDocument(clean, config, (signer) => this.#api.sourceIndex(sourceIndex[1], signer));
     const kbActor = inbox ? null : KB_ACTOR_PATH.exec(path);
     if (kbActor !== null) return await this.#knowledgeBaseActor(clean, config, kbActor);
     if (inbox && body !== null) {
@@ -623,10 +625,15 @@ export class Sidecar {
 
   // The body of a rendition (contract 1.20, phase E4b): the sidecar verifies the HTTP signature, and Claire answers only the server actor of another Claire server (KS1). Each refusal is the same 404.
   async #renditionBody(request: Request, config: ServerConfig, publicId: string): Promise<Response> {
+    return await this.#signedDocument(request, config, (signer) => this.#api.renditionBody(publicId, signer));
+  }
+
+  // A document that Claire gives only to a reader with a valid HTTP signature (the body of a rendition, the source index). Each refusal is the same 404; a query has no answer.
+  async #signedDocument(request: Request, config: ServerConfig, read: (signer: string | undefined) => Promise<Record<string, unknown> | null>): Promise<Response> {
     if (new URL(request.url).searchParams.size > 0) return notFound();
     const signer = await this.#requestSigner(request, config);
     try {
-      const document = await this.#api.renditionBody(publicId, signer ?? undefined);
+      const document = await read(signer ?? undefined);
       if (document === null) return notFound();
       return new Response(request.method === "HEAD" ? null : JSON.stringify(document), { status: 200, headers: { "content-type": "application/activity+json", "cache-control": "private, no-store", vary: "Accept, Signature" } });
     } catch (error) {

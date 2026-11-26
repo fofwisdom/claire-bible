@@ -92,6 +92,7 @@ def built_activities() -> dict[str, Any]:
         "reject_offer": v.build_reject_offer(activity_id=f"{KB}#rejects/offers/1", knowledge_base=KB, offer=offer["id"], offer_actor=ALICE, reason_code="duplicate"),
         "grant": grant,
         "revoke": v.build_revoke(activity_id=f"{KB}#grants/1/revoke", knowledge_base=KB, account_actor=ALICE, grant=grant["id"]),
+        "delete_rendition": v.build_delete_rendition(activity_id=f"{A}/ap/objects/1846000000000000700#delete", account_actor=ALICE, rendition=f"{A}/ap/objects/1846000000000000700", template="concise", readers=[f"{B}/ap/actors/server"]),
     }
 
 
@@ -315,13 +316,16 @@ def test_context_file_is_json_ld_and_defines_each_term_of_the_builders() -> None
     names: set[str] = set()
     _used_terms([*built_objects().values(), *built_activities().values(), v.build_offer(activity_id=f"{ALICE}#offers/2", contribution=built_activities()["offer_contribution"]["object"], capability=f"{KB}#grants/1"), _automatic_offer()], terms, names)
     known = {row["term"] for row in v.TERMS}
+    known_v2 = {row["term"] for row in v.TERMS_V2}
+    context_v2 = v.context_document_v2()["@context"]
     for name in terms | names:
-        assert name in v.AS2_TERMS or name in known, name
+        assert name in v.AS2_TERMS or name in known or name in known_v2, name
         if name in known and not name.startswith("claire:"):
             assert name in context, name
         if name.startswith("claire:") and name in terms:
-            assert name in context, name
-    # Each term of the vocabulary is in use, and each has the IRI of decision KD9 or of ForgeFed.
+            # A term of version 2 (the Delete of a rendition object) is in the context of version 2.
+            assert name in (context_v2 if name in known_v2 else context), name
+    # Each term of version 1 is in use, and each has the IRI of decision KD9 or of ForgeFed.
     assert known <= terms | names
     for row in v.TERMS:
         assert v.term_iri(row["term"]).startswith((v.CLAIRE_NS, v.FORGEFED_NS))

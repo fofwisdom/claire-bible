@@ -31,6 +31,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from ...core import ids
 from ...store import federation as federation_store
 from ...store import kb_collab
 from ...store import themes as themes_store
@@ -353,6 +354,22 @@ def sync(conn: sqlite3.Connection, *, origin: str, now: float) -> None:
         _sync_actor(conn, number, origin=origin, now=now)
     # The answers to the offers of accounts of other servers whose contribution has a decision (design Section 12.1 rule 3, unit KF4).
     offers.sync(conn, origin=origin, now=now)
+    _sync_rendition_deletes(conn, origin=origin, now=now)
+
+
+def _sync_rendition_deletes(conn: sqlite3.Connection, *, origin: str, now: float) -> None:
+    """One ``Delete`` for each gone rendition object to the server actors that read its body, and to no other server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4). The account actor signs it. An account that is not an actor now sends nothing: its rows go away."""
+    from . import offers
+
+    for public_id, template, account_id, readers in federation_store.gone_body_readers(conn):
+        row = conn.execute("SELECT public_id FROM accounts WHERE id=? AND status='active' AND username IS NOT NULL", (account_id,)).fetchone()
+        recipients = [reader for reader in readers if access.remote_server_domain(reader, origin) is not None]
+        if row is not None and recipients:
+            actor = f"{origin}/ap/actors/{ids.format_public_id(int(row[0]))}"
+            rendition = f"{origin}/ap/objects/{ids.format_public_id(public_id)}"
+            activity = vocabulary.build_delete_rendition(activity_id=f"{rendition}#delete", account_actor=actor, rendition=rendition, template=template, readers=recipients)
+            enqueue(conn, activity, signer=offers.account_signer(int(row[0])), recipients=recipients, origin=origin, now=now)
+        federation_store.forget_body_readers(conn, public_id)
 
 
 def accept_activity_iri(kb_iri: str, follow_iri: str) -> str:

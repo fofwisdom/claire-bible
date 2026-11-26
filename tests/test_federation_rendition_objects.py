@@ -5,6 +5,8 @@ The interface between Claire and the sidecar (each endpoint agrees with its cont
 
 from __future__ import annotations
 
+import json
+
 from claire.ingest.source_key import source_key
 from claire.store import db as dbm
 from claire.store import document_renditions as renditions_store
@@ -12,7 +14,7 @@ from claire.store import federation as federation_store
 from tests.test_federation_routes import ALICE_THEME_ID, OBJECT_ID, _isolate, fixture, internal  # noqa: F401  (pytest fixtures)
 
 RENDITION_ID = 816412345678901260
-FIXTURES = ["object_rendition", "object_collection_renditions", "object_body", "object_body_unsigned"]
+FIXTURES = ["object_rendition", "object_collection_renditions", "object_body", "object_body_unsigned", "source_index", "source_index_unsigned"]
 
 
 def _seed(internal) -> None:  # noqa: F811
@@ -99,3 +101,29 @@ def test_rendition_objects_follow_the_renditions_of_a_published_document(interna
     finally:
         conn.close()
     assert internal.get(f"/objects/{concise.public_id}").status_code == 410
+
+
+def test_the_readers_of_a_body_get_one_delete_when_the_rendition_is_gone(internal):  # noqa: F811
+    """The exact delete list (Section 5.4 rule 4, phase E5a): a body read records the server actor; when the rendition object is gone, the knowledge outbox has one ``Delete`` that the account actor signs, for that server actor only. The rows go away after the task."""
+    from claire.federation.knowledge import outbox as kf_outbox
+    from claire.federation.knowledge import vocabulary
+
+    _seed(internal)
+    reader = "https://remote.example/ap/actors/server"
+    assert internal.get(f"/objects/{RENDITION_ID}/body?signer={reader}").status_code == 200
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        assert [tuple(r) for r in conn.execute("SELECT object_public_id, server_actor_iri, gone_at FROM federation_body_readers")] == [(RENDITION_ID, reader, None)]
+        assert renditions_store.delete_additional(conn, "doc-published", ALICE_THEME_ID, "concise") is True
+        kf_outbox.sync(conn, origin="https://claire.example.com", now=1800000900.0)
+        conn.commit()
+        tasks = conn.execute("SELECT t.activity_iri, t.kind, t.signer, t.recipient, a.payload FROM kf_outbox t JOIN kf_outbox_activities a ON a.activity_iri = t.activity_iri WHERE t.kind='delete_rendition'").fetchall()
+        assert len(tasks) == 1
+        activity_iri, kind, signer, recipient, payload = tasks[0]
+        activity = json.loads(payload)
+        assert (kind, recipient, signer.startswith("account:")) == ("delete_rendition", reader, True)
+        assert vocabulary.validate_activity(activity) == "delete_rendition"
+        assert activity["object"] == {"id": f"https://claire.example.com/ap/objects/{RENDITION_ID}", "type": "Tombstone", "formerType": "Article", "claire:template": "concise"}
+        assert conn.execute("SELECT COUNT(*) FROM federation_body_readers").fetchone()[0] == 0
+    finally:
+        conn.close()

@@ -15,6 +15,7 @@ Units KF0 to KF6 are implemented. KF0: the vocabulary, the JSON-LD context, the 
 | Contract fixtures | Implemented |
 | Routes `/ns/v1` and `/ns` | Implemented (`server.py`: `ns_context_route`, `ns_vocabulary_route`) |
 | Route `/ns/v2` ([`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) phase E4a) | Implemented (`ns_context_v2_route`): the context of version 2 has each entry of version 1 and the terms of renditions and +1 (`TERMS_V2`). The vocabulary page shows the version of each term. |
+| Activity kind `delete_rendition` ([`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) phase E5a) | Implemented: the `Delete` of a rendition object (`Tombstone`, `formerType` `Article`, `claire:template`, no reason code) that an account actor sends to the server actors that read its body. The validators take the context of version 2 in place of version 1 (`_check_context`). The handler changes nothing until the cache of remote renditions (phase E5b). |
 | Vocabulary in the sidecar | The context document, the handoff of inbound activities (Section 10.6), and the outbound activities as the JSON of the builders (Section 12.7) are implemented |
 | Known servers, admin controls, inbox journal, single mode root (KF1) | Implemented (Section 10; the sidecar part in Section 10.6) |
 | `/kb` collections of other servers, store of remote knowledge bases, themes across servers, root page (KF2) | Implemented (Section 11) |

@@ -16,6 +16,7 @@ import { PrivateAddressError } from "./pinned_fetch.ts";
 import type { InternalApi, KbRead, KnowledgeOutboxTask, RemoteRead, ServerReadResult } from "./internal_api.ts";
 
 export const CLAIRE_CONTEXT_IRI = "https://w3id.org/claire-bible/ns/v1";
+export const CLAIRE_CONTEXT_V2_IRI = "https://w3id.org/claire-bible/ns/v2";
 export const CLAIRE_CONTEXT_DOCUMENT: unknown = claireContext;
 
 // The loaders of Fedify look in this table first. The entry makes the Claire context a local document for each loader of this process.
@@ -77,7 +78,8 @@ export function publicAddressCheck(allowPrivate: boolean): (url: URL) => Promise
 export function isKnowledgeDocument(document: unknown): document is Record<string, unknown> {
   if (typeof document !== "object" || document === null || Array.isArray(document)) return false;
   const context = (document as Record<string, unknown>)["@context"];
-  return Array.isArray(context) && context.includes(CLAIRE_CONTEXT_IRI);
+  // Version 2 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5) has each term of version 1: the Delete of a rendition object has it.
+  return Array.isArray(context) && (context.includes(CLAIRE_CONTEXT_IRI) || context.includes(CLAIRE_CONTEXT_V2_IRI));
 }
 
 // The JSON object of a request body when it is an activity of the knowledge federation, else null. The object is the parsed body: no key is added, removed, or changed.

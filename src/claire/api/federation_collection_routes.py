@@ -15,6 +15,8 @@ from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
 import hashlib
+import re
+import time
 
 import nh3
 
@@ -31,6 +33,10 @@ from .federation_quote_routes import quoted_object
 from .federation_routes import _error, _json, _not_found, _remote_host, _Sealed, rendition_body_text
 
 __all__ = ["ObjectCollectionResponse", "collection_internal_routes", "known_replies"]
+
+# The source index (Section 5.4 rule 3): a source key, and the documents of one answer (the newest publications first).
+_SOURCE_KEY_RE = re.compile(r"[0-9a-f]{64}")
+SOURCE_INDEX_DOCUMENTS_MAX = 50
 
 # The largest cursor of a page: the number of replies before the page.
 _CURSOR_MAX_DIGITS = 6
@@ -60,8 +66,8 @@ def known_replies(conn: Any, client: Any, *, origin: str, public_id: int, author
     return own, others
 
 
-def collection_internal_routes(*, origin: Callable[[], str], open_store: Callable[[], Any], open_client: Callable[[], Any], actor_account_ids: Callable[[Any], list[int]]) -> list[BaseRoute]:
-    """The routes of this module. The callables are the helpers of ``federation_internal_routes``."""
+def collection_internal_routes(*, origin: Callable[[], str], open_store: Callable[[], Any], open_client: Callable[[], Any], actor_account_ids: Callable[[Any], list[int]], open_writer: Callable[[], Any]) -> list[BaseRoute]:
+    """The routes of this module. The callables are the helpers of ``federation_internal_routes``; ``open_writer`` gives a connection that can write (the readers of a body)."""
 
     def object_collection(request: Request) -> Response:
         name = request.path_params["name"]
@@ -138,8 +144,47 @@ def collection_internal_routes(*, origin: Callable[[], str], open_store: Callabl
         finally:
             client.close()
             store.conn.close()
+        # The reader goes to the exact delete list of the object (Section 5.4 rule 4).
+        assert signer is not None
+        writer = open_writer()
+        try:
+            federation_store.record_body_reader(writer, public_id, signer, now=time.time())
+            writer.commit()
+        finally:
+            writer.close()
         iri = f"{canonical}/ap/objects/{public_id}"
         body = object_collections.rendition_body_document(f"{iri}/body", iri, html=nh3.clean(compiled), source=source, body_hash=hashlib.sha256(source.encode("utf-8")).hexdigest())
         return _json(ObjectCollectionResponse(document=body))
 
-    return [Route("/objects/{public_id}/collections/{name}", object_collection, methods=["GET"]), Route("/objects/{public_id}/body", rendition_body, methods=["GET"])]
+    def source_index(request: Request) -> Response:
+        """``GET /sources/{source_key}?signer=...``: the source index of this server for the server actor of another Claire server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 3, KS1): an ``OrderedCollection`` of the published rendition objects (document objects and rendition objects) of the documents with this source key. Each refusal is the same 404."""
+        key = request.path_params["source_key"]
+        query = request.query_params
+        signer = query.get("signer")
+        if set(query) - {"signer"} or (signer is not None and not 0 < len(signer) <= 2048):
+            return _error(400, "invalid_request")
+        if not _SOURCE_KEY_RE.fullmatch(key):
+            return _not_found()
+        canonical = origin()
+        store = open_store()
+        client = open_client()
+        try:
+            if not knowledge_access.collection_access(store.conn, signer=signer, origin=canonical).allowed:
+                return _not_found()
+            actor_ids = actor_account_ids(store)
+            rows = store.conn.execute(
+                "SELECT o.public_id FROM federation_objects o JOIN documents d ON d.id = o.document_id AND d.kb_id = o.kb_id WHERE d.source_key=? ORDER BY o.published_at DESC LIMIT ?",
+                (key, SOURCE_INDEX_DOCUMENTS_MAX),
+            ).fetchall()
+            items: list[str] = []
+            for (public_id,) in rows:
+                if quoted_object(store.conn, client, int(public_id), actor_ids=actor_ids) is None:
+                    continue
+                items.append(f"{canonical}/ap/objects/{public_id}")
+                items += [f"{canonical}/ap/objects/{r.public_id}" for r in federation_store.rendition_objects_of(store.conn, int(public_id))]
+        finally:
+            client.close()
+            store.conn.close()
+        return _json(ObjectCollectionResponse(document=object_collections.source_index(f"{canonical}/ap/sources/{key}", items)))
+
+    return [Route("/objects/{public_id}/collections/{name}", object_collection, methods=["GET"]), Route("/objects/{public_id}/body", rendition_body, methods=["GET"]), Route("/sources/{source_key}", source_index, methods=["GET"])]

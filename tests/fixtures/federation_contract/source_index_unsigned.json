@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/sources/c29fa68b67e1bf5c1e79f6a5129d9df583f0a5179b256ef98d1eb7e18be3f2e3"
+  },
+  "status": 404,
+  "response": {
+    "error": "not_found"
+  }
+}

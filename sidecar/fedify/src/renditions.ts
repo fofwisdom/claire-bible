@@ -8,8 +8,9 @@ import { Article } from "@fedify/fedify/vocab";
 import { preloadedContexts } from "jsr:@fedify/vocab-runtime@^2.4.6";
 import claireContextV2 from "./claire_context_v2.json" with { type: "json" };
 import type { ObjectRecord } from "./internal_api.ts";
+import { CLAIRE_CONTEXT_V2_IRI } from "./knowledge.ts";
 
-export const CLAIRE_CONTEXT_V2_IRI = "https://w3id.org/claire-bible/ns/v2";
+export { CLAIRE_CONTEXT_V2_IRI };
 (preloadedContexts as Record<string, unknown>)[CLAIRE_CONTEXT_V2_IRI] = claireContextV2;
 
 // The claire: fields of an own published object. objectUri gives the ID of an object by its number.

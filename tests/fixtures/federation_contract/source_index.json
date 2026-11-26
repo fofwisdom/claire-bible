@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/sources/c29fa68b67e1bf5c1e79f6a5129d9df583f0a5179b256ef98d1eb7e18be3f2e3?signer=https%3A%2F%2Fremote.example%2Fap%2Factors%2Fserver"
+  },
+  "status": 200,
+  "response": {
+    "document": {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://w3id.org/claire-bible/ns/v2"
+      ],
+      "id": "https://claire.example.com/ap/sources/c29fa68b67e1bf5c1e79f6a5129d9df583f0a5179b256ef98d1eb7e18be3f2e3",
+      "type": "OrderedCollection",
+      "totalItems": 2,
+      "orderedItems": [
+        "https://claire.example.com/ap/objects/816412345678901234",
+        "https://claire.example.com/ap/objects/816412345678901260"
+      ]
+    }
+  }
+}
