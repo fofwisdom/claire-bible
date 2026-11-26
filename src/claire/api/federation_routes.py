@@ -46,6 +46,7 @@ from ..store import client_db
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
+from ..store import federation_opinions as opinions_store
 from ..store import federation_quotes as quotes_store
 from ..store.secrets import get_secret_service
 from ..i18n import catalog as i18n_catalog
@@ -1112,6 +1113,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             revoked = quotes_store.revoke_note_quotes(client, event.object_iri, actor_iri, now=now())
             # The quoting actor deleted its object: its requests for own objects go.
             quotes_store.remove_requests_of_object(client, event.object_iri, actor_iri)
+            # The author deleted a post that is an opinion of an own object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 C4).
+            removed += opinions_store.delete_opinion(client, event.object_iri, actor_iri)
             return answer("accepted", None, removed) if removed or revoked else answer("ignored", "no_item")
         if event.type == "Undo":
             removed = client_store.delete_announced_items(client, event.object_iri, actor_iri)

@@ -24,12 +24,14 @@ __all__ = [
     "Fetch",
     "Opinion",
     "delete_for_object",
+    "delete_opinion",
     "ensure_schema",
     "finish",
     "forget",
     "get_fetch",
     "hide",
     "lease",
+    "object_iris",
     "opinions_of",
     "request_fetch",
     "store_objects",
@@ -246,3 +248,17 @@ def delete_for_object(conn: sqlite3.Connection, object_iri: str) -> int:
     """Delete the opinions and the fetch of an object that is gone (Section 5.11 C4)."""
     conn.execute("DELETE FROM federation_opinion_fetches WHERE object_iri=?", (object_iri,))
     return conn.execute("DELETE FROM federation_opinions WHERE object_iri=?", (object_iri,)).rowcount
+
+
+def delete_opinion(conn: sqlite3.Connection, opinion_iri: str, author_iri: str) -> int:
+    """A remote ``Delete`` of a post (Section 5.11 C4): delete the opinion rows of that post for each object, when the actor of the ``Delete`` is the author. Its replies move under the object. The caller commits."""
+    removed = 0
+    for (object_iri,) in conn.execute("SELECT object_iri FROM federation_opinions WHERE opinion_iri=? AND author_iri=?", (opinion_iri, author_iri)).fetchall():
+        removed += forget(conn, str(object_iri), [opinion_iri])
+    return removed
+
+
+def object_iris(conn: sqlite3.Connection) -> list[str]:
+    """The objects that have opinions or a fetch."""
+    rows = conn.execute("SELECT object_iri FROM federation_opinions UNION SELECT object_iri FROM federation_opinion_fetches ORDER BY 1").fetchall()
+    return [str(row[0]) for row in rows]

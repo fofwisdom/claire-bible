@@ -1,6 +1,6 @@
-"""Opinions of published objects (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B and C, phase E7a, contract 1.23, client.db version 11).
+"""Opinions of published objects (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B and C, phases E7a and E7c, contract 1.23, client.db version 11).
 
-The interface between Claire and the sidecar (each endpoint agrees with its contract fixture; the sidecar tests read the same files) and the rules of the store: which posts are opinions, and what a 404 does.
+The interface between Claire and the sidecar (each endpoint agrees with its contract fixture; the sidecar tests read the same files), the rules of the store (which posts are opinions, and what a 404 does), the remote ``Delete`` of an opinion, and the run that deletes the opinions of a gone object.
 """
 
 from __future__ import annotations
@@ -10,7 +10,8 @@ from typing import Any
 from claire.federation import opinions as opinions_mod
 from claire.store import client_db
 from claire.store import federation_opinions as opinions_store
-from tests.test_federation_routes import NOW, OBJECT_ID, _isolate, internal  # noqa: F401  (pytest fixtures)
+from claire.store import db as dbm
+from tests.test_federation_routes import GONE_OBJECT_ID, NOW, OBJECT_ID, _isolate, internal  # noqa: F401  (pytest fixtures)
 
 ORIGIN = "https://claire.example.com"
 OBJECT = f"{ORIGIN}/ap/objects/{OBJECT_ID}"
@@ -116,3 +117,49 @@ def test_the_text_of_a_remote_post_is_text_and_links_only() -> None:
         [{"text": "one"}],
         [{"text": "two"}],
     ]
+
+
+def _delete_event(actor: str, object_iri: str) -> dict[str, Any]:
+    """The timeline event of a remote ``Delete`` (the form of the fixture ``timeline_event_delete``)."""
+    return {"method": "POST", "path": "/internal/federation/v1/timeline-events", "body": {"event_id": f"{actor}#delete/1", "type": "Delete", "recipient_public_id": None, "actor": {"iri": actor, "inbox": f"{actor}/inbox", "shared_inbox": None}, "announced_by": None, "object_iri": object_iri, "public": None, "object": None, "parents": [], "actor_type": "Person", "mentioned": [], "in_reply_to": None, "verified_by": "http-signature"}}
+
+
+def test_a_remote_delete_of_the_author_removes_the_opinion_and_keeps_its_replies(internal):  # noqa: F811
+    client = _client(internal)
+    try:
+        assert opinions_store.store_objects(client, OBJECT, [post(CAROL, in_reply_to=OBJECT), post(ERIN, in_reply_to=CAROL)], quoting=set(), delivered=set(), now=NOW) == 2
+        client.commit()
+    finally:
+        client.close()
+    # Only the author deletes: a Delete of another actor changes nothing.
+    assert internal.call(_delete_event("https://remote.example/users/dan", CAROL)).json()["decision"] == "ignored"
+    answer = internal.call(_delete_event("https://remote.example/users/carol", CAROL)).json()
+    assert (answer["decision"], answer["items"]) == ("accepted", 1)
+    client = _client(internal)
+    try:
+        assert [(o.opinion_iri, o.parent_iri) for o in opinions_store.opinions_of(client, OBJECT)] == [(ERIN, OBJECT)]
+    finally:
+        client.close()
+
+
+def test_the_run_deletes_the_opinions_of_a_gone_object_only(internal):  # noqa: F811
+    from claire.federation import opinion_scheduler
+
+    gone = f"{ORIGIN}/ap/objects/{GONE_OBJECT_ID}"
+    client = _client(internal)
+    try:
+        assert opinions_store.store_objects(client, OBJECT, [post(CAROL, in_reply_to=OBJECT)], quoting=set(), delivered=set(), now=NOW) == 1
+        assert opinions_store.store_objects(client, gone, [post(ERIN, in_reply_to=gone)], quoting=set(), delivered=set(), now=NOW) == 1
+        assert opinions_store.request_fetch(client, gone, own=True, object_published=NOW - 3600.0, now=NOW) is not None
+        client.commit()
+    finally:
+        client.close()
+    assert opinion_scheduler.run_once(internal.settings) == {"removed": 1}
+    client = _client(internal)
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        assert opinions_store.object_iris(client) == [OBJECT]
+        assert opinions_mod.purge_gone_objects(conn, client, origin=ORIGIN) == 0
+    finally:
+        conn.close()
+        client.close()

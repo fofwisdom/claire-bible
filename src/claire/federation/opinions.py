@@ -10,12 +10,13 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit
 
+from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
 from ..store import federation_opinions as opinions_store
 from ..store import federation_quotes as quotes_store
 
-__all__ = ["REFRESH_RETRY_SECONDS", "opinions_view", "text_segments"]
+__all__ = ["REFRESH_RETRY_SECONDS", "opinions_view", "purge_gone_objects", "text_segments"]
 
 # The page asks again after this time while a fetch runs (Section 5.11 B6).
 REFRESH_RETRY_SECONDS = 3
@@ -113,12 +114,12 @@ def _local_replies(client: sqlite3.Connection, conn: sqlite3.Connection, object_
     return out
 
 
-def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int, origin: str, actor_ids: set[int], now: float) -> dict[str, Any]:
-    """The JSON of the 의견 tab of one own object. ``conn`` is ``claire.db`` and ``client`` is ``client.db``."""
+def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int, origin: str, actor_ids: set[int], now: float, moderator: bool = False) -> dict[str, Any]:
+    """The JSON of the 의견 tab of one own object. ``conn`` is ``claire.db`` and ``client`` is ``client.db``. A ``moderator`` (the author of the object or a server admin, Section 5.11 D5) also gets the hidden opinions, each with ``hidden`` true, so that the page can show them again."""
     opinions: list[dict[str, Any]] = []
-    for opinion in opinions_store.opinions_of(client, object_iri):
+    for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=moderator):
         opinions.append({
-            "iri": opinion.opinion_iri, "parent": opinion.parent_iri, "kind": opinion.kind, "local": False,
+            "iri": opinion.opinion_iri, "parent": opinion.parent_iri, "kind": opinion.kind, "local": False, "hidden": opinion.hidden_at is not None,
             "author": {"iri": opinion.author_iri, "name": opinion.author_name, "handle": opinion.author_handle},
             "url": opinion.url or opinion.opinion_iri, "summary": opinion.summary, "sensitive": opinion.sensitive, "language": opinion.language,
             "published": opinion.published, "text": text_segments(opinion.content_html),
@@ -127,9 +128,10 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
     opinions += [item for item in _local_replies(client, conn, object_iri, origin, actor_ids) if item["iri"] not in seen]
     opinions.sort(key=lambda item: (item["published"] or 0.0, item["iri"]))
     reactions = client_store.count_object_reactions(client, [object_public_id])[object_public_id]
+    shown = [item for item in opinions if not item.get("hidden")]
     counts = {
-        "replies": sum(1 for item in opinions if item["kind"] == "reply"),
-        "quotes": max(sum(1 for item in opinions if item["kind"] == "quote"), quotes_store.count_approved_quotes(client, [object_public_id])[object_public_id]),
+        "replies": sum(1 for item in shown if item["kind"] == "reply"),
+        "quotes": max(sum(1 for item in shown if item["kind"] == "quote"), quotes_store.count_approved_quotes(client, [object_public_id])[object_public_id]),
         "likes": reactions["like"],
         "shares": reactions["announce"],
     }
@@ -138,4 +140,17 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
     if fetch is not None:
         status = "running" if fetch.status == "pending" else fetch.status
         refresh = {"id": str(fetch.id), "status": status, "retry": REFRESH_RETRY_SECONDS if status == "running" else 0, "result_count": fetch.result_count}
-    return {"published": True, "object": object_iri, "opinions": opinions, "counts": counts, "refresh": refresh}
+    return {"published": True, "object": object_iri, "opinions": opinions, "counts": counts, "refresh": refresh, "moderation": {"url": "/api/federation/opinions/hide"} if moderator else None}
+
+
+def purge_gone_objects(conn: sqlite3.Connection, client: sqlite3.Connection, *, origin: str) -> int:
+    """Delete the opinions and the fetch of each own object that is gone (Section 5.11 C4: a retract, a gone rendition, a purge). Return the number of deleted opinions. The caller commits ``client``."""
+    prefix = f"{origin.rstrip('/')}/ap/objects/"
+    removed = 0
+    for object_iri in opinions_store.object_iris(client):
+        number = object_iri[len(prefix):] if object_iri.startswith(prefix) else ""
+        if not (number.isascii() and number.isdigit()):
+            continue
+        if federation_store.owning_object(conn, int(number)) is None:
+            removed += opinions_store.delete_for_object(client, object_iri)
+    return removed

@@ -718,7 +718,8 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     view = resp.json()
     assert (view["published"], view["object"]) == (True, object_iri)
     assert view["counts"] == {"replies": 1, "quotes": 0, "likes": 0, "shares": 0}
-    assert view["opinions"] == [{"iri": reply["object_iri"], "parent": object_iri, "kind": "reply", "local": False, "author": reply["author"], "url": "https://remote.example/@carol/9", "summary": "spoiler", "sensitive": True, "language": "en", "published": 1800000000.0, "text": [[{"text": "Good "}, {"text": "read", "href": "https://example.org/a"}]]}]
+    assert view["moderation"] is None
+    assert view["opinions"] == [{"iri": reply["object_iri"], "parent": object_iri, "kind": "reply", "local": False, "hidden": False, "author": reply["author"], "url": "https://remote.example/@carol/9", "summary": "spoiler", "sensitive": True, "language": "en", "published": 1800000000.0, "text": [[{"text": "Good "}, {"text": "read", "href": "https://example.org/a"}]]}]
     # The object is older than five minutes and has no fetch: the request starts one, and the page sees it run.
     assert view["refresh"]["status"] == "running" and view["refresh"]["retry"] == 3
     assert anon("GET", f"/silvercord/{token}/opinions").json()["refresh"]["id"] == view["refresh"]["id"]
@@ -726,3 +727,26 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert anon("GET", f"/silvercord/{token2}/opinions").json() == {"published": False, "object": None, "opinions": [], "counts": None, "refresh": None}
     assert anon("GET", f"/silvercord/{token}/renditions/concise/opinions").json()["published"] is False
     assert anon("GET", f"/silvercord/{token}/renditions/default/opinions").status_code == 404
+
+    # Phase E7c (Section 5.11 D5): the author of the object and a server admin hide an opinion from the page and from the replies collection, and show it again. Another account and a visitor cannot.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        sessions = {name: accounts_store.create_account_session(conn, account_id=account_id, scope="owner") for name, account_id in (("alice", env["alice_id"]), ("bob", env["bob_id"]), ("admin", 1))}
+        conn.commit()
+    finally:
+        conn.close()
+    alice, bob, admin = (_make_caller(test_client, origin, sessions[name]) for name in ("alice", "bob", "admin"))
+    hide = {"object": object_iri, "opinion": reply["object_iri"], "hidden": True}
+    assert alice("GET", f"/silvercord/{token}/opinions").json()["moderation"] == {"url": "/api/federation/opinions/hide"}
+    assert bob("GET", f"/silvercord/{token}/opinions").json()["moderation"] is None
+    assert bob("POST", "/api/federation/opinions/hide", json=hide).status_code == 404
+    assert anon("POST", "/api/federation/opinions/hide", json=hide).status_code in (401, 403, 404)
+    assert alice("POST", "/api/federation/opinions/hide", json={**hide, "opinion": "https://remote.example/other"}).status_code == 404
+    assert alice("POST", "/api/federation/opinions/hide", json={**hide, "extra": 1}).status_code == 400
+    resp = alice("POST", "/api/federation/opinions/hide", json=hide)
+    assert (resp.status_code, resp.json()) == (200, {"hidden": True})
+    shown = anon("GET", f"/silvercord/{token}/opinions").json()
+    assert (shown["opinions"], shown["counts"]["replies"]) == ([], 0)
+    assert [(o["iri"], o["hidden"]) for o in admin("GET", f"/silvercord/{token}/opinions").json()["opinions"]] == [(reply["object_iri"], True)]
+    assert admin("POST", "/api/federation/opinions/hide", json={**hide, "hidden": False}).json() == {"hidden": False}
+    assert [o["iri"] for o in anon("GET", f"/silvercord/{token}/opinions").json()["opinions"]] == [reply["object_iri"]]

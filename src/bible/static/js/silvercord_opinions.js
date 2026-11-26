@@ -93,6 +93,10 @@
         timeLink.appendChild(timeEl);
         meta.appendChild(timeLink);
       }
+      if (opinion.hidden) {
+        article.classList.add("is-hidden");
+        meta.appendChild(make("span", "chip-pill", rtr("share.sc.op_hidden_badge")));
+      }
       article.appendChild(meta);
       var body = bodyNode(opinion);
       if (opinion.summary || opinion.sensitive) {
@@ -104,7 +108,32 @@
       } else {
         article.appendChild(body);
       }
+      if (state.data && state.data.moderation && !opinion.local) article.appendChild(moderationNode(opinion));
       return article;
+    }
+
+    // The author of the object and a server admin hide an opinion from the page, or show it again (rule D5).
+    function moderationNode(opinion) {
+      var row = make("div", "op-post-actions");
+      var btn = make("button", "sc-btn op-hide", rtr(opinion.hidden ? "share.sc.op_show" : "share.sc.op_hide"));
+      btn.type = "button";
+      btn.addEventListener("click", function () {
+        var hidden = !opinion.hidden;
+        btn.disabled = true;
+        fetch(state.data.moderation.url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ object: state.data.object, opinion: opinion.iri, hidden: hidden }) })
+          .then(function (resp) { return resp.ok ? resp.json() : Promise.reject(new Error(String(resp.status))); })
+          .then(function (answer) {
+            opinion.hidden = Boolean(answer.hidden);
+            announce(rtr(opinion.hidden ? "share.sc.op_hidden_done" : "share.sc.op_shown_done"));
+            render();
+          })
+          .catch(function () {
+            btn.disabled = false;
+            announce(rtr("share.sc.op_hide_failed"));
+          });
+      });
+      row.appendChild(btn);
+      return row;
     }
 
     function countUnder(children, iri) {

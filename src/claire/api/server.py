@@ -6427,6 +6427,7 @@ def create_app(
         if not is_member and _kb_decide(request, kb, "read") != "allow" and not found.link_access:
             return PlainTextResponse("Not Found", status_code=404)
         origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+        viewer = await resolve_optional_session_principal(runtime_cfg, request.scope)
 
         def _view() -> dict[str, Any]:
             conn = dbm.connect_existing(s.db_file)
@@ -6435,14 +6436,16 @@ def create_app(
                 target = rendition_marks.local_rendition_object(conn, kb_id=kb.id, document_id=found.target, template=template or PRIMARY_RENDITION_TEMPLATE)
                 if target is None:
                     return {"published": False, "object": None, "opinions": [], "counts": None, "refresh": None}
-                public_id = target[0]
+                public_id, author_account_id = target
                 obj = federation_store.get_object(conn, public_id)
                 published = obj.published_at if obj is not None else (federation_store.get_rendition_object(conn, public_id).created_at)  # type: ignore[union-attr]
                 object_iri = f"{origin}/ap/objects/{public_id}"
                 if opinions_store.request_fetch(client, object_iri, own=True, object_published=published, now=time.time()) is not None:
                     client.commit()
                 actor_ids = {int(row[0]) for row in conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")}
-                return opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time())
+                # The author of the object and a server admin can hide an opinion (Section 5.11 D5).
+                moderator = viewer is not None and viewer.scope == "owner" and (viewer.account_id == author_account_id or viewer.server_role == "admin")
+                return opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator)
             finally:
                 client.close()
                 conn.close()
@@ -7322,11 +7325,14 @@ def create_app(
         from ..notifications.sender import run_scheduler as _web_push_scheduler
 
         web_push_task = asyncio.create_task(_web_push_scheduler(s))
+        from ..federation.opinion_scheduler import run_scheduler as _opinion_scheduler
+
+        opinion_task = asyncio.create_task(_opinion_scheduler(s))
         try:
             async with mcp_app.router.lifespan_context(mcp_app):
                 yield
         finally:
-            for task in (backup_task, feed_task, media_cleanup_task, web_push_task):
+            for task in (backup_task, feed_task, media_cleanup_task, web_push_task, opinion_task):
                 task.cancel()
                 try:
                     await task

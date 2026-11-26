@@ -92,8 +92,9 @@ Test: `tests/test_silvercord_rendering.py` (`test_the_page_lists_the_renditions_
 3. While `refresh.status` is `running`: a `<progress>` with a text, and a new request after `retry` seconds, 10 requests at most; after that a text and "다시 시도". When a fetch that the reader waited for ends, the polite live region `#sc-live` says the number of new opinions once, and each new opinion has the mark "새 의견". The new opinions come with an element-scoped view transition where the browser has it and the reader permits motion.
 4. `failed`, or a request that fails: an alert (`role="alert"`), the opinions that the page has, and "다시 시도".
 5. `{"published": false}`: the notice that the document is not published.
+6. Since phase E7c, with `moderation` in the JSON (the author of the object or a server admin): each remote opinion has the button "이 페이지에서 숨기기" or "다시 보이기" (`POST` to `moderation.url`), a hidden opinion has the mark "숨김", and the live region says the result.
 
-Test: `tests/test_silvercord_rendering.py`, E2E `e2e/silvercord_rendering.spec.js` (the tab with a controlled answer: no request before the first open, the progress, the second request, the live message, the tree and its limit, the text rules, the quotes; and the failure with the retry).
+Test: `tests/test_silvercord_rendering.py`, E2E `e2e/silvercord_rendering.spec.js` (the tab with a controlled answer: no request before the first open, the progress, the second request, the live message, the tree and its limit, the text rules, the quotes; the failure with the retry; and the hide control).
 
 ### 3.2 Route `GET /silvercord/{token}/graph`
 

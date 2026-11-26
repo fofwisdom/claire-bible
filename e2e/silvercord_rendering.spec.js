@@ -348,6 +348,38 @@ test('a failed fetch of opinions shows an alert, the opinions that the server ha
   expect(errors).toEqual([]);
 });
 
+test('the author hides an opinion from the page and shows it again (phase E7c)', async ({ page }) => {
+  const errors = watchErrors(page);
+  const object = 'https://claire.example.com/ap/objects/1';
+  const posts = [opinion('https://remote.example/notes/1', object), { ...opinion('https://claire.example.com/ap/objects/2', object), local: true }];
+  const sent = [];
+  await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: posts, counts: { replies: 2, quotes: 0, likes: 0, shares: 0 }, refresh: null, moderation: { url: '/api/federation/opinions/hide' } }) });
+  });
+  await page.route((u) => u.pathname === '/api/federation/opinions/hide', async (route) => {
+    const body = route.request().postDataJSON();
+    sent.push(body);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ hidden: body.hidden }) });
+  });
+  await page.goto(PUBLIC_DOC_PATH, { waitUntil: 'domcontentloaded' });
+  await page.locator('#tab-op-top').click();
+  const tab = page.locator('#sc-opinions-inner');
+  // A local reply is the note of an account of this server: it has no hide control.
+  await expect(tab.locator('.op-hide')).toHaveCount(1);
+  const remote = tab.locator('article').first();
+  await remote.locator('.op-hide').click();
+  await expect(remote.locator('.op-hide')).toHaveText('다시 보이기');
+  await expect(remote).toHaveClass(/is-hidden/);
+  await expect(remote.locator('.op-post-meta')).toContainText('숨김');
+  await expect(page.locator('#sc-live')).toHaveText('의견을 이 페이지에서 숨겼습니다.');
+  await remote.locator('.op-hide').click();
+  await expect(remote.locator('.op-hide')).toHaveText('이 페이지에서 숨기기');
+  await expect(page.locator('#sc-live')).toHaveText('의견을 다시 보입니다.');
+  expect(sent).toEqual([{ object, opinion: 'https://remote.example/notes/1', hidden: true }, { object, opinion: 'https://remote.example/notes/1', hidden: false }]);
+  await expectNoRawKeys(page);
+  expect(errors).toEqual([]);
+});
+
 test('private link_access=1 renders opaque IDs e0..eN, blocks other documents, hides workspace link, and shows non-federated notice in Opinions', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1280, height: 800 });
