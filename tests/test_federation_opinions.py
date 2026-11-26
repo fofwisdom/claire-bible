@@ -189,3 +189,18 @@ def test_the_daily_refresh_asks_for_the_objects_with_activity_in_seven_days(inte
     # One refresh in one day: a run one hour later asks for nothing, a run one day later asks again.
     assert opinion_scheduler.run_once(internal.settings, now=at + 3600)["refreshed"] == 0
     assert opinion_scheduler.run_once(internal.settings, now=at + 86400)["refreshed"] == 1
+
+
+def test_version_12_adds_the_attachments_to_a_table_of_version_11(tmp_path):
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "client.db")
+    try:
+        # The table of version 11, with one row.
+        conn.execute("CREATE TABLE federation_opinions (object_iri TEXT NOT NULL, opinion_iri TEXT NOT NULL, parent_iri TEXT NOT NULL, kind TEXT NOT NULL, source TEXT NOT NULL, author_iri TEXT NOT NULL, author_name TEXT, author_handle TEXT, url TEXT, content_html TEXT NOT NULL, language TEXT, summary TEXT, sensitive INTEGER NOT NULL DEFAULT 0, published REAL, updated REAL, fetched_at REAL NOT NULL, hidden_at REAL, hidden_by INTEGER, PRIMARY KEY (object_iri, opinion_iri))")
+        conn.execute("INSERT INTO federation_opinions (object_iri, opinion_iri, parent_iri, kind, source, author_iri, content_html, fetched_at) VALUES (?, ?, ?, 'reply', 'fetched', 'https://remote.example/users/carol', '<p>x</p>', 1.0)", (OBJECT, CAROL, OBJECT))
+        opinions_store.add_attachments_column(conn)
+        opinions_store.add_attachments_column(conn)
+        assert [o.attachments for o in opinions_store.opinions_of(conn, OBJECT)] == [[]]
+    finally:
+        conn.close()

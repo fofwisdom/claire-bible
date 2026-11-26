@@ -380,6 +380,38 @@ test('the author hides an opinion from the page and shows it again (phase E7c)',
   expect(errors).toEqual([]);
 });
 
+test('the formatted body of an opinion opens in a sandbox frame of a modal dialog (phase E7e)', async ({ page }) => {
+  const errors = watchErrors(page);
+  const object = 'https://claire.example.com/ap/objects/1';
+  const frameUrl = `${PUBLIC_DOC_PATH}/opinions/0123456789abcdef`;
+  await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: [{ ...opinion('https://remote.example/notes/1', object), attachments: 1, frame_url: frameUrl }], counts: { replies: 1, quotes: 0, likes: 0, shares: 0 }, refresh: null, moderation: null }) });
+  });
+  await page.route((u) => u.pathname === frameUrl, async (route) => {
+    await route.fulfill({ status: 200, contentType: 'text/html', headers: { 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox" }, body: '<!DOCTYPE html><html><body><article><p><strong>Formatted</strong> text</p></article></body></html>' });
+  });
+  await page.goto(PUBLIC_DOC_PATH, { waitUntil: 'domcontentloaded' });
+  await page.locator('#tab-op-top').click();
+  const open = page.locator('#sc-opinions-inner .op-frame-open');
+  await expect(open).toHaveText('서식과 첨부 보기');
+  await open.click();
+  const dialog = page.locator('#op-frame-dialog');
+  await expect(dialog).toBeVisible();
+  expect(await dialog.evaluate((el) => el.matches(':modal'))).toBe(true);
+  await expect(dialog.locator('h2')).toHaveText('Carol의 의견: 서식과 첨부');
+  const frame = dialog.locator('iframe');
+  await expect(frame).toHaveAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox');
+  await expect(frame).toHaveAttribute('title', 'Carol의 의견: 서식과 첨부');
+  await expect(page.frameLocator('#op-frame-dialog iframe').locator('strong')).toHaveText('Formatted');
+  // Escape closes the dialog, and the frame loses its address.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  expect(await frame.getAttribute('src')).toBeNull();
+  await expectNoRawKeys(page);
+  // Playwright puts its scripts into each frame; a sandbox frame without scripts refuses them. These messages are of the test tool, not of the page.
+  expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed') && !(e.includes('Blocked script execution') && (e.includes('/opinions/') || e.includes('about:blank'))))).toEqual([]);
+});
+
 test('private link_access=1 renders opaque IDs e0..eN, blocks other documents, hides workspace link, and shows non-federated notice in Opinions', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1280, height: 800 });

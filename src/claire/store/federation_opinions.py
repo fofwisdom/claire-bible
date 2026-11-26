@@ -1,4 +1,4 @@
-"""Opinions of published objects: the public replies and quote posts of the whole fediverse about an object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B and C, phase E7a; client.db version 11).
+"""Opinions of published objects: the public replies and quote posts of the whole fediverse about an object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B and C, phase E7a; client.db version 11; the attachments since version 12, phase E7e).
 
 The rows are of the server, not of an account: the 의견 tab of a public page shows them. Two tables:
 
@@ -10,6 +10,7 @@ An opinion is a reply to the object, a reply to another opinion of the object, o
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ __all__ = [
     "MAX_OPINIONS",
     "Fetch",
     "Opinion",
+    "add_attachments_column",
     "delete_for_object",
     "delete_opinion",
     "ensure_schema",
@@ -32,6 +34,7 @@ __all__ = [
     "hide",
     "lease",
     "object_iris",
+    "opinion_key",
     "opinions_of",
     "request_fetch",
     "store_objects",
@@ -69,6 +72,7 @@ CREATE TABLE IF NOT EXISTS federation_opinions (
     author_handle TEXT,
     url TEXT,
     content_html TEXT NOT NULL,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
     language TEXT,
     summary TEXT,
     sensitive INTEGER NOT NULL DEFAULT 0,
@@ -83,7 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_federation_opinions_parent ON federation_opinions
 """
 
 _FETCH_COLUMNS = "id, object_iri, own, status, requested_at, lease_until, attempts, finished_at, result_count, error_code"
-_COLUMNS = "object_iri, opinion_iri, parent_iri, kind, source, author_iri, author_name, author_handle, url, content_html, language, summary, sensitive, published, updated, fetched_at, hidden_at"
+_COLUMNS = "object_iri, opinion_iri, parent_iri, kind, source, author_iri, author_name, author_handle, url, content_html, language, summary, sensitive, published, updated, fetched_at, hidden_at, attachments_json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +123,24 @@ class Opinion:
     updated: float | None
     fetched_at: float
     hidden_at: float | None
+    attachments: list[dict[str, Any]]
+
+
+def add_attachments_column(conn: sqlite3.Connection) -> None:
+    """Add ``attachments_json`` to a table of version 11 (version 12). Idempotent."""
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(federation_opinions)")}
+    if columns and "attachments_json" not in columns:
+        conn.execute("ALTER TABLE federation_opinions ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'")
+
+
+def _attachments(value: Any) -> list[dict[str, Any]]:
+    """The attachments of a post that the frame shows: ``http``/``https`` addresses with their media type and name, 16 at most."""
+    out: list[dict[str, Any]] = []
+    for item in value if isinstance(value, list) else []:
+        url = str(item.get("url") or "") if isinstance(item, dict) else ""
+        if url.startswith(("https://", "http://")) and len(out) < 16:
+            out.append({"url": url, "media_type": item.get("media_type"), "name": item.get("name")})
+    return out
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -177,8 +199,12 @@ def finish(conn: sqlite3.Connection, fetch_id: int, *, result_count: int, now: f
 
 
 def _opinion(row: Any) -> Opinion:
-    (obj, iri, parent, kind, source, author, name, handle, url, content, language, summary, sensitive, published, updated, fetched, hidden) = tuple(row)
-    return Opinion(str(obj), str(iri), str(parent), str(kind), str(source), str(author), name, handle, url, str(content), language, summary, bool(sensitive), published, updated, float(fetched), hidden)
+    (obj, iri, parent, kind, source, author, name, handle, url, content, language, summary, sensitive, published, updated, fetched, hidden, attachments) = tuple(row)
+    try:
+        listed = _attachments(json.loads(attachments or "[]"))
+    except ValueError:
+        listed = []
+    return Opinion(str(obj), str(iri), str(parent), str(kind), str(source), str(author), name, handle, url, str(content), language, summary, bool(sensitive), published, updated, float(fetched), hidden, listed)
 
 
 def opinions_of(conn: sqlite3.Connection, object_iri: str, *, include_hidden: bool = False) -> list[Opinion]:
@@ -213,10 +239,10 @@ def store_objects(conn: sqlite3.Connection, object_iri: str, objects: list[dict[
                 continue
             author = obj.get("author") or {}
             made = conn.execute(
-                "INSERT INTO federation_opinions (object_iri, opinion_iri, parent_iri, kind, source, author_iri, author_name, author_handle, url, content_html, language, summary, sensitive, published, updated, fetched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(object_iri, opinion_iri) DO UPDATE SET parent_iri=excluded.parent_iri, kind=excluded.kind, author_name=excluded.author_name, author_handle=excluded.author_handle, url=excluded.url, content_html=excluded.content_html, language=excluded.language, summary=excluded.summary, sensitive=excluded.sensitive, updated=excluded.updated, fetched_at=excluded.fetched_at",
-                (object_iri, iri, parent_iri, kind, "delivered" if iri in delivered else "fetched", str(author.get("iri") or ""), author.get("name"), author.get("handle"), obj.get("url"), str(obj.get("content_html") or ""), obj.get("language"), obj.get("summary"), int(bool(obj.get("sensitive"))), obj.get("published_at"), obj.get("updated_at"), now),
+                "INSERT INTO federation_opinions (object_iri, opinion_iri, parent_iri, kind, source, author_iri, author_name, author_handle, url, content_html, attachments_json, language, summary, sensitive, published, updated, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(object_iri, opinion_iri) DO UPDATE SET parent_iri=excluded.parent_iri, kind=excluded.kind, author_name=excluded.author_name, author_handle=excluded.author_handle, url=excluded.url, content_html=excluded.content_html, attachments_json=excluded.attachments_json, language=excluded.language, summary=excluded.summary, sensitive=excluded.sensitive, updated=excluded.updated, fetched_at=excluded.fetched_at",
+                (object_iri, iri, parent_iri, kind, "delivered" if iri in delivered else "fetched", str(author.get("iri") or ""), author.get("name"), author.get("handle"), obj.get("url"), str(obj.get("content_html") or ""), json.dumps(_attachments(obj.get("attachments")), ensure_ascii=False), obj.get("language"), obj.get("summary"), int(bool(obj.get("sensitive"))), obj.get("published_at"), obj.get("updated_at"), now),
             ).rowcount
             if kind == "reply":
                 replies.add(iri)
@@ -262,3 +288,10 @@ def object_iris(conn: sqlite3.Connection) -> list[str]:
     """The objects that have opinions or a fetch."""
     rows = conn.execute("SELECT object_iri FROM federation_opinions UNION SELECT object_iri FROM federation_opinion_fetches ORDER BY 1").fetchall()
     return [str(row[0]) for row in rows]
+
+
+def opinion_key(opinion_iri: str) -> str:
+    """The key of an opinion in the address of its frame: the first 16 hexadecimal characters of the SHA-256 of its address."""
+    import hashlib
+
+    return hashlib.sha256(opinion_iri.encode("utf-8")).hexdigest()[:16]

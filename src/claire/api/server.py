@@ -6445,7 +6445,7 @@ def create_app(
                 actor_ids = {int(row[0]) for row in conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")}
                 # The author of the object and a server admin can hide an opinion (Section 5.11 D5).
                 moderator = viewer is not None and viewer.scope == "owner" and (viewer.account_id == author_account_id or viewer.server_role == "admin")
-                return opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator)
+                return opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator, frame_base=request.url.path)
             finally:
                 client.close()
                 conn.close()
@@ -6453,6 +6453,54 @@ def create_app(
         view = await asyncio.to_thread(_view)
         # The posts of other people are not indexed under this server (Section 5.11 D7).
         return JSONResponse(view, headers={"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "strict-origin-when-cross-origin", "Vary": "Cookie"})
+
+    async def permalink_opinion_frame_route(request: Request) -> Response:
+        """``GET /silvercord/{token}/opinions/{key}`` and ``GET /silvercord/{token}/renditions/{template}/opinions/{key}``: the formatted body and the attachments of one opinion of the object of the page, as a page for a sandbox frame (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D2, phase E7e). ``{key}`` is ``federation_opinions.opinion_key`` of the opinion. The access rules are the ones of the document; a hidden opinion has no frame. The page has no script, no resource, and an opaque origin; an attachment is a link (no media proxy for a reader without an account)."""
+        from . import usercontent
+        from ..store import federation_opinions as opinions_store
+        from .accounts_routes import rendition_marks
+
+        token = str(request.path_params.get("token", ""))
+        template = request.path_params.get("template")
+        key = str(request.path_params.get("key", ""))
+        if not permalinks.plausible_token(token) or not re.fullmatch(r"[0-9a-f]{16}", key) or (template is not None and template not in RENDITION_TEMPLATE_IDS):
+            return PlainTextResponse("Not Found", status_code=404)
+        found, doc_meta, gone, pending = await asyncio.to_thread(_load_document_permalink, token, with_detail=False)
+        if found is None or found.kind != "document":
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.alias is not None:
+            return RedirectResponse(permalinks.permalink_path(found.token) + (f"/renditions/{template}" if template else "") + f"/opinions/{key}", status_code=308)
+        if found.gone_at is not None or gone or doc_meta is None:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        is_member = await _caller_is_member(request, kb)
+        if not is_member and (pending or bool(doc_meta.get("hidden"))):
+            return PlainTextResponse("Not Found", status_code=404)
+        if not is_member and _kb_decide(request, kb, "read") != "allow" and not found.link_access:
+            return PlainTextResponse("Not Found", status_code=404)
+        origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+
+        def _opinion() -> Any:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                target = rendition_marks.local_rendition_object(conn, kb_id=kb.id, document_id=found.target, template=template or PRIMARY_RENDITION_TEMPLATE)
+            finally:
+                conn.close()
+            if target is None:
+                return None
+            client = client_db.connect_client_existing(client_db.client_db_path(s.db_file))
+            try:
+                return next((o for o in opinions_store.opinions_of(client, f"{origin}/ap/objects/{target[0]}") if opinions_store.opinion_key(o.opinion_iri) == key), None)
+            finally:
+                client.close()
+
+        opinion = await asyncio.to_thread(_opinion)
+        if opinion is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return usercontent.remote_item_response(content_html=opinion.content_html, attachments=opinion.attachments, language=opinion.language, frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN", "x-robots-tag": "noindex, nofollow"})
 
     async def permalink_remote_rendition_route(request: Request) -> Response:
         """``GET /silvercord/{token}/renditions/remote/{key}``: the body of one rendition of another Claire server, as a page for the sandbox frame of the document page (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.5 and 5.8 rule 4, phase E5c). The access rules are the ones of the document; the page has no script and an opaque origin (``usercontent.remote_item_response``)."""
@@ -7481,6 +7529,8 @@ def create_app(
         Route("/silvercord/{token}/renditions/remote/{key}", permalink_remote_rendition_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/opinions", permalink_opinions_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/renditions/{template}/opinions", permalink_opinions_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/opinions/{key}", permalink_opinion_frame_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/renditions/{template}/opinions/{key}", permalink_opinion_frame_route, methods=["GET", "HEAD"]),
         Route("/entity/{token}", entity_address_route, methods=["GET", "HEAD"]),
         Route("/entities/{entity_id}/share", entity_share_route, methods=["POST", "DELETE"]),
         Route("/p", shared_doc_page, methods=["GET"]),

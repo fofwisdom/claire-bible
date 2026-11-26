@@ -117,8 +117,8 @@ def _local_replies(client: sqlite3.Connection, conn: sqlite3.Connection, object_
     return out
 
 
-def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int, origin: str, actor_ids: set[int], now: float, moderator: bool = False) -> dict[str, Any]:
-    """The JSON of the 의견 tab of one own object. ``conn`` is ``claire.db`` and ``client`` is ``client.db``. A ``moderator`` (the author of the object or a server admin, Section 5.11 D5) also gets the hidden opinions, each with ``hidden`` true, so that the page can show them again."""
+def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int, origin: str, actor_ids: set[int], now: float, moderator: bool = False, frame_base: str | None = None) -> dict[str, Any]:
+    """The JSON of the 의견 tab of one own object. ``conn`` is ``claire.db`` and ``client`` is ``client.db``. A ``moderator`` (the author of the object or a server admin, Section 5.11 D5) also gets the hidden opinions, each with ``hidden`` true, so that the page can show them again. With ``frame_base`` (the path of the opinions route of the page), each remote opinion has ``frame_url``: its formatted body and attachments in a frame (Section 5.11 D2)."""
     opinions: list[dict[str, Any]] = []
     for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=moderator):
         opinions.append({
@@ -126,6 +126,8 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
             "author": {"iri": opinion.author_iri, "name": opinion.author_name, "handle": opinion.author_handle},
             "url": opinion.url or opinion.opinion_iri, "summary": opinion.summary, "sensitive": opinion.sensitive, "language": opinion.language,
             "published": opinion.published, "text": text_segments(opinion.content_html),
+            "attachments": len(opinion.attachments),
+            "frame_url": None if frame_base is None else f"{frame_base}/{opinions_store.opinion_key(opinion.opinion_iri)}",
         })
     seen = {item["iri"] for item in opinions}
     opinions += [item for item in _local_replies(client, conn, object_iri, origin, actor_ids) if item["iri"] not in seen]

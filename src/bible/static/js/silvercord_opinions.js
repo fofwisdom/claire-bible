@@ -108,13 +108,54 @@
       } else {
         article.appendChild(body);
       }
-      if (state.data && state.data.moderation && !opinion.local) article.appendChild(moderationNode(opinion));
+      var actions = make("div", "op-post-actions");
+      if (opinion.frame_url && String(opinion.frame_url).charAt(0) === "/") actions.appendChild(frameButton(opinion));
+      if (state.data && state.data.moderation && !opinion.local) actions.appendChild(moderationButton(opinion));
+      if (actions.childElementCount > 0) article.appendChild(actions);
       return article;
     }
 
+    // "서식과 첨부 보기" (rule D2): the formatted body and the attachments of one opinion in a sandbox frame of this origin (no script, an opaque origin), in one modal dialog of the page.
+    var frameDialog = null;
+    function frameButton(opinion) {
+      var btn = make("button", "sc-btn op-frame-open", rtr("share.sc.op_formatted"));
+      btn.type = "button";
+      btn.addEventListener("click", function () { openFrame(opinion); });
+      return btn;
+    }
+    function openFrame(opinion) {
+      if (frameDialog === null) {
+        frameDialog = make("dialog", "op-frame-dialog");
+        frameDialog.id = "op-frame-dialog";
+        frameDialog.setAttribute("closedby", "any");
+        var head = make("div", "op-frame-head");
+        var title = make("h2", "op-frame-title");
+        title.id = "op-frame-title";
+        frameDialog.setAttribute("aria-labelledby", title.id);
+        var close = make("button", "sc-btn", rtr("share.sc.op_close"));
+        close.type = "button";
+        close.addEventListener("click", function () { frameDialog.close(); });
+        head.appendChild(title);
+        head.appendChild(close);
+        var frame = make("iframe", "op-frame");
+        frame.setAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
+        frame.setAttribute("referrerpolicy", "no-referrer");
+        frameDialog.appendChild(head);
+        frameDialog.appendChild(frame);
+        frameDialog.addEventListener("close", function () { frame.removeAttribute("src"); });
+        document.body.appendChild(frameDialog);
+      }
+      var author = opinion.author || {};
+      var label = rtr("share.sc.op_frame_title", { name: author.name || author.handle || "" });
+      frameDialog.querySelector(".op-frame-title").textContent = label;
+      var iframe = frameDialog.querySelector("iframe");
+      iframe.title = label;
+      iframe.src = String(opinion.frame_url);
+      frameDialog.showModal();
+    }
+
     // The author of the object and a server admin hide an opinion from the page, or show it again (rule D5).
-    function moderationNode(opinion) {
-      var row = make("div", "op-post-actions");
+    function moderationButton(opinion) {
       var btn = make("button", "sc-btn op-hide", rtr(opinion.hidden ? "share.sc.op_show" : "share.sc.op_hide"));
       btn.type = "button";
       btn.addEventListener("click", function () {
@@ -132,8 +173,7 @@
             announce(rtr("share.sc.op_hide_failed"));
           });
       });
-      row.appendChild(btn);
-      return row;
+      return btn;
     }
 
     function countUnder(children, iri) {

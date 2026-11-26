@@ -85,6 +85,8 @@ Test: `tests/test_silvercord_rendering.py` (`test_the_page_lists_the_renditions_
 3. The request starts a fetch of the opinions when the conditions of Section 5.11 B2 hold, also for an anonymous caller.
 4. Headers: `X-Robots-Tag: noindex, nofollow`, `Cache-Control: private, no-store`, `Vary: Cookie`.
 
+**[code] Frame of one opinion (phase E7e).** `permalink_opinion_frame_route` for `GET /silvercord/{token}/opinions/{key}` and `GET /silvercord/{token}/renditions/{template}/opinions/{key}`, route rule `_system("public", "none")` for `GET` and `HEAD`. The rules of the document token as above. A key that is not an opinion of the object of the page, and a hidden opinion: 404. The answer is the formatted body and the attachments as links ([`FEDERATION.md`](FEDERATION.md) Section 4.7).
+
 **[code] The 의견 tab (phase E7b).** `src/bible/static/js/silvercord_opinions.js`, started by `silvercord.js`; the page build (`_build_standalone_shared_html` in `src/bible/web/pages.py`) puts it before `silvercord.js`. A document of a private knowledge base keeps the notice that it is not federated and makes no request (rule D6). Else the first open of the tab requests `opinions_url`; a later open makes no request.
 
 1. The tab makes each element with the DOM API. A remote text segment is a text node; a segment with `href` is a link only for `http` and `https`, with `rel="nofollow noopener noreferrer"`. A content warning is a closed `details`. The container has `data-nosnippet`.
@@ -93,8 +95,9 @@ Test: `tests/test_silvercord_rendering.py` (`test_the_page_lists_the_renditions_
 4. `failed`, or a request that fails: an alert (`role="alert"`), the opinions that the page has, and "다시 시도".
 5. `{"published": false}`: the notice that the document is not published.
 6. Since phase E7c, with `moderation` in the JSON (the author of the object or a server admin): each remote opinion has the button "이 페이지에서 숨기기" or "다시 보이기" (`POST` to `moderation.url`), a hidden opinion has the mark "숨김", and the live region says the result.
+7. Since phase E7e, each remote opinion with `frame_url` has the button "서식과 첨부 보기": it opens one modal `dialog` (`#op-frame-dialog`, `closedby="any"`) with a title and an `iframe` with `sandbox="allow-popups allow-popups-to-escape-sandbox"` and the same title. A close of the dialog removes the address of the frame.
 
-Test: `tests/test_silvercord_rendering.py`, E2E `e2e/silvercord_rendering.spec.js` (the tab with a controlled answer: no request before the first open, the progress, the second request, the live message, the tree and its limit, the text rules, the quotes; the failure with the retry; and the hide control).
+Test: `tests/test_silvercord_rendering.py`, E2E `e2e/silvercord_rendering.spec.js` (the tab with a controlled answer: no request before the first open, the progress, the second request, the live message, the tree and its limit, the text rules, the quotes; the failure with the retry; the hide control; and the frame dialog).
 
 ### 3.2 Route `GET /silvercord/{token}/graph`
 

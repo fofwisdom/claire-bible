@@ -705,7 +705,7 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     object_iri = f"{origin}/ap/objects/{obj.public_id}"
     client = client_db.connect_client_db(client_db.client_db_path(env["db_file"]))
     try:
-        reply = {"object_iri": "https://remote.example/users/carol/notes/9", "url": "https://remote.example/@carol/9", "type": "Note", "author": {"iri": "https://remote.example/users/carol", "name": "Carol", "handle": "@carol@remote.example"}, "name": None, "summary": "spoiler", "sensitive": True, "content_html": "<p>Good <a href=\"https://example.org/a\">read</a></p><img src=\"https://x/i.png\">", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": object_iri, "quote": None}
+        reply = {"object_iri": "https://remote.example/users/carol/notes/9", "url": "https://remote.example/@carol/9", "type": "Note", "author": {"iri": "https://remote.example/users/carol", "name": "Carol", "handle": "@carol@remote.example"}, "name": None, "summary": "spoiler", "sensitive": True, "content_html": "<p>Good <a href=\"https://example.org/a\">read</a></p><img src=\"https://x/i.png\">", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [{"url": "https://remote.example/media/1.png", "media_type": "image/png", "name": "A chart", "width": None, "height": None, "blurhash": None}, {"url": "javascript:alert(1)", "media_type": None, "name": None, "width": None, "height": None, "blurhash": None}], "context": None, "in_reply_to": object_iri, "quote": None}
         assert opinions_store.store_objects(client, object_iri, [reply], quoting=set(), delivered=set(), now=1800000001.0) == 1
         client.commit()
     finally:
@@ -719,7 +719,7 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert (view["published"], view["object"]) == (True, object_iri)
     assert view["counts"] == {"replies": 1, "quotes": 0, "likes": 0, "shares": 0}
     assert view["moderation"] is None
-    assert view["opinions"] == [{"iri": reply["object_iri"], "parent": object_iri, "kind": "reply", "local": False, "hidden": False, "author": reply["author"], "url": "https://remote.example/@carol/9", "summary": "spoiler", "sensitive": True, "language": "en", "published": 1800000000.0, "text": [[{"text": "Good "}, {"text": "read", "href": "https://example.org/a"}]]}]
+    assert view["opinions"] == [{"iri": reply["object_iri"], "parent": object_iri, "kind": "reply", "local": False, "hidden": False, "author": reply["author"], "url": "https://remote.example/@carol/9", "summary": "spoiler", "sensitive": True, "language": "en", "published": 1800000000.0, "text": [[{"text": "Good "}, {"text": "read", "href": "https://example.org/a"}]], "attachments": 1, "frame_url": f"/silvercord/{token}/opinions/{opinions_store.opinion_key(reply['object_iri'])}"}]
     # The object is older than five minutes and has no fetch: the request starts one, and the page sees it run.
     assert view["refresh"]["status"] == "running" and view["refresh"]["retry"] == 3
     assert anon("GET", f"/silvercord/{token}/opinions").json()["refresh"]["id"] == view["refresh"]["id"]
@@ -727,6 +727,17 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert anon("GET", f"/silvercord/{token2}/opinions").json() == {"published": False, "object": None, "opinions": [], "counts": None, "refresh": None}
     assert anon("GET", f"/silvercord/{token}/renditions/concise/opinions").json()["published"] is False
     assert anon("GET", f"/silvercord/{token}/renditions/default/opinions").status_code == 404
+
+    # Phase E7e (Section 5.11 D2): the frame of one opinion has its formatted body and its attachments as links, no script, no resource, and an opaque origin.
+    frame = anon("GET", view["opinions"][0]["frame_url"])
+    assert frame.status_code == 200
+    csp = frame.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "sandbox allow-popups allow-popups-to-escape-sandbox" in csp and "frame-ancestors 'self'" in csp and "img-src" not in csp
+    assert frame.headers["x-frame-options"] == "SAMEORIGIN" and frame.headers["x-robots-tag"] == "noindex, nofollow"
+    assert "Good" in frame.text and 'href="https://example.org/a"' in frame.text and 'href="https://remote.example/media/1.png"' in frame.text and "A chart" in frame.text
+    assert "<img" not in frame.text and "javascript:" not in frame.text
+    assert anon("GET", f"/silvercord/{token}/opinions/{'0' * 16}").status_code == 404
+    assert anon("GET", f"/silvercord/{token}/opinions/XYZ").status_code == 404
 
     # Phase E7c (Section 5.11 D5): the author of the object and a server admin hide an opinion from the page and from the replies collection, and show it again. Another account and a visitor cannot.
     conn = dbm.connect_existing(env["db_file"])
@@ -745,6 +756,8 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     assert alice("POST", "/api/federation/opinions/hide", json={**hide, "extra": 1}).status_code == 400
     resp = alice("POST", "/api/federation/opinions/hide", json=hide)
     assert (resp.status_code, resp.json()) == (200, {"hidden": True})
+    # A hidden opinion has no frame.
+    assert anon("GET", view["opinions"][0]["frame_url"]).status_code == 404
     shown = anon("GET", f"/silvercord/{token}/opinions").json()
     assert (shown["opinions"], shown["counts"]["replies"]) == ([], 0)
     assert [(o["iri"], o["hidden"]) for o in admin("GET", f"/silvercord/{token}/opinions").json()["opinions"]] == [(reply["object_iri"], True)]
