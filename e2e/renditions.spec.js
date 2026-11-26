@@ -90,11 +90,16 @@ test('a rendition of another server opens in a sandbox frame inside the page and
     const doc = JSON.parse(match[1]);
     doc.silvercord.renditions = [{ template: 'standard', version: 'standard-v1', updated_at: 1800000000, primary: true, url: DOC_PATH }];
     doc.silvercord.rendition = 'standard';
-    doc.silvercord.remote_renditions = [{ key: '0123456789abcdef', template: 'concise', version: 'concise-v1', updated: '2027-01-15T08:05:20Z', account: '@bob@b.example', domain: 'b.example', origin_url: 'https://b.example/silvercord/tok/renditions/concise', frame_url: FRAME_PATH }];
+    doc.silvercord.remote_renditions = [{ key: '0123456789abcdef', template: 'concise', version: 'concise-v1', updated: '2027-01-15T08:05:20Z', account: '@bob@b.example', domain: 'b.example', origin_url: 'https://b.example/silvercord/tok/renditions/concise', frame_url: FRAME_PATH, opinions_url: `${FRAME_PATH}/opinions` }];
     const json = JSON.stringify(doc).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
     return route.fulfill({ status: res.status(), contentType: 'text/html; charset=utf-8', body: text.replace(match[0], `<script id="docdata" type="application/json">${json}</script>`) });
   });
   await page.route((u) => u.pathname === FRAME_PATH, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', headers: { 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox" }, body: '<!DOCTYPE html><html lang="ko"><body><article><h2>핵심</h2><p>다른 서버의 간결 정리본.</p></article></body></html>' }));
+  // The 의견 tab follows the shown rendition (Section 5.11 C2): the opinions of the copy come from the route of the copy, and the rendition of the page has its own.
+  const opinionAsks = [];
+  const opinionsOf = (object, text) => ({ published: true, object, opinions: [{ iri: `${object}/reply`, parent: object, kind: 'reply', local: false, author: { iri: 'https://c.example/users/dora', name: 'Dora', handle: '@dora@c.example' }, url: null, summary: null, sensitive: false, language: 'en', published: 1800000000, text: [[{ text }]], frame_url: null }], counts: { replies: 1, quotes: 0, likes: null, shares: null }, refresh: null, moderation: null, actions: null });
+  await page.route((u) => u.pathname === `${FRAME_PATH}/opinions`, (route) => { opinionAsks.push('remote'); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opinionsOf('https://b.example/ap/objects/9002', 'On the copy')) }); });
+  await page.route((u) => u.pathname === `${DOC_PATH}/opinions`, (route) => { opinionAsks.push('local'); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(opinionsOf('https://claire.example.com/ap/objects/1', 'On the document')) }); });
 
   await page.goto(DOC_PATH, { waitUntil: 'domcontentloaded' });
   const select = page.locator('#sc-rendition-select');
@@ -118,16 +123,24 @@ test('a rendition of another server opens in a sandbox frame inside the page and
   await expect(page.locator('#sc-rendition-info')).toContainText('간결 · concise-v1 · @bob@b.example · 2027-01-15 · b.example');
   await expect(page.locator('#sc-rendition-info a')).toHaveAttribute('href', 'https://b.example/silvercord/tok/renditions/concise');
 
-  // The address with the choice opens the frame at once.
+  // The address with the choice opens the frame at once, and the 의견 tab then shows the opinions of the copy, without the likes and boosts of the origin.
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.locator('#sc-rendition-body iframe.sc-rendition-frame')).toBeVisible();
   await expect(page.locator('#sc-rendition-select')).toHaveValue('remote:0123456789abcdef');
+  await page.locator('#tab-op-top').click();
+  await expect(page.locator('#sc-opinions-inner article')).toContainText('On the copy');
+  await expect(page.locator('#sc-opinions-inner .op-counts li')).toHaveText(['답글 1', '인용 0']);
+  await page.locator('#tab-doc-top').click();
 
   // The rendition of the document comes back in the same page.
   await page.locator('#sc-rendition-select').selectOption(DOC_PATH);
   await expect(page.locator('#sc-rendition-body iframe')).toHaveCount(0);
   expect((await page.locator('#sc-rendition-body').innerText()).trim()).toBe(localText.trim());
   expect(new URL(page.url()).search).toBe('');
+  // The tab started with the copy; after the change it asks for the opinions of the document.
+  await page.locator('#tab-op-top').click();
+  await expect(page.locator('#sc-opinions-inner article')).toContainText('On the document');
+  expect(opinionAsks).toEqual(['remote', 'local']);
   expect(pageErrors(errors)).toEqual([]);
 });
 

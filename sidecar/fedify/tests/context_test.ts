@@ -237,6 +237,31 @@ Deno.test("a fill reads the first page of the featured collection and of the out
   }
 });
 
+Deno.test("the opinions of an object of another server start from the object at its origin (Section 5.11 C2)", async () => {
+  const { fake, sidecar, add, restore } = setup();
+  try {
+    await fixtureThread(add);
+    const ctx = await sidecar.createContext();
+    fake.overrides.set(`GET ${PREFIX}/opinion-tasks?limit=2`, { status: 200, response: { tasks: [{ id: 8, object_iri: ROOT, own: false, start: [], quotes: [], max_items: 100, max_depth: 5, lease_until: fake.now + 300 }] } });
+    const sent: unknown[] = [];
+    const api = InternalApi.prototype;
+    const original = api.opinionObjects;
+    api.opinionObjects = function (taskId: number, objects: TimelineObject[], gone: string[], done: boolean) {
+      sent.push({ taskId, iris: objects.map((o) => o.object_iri), gone, done });
+      return Promise.resolve({ decision: "accepted" as const, stored: objects.length });
+    };
+    try {
+      assert.equal(await processOpinionTasks({ api: new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now }), ctx, origin: ORIGIN, isBlocked: () => Promise.resolve(false), counters: sidecar.outboxCounters }), 1);
+    } finally {
+      api.opinionObjects = original;
+    }
+    // The object itself is not an opinion of itself; its reply is.
+    assert.deepEqual(sent, [{ taskId: 8, iris: ["https://remote.example/notes/41"], gone: [], done: true }]);
+  } finally {
+    restore();
+  }
+});
+
 Deno.test("only a public post from its own server with an author on that server goes to Claire", async () => {
   const { add, documents, fetchWith, iris, restore } = setup();
   try {

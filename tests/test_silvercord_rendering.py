@@ -663,15 +663,32 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     anon = _make_caller(test_client, s.public_url.rstrip("/"))
     sc = _extract_docdata(anon("GET", f"/silvercord/{token}").text)["silvercord"]
     remote_key = hashlib.sha256(iri.encode()).hexdigest()[:16]
-    assert sc["remote_renditions"] == [{"key": remote_key, "template": "concise", "version": "concise-v1", "updated": "2027-01-15T08:05:20Z", "account": "@bob@b.example", "domain": "b.example", "origin_url": "https://b.example/silvercord/tok/renditions/concise", "frame_url": f"/silvercord/{token}/renditions/remote/{remote_key}", "plus": {"score": 0, "mine": False, "own": False}}]
+    assert sc["remote_renditions"] == [{"key": remote_key, "template": "concise", "version": "concise-v1", "updated": "2027-01-15T08:05:20Z", "account": "@bob@b.example", "domain": "b.example", "origin_url": "https://b.example/silvercord/tok/renditions/concise", "frame_url": f"/silvercord/{token}/renditions/remote/{remote_key}", "opinions_url": f"/silvercord/{token}/renditions/remote/{remote_key}/opinions", "plus": {"score": 0, "mine": False, "own": False}}]
     frame = anon("GET", sc["remote_renditions"][0]["frame_url"])
     assert frame.status_code == 200
     csp = frame.headers["content-security-policy"]
     assert "sandbox allow-popups allow-popups-to-escape-sandbox" in csp and "default-src 'none'" in csp and "frame-ancestors 'self'" in csp
     assert frame.headers["x-frame-options"] == "SAMEORIGIN"
     assert "<h2>핵심</h2>" in frame.text and "<script" not in frame.text
+    # The opinions of the remote rendition come from its origin (Section 5.11 C2): the request asks for a fetch that starts from the object (own false), and the JSON has no control of this server and no likes or boosts.
+    from claire.federation import opinions as opinions_mod
+    from claire.store import federation_opinions as opinions_store
+
+    first = anon("GET", sc["remote_renditions"][0]["opinions_url"]).json()
+    assert (first["object"], first["counts"], first["actions"], first["moderation"], first["refresh"]["status"]) == (iri, {"replies": 0, "quotes": 0, "likes": None, "shares": None}, None, None, "running")
+    client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
+    try:
+        assert opinions_store.get_fetch(client, iri).own is False
+        reply = {"object_iri": "https://c.example/notes/1", "url": None, "type": "Note", "author": {"iri": "https://c.example/users/dora", "name": "Dora", "handle": "@dora@c.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>On the concise one</p>", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": iri, "quote": None}
+        assert opinions_store.store_objects(client, iri, [reply], quoting=set(), delivered=set(), now=1800000001.0) == 1
+        client.commit()
+    finally:
+        client.close()
+    listed = anon("GET", sc["remote_renditions"][0]["opinions_url"]).json()["opinions"]
+    assert [(o["iri"], o["parent"], o["frame_url"]) for o in listed] == [("https://c.example/notes/1", iri, None)]
     # A key that the cache does not have, and a document that the caller cannot read: the same 404.
     assert anon("GET", f"/silvercord/{token}/renditions/remote/{'0' * 16}").status_code == 404
+    assert anon("GET", f"/silvercord/{token}/renditions/remote/{'0' * 16}/opinions").status_code == 404
     assert anon("GET", f"/silvercord/{token}/renditions/remote/not-a-key").status_code == 404
     conn = dbm.connect_existing(env["db_file"])
     try:
@@ -680,6 +697,18 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     finally:
         conn.close()
     assert anon("GET", sc["remote_renditions"][0]["frame_url"]).status_code == 404
+    # A copy that leaves the cache loses its opinions at the next run.
+    conn = dbm.connect_existing(env["db_file"])
+    client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
+    try:
+        assert opinions_mod.purge_gone_objects(conn, client, origin=s.public_url) == 0
+        conn.execute("DELETE FROM remote_renditions WHERE iri=?", (iri,))
+        conn.commit()
+        assert opinions_mod.purge_gone_objects(conn, client, origin=s.public_url) == 1
+        client.commit()
+    finally:
+        client.close()
+        conn.close()
 
 
 def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_path: Path) -> None:

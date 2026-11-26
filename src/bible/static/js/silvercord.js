@@ -177,7 +177,11 @@
     if (opinionsTab) opinionsTab.open();
   }
   if (opinionsInner && kbPublic && sc.opinions_url && window.ClaireSilvercordOpinions) {
-    opinionsTab = window.ClaireSilvercordOpinions.create({ root: opinionsInner, url: String(sc.opinions_url), rtr: rtrFn, live: document.getElementById("sc-live") });
+    // The rendition script of the page (share.html) can show a rendition of another server before this script runs: it keeps the address of the opinions of the shown rendition in data-opinions-url.
+    opinionsTab = window.ClaireSilvercordOpinions.create({ root: opinionsInner, url: String(document.documentElement.dataset.opinionsUrl || sc.opinions_url), rtr: rtrFn, live: document.getElementById("sc-live") });
+    document.addEventListener("claire:opinions-source", function (event) {
+      if (event.detail && event.detail.url) opinionsTab.setUrl(String(event.detail.url));
+    });
   }
 
   function syncRailVisibility() {

@@ -367,6 +367,8 @@
       var ul = make("ul", "op-counts");
       ul.setAttribute("aria-label", rtr("share.sc.op_counts_aria"));
       [["replies", "share.sc.op_count_replies"], ["quotes", "share.sc.op_count_quotes"], ["likes", "share.sc.op_count_likes"], ["shares", "share.sc.op_count_shares"]].forEach(function (pair) {
+        // A rendition of another server has no likes and boosts here (null): its origin counts them.
+        if (counts && counts[pair[0]] === null) return;
         ul.appendChild(make("li", "", rtr(pair[1], { count: Number((counts && counts[pair[0]]) || 0) })));
       });
       return ul;
@@ -572,6 +574,16 @@
         state.started = true;
         render();
         load();
+      },
+      // The page shows another rendition (a rendition of another server, Section 5.11 C2, or the rendition of the page again): the tab gets the opinions of that object. A tab that was open asks at once; else it asks at its next open.
+      setUrl: function (next) {
+        if (!next || next === url) return;
+        url = next;
+        if (state.timer !== null) window.clearTimeout(state.timer);
+        var wasStarted = state.started;
+        state = { started: false, phase: "loading", data: null, known: null, fresh: {}, polls: 0, timer: null, running: false, items: {} };
+        root.replaceChildren();
+        if (wasStarted) this.open();
       }
     };
   }

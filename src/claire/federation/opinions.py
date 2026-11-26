@@ -120,7 +120,7 @@ def _local_replies(client: sqlite3.Connection, conn: sqlite3.Connection, parents
     return out
 
 
-def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int, origin: str, actor_ids: set[int], now: float, moderator: bool = False, frame_base: str | None = None) -> dict[str, Any]:
+def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int | None, origin: str, actor_ids: set[int], now: float, moderator: bool = False, frame_base: str | None = None) -> dict[str, Any]:
     """The JSON of the 의견 tab of one own object. ``conn`` is ``claire.db`` and ``client`` is ``client.db``. A ``moderator`` (the author of the object or a server admin, Section 5.11 D5) also gets the hidden opinions, each with ``hidden`` true, so that the page can show them again. With ``frame_base`` (the path of the opinions route of the page), each remote opinion has ``frame_url``: its formatted body and attachments in a frame (Section 5.11 D2)."""
     opinions: list[dict[str, Any]] = []
     for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=moderator):
@@ -136,13 +136,15 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
     parents = [object_iri, *(item["iri"] for item in opinions if not item.get("hidden"))]
     opinions += [item for item in _local_replies(client, conn, parents, origin, actor_ids) if item["iri"] not in seen]
     opinions.sort(key=lambda item: (item["published"] or 0.0, item["iri"]))
-    reactions = client_store.count_object_reactions(client, [object_public_id])[object_public_id]
     shown = [item for item in opinions if not item.get("hidden")]
+    quoted = sum(1 for item in shown if item["kind"] == "quote")
+    # An object of another server (``object_public_id`` None, Section 5.11 C2): this server does not have its likes and boosts.
+    reactions = None if object_public_id is None else client_store.count_object_reactions(client, [object_public_id])[object_public_id]
     counts = {
         "replies": sum(1 for item in shown if item["kind"] == "reply"),
-        "quotes": max(sum(1 for item in shown if item["kind"] == "quote"), quotes_store.count_approved_quotes(client, [object_public_id])[object_public_id]),
-        "likes": reactions["like"],
-        "shares": reactions["announce"],
+        "quotes": quoted if object_public_id is None else max(quoted, quotes_store.count_approved_quotes(client, [object_public_id])[object_public_id]),
+        "likes": None if reactions is None else reactions["like"],
+        "shares": None if reactions is None else reactions["announce"],
     }
     fetch = opinions_store.get_fetch(client, object_iri)
     refresh = None
@@ -153,14 +155,16 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
 
 
 def purge_gone_objects(conn: sqlite3.Connection, client: sqlite3.Connection, *, origin: str) -> int:
-    """Delete the opinions and the fetch of each own object that is gone (Section 5.11 C4: a retract, a gone rendition, a purge). Return the number of deleted opinions. The caller commits ``client``."""
+    """Delete the opinions and the fetch of each object that is gone (Section 5.11 C4): an own object without its row (a retract, a gone rendition, a purge), and an object of another server that is not a cached rendition now (rule C2). Return the number of deleted opinions. The caller commits ``client``."""
     prefix = f"{origin.rstrip('/')}/ap/objects/"
     removed = 0
     for object_iri in opinions_store.object_iris(client):
-        number = object_iri[len(prefix):] if object_iri.startswith(prefix) else ""
-        if not (number.isascii() and number.isdigit()):
-            continue
-        if federation_store.owning_object(conn, int(number)) is None:
+        if object_iri.startswith(prefix):
+            number = object_iri[len(prefix):]
+            gone = not (number.isascii() and number.isdigit()) or federation_store.owning_object(conn, int(number)) is None
+        else:
+            gone = conn.execute("SELECT 1 FROM remote_renditions WHERE iri=?", (object_iri,)).fetchone() is None
+        if gone:
             removed += opinions_store.delete_for_object(client, object_iri)
     return removed
 

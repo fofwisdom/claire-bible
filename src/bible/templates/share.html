@@ -498,9 +498,16 @@ function bindRenditionBar(sc){
       update();
     }
   }
+  // The 의견 tab follows the shown rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 C2): silvercord.js reads data-opinions-url at its start and the event after it.
+  function setOpinionsSource(url){
+    if(!url) return;
+    document.documentElement.dataset.opinionsUrl = url;
+    document.dispatchEvent(new CustomEvent('claire:opinions-source', { detail: { url: url } }));
+  }
   function showRemote(key, push){
     const r = remoteList.find(x=>x.key===key);
     if(!r || !bodyEl) return false;
+    setOpinionsSource(r.opinions_url);
     swapBody(()=>{
       const title = rtr('reader.rendition.remote_frame_title', { account: r.account||r.domain, label: renditionLabel(r.template) });
       bodyEl.innerHTML = '<iframe class="sc-rendition-frame" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="'+esc(title)+'" src="'+esc(r.frame_url)+'"></iframe>';
@@ -521,6 +528,7 @@ function bindRenditionBar(sc){
   }
   function showLocal(){
     if(!bodyEl) return;
+    setOpinionsSource(sc.opinions_url);
     swapBody(()=>{
       bodyEl.innerHTML = localBody;
       if(infoEl) infoEl.innerHTML = localInfo;
