@@ -163,7 +163,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 
 | Item | Design | State | Note |
 | :--- | :--- | :--- | :--- |
-| `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no such property of `Person`, and Fedify drops unknown terms from outgoing `Update(Person)` (AD10), so the sidecar cannot add it to the deliveries. Checked 2026-11-26: the latest release on JSR is 2.4.6 (only 2.5.0 development builds). |
+| `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no such property of `Person` (latest release on JSR on 2026-11-26: 2.4.6, only 2.5.0 development builds). Probe of 2026-11-26 (a temporary sidecar test): a `Person` built with `Person.fromJsonLd` keeps `attributionDomains` at its ID, but a delivered `Update(Person)` loses it in both forms (a new `Update` with that person, and `Update.fromJsonLd` of the whole activity): Fedify serializes a delivery again from its typed model. The second route of the design ("a change of the two serialized forms in the sidecar") thus needs a delivery of `Update(Person)` outside Fedify (own signature, address check, retries, queue, for each follower inbox). Mastodon stores the list from each `Update`, so one delivery without it clears it. The agent did not take that route: it replaces a working delivery with retries for a byline label. Unverified option: an `Update` whose object is the actor address only, if each receiver fetches the actor document (Mastodon may; other software may not, and then profile updates stop). |
 
 ## 9. How to Add to This Document
 
