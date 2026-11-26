@@ -276,7 +276,7 @@
     notice.hidden = !(notActor || C.error);
     notice.textContent = C.error ? tr("synd.error.request", { error: C.error }) : notActor ? tr("synd.client.not_actor") : "";
     const actorBar = C.stream === "actor" && C.actorView
-      ? `<div class="synd-actor-bar"><div class="synd-actor-bar-info"><b class="synd-actor-bar-name">${esc(tr("synd.client.stream.actor", { name: C.actorView.name }))}</b><span class="synd-actor-bar-note">${esc(tr("synd.client.actor_fill_note"))}</span></div><button type="button" class="tt-btn synd-mini" data-client-stream="home">${esc(tr("synd.client.back_to_home"))}</button></div>`
+      ? `<div class="synd-actor-bar"><div class="synd-actor-bar-info"><b class="synd-actor-bar-name">${esc(tr("synd.client.stream.actor", { name: C.actorView.name }))}</b><span class="synd-actor-bar-note">${esc(tr("synd.client.actor_fill_note"))}</span></div><button type="button" class="tt-btn synd-mini" data-actor-home="home">${esc(tr("synd.client.back_to_home"))}</button></div>`
       : "";
     if (!C.loaded && C.loading) {
       el.innerHTML = `${actorBar}<div class="synd-empty">${esc(tr("synd.client.loading"))}</div>`;
@@ -571,7 +571,7 @@
   $("panel-client").addEventListener("click", (e) => {
     const pick = (name) => { const el = e.target.closest(`[${name}]`); return el ? el.getAttribute(name) : null; };
     if (Compose && Compose.handleClick(e)) return;
-    const stream = pick("data-client-stream");
+    const stream = pick("data-client-stream") || pick("data-actor-home");
     if (stream) { if (Feeds) Feeds.deactivate(); C.stream = stream; C.selectedId = null; C.detail = null; loadTimeline(true); return; }
     const star = pick("data-item-star");
     if (star) { const item = findItem(star); if (item) patchItem(star, { starred: !item.starred }); return; }

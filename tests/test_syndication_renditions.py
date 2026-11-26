@@ -123,6 +123,7 @@ def test_e2e_syndication_serves_updated_scripts_styles_and_locale_keys(tmp_path:
         "bridge.onPublished",
         "dispatch-native-renditions",
         "synd-actor-bar",
+        "data-actor-home",
         "synd-badge-filled",
         "synd-follow-row.is-active",
         "synd-publish-rendition-chip",
