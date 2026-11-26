@@ -8,6 +8,7 @@ import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
@@ -71,7 +72,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **setting_overrides: o
         conn.close()
     # The lineage summary reads the documents of claire.db (CLAIRE_DB_PATH first).
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
-    base_settings: dict[str, object] = {
+    base_settings: dict[str, Any] = {
         "_env_file": None,
         "CLAIRE_DB_PATH": str(db_file),
         "CLAIRE_PROVIDER": "mock",
