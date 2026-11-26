@@ -210,8 +210,10 @@ The design does not give these details. The owner can change them before the fir
 
 1. The entities, the relations, and the signature are JSON values (`@type: @json`). The design gives the keys `type` and `norm_name`; the key `type` in a JSON-LD node is the type of the node, so a node cannot have it as data.
 2. `sameAs` is a key of an entity row in the JSON value. It has no IRI of its own.
-3. `Grant`, `Revoke`, and `capability` have the IRIs of the ForgeFed namespace. The IRIs are from memory of the ForgeFed specification and were not read from the network in this unit.
-4. A `Delete` has a `Tombstone` with `formerType`, as the `Delete` of [`FEDERATION.md`](FEDERATION.md) Section 4.4.
+3. `Grant`, `Revoke`, and `capability` have the IRIs of the ForgeFed namespace. On 2026-11-26 the IRIs were compared with the ForgeFed specification 1.0 (`https://forgefed.org/spec`): `https://forgefed.org/ns#Grant`, `https://forgefed.org/ns#Revoke`, and `https://forgefed.org/ns#capability` are the same. Facts of that reading:
+   - The context document that `https://forgefed.org/ns` served on that day has no term `Grant`, `Revoke`, or `capability`. The Claire context defines the three terms itself, so a Claire document does not need the ForgeFed context.
+   - In ForgeFed, the `object` of a `Grant` is a `Role` (`visit`, `report`, `triage`, `write`, `maintain`, `admin`, `delegate`), and a `Grant` can have `allows`, `fulfills`, and `result`. The `Grant` of Claire has the role `claire:collaborator` and none of the three properties. Thus a ForgeFed server (not Claire) may not use a Claire `Grant`. The design does not ask for that.
+4. A `Delete` has a `Tombstone` with `formerType`, as the `Delete` of [`FEDERATION.md`](FEDERATION.md) Section 4.4. The value is a bare AS2 type name (`"Article"`), as in the examples of the AS2 vocabulary (Example 142: `"formerType": "Image"`). The AS2 context defines `formerType` with `"@type": "@id"`, so a JSON-LD processor reads that value as a relative IRI. This is a limit of the AS2 context; Claire reads the compact name.
 5. The reason code is the property `claire:reasonCode` of the `Delete` and of the `Reject`.
 6. The activities of a knowledge base actor go to its followers collection only. They do not go to the public collection.
 7. The signature does not have the centroid of the embeddings.
@@ -229,7 +231,9 @@ The design does not give these details. The owner can change them before the fir
 - The context file is JSON, has the namespace of decision KD9, and defines each Claire term that a builder uses.
 - The code lists are the ones of `src/claire/collaboration/contributions.py` and `src/claire/store/kb_collab.py`. The wire extraction is a valid `ExtractionResult`.
 
-Not tested: the context document with a JSON-LD processor (the repository has none in Python). The tests of KF1 are in Section 10.7.
+`sidecar/fedify/tests/claire_context_test.ts` (the agent part of design step KA4, 2026-11-26): jsonld.js 9, the build that Fedify uses, expands each fixture of `objects/` and `activities/` with its context and compacts it again with the same context. Each event of jsonld.js is an error, except the relative IRI of `formerType` (Section 8 item 4); each key and each type must expand to an `http` or `https` IRI (the AS2 context has `"@vocab": "_:"`, so a key that no context defines becomes a blank IRI and is not dropped); the compacted document must be the fixture again. The test also expands the documents of the context version 2 (the source index, a body, the collections of renditions and of +1, and the object of a document and of a rendition with the `claire:` fields of the sidecar), and it checks the IRIs of `Grant`, `Revoke`, `capability`, `claire:collaborator`, and `claire:Contribution`. All fixtures passed with no change of a context.
+
+The test ran before step KA3 is complete: it changes nothing, and the context stays open to changes. The other parts of KA4 (the owner reads the vocabulary page, `v1` is frozen and hosted, the pull request on `w3id.org`) wait for KA3. The tests of KF1 are in Section 10.7.
 
 ## 10. Unit KF1: Known Servers, Admin Controls, Inbox Journal, Single Mode Root
 
