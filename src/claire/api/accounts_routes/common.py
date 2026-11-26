@@ -360,7 +360,7 @@ def render_template(
     scope: BrowserCatalogScope = "page"
     if name == "console_shell.html":
         scope = "console_admin" if (tx.get("active_area") == "admin" or bool(mk.get("admin_scripts_html"))) else "console"
-    values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(scope), "locale_switch_html": locale_switch_html(return_path) if return_path else ""}
+    values: dict[str, str] = {"html_lang": get_locale(), "i18n_bootstrap_html": i18n_bootstrap_html(scope), "locale_switch_html": locale_switch_html(return_path) if return_path else "", "extra_styles_html": ""}
     if name == "console_shell.html" and "drawer_title_html" not in mk:
         is_mod = tx.get("active_area") == "moderation"
         d_icon = "shield" if is_mod else "settings"

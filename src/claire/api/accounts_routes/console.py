@@ -825,7 +825,10 @@ def _build_settings_account_section(
     elif spec.slug == "providers":
         body, extra = _account_providers_body(ctx, principal=principal, mode=mode, account=account, admin_viewer=admin_viewer)
     elif spec.slug == "pipeline":
-        return SettingsSectionRender(body_html=_support_pipeline_body(ctx, account=account, admin_viewer=admin_viewer))
+        return SettingsSectionRender(
+            body_html=_support_pipeline_body(ctx, account=account, admin_viewer=admin_viewer),
+            extra_scripts_html='<script src="/static/js/pipeline_flow.js" defer></script>',
+        )
     elif spec.slug == "kb":
         # An account has one personal knowledge base (design Section 3). The page shows its number.
         personal_num = next((ids.format_public_id(kb.number) for kb in owned_themes if kb.is_personal and kb.number is not None), "")
@@ -1623,6 +1626,7 @@ def _render_console_section(
             "section_body_html": section_body_html,
             # <script type="application/json"> 탈출을 막도록 <, >, & 를 유니코드 이스케이프한다.
             "bootstrap_json": json.dumps(bootstrap_payload, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"),
+            "extra_styles_html": '<link rel="stylesheet" href="/static/css/pipeline_flow.css"/>' if spec.slug == "pipeline" else "",
             "extra_scripts_html": extra_scripts_html,
             # Non-admin /account/*, /settings/* and /moderation/kb responses never include the administrator script bundle.
             "admin_scripts_html": '<script src="/static/js/console_admin.js" defer></script>' if is_admin_section else "",

@@ -191,6 +191,11 @@ async function assertRouteUiConsistency(page, routePath, baseline, opts) {
 
     const visibleH2s = body ? Array.from(body.querySelectorAll('h2')).filter((h) => !h.classList.contains('sr-only') && !h.closest('[hidden], dialog, .sr-only') && isVisible(h)) : [];
     const uniqueH2Texts = new Set(visibleH2s.map((h) => (h.textContent || '').trim()).filter(Boolean));
+    const tocTabsRoot = body ? body.querySelector('[data-toc-tabs="1"]') : null;
+    const tocH2s = tocTabsRoot
+      ? Array.from(tocTabsRoot.querySelectorAll('h2')).filter((h) => !h.classList.contains('sr-only') && !h.closest('dialog, .sr-only'))
+      : visibleH2s;
+    const tocHeadingCount = new Set(tocH2s.map((h) => (h.textContent || '').trim()).filter(Boolean)).size;
     const h2Mismatches = [];
     for (const h of visibleH2s) {
       const st = getComputedStyle(h);
@@ -212,6 +217,7 @@ async function assertRouteUiConsistency(page, routePath, baseline, opts) {
       btnMismatches,
       h2Mismatches,
       uniqueH2Count: uniqueH2Texts.size,
+      tocHeadingCount,
       hasTocClass: Boolean(layoutEl && layoutEl.classList.contains('has-toc')),
       tocVisible: isVisible(tocEl),
       clientWidth: html.clientWidth,
@@ -227,9 +233,9 @@ async function assertRouteUiConsistency(page, routePath, baseline, opts) {
 
   if (!isMobile) {
     if (EXPECT_TOC_ROUTES.has(routePath)) {
-      expect(report.uniqueH2Count, `${routePath} expected 3+ visible h2 headings`).toBeGreaterThanOrEqual(3);
+      expect(report.tocHeadingCount, `${routePath} expected 3+ visible h2 headings`).toBeGreaterThanOrEqual(3);
     }
-    if (report.uniqueH2Count >= 3) {
+    if (report.tocHeadingCount >= 3) {
       expect(report.hasTocClass, `${routePath} should have has-toc`).toBe(true);
       expect(report.tocVisible, `${routePath} should show sticky #console-toc`).toBe(true);
     } else {

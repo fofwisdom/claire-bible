@@ -302,6 +302,7 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/invite/{code}",
         "/directory",
         "/accounts",
+        "/about",
         "/home-profile",
         "/home-timeline",
         "/auth/oidc/{id}/start",

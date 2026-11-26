@@ -52,6 +52,7 @@ def log_operation_failure(logger: logging.Logger, request: Request, operation: s
 
 from .client_extraction import build_client_extraction_routes  # noqa: E402
 from .providers_limits import build_providers_limits_routes  # noqa: E402
+from .public_about import build_public_about_routes  # noqa: E402
 from .public_site import FONTS, build_public_site_routes  # noqa: E402
 from .reference import build_reference_routes  # noqa: E402
 
@@ -59,6 +60,7 @@ __all__ = [
     "FONTS",
     "build_client_extraction_routes",
     "build_providers_limits_routes",
+    "build_public_about_routes",
     "build_public_site_routes",
     "build_reference_routes",
     "log_operation_failure",

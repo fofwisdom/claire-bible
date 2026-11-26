@@ -789,6 +789,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2). The old path ``/accounts`` answers with a 308 redirect; the older path ``/explore/accounts`` is removed.
     ("GET", "/directory"): _system("public", "none"),
     ("HEAD", "/directory"): _system("public", "none"),
+    ("GET", "/about"): _system("public", "none"),
+    ("HEAD", "/about"): _system("public", "none"),
     ("GET", "/accounts"): _system("public", "none"),
     ("HEAD", "/accounts"): _system("public", "none"),
     ("GET", "/api/invites"): _any("owner", "none", modes=NETWORK_ONLY),

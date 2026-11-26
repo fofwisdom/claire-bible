@@ -69,7 +69,7 @@ SYSTEM = {
     "/api/admin/usernames/retired", "/api/admin/usernames/release",
     "/invite/{code}",
     # The public account directory, in both modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 8.3 rule 2)
-    "/directory", "/accounts",
+    "/directory", "/accounts", "/about",
     "/admin/server", "/api/admin/server", "/api/admin/server/mode", "/api/admin/server/invites", "/api/admin/server/languages", "/api/admin/server/legacy-hosts/sunset",
     "/api/admin/server-tier", "/api/admin/federation", "/api/admin/federation/domain-blocks", "/api/admin/federation/reading", "/admin/federation", "/admin/kb",
     # Knowledge federation (KNOWLEDGE_FEDERATION_DESIGN.md Sections 6.2 and 13, unit KF1)

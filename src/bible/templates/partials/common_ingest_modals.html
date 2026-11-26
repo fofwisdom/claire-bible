@@ -30,6 +30,14 @@
         <div class="ingest-choice"><input id="ingrendition-concise" type="checkbox" name="ingest-rendition" value="concise"/><label for="ingrendition-concise" data-i18n-title="rendition.template.concise.desc" title="${t:rendition.template.concise.desc}" data-i18n="rendition.template.concise.label">${t:rendition.template.concise.label}</label></div>
         <div class="ingest-choice"><input id="ingrendition-academic" type="checkbox" name="ingest-rendition" value="academic"/><label for="ingrendition-academic" data-i18n-title="rendition.template.academic.desc" title="${t:rendition.template.academic.desc}" data-i18n="rendition.template.academic.label">${t:rendition.template.academic.label}</label></div>
       </div>
+      <div class="ingest-rendition-policy" role="note" aria-labelledby="ingest-rendition-policy-title">
+        <p id="ingest-rendition-policy-title" class="ingest-rendition-policy-title" data-i18n="ws.ingest.renditions_policy.summary">${t:ws.ingest.renditions_policy.summary}</p>
+        <ul>
+          <li data-i18n="ws.ingest.renditions_policy.standard">${t:ws.ingest.renditions_policy.standard}</li>
+          <li data-i18n="ws.ingest.renditions_policy.concise">${t:ws.ingest.renditions_policy.concise}</li>
+          <li data-i18n="ws.ingest.renditions_policy.academic">${t:ws.ingest.renditions_policy.academic}</li>
+        </ul>
+      </div>
     </fieldset>
     <fieldset class="ingest-options" data-api-only>
       <legend class="ingest-label" data-i18n="ws.ingest.amount">${t:ws.ingest.amount}</legend>

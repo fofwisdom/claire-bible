@@ -10,7 +10,12 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 
 | File | Role | Main symbols |
 | :--- | :--- | :--- |
-| `src/claire/api/server.py` | Robots and sitemap handlers, shared document page | `robots_txt_route`, `sitemap_xml_route`, `_sitemap_cache` |
+| `src/claire/api/server.py` | Robots, sitemap, directory/profile nav injection | `robots_txt_route`, `sitemap_xml_route`, `_sitemap_cache` |
+| `src/claire/api/routes/public_about.py` | Public `/about` page route and KD15 snapshot | `build_public_about_routes`, `_collect_public_snapshot` |
+| `src/claire/api/templates/public_about.html` | Public `/about` HTML template | `#about-top`, `#pipeline-graph`, `#about-sources` |
+| `src/claire/api/public_kb_routes.py` | Public appbar with `/about` nav and KB pages | `public_appbar_html`, `render_public_kb_page`, `directory_head_markup` |
+| `src/claire/api/accounts_routes/pipeline.py` | Shared Gemini Neon pipeline serializer and mount | `build_pipeline_view_data`, `render_pipeline_mount_html`, `resolve_primary_language_info` |
+| `src/claire/accounts/username_policy.py` | Username reservation policy (`"about"` reserved) | `RESERVED_USERNAMES` |
 | `src/claire/api/security.py` | Route rules, CSP header | `ROUTE_POLICY`, `_build_content_security_policy`, `SafeAccessLogMiddleware` |
 | `src/claire/store/db.py` | Documents and share tokens for the sitemap | `list_public_sitemap_documents`, `create_doc_share` |
 | `src/bible/web/metadata.py` | Pure page metadata and GA tag builders | `render_ga_tag`, `render_open_graph_tags`, `sanitize_preview_text`, `extract_knowledge_node_tags`, `resolve_preview_image` |
@@ -19,13 +24,13 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 | `src/claire/api/namespace.py` | GA ID of the theme that the path pins | `NamespaceResolverMiddleware` |
 | `src/claire/core/config.py` | Settings | `robots_policy`, `block_ai_crawlers`, `sitemap_enabled`, `sitemap_cache_ttl`, `site_name`, `site_description`, `ga_measurement_id`, `anonymous_readonly` |
 
-Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/test_google_analytics.py`, `tests/test_theme_fqdn.py`.
+Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/test_google_analytics.py`, `tests/test_theme_fqdn.py`, `tests/test_public_about.py`, `e2e/public_about.spec.js`.
 
 ---
 
 ## 2. Route access
 
-- **[code]** `GET` and `HEAD` of `/robots.txt` and `/sitemap.xml` are `system` routes with the `public` rule in `ROUTE_POLICY`. They need no credential.
+- **[code]** `GET` and `HEAD` of `/robots.txt`, `/sitemap.xml`, and `/about` are `system` routes with `_system("public", "none")` in `ROUTE_POLICY`. They need no credential. `"about"` is also reserved in `RESERVED_USERNAMES` (`src/claire/accounts/username_policy.py`) so no account can claim `/about` as a handle.
 - **[code]** The `HostRouter` runs before these handlers. Only the app host reaches them. An old theme host (`legacy_hosts`) gets a 308 redirect to the theme path, and an unknown host gets 421 ([`EXTERNAL_ACCESS.md`](EXTERNAL_ACCESS.md)).
 
 ---
@@ -135,3 +140,29 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 ### 6.4 Events
 
 **[code]** `src/bible/static/js/app.js` and `src/bible/static/js/reader.js` send `page_view` (virtual paths such as `/doc/{id}` and `/node/{id}`), `select_content`, `home_navigate`, `search` (with the search text in `search_term`), and `share` events when `window.gtag` exists.
+
+---
+
+## 7. Public `/about` Page and Public Header Navigation
+
+Design: [`ABOUT_PAGE_AND_INTERACTIVE_PIPELINE_DESIGN.md`](../design/ABOUT_PAGE_AND_INTERACTIVE_PIPELINE_DESIGN.md) (`Q1`–`Q7`).
+
+### 7.1 `/about` Route and KD15 Privacy Guarantees
+
+- **[code]** `build_public_about_routes` in `src/claire/api/routes/public_about.py` handles `GET` and `HEAD` `/about` for anonymous visitors using `src/claire/api/templates/public_about.html` (`Vary: Cookie, Authorization, Accept-Language`).
+- **[code] [decision]** `_collect_public_snapshot` enforces `KD15` and public viewer isolation:
+  - **KPI Box 1**: server mode (`network` or `single`) and private invite-only registration policy (`about.kpi.mode_*`).
+  - **KPI Box 2**: active public profiles (`accounts.profile_public = 1 AND status = 'active'`), public shared knowledge bases (`is_personal = 0 AND is_public = 1`), and active themes (`themes.state = 'active'`).
+  - **KPI Box 3 (`Q3`)**: public-only extracted documents (`COALESCE(hidden, 0) = 0 AND COALESCE(extraction_status, 'extracted') = 'extracted'` in public knowledge bases) and non-provisional entities (`COALESCE(provisional, 0) = 0`), excluding private accounts, private knowledge bases, and `pending` staged documents.
+  - **KPI Box 4 (`Q7` Option A)**: 7-character short build commit SHA from `CLAIRE_BUILD_COMMIT` or `/app/src/claire/BUILD_COMMIT`, omitted when unset or `unknown`.
+  - **Curator strip**: owner `display_name` (or `username`) from `accounts` (`role = 'admin'`) and optional ActivityPub handle `@{username}@{expected_authority}`, shown once in `.about-meta-strip` and not repeated in the footer.
+  - **Never exposed**: private account or private KB counts, `pending` staged documents, federated peer server lists or counts (`KD15`), server/BYOK API keys, `jev-latest`, `gemini-decision-1`, recent document lineages, or `/admin/*` URLs.
+- **[code]** `resolve_primary_language_info` reads `read_server_languages()` (`src/claire/accounts/languages.py`, fallback `en`) and maps the primary language tag (normalizing `-` to `_` via `lang.name.*`) into the hero lead (`about.hero.lead`) and `pipeline_view_data["primaryLangName"]`.
+- **[code] [decision]** The page mounts the shared Gemini Neon component (`build_pipeline_view_data(viewer="public", ...)` + `render_pipeline_mount_html`, using generic `pipeline.neon.model_slot` labels and `showJev: False`), four philosophy cards (`about.philosophy.*`), and one always-visible supported sources table (`#about-sources`, `_SOURCE_ROW_KEYS`). Closed ontology lists (`11+11`) and 3-template rendition policy details are omitted from `/about` (`Q6`).
+
+### 7.2 Public Header `/about` Link and Footer Links
+
+- **[code] [decision]** (`Q2`, `Q6`) Public navigation bars link to `/about` while keeping `/reference` out of the top header:
+  - `public_appbar_html` (`src/claire/api/public_kb_routes.py`) renders `.pub-appbar-nav` with `/`, `/directory`, `/kb`, and `/about` (plus `/login` for anonymous visitors) on `/about`, `/kb*`, and `/themes*`.
+  - `src/claire/api/server.py` injects `about_label` (`nav.about`) into `src/claire/api/templates/public_directory.html` and `src/claire/api/templates/private_profile.html`; `src/bible/static/js/public_kb.js` (`publicNavHtml`) includes `/about` in `.claire-pubnav`; `src/bible/templates/partials/common_appbar.html` includes `#menuaboutlink` inside `#pop-hamburger-menu`.
+  - `_build_footer_links_html` in `src/claire/api/routes/public_about.py` renders `API 문서` / `API Docs` (`/reference`), plus non-empty `effective_github_repository` (`about.footer.github`) and `agent_marketplace_repo` (`about.footer.marketplace`) links in `.about-footer-links`, omitting empty repository links and omitting `MIT`, `v0.1.0`, `/robots.txt`, and `/mcp`.

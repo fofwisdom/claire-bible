@@ -1,20 +1,36 @@
-"""The page ``/support/pipeline``: the tabs, SVG flow graph, server API flow, agent client flow, auxiliary AI uses, video/media rules, fixed values, and administrator records.
+"""The page ``/support/pipeline`` and the shared Gemini Neon pipeline data serializer (``/about`` + ``/support/pipeline``).
 
-Each account sees the AI of its own jobs (``accounts.provider_view.describe_account_providers``). The administrator sees the AI of the server jobs (``describe_server_providers``), the Jev shadow evaluation, the pair review pre-label model, the model lineage of recent documents of all accounts, and the removed fallbacks. A member page has no document title of another account, no ``/admin/`` link, no ``data-jev-state``, no ``records`` tab, and no ``gemini-decision-1`` row.
+Each account sees the AI of its own jobs (``accounts.provider_view.describe_account_providers``). The administrator sees the AI of the server jobs (``describe_server_providers``), the Jev shadow evaluation, the pair review pre-label model, the model lineage of recent documents of all accounts, and the removed fallbacks. Public ``/about`` sees generic slot labels only. A member or public page has no document title of another account, no ``/admin/`` link, no ``jev-latest``, no ``records`` tab, and no ``gemini-decision-1`` row.
 """
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from html import escape
-from typing import Any, Final
+from typing import Any, Final, Literal
 
-from ...accounts.provider_policy import is_gemini_fixed_effort_model, split_gemini_model_and_effort
-from ...i18n import interpolate, t
-from .console_ui import console_card, console_flow, console_kv, console_notice, console_pill, console_table, console_tabs
+from ...accounts.languages import ALWAYS_LANGUAGE, read_server_languages
+from ...accounts.provider_policy import split_gemini_model_and_effort
+from ...i18n import get_locale, interpolate, t
+from ...i18n.catalog import load_catalog
+from ...i18n.locales import DEFAULT_LOCALE
+from .console_ui import console_card, console_kv, console_notice, console_pill, console_table, console_tabs
+
+ViewerRole = Literal["public", "member", "admin"]
 
 STT_ORDER_ID: Final = "pipeline-stt-order"
 _RECENT_LIMIT: Final = 10
 _BYOK_VERIFY_MODEL: Final = "gemini-3.1-flash-lite"
+_PIPELINE_SLOTS: Final[tuple[str, ...]] = (
+    "classify",
+    "extract_graph",
+    "summarize",
+    "render_detail",
+    "entity_judge",
+    "relation_judge",
+    "research",
+)
 
 
 def _k(key: str, **params: Any) -> str:
@@ -34,19 +50,6 @@ def _clean_vlm_model(media: dict[str, Any] | None) -> str:
     return api_model or raw
 
 
-def _model_html(row: dict[str, Any] | None) -> str:
-    """The model of a slot row of the provider view, or the reason why the slot does not work for the account."""
-    if row is None:
-        return "-"
-    if row.get("available") is False:
-        return console_pill(t(f"console.settings.providers.reason.{row['reason']}"), tone="neutral")
-    model = str(row.get("model") or "")
-    effort = str(row.get("effort") or "")
-    if effort and not model.endswith(f"-{effort}"):
-        model = f"{model} ({effort})" if model else effort
-    return _code(model or "-")
-
-
 def _media_html(media: dict[str, Any], *, strip_effort: bool = False) -> str:
     """STT or VLM: the model, or the reason why it does not work (server view: off or not ready; account view: the reason of the account)."""
     model_val = _clean_vlm_model(media) if strip_effort else str(media.get("model") or "-")
@@ -57,32 +60,6 @@ def _media_html(media: dict[str, Any], *, strip_effort: bool = False) -> str:
     if not media.get("ready"):
         return console_pill(t("console.settings.providers.reason.not_ready"), tone="warn")
     return _code(model_val)
-
-
-def _svg_char_units(ch: str) -> float:
-    code = ord(ch)
-    if code <= 127:
-        return 1.0
-    if ch in ("·", "→", "…", "≥", "≤", "↔", "–"):
-        return 1.05
-    return 1.75
-
-
-def _svg_clip_px(text: str, max_px: float, *, char_px: float = 6.0) -> str:
-    """Clip SVG label text so rendered glyph width stays inside the box width."""
-    clean = str(text or "-").strip() or "-"
-    budget = max(4.0, max_px / char_px)
-    used = 0.0
-    for idx, ch in enumerate(clean):
-        w = _svg_char_units(ch)
-        if used + w > budget:
-            cut = idx
-            while cut > 0 and used + 1.05 > budget:
-                cut -= 1
-                used -= _svg_char_units(clean[cut])
-            return clean[:cut] + "…"
-        used += w
-    return clean
 
 
 def _svg_slot_label(row: dict[str, Any] | None) -> str:
@@ -108,320 +85,145 @@ def _svg_media_label(media: dict[str, Any], *, strip_effort: bool = False) -> st
     return model_val
 
 
-def _models(rows: list[tuple[str, str]]) -> str:
-    return console_kv([{"label": label, "value_html": value_html} for label, value_html in rows], attrs={"data-flow-models": True})
+def _localized_language_name(tag: str, *, locale: str) -> str:
+    """Map a BCP-47 tag (e.g. ``ko``, ``zh-hans``) to its localized display name."""
+    cleaned = str(tag or "").strip().lower() or ALWAYS_LANGUAGE
+    norm = cleaned.replace("-", "_")
+    full_key = f"lang.name.{norm}"
+    translated = t(full_key, locale=locale)
+    if translated != full_key:
+        return translated
+    primary_sub = norm.split("_", 1)[0]
+    sub_key = f"lang.name.{primary_sub}"
+    sub_translated = t(sub_key, locale=locale)
+    if sub_translated != sub_key:
+        return sub_translated
+    return cleaned.upper()
 
 
-def _slot_label(slot: str) -> str:
-    return t(f"console.settings.providers.slot.{slot}")
-
-
-def _same_spec(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
-    return bool(a and b and (a.get("provider"), a.get("model"), a.get("effort")) == (b.get("provider"), b.get("model"), b.get("effort")))
-
-
-def _flow_intro(view: dict[str, Any], *, admin_viewer: bool) -> str:
-    source = str(view.get("source") or "server")
-    if admin_viewer:
-        return escape(_k("flow_hint_admin"))
-    return escape(_k("flow_hint_member", source=t(f"console.settings.providers.source.{source}")))
-
-
-def _svg_node(
-    x: int,
-    y: int,
-    w: int,
-    h: int,
+def resolve_primary_language_info(
+    settings: Any,
     *,
-    kind: str,
-    title: str,
-    lines: list[tuple[str, str]],
-) -> str:
-    """Build one SVG node rectangle with title, subtitle, and model lines."""
-    inner_px = float(max(40, w - 20))
-    title_text = _svg_clip_px(title, inner_px, char_px=6.8)
-    text_parts: list[str] = [f'<text class="pg-node-title" x="{x + 10}" y="{y + 19}">{escape(title_text)}</text>']
-    cur_y = y + 35
-    for cls, line in lines:
-        char_px = 6.1 if cls == "pg-node-model" else 5.8
-        clipped = _svg_clip_px(line, inner_px, char_px=char_px)
-        text_parts.append(f'<text class="{cls}" x="{x + 10}" y="{cur_y}">{escape(clipped)}</text>')
-        cur_y += 15
-    return f'<g><rect class="pg-node pg-node-{escape(kind)}" x="{x}" y="{y}" width="{w}" height="{h}" rx="8" />{"".join(text_parts)}</g>'
+    viewer_lang_order: Sequence[str] | None = None,
+    locale: str | None = None,
+) -> tuple[str, list[str], str]:
+    """Resolve ``(primary_tag, lang_order, primary_lang_name)`` using server/viewer preferred languages."""
+    active_locale = locale if locale is not None else get_locale()
+    order: list[str] = [str(code).strip().lower() for code in (viewer_lang_order or ()) if str(code).strip()]
+    if not order and settings is not None:
+        db_file = getattr(settings, "db_file", None)
+        if db_file is not None:
+            order = [str(code).strip().lower() for code in read_server_languages(db_file) if str(code).strip()]
+        if not order:
+            order = [str(code).strip().lower() for code in getattr(settings, "effective_preferred_languages", ()) or () if str(code).strip()]
+    if not order:
+        order = [ALWAYS_LANGUAGE]
+    primary_tag = order[0]
+    return primary_tag, order, _localized_language_name(primary_tag, locale=active_locale)
+
+
+def _neon_i18n_map(*, locale: str | None = None) -> dict[str, str]:
+    """Collect all ``pipeline.neon.*`` strings for the active locale so the shared JS bundle works without extra fetches."""
+    active = locale if locale is not None else get_locale()
+    merged = {**load_catalog(DEFAULT_LOCALE), **load_catalog(active)}
+    return {key: value for key, value in sorted(merged.items()) if key.startswith("pipeline.neon.")}
+
+
+def build_pipeline_view_data(
+    *,
+    viewer: ViewerRole,
+    settings: Any = None,
+    view: dict[str, Any] | None = None,
+    lang_order: Sequence[str] | None = None,
+    locale: str | None = None,
+) -> dict[str, Any]:
+    """Serialize sanitized Gemini Neon pipeline configuration and i18n copy for ``public``, ``member``, or ``admin`` viewers."""
+    if viewer not in ("public", "member", "admin"):
+        raise ValueError(f"unsupported pipeline viewer role: {viewer!r}")
+    active_locale = locale if locale is not None else get_locale()
+    stt_order = ((view or {}).get("stt") or {}).get("order") or {}
+    explicit_order = lang_order if lang_order is not None else stt_order.get("caption_languages")
+    _, resolved_order, primary_lang_name = resolve_primary_language_info(settings, viewer_lang_order=explicit_order, locale=active_locale)
+    auto_merge = round(float(getattr(settings, "sim_tier_auto_merge", 0.93) or 0.93), 2)
+    borderline = round(float(getattr(settings, "sim_tier_borderline", 0.72) or 0.72), 2)
+    client_llm = t("pipeline.neon.model_client_llm", locale=active_locale)
+
+    if viewer == "public":
+        source_label = t("pipeline.neon.source_public", locale=active_locale)
+        models: dict[str, str] = {
+            slot: t("pipeline.neon.model_slot", locale=active_locale, slot=t(f"console.settings.providers.slot.{slot}", locale=active_locale))
+            for slot in _PIPELINE_SLOTS
+        }
+        models["embed"] = t("pipeline.neon.model_public_embed", locale=active_locale)
+        models["stt"] = t("pipeline.neon.model_public_stt", locale=active_locale)
+        models["vlm"] = t("pipeline.neon.model_public_vlm", locale=active_locale)
+        models["client_llm"] = client_llm
+        models["jev"] = ""
+    else:
+        slots = {str(row["slot"]): row for row in (view or {}).get("slots") or []}
+        source_code = str((view or {}).get("source") or ("server" if viewer == "admin" else "tier"))
+        if viewer == "admin":
+            source_label = t("pipeline.neon.source_admin", locale=active_locale)
+        else:
+            source_label = t("pipeline.neon.source_member", locale=active_locale, source=t(f"console.settings.providers.source.{source_code}", locale=active_locale))
+        models = {slot: _svg_slot_label(slots.get(slot)) for slot in _PIPELINE_SLOTS}
+        models["embed"] = str((view or {}).get("embed_model") or "-")
+        models["stt"] = _svg_media_label((view or {}).get("stt") or {})
+        models["vlm"] = _svg_media_label((view or {}).get("vlm") or {}, strip_effort=True)
+        models["client_llm"] = client_llm
+        if viewer == "admin":
+            jev_model = str(getattr(settings, "jev_model", "") or "jev-latest")
+            jev_state = _k("on" if (view or {}).get("jev_enabled") else "off")
+            models["jev"] = f"{jev_model} · {jev_state}"
+        else:
+            models["jev"] = ""
+
+    return {
+        "viewer": viewer,
+        "sourceLabel": source_label,
+        "primaryLangName": primary_lang_name,
+        "langOrder": resolved_order,
+        "autoMerge": auto_merge,
+        "borderline": borderline,
+        "showJev": viewer == "admin",
+        "showSimulators": True,
+        "models": models,
+        "i18n": _neon_i18n_map(locale=active_locale),
+    }
+
+
+def render_pipeline_mount_html(data: dict[str, Any], *, json_id: str = "claire-pipeline-data") -> str:
+    """Render the shared Gemini Neon mount element and its escaped inline JSON payload."""
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    safe_id = escape(json_id)
+    return (
+        f'<div class="claire-pipeline-mount" data-pipeline-mount data-pipeline-json-id="{safe_id}"></div>'
+        f'<script id="{safe_id}" type="application/json">{payload}</script>'
+    )
+
+
+def _neon_hint_html(view: dict[str, Any], *, admin_viewer: bool) -> str:
+    if admin_viewer:
+        return escape(_k("neon_hint_admin"))
+    source = str(view.get("source") or "server")
+    return escape(_k("neon_hint_member", source=t(f"console.settings.providers.source.{source}")))
 
 
 def _graph_card(settings: Any, view: dict[str, Any], *, admin_viewer: bool) -> str:
-    """Build the top SVG overview diagram card inside Tab 1."""
-    slots = {str(row["slot"]): row for row in view["slots"]}
-    embed_model = str(view.get("embed_model") or "-")
-    stt_label = _svg_media_label(view["stt"])
-    vlm_label = _svg_media_label(view["vlm"], strip_effort=True)
-    classify_label = _svg_slot_label(slots.get("classify"))
-    extract_label = _svg_slot_label(slots.get("extract_graph"))
-    summary_label = _svg_slot_label(slots.get("summarize"))
-    detail_label = _svg_slot_label(slots.get("render_detail"))
-    judge_label = _svg_slot_label(slots.get("entity_judge"))
-    rel_label = _svg_slot_label(slots.get("relation_judge"))
-    has_text_ai = all(row.get("available", True) for row in (slots.get("extract_graph"), slots.get("summarize")) if row)
-    same_summary = has_text_ai and _same_spec(slots.get("extract_graph"), slots.get("summarize"))
-    auto = f"{float(getattr(settings, 'sim_tier_auto_merge', 0.93)):.2f}"
-    jev_model = str(getattr(settings, "jev_model", "") or "jev-latest")
-    jev_state = _k("on" if view.get("jev_enabled") else "off")
-
-    svg_parts: list[str] = [
-        '<defs><marker id="pg-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="var(--muted)" /></marker></defs>',
-        # Top entry lane
-        '<rect class="pg-lane" x="10" y="8" width="960" height="110" rx="10" />',
-        f'<text class="pg-lane-label" x="24" y="25">{escape(_k("graph.lane.entry"))}</text>',
-        _svg_node(24, 34, 164, 72, kind="rule", title=_k("graph.node.fetch_title"), lines=[("pg-node-sub", _k("graph.node.fetch_sub"))]),
-        '<path class="pg-edge" d="M 188 70 L 212 70" marker-end="url(#pg-arrow)" />',
-        _svg_node(214, 34, 234, 72, kind="ai", title=_k("graph.node.media_title"), lines=[("pg-node-sub", _k("graph.node.media_sub")), ("pg-node-model", f"STT: {stt_label}"), ("pg-node-model", f"VLM: {vlm_label}")]),
-        '<path class="pg-edge" d="M 448 70 L 472 70" marker-end="url(#pg-arrow)" />',
-        _svg_node(474, 34, 224, 72, kind="ai", title=_k("graph.node.classify_title"), lines=[("pg-node-sub", _k("graph.node.classify_sub")), ("pg-node-model", classify_label)]),
-        '<path class="pg-edge" d="M 698 70 L 722 70" marker-end="url(#pg-arrow)" />',
-        _svg_node(724, 34, 232, 72, kind="rule", title=_k("graph.node.dedup_title"), lines=[("pg-node-sub", _k("graph.node.dedup_sub"))]),
-        # Connectors from entry lane to API lane and agent client lane
-        '<path class="pg-edge" d="M 840 106 L 840 126 L 147 126 L 147 162" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge pg-edge-dashed" d="M 38 106 L 38 444" marker-end="url(#pg-arrow)" />',
-        # Upper main lane: server API path
-        '<rect class="pg-lane" x="54" y="136" width="916" height="266" rx="10" />',
-        f'<text class="pg-lane-label" x="68" y="154">{escape(_k("graph.lane.api"))}</text>',
-        _svg_node(68, 164, 158, 74, kind="ai", title=_k("graph.node.extract_title"), lines=[("pg-node-sub", _k("graph.node.extract_sub")), ("pg-node-model", extract_label)]),
-        _svg_node(248, 164, 210, 62, kind="ai", title=_k("graph.node.summary_title"), lines=[("pg-node-sub", _k("graph.node.summary_sub")), ("pg-node-model", summary_label)]),
-        '<path class="pg-edge' + (" pg-edge-dashed" if same_summary else "") + '" d="M 226 190 L 246 190" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge pg-edge-dashed" d="M 226 222 L 236 222 L 236 238 L 246 268" marker-end="url(#pg-arrow)" />',
-        f'<text class="pg-edge-label" x="248" y="241">{escape(_k("graph.edge.bypass"))}</text>',
-        '<path class="pg-edge" d="M 353 226 L 353 246" marker-end="url(#pg-arrow)" />',
-        _svg_node(68, 284, 158, 102, kind="ai", title=_k("graph.node.detail_title"), lines=[("pg-node-sub", _k("graph.node.detail_sub")), ("pg-node-model", detail_label), ("pg-node-sub", _k("graph.node.detail_note"))]),
-        '<path class="pg-edge pg-edge-dashed" d="M 147 238 L 147 282" marker-end="url(#pg-arrow)" />',
-        _svg_node(
-            248,
-            248,
-            210,
-            140,
-            kind="ai",
-            title=_k("graph.node.resolve_title"),
-            lines=[
-                ("pg-node-sub", _k("graph.node.resolve_sub1")),
-                ("pg-node-sub", _k("graph.node.resolve_sub2")),
-                ("pg-node-model", f"auto ≥ {auto}"),
-                ("pg-node-model", f"embed: {embed_model}"),
-                ("pg-node-model", f"judge: {judge_label}"),
-            ],
-        ),
-        '<path class="pg-edge" d="M 226 204 L 236 204 L 236 282 L 246 282" marker-end="url(#pg-arrow)" />',
-    ]
-
-    if admin_viewer:
-        svg_parts.append(_svg_node(480, 164, 178, 62, kind="shadow", title=_k("graph.node.jev_title"), lines=[("pg-node-sub", _k("graph.node.jev_sub")), ("pg-node-model", f"{jev_model} · {jev_state}")]))
-        svg_parts.append('<path class="pg-edge pg-edge-dashed" d="M 458 268 L 469 268 L 469 195 L 478 195" marker-end="url(#pg-arrow)" />')
-
-    svg_parts.extend([
-        _svg_node(480, 238, 178, 44, kind="rule", title=_k("graph.node.record_title"), lines=[("pg-node-sub", _k("graph.node.record_sub"))]),
-        _svg_node(480, 290, 178, 44, kind="rule", title=_k("graph.node.relations_title"), lines=[("pg-node-sub", _k("graph.node.relations_sub"))]),
-        _svg_node(480, 342, 178, 54, kind="ai", title=_k("graph.node.links_title"), lines=[("pg-node-sub", _k("graph.node.links_sub")), ("pg-node-model", rel_label)]),
-        '<path class="pg-edge" d="M 458 292 L 478 260" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 458 312 L 478 312" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 458 369 L 478 369" marker-end="url(#pg-arrow)" />',
-        _svg_node(678, 268, 128, 76, kind="rule", title=_k("graph.node.lineage_title"), lines=[("pg-node-sub", _k("graph.node.lineage_sub"))]),
-        '<path class="pg-edge" d="M 658 260 L 676 292" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 658 312 L 676 306" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 658 369 L 676 320" marker-end="url(#pg-arrow)" />',
-        _svg_node(824, 224, 134, 66, kind="ai", title=_k("graph.node.watch_title"), lines=[("pg-node-sub", _k("graph.node.watch_sub")), ("pg-node-model", classify_label)]),
-        _svg_node(824, 312, 134, 66, kind="rule", title=_k("graph.node.expand_title"), lines=[("pg-node-sub", _k("graph.node.expand_sub"))]),
-        '<path class="pg-edge" d="M 806 296 L 822 257" marker-end="url(#pg-arrow)" />',
-        '<path class="pg-edge" d="M 806 316 L 822 345" marker-end="url(#pg-arrow)" />',
-        # Lower parallel lane: agent client path
-        '<rect class="pg-lane" x="10" y="414" width="960" height="136" rx="10" />',
-        f'<text class="pg-lane-label" x="24" y="432">{escape(_k("graph.lane.client"))}</text>',
-        _svg_node(24, 446, 160, 88, kind="rule", title=_k("graph.node.stage_title"), lines=[("pg-node-sub", _k("graph.node.stage_sub"))]),
-        '<path class="pg-edge" d="M 184 490 L 202 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(204, 446, 174, 88, kind="client", title=_k("graph.node.mcp_title"), lines=[("pg-node-sub", _k("graph.node.mcp_sub"))]),
-        '<path class="pg-edge" d="M 378 490 L 396 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(398, 446, 192, 88, kind="ai", title=_k("graph.node.validate_title"), lines=[("pg-node-sub", _k("graph.node.validate_sub")), ("pg-node-model", embed_model)]),
-        '<path class="pg-edge" d="M 590 490 L 608 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(610, 446, 202, 88, kind="rule", title=_k("graph.node.cresolve_title"), lines=[("pg-node-sub", _k("graph.node.cresolve_sub"))]),
-        '<path class="pg-edge" d="M 812 490 L 830 490" marker-end="url(#pg-arrow)" />',
-        _svg_node(832, 446, 126, 88, kind="client", title=_k("graph.node.commit_title"), lines=[("pg-node-sub", _k("graph.node.commit_sub"))]),
-    ])
-
-    svg_html = (
-        '<div class="pipeline-graph-wrap">'
-        '<svg id="pipeline-lineage-svg" class="pipeline-graph-svg" viewBox="0 0 980 560" role="img" aria-labelledby="pipeline-graph-title pipeline-graph-desc">'
-        f'<title id="pipeline-graph-title">{escape(_k("graph.title"))}</title>'
-        f'<desc id="pipeline-graph-desc">{escape(_k("graph.aria_desc"))}</desc>'
-        f'{"".join(svg_parts)}'
-        "</svg>"
-        "</div>"
+    """Build the top-level ``#pipeline-graph`` console card containing the shared Gemini Neon mount."""
+    data = build_pipeline_view_data(
+        viewer="admin" if admin_viewer else "member",
+        settings=settings,
+        view=view,
     )
-    legend_items = [
-        console_pill(_k("graph.legend.ai"), tone="accent"),
-        console_pill(_k("graph.legend.rule"), tone="neutral"),
-        console_pill(_k("graph.legend.client"), tone="ok"),
-    ]
-    if admin_viewer:
-        legend_items.append(console_pill(_k("graph.legend.shadow"), tone="warn"))
-    legend_items.append(console_pill(_k("graph.legend.dashed"), tone="prop"))
-    legend_html = f'<div class="pipeline-graph-legend">{"".join(legend_items)}</div>'
-    return console_card(escape(_k("graph.title")), svg_html + legend_html, id="pipeline-graph", icon="fork", hint_html=_flow_intro(view, admin_viewer=admin_viewer), split=False)
-
-
-def _effort_desc_html(settings: Any, extract_slot: dict[str, Any] | None) -> str:
-    extract_prov = str((extract_slot or {}).get("provider") or "").strip().lower()
-    extract_model = str((extract_slot or {}).get("model") or "").strip()
-    if extract_prov == "gemini" and is_gemini_fixed_effort_model(extract_model):
-        _, fixed_eff = split_gemini_model_and_effort(extract_model)
-        text = _k("step.effort.desc_fixed", model=extract_model, effort=fixed_eff or "-")
-        return f'<p class="hint" data-effort-mode="fixed">{escape(text)}</p>'
-    threshold = f"{int(getattr(settings, 'pdf_paper_threshold_chars', 15000)):,}"
-    paper = str(getattr(settings, "pdf_paper_effort", "") or "-")
-    default_eff = str(getattr(settings, "pdf_default_effort", "") or (extract_slot or {}).get("effort") or "-")
-    text = _k("step.effort.desc_adaptive", threshold=threshold, paper=paper, default=default_eff)
-    return f'<p class="hint" data-effort-mode="adaptive">{escape(text)}</p>'
-
-
-def _classify_desc_html(settings: Any, classify_slot: dict[str, Any] | None) -> str:
-    classify_prov = str((classify_slot or {}).get("provider") or "").strip().lower()
-    classify_model = str((classify_slot or {}).get("model") or "").strip()
-    if classify_prov == "gemini" and is_gemini_fixed_effort_model(classify_model):
-        _, fixed_eff = split_gemini_model_and_effort(classify_model)
-        text = _k("step.classify.desc_fixed", model=classify_model, effort=fixed_eff or "-")
-        return f'<p class="hint" data-classify-effort="fixed">{escape(text)}</p>'
-    eff = str(getattr(settings, "pdf_classifier_effort", "") or "-")
-    text = _k("step.classify.desc_setting", effort=eff)
-    return f'<p class="hint" data-classify-effort="setting">{escape(text)}</p>'
-
-
-def _api_flow_card(settings: Any, view: dict[str, Any], *, admin_viewer: bool) -> str:
-    """Build the detailed server API ingest flow card inside Tab 1."""
-    from ...extract.resolver import MAX_JUDGE
-
-    slots = {str(row["slot"]): row for row in view["slots"]}
-    auto = f"{float(getattr(settings, 'sim_tier_auto_merge', 0.93)):.2f}"
-    low = f"{float(getattr(settings, 'sim_tier_borderline', 0.72)):.2f}"
-    embed_html = _code(str(view.get("embed_model") or "-"))
-    summary_marks: list[str] = [console_pill(_k("mark.conditional"), tone="neutral")]
-    has_text_ai = all(row.get("available", True) for row in (slots.get("extract_graph"), slots.get("summarize")) if row)
-    if has_text_ai:
-        runs = not _same_spec(slots.get("extract_graph"), slots.get("summarize"))
-        summary_marks.append(console_pill(_k("summary_runs" if runs else "summary_skipped"), tone="ok" if runs else "neutral", attrs={"data-summary-state": "runs" if runs else "skipped"}))
-    api_only_pill = console_pill(_k("mark.api_only"), tone="neutral", attrs={"data-client-role": "api_only"})
-    gates = "".join(
-        f'<li data-flow-gate="{n}">{text}</li>'
-        for n, text in (
-            (1, escape(_k("gate1"))),
-            (2, escape(_k("gate2"))),
-            (3, escape(_k("gate3", auto=auto))),
-            (4, escape(_k("gate4", low=low, auto=auto, max=MAX_JUDGE)) + " " + api_only_pill),
-            (5, escape(_k("gate5"))),
-        )
+    return console_card(
+        escape(_k("neon_title")),
+        render_pipeline_mount_html(data),
+        id="pipeline-graph",
+        icon="fork",
+        hint_html=_neon_hint_html(view, admin_viewer=admin_viewer),
+        split=False,
     )
-    resolve_body = f'<p class="hint">{escape(_k("step.resolve.desc"))}</p><ol class="console-flow-gates">{gates}</ol>'
-    resolve_side = ""
-    if admin_viewer:
-        jev_on = bool(view.get("jev_enabled"))
-        resolve_side = escape(_k("jev_side")) + " " + console_pill(_k("on" if jev_on else "off"), tone="ok" if jev_on else "neutral", attrs={"data-jev-state": "on" if jev_on else "off"})
-    links_on = bool(getattr(settings, "enable_relation_linking", False))
-    steps: list[dict[str, Any]] = [
-        {
-            "key": "input",
-            "kind": "ai",
-            "body_html": f'<p class="hint">{escape(_k("step.input.desc"))} <a href="#{STT_ORDER_ID}">{escape(_k("step.input.stt_link"))}</a></p>'
-            + _models([
-                (t("console.settings.providers.feature.stt"), _media_html(view["stt"]) + " " + api_only_pill),
-                (t("console.settings.providers.feature.vlm"), _media_html(view["vlm"], strip_effort=True) + " " + api_only_pill),
-            ]),
-        },
-        {
-            "key": "classify",
-            "kind": "ai",
-            "marks": [api_only_pill],
-            "body_html": _classify_desc_html(settings, slots.get("classify")) + _models([(_slot_label("classify"), _model_html(slots.get("classify")))]),
-        },
-        {"key": "check", "kind": "rule", "ai": False},
-        {
-            "key": "effort",
-            "kind": "rule",
-            "ai": False,
-            "marks": [api_only_pill],
-            "body_html": _effort_desc_html(settings, slots.get("extract_graph")),
-        },
-        {"key": "extract", "kind": "ai", "models": [(_slot_label("extract_graph"), _model_html(slots.get("extract_graph")))]},
-        {"key": "summary", "kind": "conditional", "models": [(_slot_label("summarize"), _model_html(slots.get("summarize")))], "marks": summary_marks},
-        {
-            "key": "detail",
-            "kind": "branch",
-            "marks": [console_pill(_k("mark.branch"), tone="neutral")],
-            "models": [(_slot_label("render_detail"), _model_html(slots.get("render_detail")))],
-        },
-        {
-            "key": "resolve",
-            "kind": "ai",
-            "body_html": resolve_body + _models([(t("console.settings.providers.feature.embed"), embed_html), (_slot_label("entity_judge"), _model_html(slots.get("entity_judge")))]),
-            "side_html": resolve_side,
-        },
-        {"key": "record", "kind": "rule", "ai": False},
-        {"key": "relations", "kind": "rule", "ai": False},
-        {
-            "key": "links",
-            "kind": "ai",
-            "desc_params": {"per_doc": int(getattr(settings, "max_relation_judges_per_doc", 0) or 0)},
-            "models": [(_slot_label("relation_judge"), _model_html(slots.get("relation_judge")))],
-            "marks": [api_only_pill] + ([] if links_on else [console_pill(_k("off"), tone="neutral", attrs={"data-links-state": "off"})]),
-        },
-        {"key": "lineage", "kind": "rule", "ai": False},
-        {
-            "key": "post",
-            "kind": "ai",
-            "marks": [api_only_pill],
-            "models": [(_slot_label("classify"), _model_html(slots.get("classify")))],
-        },
-    ]
-    flow_steps: list[dict[str, Any]] = []
-    for step in steps:
-        key = str(step["key"])
-        marks: list[str] = list(step.get("marks", []))
-        if step.get("ai") is False:
-            marks.append(console_pill(_k("mark.no_ai"), tone="neutral"))
-        body = step.get("body_html")
-        if body is None:
-            body = f'<p class="hint">{escape(_k(f"step.{key}.desc", **step.get("desc_params", {})))}</p>'
-            if step.get("models"):
-                body += _models(step["models"])
-        flow_steps.append({"key": key, "title": _k(f"step.{key}.title"), "marks_html": " ".join(marks), "body_html": body, "side_html": step.get("side_html", ""), "kind": str(step.get("kind") or "ai")})
-
-    legend = f'<p class="hint" data-flow-legend>{escape(_k("legend"))}</p>'
-    body = legend + console_flow(flow_steps, aria_label=_k("flow_title"))
-    return console_card(escape(_k("flow_title")), body, id="pipeline-api-flow", icon="list", hint_html=escape(_k("api_flow.hint")), split=False)
-
-
-def _client_flow_card(view: dict[str, Any]) -> str:
-    """Build the 5-step summary card for agent client ingestion inside Tab 1."""
-    embed_html = _code(str(view.get("embed_model") or "-"))
-    items = "".join(f'<li data-client-step="{n}">{escape(_k(f"client_flow.step{n}"))}</li>' for n in range(1, 6))
-    steps_html = f'<ol class="console-steps" data-client-flow-list>{items}</ol>'
-    models_html = _models([(t("console.settings.providers.feature.embed"), embed_html)])
-    omitted_html = console_notice(escape(_k("client_flow.omitted")), tone="info")
-    return console_card(escape(_k("client_flow.title")), steps_html + models_html + omitted_html, id="pipeline-client-flow", icon="bot", hint_html=escape(_k("client_flow.hint")), split=False)
-
-
-def _other_ai_card(view: dict[str, Any], *, admin_viewer: bool) -> str:
-    """Build the table of AI calls outside the single-document ingest flow inside Tab 1."""
-    slots = {str(row["slot"]): row for row in view["slots"]}
-    embed_html = _code(str(view.get("embed_model") or "-"))
-    rows: list[tuple[str, str, str]] = [
-        (_k("other.search_embed"), f'{escape(t("console.settings.providers.feature.embed"))}: {embed_html}', _k("other.search_embed_desc")),
-        (_k("other.search_synth"), f'{escape(_slot_label("research"))}: {_model_html(slots.get("research"))}', _k("other.search_synth_desc")),
-        (_k("other.research"), f'{escape(_slot_label("research"))}: {_model_html(slots.get("research"))} {console_pill(_k("other.admin_only_tag"), tone="neutral")}', _k("other.research_desc")),
-        (_k("other.auto_expand"), f'{escape(_slot_label("research"))}: {_model_html(slots.get("research"))}', _k("other.auto_expand_desc")),
-        (_k("other.presentation"), f'{escape(_slot_label("summarize"))}: {_model_html(slots.get("summarize"))}', _k("other.presentation_desc")),
-    ]
-    if admin_viewer:
-        rows.append((_k("other.pair_prelabel"), f'{escape(_k("other.fixed_slot"))}: {_code("gemini-decision-1")} {console_pill(_k("other.admin_only_tag"), tone="neutral")}', _k("other.pair_prelabel_desc")))
-    rows.append((_k("other.byok_verify"), f'{escape(_k("other.fixed_slot"))}: {_code(_BYOK_VERIFY_MODEL)}', _k("other.byok_verify_desc")))
-    tbody = "".join(f"<tr><td>{escape(feat)}</td><td>{slot_html}</td><td>{escape(desc)}</td></tr>" for feat, slot_html, desc in rows)
-    table = console_table([_k("other.col_feature"), _k("other.col_slot"), _k("other.col_desc")], tbody, tbody_id="pipeline-other-rows", aria_label=_k("other.title"))
-    return console_card(escape(_k("other.title")), table, id="pipeline-other", icon="pulse", hint_html=escape(_k("other.hint")), split=False)
 
 
 def _stt_order_card(view: dict[str, Any], *, admin_viewer: bool) -> str:
@@ -525,12 +327,7 @@ def support_pipeline_body(*, settings: Any, view: dict[str, Any] | None, admin_v
     """The body of ``/support/pipeline``. ``view`` is the server view for the administrator and the account view for a member; ``lineage`` (``ProviderManager.get_lineage_summary``) is read only for the administrator."""
     if settings is None or view is None:
         return console_notice(escape(_k("unavailable")), tone="warn")
-    flow_tab = "".join([
-        _graph_card(settings, view, admin_viewer=admin_viewer),
-        _api_flow_card(settings, view, admin_viewer=admin_viewer),
-        _client_flow_card(view),
-        _other_ai_card(view, admin_viewer=admin_viewer),
-    ])
+    flow_tab = _graph_card(settings, view, admin_viewer=admin_viewer)
     media_tab = "".join([
         _stt_order_card(view, admin_viewer=admin_viewer),
         _vlm_card(settings, view),

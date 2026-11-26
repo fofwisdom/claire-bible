@@ -12,10 +12,10 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from ..core.ports import get_web_ui_renderer
-from ..i18n import catalog as i18n_catalog
+from ..i18n import catalog as i18n_catalog, t
 from ..store import accounts as accounts_store
 from .accounts_routes.admin import is_admin
-from .accounts_routes.common import AccountsContext, open_db, render_template
+from .accounts_routes.common import AccountsContext, escape, open_db, render_template
 from .principal import request_principal
 
 PUBLIC_VIEWS = ("kb_list", "kb_detail", "themes_list", "theme_detail")
@@ -47,6 +47,46 @@ def _caller_context(request: Request, ctx: AccountsContext) -> dict[str, Any]:
     }
 
 
+def public_appbar_html(request: Request, ctx: AccountsContext, *, active: str = "") -> str:
+    """Build the shared public application bar with top-level navigation links (Home, Directory, Shared KBs, About)."""
+    caller = _caller_context(request, ctx)
+    nav_items = (
+        ("home", "/", "kb.pub.nav_home"),
+        ("directory", "/directory", "kb.pub.nav_accounts"),
+        ("kb", "/kb", "kb.pub.nav_kbs"),
+        ("about", "/about", "nav.about"),
+    )
+    brand_extra_html = (
+        f'<nav class="pub-appbar-nav" aria-label="{escape(t("kb.pub.nav_label"))}">'
+        + "".join(
+            f'<a href="{escape(href)}"' + (' aria-current="page"' if item_key == active else "") + f">{escape(t(label_key))}</a>"
+            for item_key, href, label_key in nav_items
+        )
+        + "</nav>"
+    )
+    end_extra_html = "" if caller["is_authenticated"] else f'<a href="/login" class="bar-icon-btn">{escape(t("directory.login"))}</a>'
+    return get_web_ui_renderer().render_appbar_html(
+        bar_id="public-bar",
+        brand_id="brand-home",
+        brand_href="/",
+        brand_extra_html=brand_extra_html,
+        center_id="public-bar-center",
+        end_id="public-bar-end",
+        end_extra_html=end_extra_html,
+        ingest_enabled=False,
+        home_href=caller["home_href"],
+        synd_href="/syndication" if caller["is_authenticated"] else "",
+        synd_hidden=not caller["is_authenticated"],
+        moderation_href="/moderation" if caller["is_authenticated"] else "",
+        moderation_hidden=not caller["is_authenticated"],
+        console_href=caller["console_href"] if caller["is_authenticated"] else "/account",
+        console_icon="wrench" if caller["is_admin"] else "settings",
+        console_hidden=not caller["is_authenticated"],
+        show_logout=caller["is_authenticated"],
+        logout_hidden=not caller["is_authenticated"],
+    )
+
+
 def render_public_kb_page(
     request: Request,
     *,
@@ -69,24 +109,8 @@ def render_public_kb_page(
         "mode": caller["mode"],
     }
     bootstrap_json = json.dumps(bootstrap, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    appbar_html = get_web_ui_renderer().render_appbar_html(
-        bar_id="public-bar",
-        brand_id="brand-home",
-        brand_href="/",
-        center_id="public-bar-center",
-        end_id="public-bar-end",
-        ingest_enabled=False,
-        home_href=caller["home_href"],
-        synd_href="/syndication" if caller["is_authenticated"] else "",
-        synd_hidden=not caller["is_authenticated"],
-        moderation_href="/moderation" if caller["is_authenticated"] else "",
-        moderation_hidden=not caller["is_authenticated"],
-        console_href=caller["console_href"] if caller["is_authenticated"] else "/account",
-        console_icon="wrench" if caller["is_admin"] else "settings",
-        console_hidden=not caller["is_authenticated"],
-        show_logout=caller["is_authenticated"],
-        logout_hidden=not caller["is_authenticated"],
-    )
+    active_nav = "kb" if view in ("kb_list", "kb_detail") else ""
+    appbar_html = public_appbar_html(request, ctx, active=active_nav)
     return render_template(
         "public_kb.html",
         text={

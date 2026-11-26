@@ -1254,7 +1254,6 @@ details.p4-acc:not([open])::details-content { block-size: 0; }
       '<a href="#directory">디렉터리</a>' +
       '<a href="#kb">공유 KB</a>' +
       '<a href="#about" aria-current="page">소개 (/about)</a>' +
-      '<a href="#reference">API 문서</a>' +
       '</div>' +
       '<div class="pub-nav-end">' +
       '<a class="btn" href="#login">' + icon("lock") + '<span>로그인</span></a>' +
@@ -1277,12 +1276,11 @@ details.p4-acc:not([open])::details-content { block-size: 0; }
 
   function renderP4PublicFooter() {
     return '<footer class="pub-footer">' +
-      '<div><strong>Claire Bible</strong> · 지식 관리자 <code>@claire@claire.example</code> · 개인·공유 지식 베이스 및 온톨로지 지식 그래프 엔진</div>' +
+      '<div><strong>Claire Bible</strong></div>' +
       '<div class="pub-footer-links">' +
+      '<a href="#reference">' + icon("doc") + ' API 문서</a>' +
       '<a href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer">' + icon("external") + ' GitHub 저장소</a>' +
       '<a href="https://github.com/fofwisdom/claire-agents" target="_blank" rel="noopener noreferrer">' + icon("bot") + ' 에이전트 마켓플레이스</a>' +
-      '<a href="#ns">JSON-LD 어휘 (/ns)</a>' +
-      '<a href="#nodeinfo">NodeInfo 2.1</a>' +
       '</div>' +
       '</footer>';
   }
@@ -2641,24 +2639,11 @@ details.p4-acc:not([open])::details-content { block-size: 0; }
         '<article class="principle-card" data-kind="rule"><h3>' + icon("globe") + ' 개인 소유와 선택적 공유 · 연합</h3><p>개인 지식 베이스를 독립적으로 소유하면서 공유 지식 베이스 기여·검토와 ActivityPub 연합으로 원하는 지식만 선택해 나눕니다.</p></article>' +
         '<article class="principle-card" data-kind="rule"><h3>' + icon("shield") + ' 열린 에이전트 연동과 격리 보안</h3><p>서버 AI 프로바이더와 외부 AI 에이전트(MCP OAuth 2.1)를 함께 지원하며 난수 nonce 경계와 엄격 스키마 검증으로 신뢰 경계를 보호합니다.</p></article>' +
         '</section>' +
-        '<section class="card" aria-labelledby="p4-ref-h2" style="display:flex;flex-direction:column;gap:0.55rem;">' +
-        '<h2 id="p4-ref-h2" style="margin:0;font-size:1.02rem;">온톨로지 · 정리본 · 지원 소스 · 표준 인터페이스</h2>' +
-        '<details class="p4-acc" open><summary>' + p4Chevron() + '<span>닫힌 온톨로지 (엔티티 11종 · 관계 11종)</span></summary><div class="p4-acc-body">' +
-        '<div class="chip-cloud">' + ONTOLOGY.entities.map(function (t) { return '<span class="ont-chip"><code>' + esc(t) + '</code></span>'; }).join("") +
-        ONTOLOGY.relations.map(function (r) { return '<span class="ont-chip"><code>' + esc(r) + '</code></span>'; }).join("") + '</div>' +
-        '</div></details>' +
-        '<details class="p4-acc"><summary>' + p4Chevron() + '<span>정리본(Rendition) 템플릿 3종 정책</span></summary><div class="p4-acc-body">' +
-        '<div class="table-wrap"><table><thead><tr><th scope="col">템플릿</th><th scope="col">구분</th><th scope="col">원문 표</th><th scope="col">수식 정책</th></tr></thead><tbody>' +
-        RENDITIONS.map(function (r) { return '<tr><td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.badge) + '</td><td>' + esc(r.tables) + '</td><td>' + esc(r.formulas) + '</td></tr>'; }).join("") +
-        '</tbody></table></div></div></details>' +
-        '<details class="p4-acc"><summary>' + p4Chevron() + '<span>지원 입력 소스 · 수집 어댑터 경로</span></summary><div class="p4-acc-body">' +
-        '<div class="table-wrap"><table><thead><tr><th scope="col">입력 소스</th><th scope="col">수집 체인</th><th scope="col">정책</th></tr></thead><tbody>' +
+        '<section class="card" aria-labelledby="p4-sources-h2">' +
+        '<h2 id="p4-sources-h2" style="margin:0 0 0.65rem;font-size:1.02rem;">지원하는 자료와 출처</h2>' +
+        '<div class="table-wrap"><table><thead><tr><th scope="col">자료 유형</th><th scope="col">수집 방식</th><th scope="col">특이사항</th></tr></thead><tbody>' +
         ADAPTERS.map(function (a) { return '<tr><td><strong>' + esc(a.source) + '</strong></td><td>' + esc(a.path) + '</td><td>' + esc(a.note) + '</td></tr>'; }).join("") +
-        '</tbody></table></div></div></details>' +
-        '<details class="p4-acc"><summary>' + p4Chevron() + '<span>표준 인터페이스 · 연동 경로 (KD15 비공개 격리 준수)</span></summary><div class="p4-acc-body">' +
-        '<div style="color:var(--muted);">비공개 계정 수·비공개 KB·연합 서버 목록은 노출하지 않습니다.</div>' +
-        '<div class="chip-cloud"><a class="btn" href="#themes">/themes</a><a class="btn" href="#ns">/ns · /ns/v1 · /ns/v2</a><a class="btn" href="#nodeinfo">/.well-known/nodeinfo</a><a class="btn" href="#mcp">/mcp</a><a class="btn" href="#reference">/reference</a><a class="btn" href="#sitemap">/sitemap.xml</a></div>' +
-        '</div></details>' +
+        '</tbody></table></div>' +
         '</section></main>' + renderP4PublicFooter();
     }
 
