@@ -581,6 +581,9 @@ body[data-stage="collect"] .kb-only, body:not([data-stage="collect"]) .client-on
 .synd-follow-form input { flex: 1; min-width: 0; height: 26px; }
 .synd-follow-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12.5px; }
 .synd-follow-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A follow row that opens the posts of the actor (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 6). */
+.synd-follow-open { background: none; border: 0; padding: 0; min-height: 24px; color: var(--accent); font: inherit; text-align: start; cursor: pointer; }
+.synd-follow-open:hover { text-decoration: underline; }
 /* Feed view (FP4-F3) */
 .synd-feed-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; padding: 4px 8px 2px 18px; }
 .synd-feed-form input[type="text"] { width: 100%; min-width: 0; height: 26px; box-sizing: border-box; }

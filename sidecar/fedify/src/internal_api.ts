@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.23";
+export const CONTRACT_VERSION = "1.24";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -296,6 +296,15 @@ export interface OpinionTask {
   quotes: string[];
   max_items: number;
   max_depth: number;
+  lease_until: number;
+}
+
+// One fill of recent posts after a follow (contract 1.24, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13). actor_public_id: the account (its key signs the reads); actor_iri: the followed actor.
+export interface FillTask {
+  id: number;
+  actor_public_id: string;
+  actor_iri: string;
+  max_items: number;
   lease_until: number;
 }
 
@@ -689,6 +698,8 @@ const timelineInterestShape = sealed({ followed: bool, context_fetch: oneOf("on"
 const contextTasksShape = sealed({ tasks: list(sealed({ id: int, actor_public_id: str, object_iri: str, max_items: int, max_depth: int, created_at: num, lease_until: num })) });
 const opinionTasksShape = sealed({ tasks: list(sealed({ id: int, object_iri: str, own: bool, start: list(str), quotes: list(str), max_items: int, max_depth: int, lease_until: num })) });
 const opinionObjectsShape = sealed({ decision: oneOf("accepted"), stored: int });
+const fillTasksShape = sealed({ tasks: list(sealed({ id: int, actor_public_id: str, actor_iri: str, max_items: int, lease_until: num })) });
+const fillObjectsShape = sealed({ decision: oneOf("accepted"), stored: int });
 const contextObjectsShape = sealed({ decision: oneOf("accepted", "rejected"), reason: nullable(oneOf("not_an_actor", "context_fetch_off")), stored: int, refused: int });
 const knowledgeActivityShape = sealed({ decision: oneOf("processed", "failed", "refused", "duplicate", "rejected"), reason: nullable(str), journal_id: nullable(int) });
 const knowledgeCollectionShape = sealed({ collection: oneOf("kb", "themes"), server: str, document: jsonObject });
@@ -895,6 +906,22 @@ export class InternalApi {
     if (value === null) throw new InternalApiError(404, "not_found");
     opinionTasksShape(value, "opinion_tasks");
     return (value as { tasks: OpinionTask[] }).tasks;
+  }
+
+  // The fills of recent posts after a follow that wait, each with a lease (contract 1.24).
+  async fillTasks(limit?: number): Promise<FillTask[]> {
+    const value = await this.#call("GET", `/fill-tasks${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    fillTasksShape(value, "fill_tasks");
+    return (value as { tasks: FillTask[] }).tasks;
+  }
+
+  // Gives posts of one fill to Claire, and done with the last call. null: Claire has no such fill that waits.
+  async fillObjects(taskId: number, objects: TimelineObject[], done: boolean): Promise<{ decision: "accepted"; stored: number } | null> {
+    const value = await this.#call("POST", "/fill-objects", { task_id: taskId, objects, done });
+    if (value === null) return null;
+    fillObjectsShape(value, "fill_objects");
+    return value as { decision: "accepted"; stored: number };
   }
 
   // Gives posts of one fetch of opinions to Claire, the start addresses that are gone, and done with the last call. null: Claire has no such fetch that waits.

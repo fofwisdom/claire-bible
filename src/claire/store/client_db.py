@@ -47,7 +47,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 12
+CLIENT_SCHEMA_VERSION = 13
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -122,6 +122,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     _migrate_v10(conn)
     _migrate_v11(conn)
     _migrate_v12(conn)
+    _migrate_v13(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -400,6 +401,14 @@ def _migrate_v6(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_quote_authorizations_account ON federation_quote_authorizations(account_id, state, id)")
+
+
+def _migrate_v13(conn: sqlite3.Connection) -> None:
+    # The fill of recent posts after a follow (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13, phase E10a): the table of the fills and the mark ``filled`` of a timeline item.
+    from . import federation_fills
+
+    federation_fills.ensure_schema(conn)
+    federation_fills.add_filled_column(conn)
 
 
 def _migrate_v12(conn: sqlite3.Connection) -> None:

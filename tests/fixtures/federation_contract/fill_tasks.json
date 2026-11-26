@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/fill-tasks?limit=2"
+  },
+  "status": 200,
+  "response": {
+    "tasks": [
+      {
+        "id": 1,
+        "actor_public_id": "116412345678901234",
+        "actor_iri": "https://remote.example/users/dan",
+        "max_items": 20,
+        "lease_until": 1800000520.0
+      }
+    ]
+  }
+}

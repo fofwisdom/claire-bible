@@ -1,0 +1,101 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/fill-objects",
+    "body": {
+      "task_id": 1,
+      "objects": [
+        {
+          "object_iri": "https://remote.example/users/dan/statuses/1",
+          "url": "https://remote.example/users/dan/statuses/1",
+          "type": "Note",
+          "author": {
+            "iri": "https://remote.example/users/dan",
+            "name": "Dan",
+            "handle": "@dan@remote.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>A post of Dan</p>",
+          "language": "en",
+          "published_at": 1800000300.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": null,
+          "quote": null
+        },
+        {
+          "object_iri": "https://remote.example/users/dan/statuses/2",
+          "url": "https://remote.example/users/dan/statuses/2",
+          "type": "Note",
+          "author": {
+            "iri": "https://remote.example/users/dan",
+            "name": "Dan",
+            "handle": "@dan@remote.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>Dan continues</p>",
+          "language": "en",
+          "published_at": 1800000310.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": "https://remote.example/users/dan/statuses/1",
+          "quote": null
+        },
+        {
+          "object_iri": "https://remote.example/users/dan/statuses/3",
+          "url": "https://remote.example/users/dan/statuses/3",
+          "type": "Note",
+          "author": {
+            "iri": "https://remote.example/users/dan",
+            "name": "Dan",
+            "handle": "@dan@remote.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>Dan answers Zoe</p>",
+          "language": "en",
+          "published_at": 1800000320.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": "https://other.example/users/zoe/statuses/9",
+          "quote": null
+        },
+        {
+          "object_iri": "https://other.example/users/zoe/statuses/9",
+          "url": "https://other.example/users/zoe/statuses/9",
+          "type": "Note",
+          "author": {
+            "iri": "https://other.example/users/zoe",
+            "name": "Zoe",
+            "handle": "@zoe@other.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>A post of Zoe</p>",
+          "language": "en",
+          "published_at": 1800000200.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": null,
+          "quote": null
+        }
+      ],
+      "done": true
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "stored": 2
+  }
+}

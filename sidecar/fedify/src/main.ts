@@ -15,6 +15,7 @@ import { DatabaseSync } from "node:sqlite";
 import { SqliteKvStore, SqliteMessageQueue } from "@fedify/sqlite";
 import { CONTEXT_TASK_BATCH } from "./context.ts";
 import { OPINION_TASK_BATCH } from "./opinions.ts";
+import { FILL_TASK_BATCH } from "./fills.ts";
 import { CONTRACT_VERSION, InternalApi } from "./internal_api.ts";
 import { KNOWLEDGE_OUTBOX_BATCH, KNOWLEDGE_READ_BATCH } from "./knowledge.ts";
 import { resolvePublicHost } from "./probes.ts";
@@ -116,6 +117,8 @@ if (import.meta.main) {
       while ((await sidecar.processContextTasks()) >= CONTEXT_TASK_BATCH);
       // The fetches of opinions (contract 1.23) share this loop: each one can make many requests too.
       while ((await sidecar.processOpinionTasks()) >= OPINION_TASK_BATCH);
+      // The fills of recent posts after a follow (contract 1.24) share this loop too.
+      while ((await sidecar.processFillTasks()) >= FILL_TASK_BATCH);
     } catch (error) {
       console.error(`context poll failed: ${(error as Error).name}: ${(error as Error).message}`);
     } finally {

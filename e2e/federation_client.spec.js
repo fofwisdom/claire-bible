@@ -1,6 +1,7 @@
 // Federation client view of /syndication (FEDERATION_REMOTE_READING_DESIGN.md Sections 1.3 and 8, unit FP4-5).
 // The server of this test directory is in single mode. The federation routes work in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5); this file answers them itself, so that the test needs no remote server. The routes have their own end-to-end tests with a real app in network mode: tests/test_e2e_federation_client.py.
 const { test, expect } = require('@playwright/test');
+const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/console_pages');
 
 const NOW = Math.floor(Date.now() / 1000);
 const author = { iri: 'https://remote.example/users/carol', name: 'Carol <script>window.__pwned = 1</script>', handle: '@carol@remote.example' };
@@ -169,5 +170,40 @@ test.describe('federation client view (FP4-5)', () => {
     await expect(page.locator('.synd-post')).toHaveCount(0);
     expect(requests.filter(url => url.includes('/api/federation/timeline')).length).toBeGreaterThan(0);
     expect(requests.filter(url => url.includes('/api/federation/status')).length).toBeGreaterThan(0);
+  });
+
+  test('E10b: a follow opens the posts of the actor, with the posts of the fill after the follow marked', async ({ page }) => {
+    const errors = watchErrors(page);
+    const json = body => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    const asked = [];
+    const own = [item(21, { published_at: NOW - 60 })];
+    const filled = [item(22, { in_timeline: false, filled: true, unread: false, published_at: NOW - 86400 * 3 })];
+    await page.route('**/api/federation/timeline?**', route => {
+      const url = new URL(route.request().url());
+      asked.push(url.search);
+      if (url.searchParams.get('author') === author.iri) return route.fulfill(json({ items: own.concat(filled), next_max_id: null, counts: COUNTS }));
+      return route.fulfill(json({ items: own, next_max_id: null, counts: COUNTS }));
+    });
+    await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 2, limit: 1000, items: [{ id: '1', request: '@carol@remote.example', actor_iri: author.iri, actor_type: 'Person', display_name: 'Carol', state: 'accepted', created_at: 1, updated_at: 1 }, { id: '2', request: '@dan@remote.example', actor_iri: null, actor_type: null, display_name: null, state: 'pending', created_at: 1, updated_at: 1 }], next_max_id: null })));
+    await page.route('**/api/federation/status', route => route.fulfill(json({ handle: '@owner@claire.example', actor_id: 'https://claire.example/ap/actors/1', is_actor: true, actor_state: 'active', discoverable: true, followers: { total: 0 }, pending_tasks: 0 })));
+    await page.route('**/api/federation/objects?**', route => route.fulfill(json({ total: 0, items: [], next_max_id: null })));
+    await authenticateOwner(page, 'fillview1');
+    await page.goto('/syndication?stage=collect', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.synd-post')).toHaveCount(1);
+    // Only an accepted follow opens the posts of its actor.
+    const open = page.locator('#client-following [data-follow-view]');
+    await expect(open).toHaveCount(1);
+    await open.click();
+    await expect(page.locator('#client-stream-title')).toHaveText('Carol의 글');
+    await expect(page.locator('.synd-post')).toHaveCount(2);
+    expect(asked.some(search => search.includes('author=' + encodeURIComponent(author.iri)))).toBe(true);
+    // The post of the fill has the mark; the post that came after the follow does not.
+    await expect(page.locator('.synd-post').nth(1).locator('.synd-badge-filled')).toHaveText('팔로우 전 글');
+    await expect(page.locator('.synd-post').nth(0).locator('.synd-badge-filled')).toHaveCount(0);
+    // A stream button goes back to the home stream.
+    await page.locator('[data-client-stream="home"]').click();
+    await expect(page.locator('.synd-post')).toHaveCount(1);
+    await expectNoRawKeys(page);
+    expect(errors).toEqual([]);
   });
 });

@@ -6,6 +6,7 @@
 // - read:   B reads the source index of A, its rendition objects, their bodies, and the account of the author, with requests that the server actor of B signs (the read queue of B).
 // - plus:   B delivers the +1 of an account of B to the inbox of the author on A (the knowledge outbox of B); A records the mark and shows the count on the object.
 // - opinions: A fetches the opinions of its object from B (the replies of accounts of B), with requests that its server actor signs.
+// - fill:   alice of A follows carol of B; the sidecar of A reads the outbox of carol with the key of alice and gives her posts to A (phase E10a).
 // - delete: A delivers the Delete of each gone rendition object to the server actor of B, the reader of its body (the knowledge outbox of A).
 //
 // Environment: E2E_PHASE, CLAIRE_A_SOCKET, CLAIRE_A_KEY_FILE, CLAIRE_B_SOCKET, CLAIRE_B_KEY_FILE, E2E_RENDITION (the number of the rendition object "concise" on A, phase plus).
@@ -77,6 +78,12 @@ Deno.test(`renditions between two Claire servers: ${Deno.env.get("E2E_PHASE")}`,
       assert.equal(a.outboxCounters.handed_off, 1, traffic.join("\n"));
       assert.ok(traffic.some((line) => line.startsWith("GET b.claire.test/ap/objects/") && line.endsWith("/replies")), traffic.join("\n"));
       assert.ok(traffic.every((line) => !line.startsWith("GET a.claire.test/ap/objects/")), traffic.join("\n"));
+    } else if (phase === "fill") {
+      // alice of A follows carol of B: A reads the first page of the outbox of carol with the key of alice (phase E10a).
+      const tasks = await drain(() => a.processFillTasks());
+      assert.equal(tasks, 1, traffic.join("\n"));
+      assert.ok(traffic.some((line) => line.startsWith("GET b.claire.test/ap/actors/") && line.includes("outbox")), traffic.join("\n"));
+      assert.ok(traffic.every((line) => !line.startsWith("GET a.claire.test/")), traffic.join("\n"));
     } else if (phase === "delete") {
       const delivered = await drain(() => a.processKnowledgeOutbox());
       // One Delete for each gone object that B read: the document object and the rendition object.

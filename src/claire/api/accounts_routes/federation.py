@@ -667,6 +667,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             "unread": item.unread,
             "starred": item.starred,
             "mention": item.mention,
+            "filled": item.filled,
             "linked": None if item.linked_doc_id is None else {"kb_id": item.linked_kb_id, "document_id": item.linked_doc_id},
         }
         if detail:
@@ -694,6 +695,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return json_error(400, "invalid_request")
         filters = tuple(name for name in TIMELINE_FILTERS if params.get(name) == "1")
         limit = int(raw_limit)
+        # The posts of one followed actor (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 6): also the posts of the fill, newest first by ``published``, one page, without filters.
+        author = params.get("author")
+        if author is not None and (filters or raw_max is not None or len(author) > 2048 or not author.startswith(("https://", "http://"))):
+            return json_error(400, "invalid_request")
 
         def _fetch() -> dict[str, Any] | None:
             conn = open_db(ctx)
@@ -704,13 +709,13 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 conn.close()
             client = open_client_db(ctx)
             try:
-                rows = federation_client_store.list_timeline(client, account_id, limit=limit, max_id=None if raw_max is None else int(raw_max), filters=filters)
+                rows = federation_client_store.list_author_items(client, account_id, author, limit=limit) if author is not None else federation_client_store.list_timeline(client, account_id, limit=limit, max_id=None if raw_max is None else int(raw_max), filters=filters)
                 counts = federation_client_store.count_timeline(client, account_id)
                 extras = _extras(client, account_id, rows)
             finally:
                 client.close()
             # The cursor is the ID of the last item (RD18): a later request with ``max_id`` gives the older items.
-            return {"items": [_item_view(item, extras=extras) for item in rows], "next_max_id": str(rows[-1].id) if len(rows) == limit else None, "counts": {**counts, "published": published}}
+            return {"items": [_item_view(item, extras=extras) for item in rows], "next_max_id": str(rows[-1].id) if len(rows) == limit and author is None else None, "counts": {**counts, "published": published}}
 
         data = await asyncio.to_thread(_fetch)
         return not_found() if data is None else JSONResponse(data, headers=_NO_STORE)

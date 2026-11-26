@@ -54,6 +54,7 @@ E5A_FIXTURES = ["source_index", "source_index_unsigned"]
 E9A_FIXTURES = ["object_collection_plus_ones"]
 # Contract 1.23 (phase E7a): the fetches of opinions. ``tests/test_federation_opinions.py`` tests them.
 E7A_FIXTURES = ["opinion_tasks", "opinion_objects"]
+E10A_FIXTURES = ["fill_tasks", "fill_objects"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
 GONE_OBJECT_ID = 816412345678901239
@@ -285,7 +286,7 @@ def test_thread_fetch_agrees_with_fixtures(internal):
 
 
 def test_fixture_files_all_have_a_test(internal):
-    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "server_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES, *E6_FIXTURES, *E4B_FIXTURES, *E5A_FIXTURES, *E9A_FIXTURES, *E7A_FIXTURES}
+    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "server_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES, *E6_FIXTURES, *E4B_FIXTURES, *E5A_FIXTURES, *E9A_FIXTURES, *E7A_FIXTURES, *E10A_FIXTURES}
     assert {p.stem for p in FIXTURES.glob("*.json")} == covered
     for path in FIXTURES.glob("*.json"):
         assert set(json.loads(path.read_text())) == {"request", "status", "response"}

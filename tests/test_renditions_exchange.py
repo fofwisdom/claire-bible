@@ -5,6 +5,7 @@ A (``https://a.claire.test``) publishes a document with the renditions "standard
 1. ``read``: the read queue of B gets the source index, the objects, the bodies, and the account from A with signed requests; B shows the two renditions, and A records B as a reader of each body.
 2. ``plus``: an account of B gives a +1 to the rendition "concise"; the knowledge outbox of B delivers it; A stores the mark.
 3. ``opinions``: carol of B replied to the document of A (A got the reply), and dan of B replied to carol (A did not get it). A fetches the opinions of its object with requests that its server actor signs: it reads the reply of carol from B and finds the reply of dan in the ``replies`` collection of carol. The 의견 route of A shows the two. Then dan replies again, the daily run of A (phase E8) asks for a fetch because the object got a reply in the last 7 days, and the same phase gets the new reply.
+3c. ``fill``: alice of A follows carol of B. The sidecar of A reads the outbox of carol with the key of alice; A stores her post outside the home stream with the mark ``filled`` (phase E10a). Her reply to the document of A is not stored: alice does not follow the author of the reply target.
 4. ``delete``: A retracts the document; the knowledge outbox of A sends one ``Delete`` for each object to the server actor of B only; B removes its copies. The run of A deletes the opinions of the gone object (phase E7c).
 
 The same as ``tests/test_fedify_sidecar.py``: it needs Deno, and it is skipped without it.
@@ -33,6 +34,7 @@ from claire.store import client_db
 from claire.store import db as dbm
 from claire.store import document_renditions as renditions_store
 from claire.store import federation as federation_store
+from claire.store import federation_fills as fills_store
 from claire.store import federation_opinions as opinions_store
 from claire.store import permalinks
 from tests.test_fedify_sidecar import _clean_env, _free_port, _stop
@@ -238,6 +240,32 @@ def test_e2e_two_claire_servers_exchange_renditions_plus_ones_and_deletes(tmp_pa
         _phase(a, b, "opinions")
         page = httpx.get(f"http://127.0.0.1:{a.port}/silvercord/{token}/opinions", headers={"Host": a.host}, timeout=10).json()
         assert [o["iri"] for o in page["opinions"]][-1] == f"{b.origin}/ap/objects/{dan_again}", page
+
+        # 3c. alice of A follows carol of B, and carol has a post that is not a reply. The Accept of the follow asked for a fill (here the test asks for it).
+        carol_iri = f"{b.origin}/ap/actors/216412345678901234"
+        carol_post = 916412345678901004
+        client = client_db.connect_client_existing(client_db.client_db_path(b.data_dir / "claire.db"))
+        try:
+            client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?)", (carol_post, ids["carol"], "Carol posts", "<p>Carol posts</p>", time.time() - 30, time.time() - 30))
+            client.commit()
+        finally:
+            client.close()
+        client = client_db.connect_client_existing(client_db.client_db_path(a.data_dir / "claire.db"))
+        try:
+            client.execute("INSERT INTO federation_following (account_id, request, actor_iri, state, created_at, updated_at) VALUES (?, '@carol@b.claire.test', ?, 'accepted', ?, ?)", (ids["alice"], carol_iri, time.time(), time.time()))
+            assert fills_store.request_fill(client, ids["alice"], carol_iri, now=time.time()).status == "pending"
+            client.commit()
+        finally:
+            client.close()
+        _phase(a, b, "fill")
+        client = client_db.connect_client_existing(client_db.client_db_path(a.data_dir / "claire.db"))
+        try:
+            filled = [tuple(r) for r in client.execute("SELECT object_iri, in_timeline, filled FROM federation_timeline_items WHERE account_id=? AND author_iri=? AND filled=1", (ids["alice"], carol_iri))]
+            status = client.execute("SELECT status, stored FROM federation_fills WHERE account_id=? AND actor_iri=?", (ids["alice"], carol_iri)).fetchone()
+        finally:
+            client.close()
+        assert filled == [(f"{b.origin}/ap/objects/{carol_post}", 0, 1)], filled
+        assert tuple(status) == ("finished", 1)
 
         # 4. alice of A retracts the document: B, the reader of the two bodies, gets one Delete for each object and removes its copies.
         conn = a.db()

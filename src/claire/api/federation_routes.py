@@ -45,6 +45,7 @@ from ..federation import media_proxy
 from ..store import client_db
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
+from ..store import federation_fills as fills_store
 from ..store import federation_notes as notes_store
 from ..store import federation_opinions as opinions_store
 from ..store import federation_quotes as quotes_store
@@ -86,7 +87,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.23"
+CONTRACT_VERSION = "1.24"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -719,6 +720,7 @@ def allow_private_addresses(settings: Any) -> bool:
 def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time.time) -> list[BaseRoute]:
     """Make the route table for ``create_internal_federation_app``."""
     from .federation_collection_routes import collection_internal_routes
+    from .federation_fill_routes import fill_internal_routes
     from .federation_opinion_routes import opinion_internal_routes
     from .federation_note_routes import note_internal_routes
     from .federation_quote_routes import quote_internal_routes
@@ -937,6 +939,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
                 return ignored
             answer_state = "accepted" if event.type == "Accept" else "rejected"
             client_store.set_following_state(client, found.id, answer_state, now=now())
+            # The fill of recent posts of the actor (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 1): one for each follow that becomes accepted.
+            if answer_state == "accepted" and found.state != "accepted":
+                fills_store.request_fill(client, account.id, event.actor.iri, now=now())
             client.commit()
             if found.state != answer_state:
                 notification_events.ap_follow_answered(settings.db_file, account_id=account.id, actor_iri=event.actor.iri, accepted=event.type == "Accept")
@@ -1615,6 +1620,8 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         *collection_internal_routes(origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids, open_writer=lambda: dbm.connect_existing(settings.db_file)),
         *opinion_internal_routes(origin=lambda: _runtime().public_origin, now=now, open_conn=lambda: dbm.connect_existing(settings.db_file), open_client=lambda: client_db.connect_client_existing(client_db.client_db_path(settings.db_file)), object_refusal=_object_refusal, own_object_public_id=lambda iri: _local_object_public_id(_runtime().public_origin, iri)),
+        # Fills of recent posts after a follow (contract 1.24, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13).
+        *fill_internal_routes(origin=lambda: _runtime().public_origin, now=now, open_conn=lambda: dbm.connect_existing(settings.db_file), open_client=lambda: client_db.connect_client_existing(client_db.client_db_path(settings.db_file)), object_refusal=_object_refusal, actor_public_ids=lambda conn: {int(row[0]): str(row[1]) for row in conn.execute("SELECT id, public_id FROM accounts WHERE status='active' AND username IS NOT NULL")}),
         # Quotes (contract 1.7, unit FP4-9Q): the events of the quote protocol and the record of an authorization.
         *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Federation of shared knowledge (unit KF1): the inbox journal, the signed reads of the collections, and the reads of known servers. No shape that existed changed.

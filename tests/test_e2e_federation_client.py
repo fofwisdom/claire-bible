@@ -120,6 +120,29 @@ def test_e2e_timeline_list_thread_and_flags(env):
     assert env.client.request("GET", TIMELINE).status_code in (401, 404)
 
 
+def test_e2e_the_posts_of_one_actor_include_the_posts_of_the_fill(env):
+    """``?author=`` (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 6, phase E10b): the posts of one actor, also the filled posts outside the home stream, newest first by ``published``."""
+    from claire.store import federation_fills as fills_store
+
+    client = client_db.connect_client_existing(client_db.client_db_path(env.settings.db_file))
+    try:
+        fill = fills_store.request_fill(client, env.alpha, CAROL, now=1800000000.0)
+        old = {**_object(f"{CAROL}/notes/0", CAROL, content_html="<p>before the follow</p>"), "published_at": 1700000000.0}
+        assert fills_store.store_objects(client, fill, [old], followed={CAROL}, retention_days=0, now=1800000000.0) == 1
+        client.commit()
+    finally:
+        client.close()
+    # The home stream does not have the filled post; the view of carol has it, with the mark.
+    assert f"{CAROL}/notes/0" not in [item["object_iri"] for item in _get(env, TIMELINE).json()["items"]]
+    page = _get(env, f"{TIMELINE}?author={CAROL}").json()
+    # The three posts of the fixture have the same time; the older filled post is last.
+    assert {(item["object_iri"], item["filled"]) for item in page["items"][:3]} == {(f"{CAROL}/notes/{n}", False) for n in (1, 2, 3)}
+    assert (page["items"][3]["object_iri"], page["items"][3]["filled"]) == (f"{CAROL}/notes/0", True)
+    assert page["next_max_id"] is None
+    for bad in (f"?author={CAROL}&starred=1", f"?author={CAROL}&max_id=1", "?author=ftp://x"):
+        assert _get(env, TIMELINE + bad).status_code == 400
+
+
 def test_e2e_body_renders_in_a_sandbox_and_no_script_runs(env):
     item_id = _client_rows(env.settings, "SELECT id FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (env.alpha, f"{CAROL}/notes/1"))[0][0]
     render_url = _get(env, f"{TIMELINE}/{item_id}").json()["item"]["render_url"]

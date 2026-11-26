@@ -49,6 +49,8 @@
     openWarnings: new Set(),
     threadFetchId: null,
     following: null,
+    // The followed actor whose posts the list shows (stream "actor"), with the posts of the fill after the follow (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 6).
+    actorView: null,
     actor: null,
     publishedLoaded: false,
     ingestItemId: null,
@@ -188,7 +190,7 @@
     C.loading = true;
     if (reset) { C.items = []; C.nextMaxId = null; }
     renderList();
-    const filter = streamOf(C.stream).filter;
+    const filter = C.stream === "actor" && C.actorView ? `author=${encodeURIComponent(C.actorView.iri)}` : streamOf(C.stream).filter;
     const cursor = !reset && C.nextMaxId ? `&max_id=${encodeURIComponent(C.nextMaxId)}` : "";
     const result = await api("GET", `/api/federation/timeline?limit=${PAGE}${filter ? `&${filter}` : ""}${cursor}`);
     if (seq !== C.seq) return;
@@ -208,7 +210,7 @@
 
   // New items come first. A poll reads the first page and puts the items that the list does not have before the others.
   async function pollTimeline() {
-    if (!IS_OWNER || document.hidden || C.loading) return;
+    if (!IS_OWNER || document.hidden || C.loading || C.stream === "actor") return;
     const filter = streamOf(C.stream).filter;
     const seq = C.seq;
     const result = await api("GET", `/api/federation/timeline?limit=${PAGE}${filter ? `&${filter}` : ""}`);
@@ -236,7 +238,7 @@
       return `<button type="button" class="tt-tree-item ${C.stream === s.key && !(Feeds && Feeds.active) ? "active" : ""}" data-client-stream="${s.key}"><span>${s.icon} ${esc(tr(s.label))}</span><span class="tt-count-pill ${fresh ? "fresh" : ""}">${n ? esc(n) : ""}</span></button>`;
     }).join("") + (counts.private_messages ? `<p class="synd-note" id="client-private-note">${esc(tr("synd.client.private_messages", { count: counts.private_messages }))}</p>` : "");
     const title = $("client-stream-title");
-    if (title && !(Feeds && Feeds.active)) title.textContent = tr(streamOf(C.stream).label);
+    if (title && !(Feeds && Feeds.active)) title.textContent = C.stream === "actor" && C.actorView ? tr("synd.client.stream.actor", { name: C.actorView.name }) : tr(streamOf(C.stream).label);
   }
 
   function itemBadges(item) {
@@ -244,6 +246,7 @@
     if (item.mention) badges.push(`<span class="tt-link-dot cl-inbox">${esc(tr("synd.client.badge.mention"))}</span>`);
     if (item.quote) badges.push(`<span class="tt-link-dot unlinked">${ic("quote")} ${esc(tr("synd.quote.badge"))}</span>`);
     if (item.in_reply_to) badges.push(`<span class="tt-link-dot unlinked">↩ ${esc(tr("synd.client.badge.reply"))}</span>`);
+    if (item.filled) badges.push(`<span class="tt-link-dot unlinked synd-badge-filled">${esc(tr("synd.client.badge.filled"))}</span>`);
     if (item.linked) badges.push(`<span class="tt-link-dot linked">${ic("book")} ${esc(tr("synd.client.badge.ingested"))}</span>`);
     if (item.attachments) badges.push(`<span class="tt-link-dot unlinked">${ic("paperclip")} ${esc(item.attachments)}</span>`);
     return badges.join("");
@@ -262,7 +265,7 @@
       return;
     }
     if (!C.items.length) {
-      el.innerHTML = `<div class="synd-empty">${esc(tr(C.stream === "home" ? "synd.client.empty_home" : "synd.client.empty"))}</div>`;
+      el.innerHTML = `<div class="synd-empty">${esc(tr(C.stream === "home" ? "synd.client.empty_home" : C.stream === "actor" ? "synd.client.empty_actor" : "synd.client.empty"))}</div>`;
       return;
     }
     const rows = C.items.map((item) => {
@@ -452,7 +455,7 @@
     if (C.following === null) { el.innerHTML = ""; return; }
     const items = C.following.items || [];
     el.innerHTML = items.length
-      ? items.map((f) => `<div class="synd-follow-row"><span class="synd-follow-name" title="${esc(f.actor_iri || f.request)}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</span><span class="tt-count-pill ${f.state === "accepted" ? "fresh" : ""}">${esc(tr(`synd.client.follow_state.${f.state}`))}</span><button type="button" class="tt-icon-btn" data-unfollow="${esc(f.id)}" title="${esc(tr("synd.client.unfollow"))}" aria-label="${esc(tr("synd.client.unfollow_name", { name: f.display_name || f.request }))}">✕</button></div>`).join("")
+      ? items.map((f) => `<div class="synd-follow-row">${f.state === "accepted" && f.actor_iri ? `<button type="button" class="synd-follow-name synd-follow-open" data-follow-view="${esc(f.id)}" title="${esc(tr("synd.client.follow_open", { name: f.display_name || f.request }))}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</button>` : `<span class="synd-follow-name" title="${esc(f.actor_iri || f.request)}">${f.actor_type === "Group" ? ic("users") : ic("user")} ${esc(f.display_name || f.request)}</span>`}<span class="tt-count-pill ${f.state === "accepted" ? "fresh" : ""}">${esc(tr(`synd.client.follow_state.${f.state}`))}</span><button type="button" class="tt-icon-btn" data-unfollow="${esc(f.id)}" title="${esc(tr("synd.client.unfollow"))}" aria-label="${esc(tr("synd.client.unfollow_name", { name: f.display_name || f.request }))}">✕</button></div>`).join("")
       : `<div class="synd-note">${esc(tr("synd.client.following_empty"))}</div>`;
   }
 
@@ -552,6 +555,12 @@
     if (publish) { openDocument(publish, true); return; }
     const warning = pick("data-open-warning");
     if (warning) { C.openWarnings.add(String(warning)); renderReader(); return; }
+    const viewId = pick("data-follow-view");
+    if (viewId) {
+      const f = ((C.following && C.following.items) || []).find((x) => String(x.id) === viewId);
+      if (f && f.actor_iri) { if (Feeds) Feeds.deactivate(); C.stream = "actor"; C.actorView = { iri: f.actor_iri, name: f.display_name || f.request }; C.selectedId = null; C.detail = null; loadTimeline(true); }
+      return;
+    }
     const unfollowId = pick("data-unfollow");
     if (unfollowId) { unfollow(unfollowId); return; }
     if (e.target.closest("#client-load-more")) { loadTimeline(false); return; }

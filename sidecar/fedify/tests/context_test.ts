@@ -3,9 +3,10 @@
 
 import assert from "node:assert/strict";
 import { MemoryKvStore } from "@fedify/fedify";
-import { Collection, CollectionPage, Note, type Object as ASObject, OrderedCollection, Person, PUBLIC_COLLECTION } from "@fedify/fedify/vocab";
+import { Announce, Collection, CollectionPage, Create, Note, type Object as ASObject, OrderedCollection, OrderedCollectionPage, Person, PUBLIC_COLLECTION } from "@fedify/fedify/vocab";
 import { fetchThread, objectBatches, OBJECTS_BATCH, requestLimit, walkPosts } from "../src/context.ts";
 import { processOpinionTasks } from "../src/opinions.ts";
+import { processFillTasks, readActorPosts } from "../src/fills.ts";
 import { InternalApi, type TimelineObject } from "../src/internal_api.ts";
 import { Sidecar } from "../src/sidecar.ts";
 import { fakeClaire, fixture, KEY } from "./fixtures.ts";
@@ -191,6 +192,46 @@ Deno.test("the opinions of an own object start from the known replies, read the 
       api.opinionObjects = original;
     }
     assert.deepEqual(sent, [{ taskId: 7, iris: ["https://other.example/notes/51", "https://remote.example/notes/50", "https://remote.example/notes/60"], gone: ["https://remote.example/missing"], done: true }]);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("a fill reads the first page of the featured collection and of the outbox, and keeps the public posts of the actor (phase E10a)", async () => {
+  const { fake, sidecar, add, fetched, restore } = setup();
+  try {
+    const outbox = `${DAN}/outbox`;
+    const featured = `${DAN}/featured`;
+    await add(new Person({ id: new URL(DAN), preferredUsername: "dan", name: "Dan", inbox: new URL(`${DAN}/inbox`), outbox: new URL(outbox), featured: new URL(featured) }));
+    // A pinned post (embedded), a post in a Create of the outbox page, a boost of another post (skipped), a post that is not public, and a second page that the fill does not read.
+    await add(new OrderedCollection({ id: new URL(featured), items: [note("https://remote.example/notes/60", DAN, { content: "<p>pinned</p>" })] }));
+    await add(new OrderedCollection({ id: new URL(outbox), first: new URL(`${outbox}?page=1`) }));
+    await add(new OrderedCollectionPage({ id: new URL(`${outbox}?page=1`), partOf: new URL(outbox), next: new URL(`${outbox}?page=2`), items: [
+      new Create({ id: new URL("https://remote.example/activities/61"), actor: new URL(DAN), object: note("https://remote.example/notes/61", DAN) }),
+      new Announce({ id: new URL("https://remote.example/activities/62"), actor: new URL(DAN), object: new URL("https://other.example/notes/9") }),
+      new Create({ id: new URL("https://remote.example/activities/63"), actor: new URL(DAN), object: new Note({ id: new URL("https://remote.example/notes/63"), attribution: new URL(DAN), content: "<p>followers only</p>", to: new URL(`${DAN}/followers`) }) }),
+    ] }));
+    const ctx = await sidecar.createContext();
+    const options = { documentLoader: await ctx.getDocumentLoader({ identifier: "116412345678901234" }), contextLoader: ctx.contextLoader, origin: ORIGIN, isBlocked: () => Promise.resolve(false), maxItems: 20, deadline: Date.now() + 30000 };
+    const objects = await readActorPosts(DAN, options);
+    assert.deepEqual(objects.map((o) => o.object_iri), ["https://remote.example/notes/60", "https://remote.example/notes/61"]);
+    assert.ok(!fetched.includes("https://other.example/notes/9") && !fetched.includes(`${outbox}?page=2`), fetched.join("\n"));
+
+    // The task: the lease of Claire, the read with the key of the account, and one call with the posts and done.
+    fake.overrides.set(`GET ${PREFIX}/fill-tasks?limit=2`, { status: 200, response: { tasks: [{ id: 3, actor_public_id: "116412345678901234", actor_iri: DAN, max_items: 20, lease_until: fake.now + 120 }] } });
+    const sent: unknown[] = [];
+    const api = InternalApi.prototype;
+    const original = api.fillObjects;
+    api.fillObjects = function (taskId: number, objects: TimelineObject[], done: boolean) {
+      sent.push({ taskId, iris: objects.map((o) => o.object_iri), done });
+      return Promise.resolve({ decision: "accepted" as const, stored: objects.length });
+    };
+    try {
+      assert.equal(await processFillTasks({ api: new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now }), ctx, origin: ORIGIN, isBlocked: () => Promise.resolve(false), counters: sidecar.outboxCounters }), 1);
+    } finally {
+      api.fillObjects = original;
+    }
+    assert.deepEqual(sent, [{ taskId: 3, iris: ["https://remote.example/notes/60", "https://remote.example/notes/61"], done: true }]);
   } finally {
     restore();
   }

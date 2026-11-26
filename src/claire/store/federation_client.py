@@ -406,6 +406,11 @@ TIMELINE_CONTENT_MAX_BYTES = 64 * 1024
 TIMELINE_MAX_ATTACHMENTS = 8
 
 
+def accepted_following_iris(conn: sqlite3.Connection, account_id: int) -> list[str]:
+    """The actors that the account follows with an accepted follow."""
+    return [str(r[0]) for r in conn.execute("SELECT actor_iri FROM federation_following WHERE account_id=? AND state='accepted' AND actor_iri IS NOT NULL ORDER BY id", (account_id,)).fetchall()]
+
+
 def accounts_following_actor(conn: sqlite3.Connection, actor_iri: str, account_ids: list[int]) -> list[int]:
     """The accounts of ``account_ids`` (the accounts that are actors now) that have an accepted follow of ``actor_iri`` (Section 6.4 rule 1)."""
     if not account_ids:
@@ -544,7 +549,7 @@ def count_private_messages(conn: sqlite3.Connection, account_id: int) -> int:
 
 # --- Timeline of the owner (Sections 5.3 and 8, unit FP4-5) ----------------
 
-_TIMELINE_COLUMNS = "id, account_id, object_iri, url, object_type, author_iri, author_json, announced_by_iri, announced_by_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, in_timeline, published_at, updated_at, received_at, unread, starred, linked_kb_id, linked_doc_id, mention, quote_of_iri"
+_TIMELINE_COLUMNS = "id, account_id, object_iri, url, object_type, author_iri, author_json, announced_by_iri, announced_by_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, in_timeline, published_at, updated_at, received_at, unread, starred, linked_kb_id, linked_doc_id, mention, quote_of_iri, filled"
 TimelineFilter = Literal["unread", "starred", "mention"]
 # The thread view shows this number of items at most. The thread fetch of FP4-6 has its own limit (``context_max_items``).
 TIMELINE_THREAD_MAX = 200
@@ -579,6 +584,8 @@ class TimelineItem:
     linked_doc_id: str | None
     mention: bool
     quote_of_iri: str | None = None
+    # A post of the fill after a follow (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 6, client.db version 13).
+    filled: bool = False
 
 
 def _timeline_item(row: sqlite3.Row | tuple) -> TimelineItem:
@@ -586,7 +593,7 @@ def _timeline_item(row: sqlite3.Row | tuple) -> TimelineItem:
     return TimelineItem(
         id=int(v[0]), account_id=int(v[1]), object_iri=str(v[2]), url=v[3], object_type=str(v[4]), author_iri=str(v[5]), author=json.loads(v[6]), announced_by_iri=v[7], announced_by=None if v[8] is None else json.loads(v[8]),
         name=v[9], summary=v[10], sensitive=bool(v[11]), content_html=str(v[12]), language=v[13], attachments=json.loads(v[14]), context_iri=v[15], in_reply_to_iri=v[16], in_timeline=bool(v[17]),
-        published_at=v[18], updated_at=v[19], received_at=float(v[20]), unread=bool(v[21]), starred=bool(v[22]), linked_kb_id=v[23], linked_doc_id=v[24], mention=bool(v[25]), quote_of_iri=v[26],
+        published_at=v[18], updated_at=v[19], received_at=float(v[20]), unread=bool(v[21]), starred=bool(v[22]), linked_kb_id=v[23], linked_doc_id=v[24], mention=bool(v[25]), quote_of_iri=v[26], filled=bool(v[27]),
     )
 
 
@@ -604,6 +611,14 @@ def list_timeline(conn: sqlite3.Connection, account_id: int, *, limit: int, max_
     cursor = "" if max_id is None else " AND id<?"
     params: tuple[Any, ...] = (account_id,) if max_id is None else (account_id, max_id)
     rows = conn.execute(f"SELECT {_TIMELINE_COLUMNS} FROM federation_timeline_items WHERE account_id=? AND in_timeline=1{_filter_sql(filters)}{cursor} ORDER BY id DESC LIMIT ?", (*params, limit)).fetchall()
+    return [_timeline_item(r) for r in rows]
+
+
+def list_author_items(conn: sqlite3.Connection, account_id: int, author_iri: str, *, limit: int) -> list[TimelineItem]:
+    """The items of one author for the account, also the items outside the home stream (the posts of the fill after a follow, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 6), newest first by ``published``."""
+    if limit < 1:
+        raise ValueError("limit must be more than 0")
+    rows = conn.execute(f"SELECT {_TIMELINE_COLUMNS} FROM federation_timeline_items WHERE account_id=? AND author_iri=? AND announced_by_iri IS NULL ORDER BY COALESCE(published_at, received_at) DESC, id DESC LIMIT ?", (account_id, author_iri, limit)).fetchall()
     return [_timeline_item(r) for r in rows]
 
 

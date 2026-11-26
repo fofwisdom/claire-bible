@@ -361,6 +361,8 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 | `GET` | `/objects/{public_id}/collections/{name}` | `{"document"}`: the `replies`, `likes`, or `shares` collection of an own object (a published document or a note), or with `?page=true` and an optional `cursor` one later page of `replies` (Section 4.5). 404 for another name, an object that is not public now, a page of `likes` or `shares`, and a cursor after the last reply; 400 `invalid_request` for another query. |
 | `GET` | `/opinion-tasks` | `tasks`: each with `id`, `object_iri`, `own`, `start`, `quotes`, `max_items`, `max_depth`, `lease_until`. Query: `limit` (1 to 10, default 2). The request gives a lease on each fetch that it returns (Section 4.7, contract 1.23). |
 | `POST` | `/opinion-objects` | Request: `task_id`, `objects` (the normal form of the timeline, 100 at most), `gone`, `done`. Response: `decision` (`accepted`), `stored`. 404 for a fetch that does not wait (Section 4.7). |
+| `GET` | `/fill-tasks` | `tasks`: each with `id`, `actor_public_id`, `actor_iri`, `max_items`, `lease_until`. Query: `limit` (1 to 10, default 2). The request gives a lease on each fill that it returns (Section 17.1, contract 1.24). |
+| `POST` | `/fill-objects` | Request: `task_id`, `objects` (the normal form of the timeline, 100 at most), `done`. Response: `decision` (`accepted`), `stored`. 404 for a fill that does not wait (Section 17.1). |
 | `GET` | `/domain-blocks` | `etag`, `domains` (lowercase ASCII, in order). The response has an `ETag` header. A request with the same value in `If-None-Match` gets 304 without a body. |
 
 - Actor record: `public_id` (decimal string), `username`, `display_name`, `activated_at`, `updated_at`, `profile_url`, `discoverable` (boolean, `bool(accounts.profile_public)`, contract 1.15). The record has no field from `auth.db`.
@@ -375,13 +377,14 @@ The path prefix is `/internal/federation/v1`. Request and response models are se
 
 ### 5.4 Contract Version
 
+- Version 1.24 (phase E10a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md), 2026-11-26) adds the endpoints `GET /fill-tasks` and `POST /fill-objects` (Section 17.1).
 - Version 1.23 (phase E7a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md), 2026-11-26) adds the endpoints `GET /opinion-tasks` and `POST /opinion-objects` (Section 4.7).
 - Version 1.22 (phase E9a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md), 2026-11-26) adds `plus_ones`, `plus_one_servers`, and `plus_one_score` to the object record and the collection name `plus-ones` (Section 4.6).
 - Version 1.21 (phase E5a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md), 2026-11-26) adds the endpoint `GET /sources/{source_key}` (Section 4.6). The body route records its reader.
 - Version 1.20 (phase E4b of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md), 2026-11-26) adds `rendition_of`, `template`, `template_version`, `body_hash`, `source_key`, and `source_id_version` to the object record, the collection name `renditions`, and the endpoint `GET /objects/{public_id}/body` (Section 4.6).
 - Version 1.19 (phase E6 of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md), 2026-11-26) adds `likes` and `shares` (integers) to the object record and to the note record, and the endpoint `GET /objects/{public_id}/collections/{name}` (Section 4.5).
 - Version 1.18 (phase E1 of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md), 2026-11-26) removes `quote_policy` from the object record (`/objects/{id}`): a published document is always quotable, and the sidecar writes `canQuote` with automatic approval for the public collection. The note record keeps `quote_policy`.
-- `CONTRACT_VERSION` is `"1.23"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
+- `CONTRACT_VERSION` is `"1.24"` on the two sides (`src/claire/api/federation_routes.py`, `sidecar/fedify/src/internal_api.ts`).
 - Version 1.16 adds nullable `summary` (`str | None`) to `ActorRecord`, mapped to `Person.summary` as escaped `<p>...</p>` HTML when non-empty.
 - Version 1.17 adds nullable `url` (`str | None`) to `NoteRecord`: the permalink of the note (`{origin}/silvercord/{token}`). The sidecar sets `Note.url` to it, or to the object ID when it is null. With it, the sidecar answers a request to `/ap/objects/{id}` that does not accept ActivityPub with 303 to the `url` of the object (`#permalinkOf`, `onNotAcceptable`).
 - Version 1.15 (owner decision GD7, 2026-11-22) adds `discoverable` (`bool`) to `ActorRecord`, mapped to `Person.discoverable` (`bool(accounts.profile_public)`). A sidecar of version 1.14 refuses `1.15` actor records, because the shapes are sealed; Claire and the sidecar must come from the same commit.
@@ -1085,6 +1088,20 @@ The internal API gives a client task only for an account that is an actor now; t
 
 Tests: `tests/test_e2e_federation_following.py`, `tests/test_federation_routes.py` (contract fixtures), `sidecar/fedify/tests/client_test.ts`, `sidecar/fedify/tests/internal_api_test.ts`.
 
+### 17.1 Fill of Recent Posts After a Follow (Phase E10)
+
+Design: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.13. Code: `src/claire/store/federation_fills.py`, `src/claire/api/federation_fill_routes.py`, `sidecar/fedify/src/fills.ts`. Data: `client.db` version 13 (`federation_fills`, and the column `filled` of `federation_timeline_items`). Contract: 1.24.
+
+1. **Trigger.** When an `Accept` changes a follow to `accepted` (rule 3 above), Claire asks for one fill of the account and the actor (`request_fill`). A new follow of the same actor fills again only when the last fill of the account is older than 24 hours. A `Reject` or a follow that waits makes no fill.
+2. **Copy.** When another account of this server filled the same actor in the last hour, Claire copies the filled items of that account (status `copied`) and the sidecar reads nothing.
+3. **Queue.** `GET /fill-tasks?limit=` (1 to 10, default 2) gives `id`, `actor_public_id` (the account), `actor_iri`, `max_items` (20), and `lease_until` (120 seconds). A fill of an account that is not an actor waits. At most 30 fills of one remote domain start in one hour; the others wait. After 3 leases without an end, a fill is `failed`. The queue is its own table, not a kind of the client outbox: the kinds of the outbox are a `CHECK` of its table.
+4. **Sidecar.** With the key of the account, the sidecar reads the actor document, the first page of its `featured` collection (the pinned posts), and the first page of its `outbox` (the objects of its `Create` activities; an `Announce` is skipped). Both collections and each post must be on the origin of the actor. Limits: 60 requests and 30 seconds; no request to this server, to a blocked domain, or to a private address. Only the public posts of the actor go to Claire, in the normal form, with `POST /fill-objects` (`task_id`, `objects`, `done`).
+5. **Store.** Claire applies the rules of a `Create` (`object_refusal`), and then: the author is the actor of the fill; `published` is in the retention of the timeline; a reply stays only when it replies to the actor or to an actor that the account follows (the reply target is under the address of that actor, or it is an item of the account with that author); 20 posts at most. A new item has `in_timeline` 0, `filled` 1, and `unread` 0. An item that the account has already keeps its place and gets no mark.
+6. **View.** `GET /api/federation/timeline?author={actor IRI}` (Section 19.1) gives the posts of that actor, also the filled ones, newest first by `published`. In `/syndication`, an accepted follow in the follow list is a button that opens this view ("{name}의 글"); a filled post has the badge "팔로우 전 글". Each item of the API has `filled`.
+7. **Retention.** Filled items follow the retention run of the timeline items (Section 27.4).
+
+Tests: `tests/test_federation_fills.py` (contract fixtures `fill_tasks.json` and `fill_objects.json`, the trigger, the copy, the domain limit), `tests/test_e2e_federation_client.py` (`?author=`), `sidecar/fedify/tests/context_test.ts` (the reads of `featured` and `outbox`, the task), `sidecar/fedify/tests/internal_api_test.ts`, the phase `fill` of `sidecar/fedify/e2e/renditions_exchange_e2e.ts` run by `tests/test_renditions_exchange.py` (A reads the outbox of an account of B with the key of its account), and `e2e/federation_client.spec.js` (the view).
+
 
 ## 18. Inbound Posts (Unit FP4-4)
 
@@ -1135,7 +1152,7 @@ All routes are for the owner of the account, in both server modes. An item of an
 
 | Method | Path | Answer |
 | :--- | :--- | :--- |
-| `GET` | `/api/federation/timeline` | `{"items", "next_max_id", "counts"}`. Query: `limit` (1 to 80, default 40), `max_id` (cursor: the items with a lower ID), and the filters `unread=1`, `starred=1`, `mention=1`. Only items with `in_timeline` = 1, newest first. |
+| `GET` | `/api/federation/timeline` | `{"items", "next_max_id", "counts"}`. Query: `limit` (1 to 80, default 40), `max_id` (cursor: the items with a lower ID), `author` (since phase E10: the posts of one actor, also those outside the home stream, newest first by `published`, one page, without `max_id` and filters; Section 17.1), and the filters `unread=1`, `starred=1`, `mention=1`. Only items with `in_timeline` = 1, newest first. |
 | `GET` | `/api/federation/timeline/{item_id}` | `{"item", "thread"}`. `thread` has all stored items of the thread, oldest first, also those with `in_timeline` = 0. Each entry has `render_url`. |
 | `PATCH` | `/api/federation/timeline/{item_id}` | Body: `unread` and `starred` (booleans, one or both). Answer `{"item", "counts"}`. |
 | `POST` | `/api/federation/timeline/{item_id}/ingest` | Body: `theme` (a theme reference, as for `POST /ingest`; `kb_id` is the same value). Starts the URL ingest of the item `url` (or `object_iri`) into a theme of the caller. The answer is the ingest report with `linked` (`kb_id`, `document_id`). The item stays in the timeline. |
