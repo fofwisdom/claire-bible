@@ -2,7 +2,7 @@
 
 For the owner of the account, in both server modes (KNOWLEDGE_FEDERATION_DESIGN.md Section 15 rule 5). A note, an edit, a favourite, and a boost need an account that is an actor (409 ``not_actor``).
 
-- ``POST /api/federation/notes``: a new public note, or a reply to an item of the timeline (``in_reply_to`` is the item ID). ``in_reply_to_object`` is the address of a published object of this server for a reply from its 의견 tab (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D9; 404 ``object_not_found`` when it is not one, and with ``in_reply_to``). ``quote_of`` is the ID of an item that the note quotes (FEP-044f, Section 5.4 rule 5, unit FP4-9Q); ``quote_policy`` is the quote policy of the note (rule 6).
+- ``POST /api/federation/notes``: a new public note, or a reply to an item of the timeline (``in_reply_to`` is the item ID). ``in_reply_to_object`` is the address of a published object of this server, or of a note of an account of this server that is not deleted, for a reply from the 의견 tab (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D4 and D9; 404 ``object_not_found`` when it is not one, and with ``in_reply_to``). ``quote_of`` is the ID of an item that the note quotes (FEP-044f, Section 5.4 rule 5, unit FP4-9Q); ``quote_policy`` is the quote policy of the note (rule 6).
 - ``PATCH /api/federation/notes/{note_id}``: change the text, the content warning, the language (Section 5.4 rule 12), or the quote policy.
 - ``DELETE /api/federation/notes/{note_id}``: delete an own note. The object path gives 410 from then on.
 - ``POST``, ``DELETE /api/federation/timeline/{item_id}/favourite`` and ``.../boost``: ``Like`` and ``Announce`` of the object of an item, and their ``Undo``.
@@ -255,7 +255,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 parent = None if parent_id is None else client_store.get_timeline_item(client, account_id, parent_id)
                 if parent_id is not None and parent is None:
                     raise _Refused(404, "item_not_found")
-                if own_parent is not None and federation_store.owning_object(conn, int(own_parent[len(f"{origin}/ap/objects/"):])) is None:
+                # A published object of this server, or a note of an account of this server (a reply of this server in the 의견 tab, design rule D4).
+                if own_parent is not None and _local_owner(conn, client, own_parent) is None:
                     raise _Refused(404, "object_not_found")
                 if parent is not None and (_blocked(conn, federation_store.iri_host(parent.object_iri)) or _blocked(conn, federation_store.iri_host(parent.author_iri))):
                     raise _Refused(400, "blocked_domain")

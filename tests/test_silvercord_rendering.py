@@ -898,6 +898,15 @@ def test_e2e_a_reply_of_an_account_of_this_server_gives_the_author_an_item_and_a
     assert answer.status_code == 201
     assert [(i[1], i[2], i[3]) for i in items("bob")] == [(answer.json()["note"]["url"], 1, 1)]
     assert notices("bob") == [("ap_mention", f"{usernames['alice']}@{host}")]
+    # A reply to a reply of this server in the 의견 tab (design rule D4) goes to the address of the note; its author gets the notification.
+    assert alice("POST", "/api/federation/notes", json={"content": "From the tab", "in_reply_to_object": reply_iri}).status_code == 201
+    # Unread notifications of the same kind and group are one row with a count (NOTIFICATIONS.md).
+    client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
+    try:
+        assert [tuple(r) for r in client.execute("SELECT kind, count FROM notifications WHERE account_id=?", (env["bob_id"],))] == [("ap_mention", 2)]
+    finally:
+        client.close()
+    assert alice("POST", "/api/federation/notes", json={"content": "x", "in_reply_to_object": f"{origin}/ap/objects/1"}).json()["error"] == "object_not_found"
     # A reply to an own object notifies nobody.
     assert alice("POST", "/api/federation/notes", json={"content": "My own addendum", "in_reply_to_object": object_iri}).status_code == 201
     assert len(notices("alice")) == 1

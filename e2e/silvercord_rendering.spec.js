@@ -420,7 +420,7 @@ test('a signed-in actor likes the post, likes and boosts an opinion, replies, qu
   let loads = 0;
   await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
     loads += 1;
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: [opinion(carol, object)], counts: { replies: 1, quotes: 0, likes: 4, shares: 0 }, refresh: null, moderation: null, actions: { item_url: '/api/federation/opinions/item', notes_url: '/api/federation/notes', like_url: '/api/federation/opinions/like', liked: false, states: {} } }) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: [opinion(carol, object), { ...opinion('https://claire.example.com/ap/objects/2', object), local: true, author: { iri: 'https://claire.example.com/ap/actors/5', name: 'Dora', handle: '@dora@claire.example.com' } }], counts: { replies: 2, quotes: 0, likes: 4, shares: 0 }, refresh: null, moderation: null, actions: { item_url: '/api/federation/opinions/item', notes_url: '/api/federation/notes', like_url: '/api/federation/opinions/like', liked: false, states: {} } }) });
   });
   const answer = async (route, body, status = 200) => {
     sent.push(`${route.request().method()} ${new URL(route.request().url()).pathname} ${route.request().postData() || ''}`);
@@ -476,11 +476,22 @@ test('a signed-in actor likes the post, likes and boosts an opinion, replies, qu
   await dialog.locator('.op-compose-send').click();
   await expect(dialog).toBeHidden();
 
+  // A reply of this server has only "답글" (design rule D4); the reply goes to its address.
+  const local = tab.locator('article').nth(1);
+  await expect(local.locator('.op-act-like, .op-act-boost, .op-act-quote')).toHaveCount(0);
+  await local.locator('.op-act-reply').click();
+  await expect(dialog.locator('h2')).toHaveText('Dora에게 답글');
+  await expect(dialog.locator('textarea')).toHaveValue('@dora@claire.example.com ');
+  await dialog.locator('textarea').fill('@dora@claire.example.com Agreed');
+  await dialog.locator('.op-compose-send').click();
+  await expect(dialog).toBeHidden();
+
   const notes = sent.filter((line) => line.startsWith('POST /api/federation/notes')).map((line) => JSON.parse(line.slice('POST /api/federation/notes '.length)));
   expect(notes).toEqual([
     { content: '@carol@remote.example Thanks', in_reply_to: '77' },
     { content: 'Worth a read', summary: 'long', sensitive: true, quote_of: '77' },
     { content: 'On the paper', in_reply_to_object: object },
+    { content: '@dora@claire.example.com Agreed', in_reply_to_object: 'https://claire.example.com/ap/objects/2' },
   ]);
   expect(sent.filter((line) => line.startsWith('POST /api/federation/opinions/item'))).toHaveLength(1);
   expect(sent.filter((line) => line.includes('/favourite')).map((line) => line.split(' ')[0])).toEqual(['POST', 'DELETE']);

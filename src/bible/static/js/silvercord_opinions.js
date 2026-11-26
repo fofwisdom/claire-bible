@@ -110,6 +110,8 @@
       }
       var actions = make("div", "op-post-actions");
       if (!opinion.local && !opinion.hidden && state.data && state.data.actions) clientButtons(opinion).forEach(function (btn) { actions.appendChild(btn); });
+      // A reply of this server: a reply to it goes to its address (design rule D4; the author gets the notification, owner decision O22). Like, boost, and quote of a note of this server are not here.
+      if (opinion.local && state.data && state.data.actions) actions.appendChild(localReplyButton(opinion));
       if (opinion.frame_url && String(opinion.frame_url).charAt(0) === "/") actions.appendChild(frameButton(opinion));
       if (state.data && state.data.moderation && !opinion.local) actions.appendChild(moderationButton(opinion));
       if (actions.childElementCount > 0) article.appendChild(actions);
@@ -169,6 +171,13 @@
         return btn;
       });
       return [reply, toggles[0], toggles[1], quote];
+    }
+
+    function localReplyButton(opinion) {
+      var reply = make("button", "sc-btn op-act-reply", rtr("share.sc.op_reply"));
+      reply.type = "button";
+      reply.addEventListener("click", function () { openCompose({ kind: "local", opinion: opinion }); });
+      return reply;
     }
 
     // The like of the post of the page (Section 5.6 rule 4): a toggle button with the count of likes.
@@ -242,7 +251,7 @@
       var name = author.name || author.handle || "";
       composeDialog.querySelector("#op-compose-title").textContent = target.kind === "object" ? rtr("share.sc.op_reply_object") : rtr(target.kind === "quote" ? "share.sc.op_compose_quote_title" : "share.sc.op_compose_reply_title", { name: name });
       var field = composeDialog.querySelector(".op-compose-text");
-      field.value = target.kind === "reply" && author.handle ? author.handle + " " : "";
+      field.value = (target.kind === "reply" || target.kind === "local") && author.handle ? author.handle + " " : "";
       composeDialog.querySelector(".op-compose-cw").value = "";
       composeDialog.querySelector(".op-compose-error").hidden = true;
       composeDialog.showModal();
@@ -259,10 +268,11 @@
         body.summary = cw.value.trim();
         body.sensitive = true;
       }
-      var ready = target.kind === "object" ? Promise.resolve(null) : ensureItem(target.opinion);
+      var ready = target.kind === "object" || target.kind === "local" ? Promise.resolve(null) : ensureItem(target.opinion);
       ready
         .then(function (item) {
           if (target.kind === "object") body.in_reply_to_object = state.data.object;
+          else if (target.kind === "local") body.in_reply_to_object = target.opinion.iri;
           else if (target.kind === "quote") body.quote_of = item.item_id;
           else body.in_reply_to = item.item_id;
           return postJson(state.data.actions.notes_url, "POST", body);
