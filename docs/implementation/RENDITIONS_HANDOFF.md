@@ -80,7 +80,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 
 ### 3.4 Opinions (E7, E8)
 
-- **AD17. The sidecar never reads its own origin.** Thus the fetch of an own object does not start from the object (design rule B4): it starts from the replies that this server knows (delivered and fetched) and walks the reply tree of each one (`walkPosts` in `sidecar/fedify/src/context.ts`).
+- **AD17. The sidecar never reads its own origin.** Thus the fetch of an own object does not start from the object (design rule B4): it starts from the replies that this server knows (delivered and fetched) and walks the reply tree of each one (`walkPosts` in `sidecar/fedify/src/context.ts`). **Changed by RD30 (2026-11-26)**: the sidecar reads its own origin through its loopback (AD39); the start set stays, and it also takes the replies of this server (AD41).
 - **AD18. A quote post is read without a walk** (`quotes` of the task), and a reply to a quote post is not stored. This is design rule B4 ("their own replies are not fetched"); the first version of E7a walked them too.
 - **AD19. The fetch of opinions is a separate queue** (`opinion-tasks`, `opinion-objects`, table `federation_opinion_fetches`), not a task kind of the client thread fetch (design rule B9). Reason: the result belongs to the object, not to an account; the server actor signs.
 - **AD20. The refresh state has a third status `failed`** (3 leases of 5 minutes without an end). Reason: design rule D8 needs a failure text, and the Async Refreshes of Mastodon have only `running` and `finished`.

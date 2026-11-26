@@ -1,7 +1,7 @@
 // Fetch of the opinions of a published object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B, phase E7a, contract 1.23).
 //
 // - The server actor signs each request: the opinions belong to the object, not to an account (rule B8).
-// - An object of this server: the sidecar does not read its own origin, so the walk starts from the replies that Claire knows (rule B3) and reads the reply tree and the `context` of each one (rule B4). The quote posts that Claire knows are read without a walk: their replies are not opinions of the object (rule B4). The start posts and the quote posts are in the result: a second read refreshes them, and a 404 or 410 of one tells Claire that it is gone (rule B7).
+// - An object of this server: the walk starts from the replies that Claire knows, also the replies of this server (rule B3; since RD30 the sidecar reads its own origin through its loopback) and reads the reply tree and the `context` of each one (rule B4). The quote posts that Claire knows are read without a walk: their replies are not opinions of the object (rule B4). The start posts and the quote posts are in the result: a second read refreshes them, and a 404 or 410 of one tells Claire that it is gone (rule B7).
 // - An object of another server (a remote rendition, rule C2): the walk starts from the object.
 // - Claire decides which posts are opinions (a reply to the object or to an opinion, or a quote of the object) and applies the rules of a Create for each post.
 
