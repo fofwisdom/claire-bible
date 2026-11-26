@@ -1,6 +1,6 @@
 # Handoff: Renditions, Publication, +1, and Opinions
 
-- **Design**: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) (Rev. 11). Its Section 9 is the phase table; Section 11 has the owner decisions O1 to O21.
+- **Design**: [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) (Rev. 11). Its Section 9 is the phase table; Section 11 has the owner decisions O1 to O22.
 - **State (2026-11-26)**: phases E0 to E10 and the work after them (Section 7) are on `main`, not pushed. The last commit of the phases is `f977bf7d`; Section 7 lists the later commits. Section 8 lists what stays open.
 - **Purpose**: a person or an agent without the conversation of the implementation can find each decision that the agent made alone, each change from the design, its reason, the code, and the cost to change it back.
 
@@ -96,6 +96,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - **AD25. The like of an account of this server for a post of this server is a row of `federation_object_reactions`** with the actor of the account (`activity_iri` `{actor}#likes/local-{number}`) and no activity. Reason: the author is on this server, and the sidecar refuses requests to its own origin. The account purge deletes these rows (`purge_account_of_claire_db`). Only a document object has the like (design Section 5.6 rule 2); the author cannot like an own post (rule 3).
 - **AD26. An opinion becomes an item of the timeline of the account, outside the home stream** (`POST /api/federation/opinions/item`, `in_timeline` 0). Reason: the favourite, the boost, the reply, and the quote of the federation client (`FEDERATION.md` Sections 25 and 26) work on items; no new task kind is necessary.
 - **AD27. `POST /api/federation/notes` takes `in_reply_to_object`**, the address of a published object of this server, for "이 정리본에 답글" (design rule D9). The note has no mention: the author is on this server.
+- **AD38. The notification of a local reply (owner decision O22) comes from the note route**, not from the timeline event: the internal API refuses a timeline event whose actor is on this server, and the sidecar does not deliver to its own origin. The route finds the owner of the reply target (`_local_owner` in `federation_notes.py`: a document object, a rendition object, or a note), gives it the item with `mention` 1, and calls `ap_mention` with the handle of the replying account (`actor_label`; the actor address of a local account has a number, not a name). The scope is a reply; a mention without a reply, a quote, and a like of a local account make no notification (the owner decision names replies only).
 
 ### 3.6 Fill After a Follow (E10)
 
@@ -147,13 +148,13 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | Opinion fetch from the view of a published document in `/syndication` | 5.11 B1 | `251010ae` | AD34. `POST /api/federation/objects/{object_id}/opinions`. Tests: `tests/test_silvercord_rendering.py`, `e2e/federation_compose.spec.js`. |
 | Opinions of a rendition of another server | 5.11 C2 | `071cf2a2` | AD35. `GET /silvercord/{token}/renditions/remote/{key}/opinions`; the tab follows the shown rendition. Tests: `tests/test_silvercord_rendering.py`, `sidecar/fedify/tests/context_test.ts`, `e2e/renditions.spec.js`. No two-server phase: in the test of two servers all opinions are on the reading server, and the sidecar never reads its own origin. |
 | Prefetch of the other renditions; `content-visibility` of long bodies and opinion trees | 5.10 rules 5 and 6; measurement 6 | `96900bf2` | AD36, AD37. Measurement 6: headless Chromium 153 uses a prefetched answer also with `Cache-Control: private, no-store`. |
+| Notification for a reply of an account of this server | owner decision O22 | (this commit) | The note route gives the owner of the target (another account of this server) an item with `mention` 1 and `ap_mention`, as a reply of another server does. Applies to each reply of the federation client, not only the 의견 tab. A like still makes no notification (no notification kind for likes, also for remote likes). AD38. |
 
 ## 8. Open Items
 
 | Item | Design | State | Note |
 | :--- | :--- | :--- | :--- |
 | `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no such property of `Person`, and Fedify drops unknown terms from outgoing `Update(Person)` (AD10), so the sidecar cannot add it to the deliveries. Checked 2026-11-26: the latest release on JSR is 2.4.6 (only 2.5.0 development builds). |
-| Notification to the author for a reply from an account of this server | — (not in the design) | question for the owner | A remote reply to an own object makes an item with `mention` 1 and the notification `ap_mention`; a reply from the 의견 tab of an account of this server (`in_reply_to_object`) makes neither. A like makes no notification in both cases (there is no notification kind for likes). The design has no rule; the agent did not add one. |
 
 ## 9. How to Add to This Document
 

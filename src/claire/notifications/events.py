@@ -261,8 +261,9 @@ def ap_follow_answered(db_file: Path | str, *, account_id: int, actor_iri: str, 
 
 
 @_event
-def ap_mention(db_file: Path | str, *, account_ids: Iterable[int], actor_iri: str) -> None:
-    emit(db_file, kind="ap_mention", account_ids=account_ids, target=SYNDICATION_CLIENT, params={"actor": actor_handle(actor_iri)}, group="mentions")
+def ap_mention(db_file: Path | str, *, account_ids: Iterable[int], actor_iri: str, actor_label: str | None = None) -> None:
+    """A mention or a reply. ``actor_label``: the handle of an account of this server (its actor address has a number, not a name)."""
+    emit(db_file, kind="ap_mention", account_ids=account_ids, target=SYNDICATION_CLIENT, params={"actor": actor_label or actor_handle(actor_iri)}, group="mentions")
 
 
 @_event
