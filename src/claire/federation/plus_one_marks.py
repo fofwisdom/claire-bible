@@ -15,13 +15,14 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 from typing import Any
+from urllib.parse import urlsplit
 
 from ..core import ids
 from ..store import federation as federation_store
 from ..store import plus_ones
 from .knowledge import offers, outbox, vocabulary
 
-__all__ = ["ACCOUNT_HOURLY_LIMIT", "MarkRefused", "ensure_schema", "give_local", "give_remote", "has_remote_mark", "remote_marks_since", "take_back_local", "take_back_remote"]
+__all__ = ["ACCOUNT_HOURLY_LIMIT", "MarkRefused", "ensure_schema", "give_local", "give_remote", "has_remote_mark", "purge_account", "remote_marks_since", "take_back_local", "take_back_remote"]
 
 ACCOUNT_HOURLY_LIMIT = 60
 
@@ -123,3 +124,23 @@ def take_back_remote(conn: sqlite3.Connection, *, account_id: int, account_publi
     if federation_store.blocking_domain(conn, federation_store.iri_host(author) or "") is None:
         outbox.enqueue(conn, vocabulary.build_undo_plus_one(activity_id=f"{activity_iri}/undo", plus_one=mark), signer=offers.account_signer(account_public_id), recipients=[author], origin=origin, now=now)
     return True
+
+
+def purge_account(conn: sqlite3.Connection, *, account_id: int, account_public_id: int, send_undo: bool, now: float) -> dict[str, int]:
+    """The account purge (Section 5.12 rule 14): each mark of the account goes. For each mark of a rendition of another server, the ``Undo`` goes to the account of the rendition when ``send_undo`` (the purge informs other servers) and the domain is not blocked. The caller commits.
+
+    The server actor signs each ``Undo``: the keys of a purged account are not available after the purge, and the journal of the receiver accepts a signer on the server of the actor of the activity. The actor of the activity stays the account actor; its address comes from the address of the mark, so the purge needs no origin from outside.
+    """
+    undone = 0
+    for rendition_iri, author, activity_iri, created_at in conn.execute("SELECT rendition_iri, author_iri, activity_iri, created_at FROM account_plus_ones WHERE account_id=?", (account_id,)).fetchall():
+        actor = str(activity_iri).split("#", 1)[0]
+        parts = urlsplit(actor)
+        if not send_undo or not parts.scheme or federation_store.blocking_domain(conn, federation_store.iri_host(str(author)) or "") is not None:
+            continue
+        mark = vocabulary.build_plus_one(activity_id=str(activity_iri), account_actor=actor, rendition=str(rendition_iri), author=str(author), published=float(created_at))
+        outbox.enqueue(conn, vocabulary.build_undo_plus_one(activity_id=f"{activity_iri}/undo", plus_one=mark), signer=outbox.SERVER_SIGNER, recipients=[str(author)], origin=f"{parts.scheme}://{parts.netloc}", now=now)
+        undone += 1
+    remote = conn.execute("DELETE FROM account_plus_ones WHERE account_id=?", (account_id,)).rowcount
+    # The marks of the account for renditions of this server need no activity.
+    local = conn.execute("DELETE FROM rendition_plus_ones WHERE actor_iri LIKE ?", (f"%/ap/actors/{ids.format_public_id(int(account_public_id))}",)).rowcount
+    return {"remote": remote, "undone": undone, "local": local}

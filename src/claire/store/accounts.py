@@ -713,6 +713,10 @@ class AccountStore:
 
         was_actor = bool(current.username)
         federation_store.purge_account_federation(self.conn, account_id=account_id, public_id=current.public_id, was_actor=was_actor, send_delete=not skip_federated_delete, now=when)
+        # The +1 marks of the account (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 14): an ``Undo`` for each mark of a rendition of another server, unless the purge does not inform other servers.
+        from ..federation import plus_one_marks
+
+        plus_one_marks.purge_account(self.conn, account_id=account_id, account_public_id=current.public_id, send_undo=was_actor and not skip_federated_delete, now=when)
         # The client data of the account (feeds, follows, reading settings, client outbox) is in client.db (DATA_STORE_LAYOUT_DESIGN.md, RD27). Documents stay (FEDERATION_REMOTE_READING_DESIGN.md Section 10 rule 5). No transaction crosses the files: client.db commits its own deletion.
         from . import client_db
 

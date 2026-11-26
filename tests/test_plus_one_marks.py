@@ -141,3 +141,23 @@ def test_e2e_a_plus_one_for_a_rendition_of_another_server_goes_to_its_account(tm
         conn.close()
     assert _mark(callers["bob"], token, f"remote:{remote_key}", True).status_code == 404
     assert _mark(callers["bob"], token, "remote:0000000000000000", True).status_code == 404
+
+
+def test_the_purge_of_an_account_takes_its_marks_back(tmp_path: Path) -> None:
+    """Section 5.12 rule 14: the purge deletes the marks of the account; each mark of a rendition of another server gets an ``Undo`` that the server actor signs (the keys of the account go with the purge)."""
+    s, env, tokens, callers = _world(tmp_path)
+    remote_key = hashlib.sha256(REMOTE.encode()).hexdigest()[:16]
+    assert _mark(callers["bob"], tokens["doc1"], f"remote:{remote_key}", True).status_code == 200
+    assert _mark(callers["bob"], tokens["doc1"], "concise", True).status_code == 200
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        mark = json.loads(conn.execute("SELECT a.payload FROM kf_outbox t JOIN kf_outbox_activities a ON a.activity_iri = t.activity_iri WHERE t.kind='plus_one'").fetchone()[0])
+        accounts_store.AccountStore(conn).purge(env["bob_id"], data_dir=env["db_file"].parent)
+        rows = conn.execute("SELECT t.kind, t.signer, t.recipient, a.payload FROM kf_outbox t JOIN kf_outbox_activities a ON a.activity_iri = t.activity_iri WHERE t.kind='undo_plus_one'").fetchall()
+        assert [(r[0], r[1], r[2]) for r in rows] == [("undo_plus_one", "server", REMOTE_AUTHOR)]
+        undo = json.loads(rows[0][3])
+        assert vocabulary.validate_activity(undo) == "undo_plus_one" and undo["actor"] == mark["actor"] and undo["object"]["id"] == mark["id"]
+        assert conn.execute("SELECT COUNT(*) FROM account_plus_ones").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM rendition_plus_ones").fetchone()[0] == 0
+    finally:
+        conn.close()

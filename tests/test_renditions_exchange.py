@@ -6,6 +6,7 @@ A (``https://a.claire.test``) publishes a document with the renditions "standard
 2. ``plus``: an account of B gives a +1 to the rendition "concise"; the knowledge outbox of B delivers it; A stores the mark.
 3. ``opinions``: carol of B replied to the document of A (A got the reply), and dan of B replied to carol (A did not get it). A fetches the opinions of its object with requests that its server actor signs: it reads the reply of carol from B and finds the reply of dan in the ``replies`` collection of carol. The 의견 route of A shows the two. Then dan replies again, the daily run of A (phase E8) asks for a fetch because the object got a reply in the last 7 days, and the same phase gets the new reply.
 3c. ``fill``: alice of A follows carol of B. The sidecar of A reads the outbox of carol with the key of alice; A stores her post outside the home stream with the mark ``filled`` (phase E10a). Her reply to the document of A is not stored: alice does not follow the author of the reply target.
+3d. ``unplus``: B purges carol; B sends the ``Undo`` of her +1, signed by the server actor of B, and A removes the mark (Section 5.12 rule 14).
 4. ``delete``: A retracts the document; the knowledge outbox of A sends one ``Delete`` for each object to the server actor of B only; B removes its copies. The run of A deletes the opinions of the gone object (phase E7c).
 
 The same as ``tests/test_fedify_sidecar.py``: it needs Deno, and it is skipped without it.
@@ -266,6 +267,20 @@ def test_e2e_two_claire_servers_exchange_renditions_plus_ones_and_deletes(tmp_pa
             client.close()
         assert filled == [(f"{b.origin}/ap/objects/{carol_post}", 0, 1)], filled
         assert tuple(status) == ("finished", 1)
+
+        # 3d. B purges carol, who gave the +1 of phase 2: the Undo goes to A.
+        conn = b.db()
+        try:
+            accounts_store.AccountStore(conn).purge(ids["carol"], data_dir=b.data_dir)
+        finally:
+            conn.close()
+        _phase(a, b, "unplus", E2E_RENDITION=str(ids["concise"]))
+        conn = a.db()
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM rendition_plus_ones").fetchone()[0] == 0
+            assert ("undo_plus_one", "processed", None) in [tuple(r) for r in conn.execute("SELECT kind, status, error_code FROM kf_inbox_journal")]
+        finally:
+            conn.close()
 
         # 4. alice of A retracts the document: B, the reader of the two bodies, gets one Delete for each object and removes its copies.
         conn = a.db()

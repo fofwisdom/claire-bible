@@ -9,7 +9,7 @@ This document records decisions and state. The design keeps the intent; [`FEDERA
 ## 1. Reading Order
 
 1. Design Section 11 (owner decisions) and Section 9 (phase table; each row has "Changes" and "Not done").
-2. Section 3 of this document (agent decisions AD1 to AD32, with reasons).
+2. Section 3 of this document (agent decisions AD1 and later, with reasons; the numbers do not change, and a new decision gets the next number).
 3. The implementation pages:
    - [`FEDERATION.md`](FEDERATION.md) Sections 4.5 (`replies`, `likes`, `shares`), 4.6 (rendition objects, source index, remote renditions, +1), 4.7 (opinions), 17.1 (fill after a follow), 5.3 and 5.4 (internal endpoints, contract versions).
    - [`PERMALINKS.md`](PERMALINKS.md) Section 3 (page data of the Silvercord page), 3.1a (rendition sub-path), 3.1b (remote rendition frame), 3.1c (opinions route, opinion frame, the 의견 tab).
@@ -74,6 +74,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - **AD14. The cache of remote renditions is in `claire.db`** (design Section 6 said `client.db`). Reason: it is of the server, and the answer of a read and its row change in one transaction.
 - **AD15. No `ETag` for bodies**: the reader compares `claire:bodyHash` of the object and reads the body only when it changed.
 - **AD16. The +1 marks of the accounts are in `claire.db`** (design Section 6), with the task of the knowledge outbox in the same transaction.
+- **AD33. The account purge sends the `Undo` of each +1 with the signature of the server actor** (design Section 5.12 rule 14 says "the server of the account sends `Undo`"; it names no signer). Reason: the keys of a purged account are available only while its `delete_actor` task waits, and the journal of the receiver accepts a signer on the server of the actor of the activity. The actor of the `Undo` stays the account actor; its address comes from the stored activity address. A purge with `skip_federated_delete` sends no `Undo`: that option means "do not inform other servers". Code: `federation/plus_one_marks.py` (`purge_account`), called by `AccountStore.purge`. Test: `tests/test_plus_one_marks.py`, phase `unplus` of `tests/test_renditions_exchange.py`.
 
 ### 3.4 Opinions (E7, E8)
 
@@ -101,7 +102,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 ### 3.7 Development and Tests
 
 - **AD31. A development name under `.test` has an `https` public URL** (`Settings.public_url`). This follows decision CD4 of `CONTRIBUTOR_DEVELOPMENT_ENVIRONMENT_DESIGN.md`; before the fix such a server could not start. Found by the two-server test.
-- **AD32. The end-to-end test of the exchange uses two real Claire processes and their real sidecar code** in one Deno process: a request to the origin of one server goes to the `handle` function of its sidecar (`sidecar/fedify/e2e/renditions_exchange_e2e.ts`). Phases: `read`, `plus`, `opinions` (also after the daily run), `fill`, `delete`. Each phase starts new sidecars.
+- **AD32. The end-to-end test of the exchange uses two real Claire processes and their real sidecar code** in one Deno process: a request to the origin of one server goes to the `handle` function of its sidecar (`sidecar/fedify/e2e/renditions_exchange_e2e.ts`). Phases: `read`, `plus`, `opinions` (also after the daily run), `fill`, `unplus`, `delete`. Each phase starts new sidecars.
 
 ## 4. Library Behaviour and the Workarounds
 
@@ -134,7 +135,6 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | Item | Design | State | Note |
 | :--- | :--- | :--- | :--- |
 | `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no property. |
-| `Undo` of each +1 at an account purge | 5.12 rule 14 | not done | The purge must make the `Undo` tasks before it deletes `account_plus_ones`. |
 | +1 counts in the published list of `/syndication` | 5.12 rule 13 | not done | |
 | `Like` and `Announce` of a rendition object | 5.6 rule 2 | not stored | The inbox handler knows document objects and notes only. |
 | Opinion fetch from the view of a published object in `/syndication` | 5.11 B1 | not done | |
