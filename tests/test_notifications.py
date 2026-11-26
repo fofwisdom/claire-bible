@@ -210,6 +210,7 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def live_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """The same server with the task of the ``api`` process. The requests to a push service go to ``posted`` and get the status 201."""
     posted: list[webpush.PushRequest] = []
+    monkeypatch.setattr(sender, "SCHEDULER_INTERVAL", 30.0)
     monkeypatch.setattr(sender, "_default_post", lambda request: posted.append(request) or 201)
     for made in _make_world(tmp_path):
         made.posted = posted
@@ -543,12 +544,14 @@ def test_task_of_the_api_process_sends_after_an_emit(live_world):
     headers, _ref = _session_of(world, "ben")
     body = {"endpoint": ENDPOINT, "keys": {"p256dh": RFC_UA_PUBLIC, "auth": RFC_AUTH}}
     assert _request(world, headers, "POST", "/api/me/push/subscriptions", json=body).status_code == 201
+    started = time.monotonic()
     assert _request(world, headers, "POST", "/api/me/push/test", json={}).status_code == 201
-    deadline = time.time() + 10
-    while not world.posted and time.time() < deadline:
+    deadline = started + 20.0
+    while not world.posted and time.monotonic() < deadline:
         time.sleep(0.05)
-    # The emit wakes the task: the message goes out without a wait for the interval.
-    assert len(world.posted) == 1 and world.posted[0].endpoint == ENDPOINT and time.time() < deadline - 5
+    # The emit wakes the task before the background poll interval ends.
+    elapsed = time.monotonic() - started
+    assert len(world.posted) == 1 and world.posted[0].endpoint == ENDPOINT and elapsed < sender.SCHEDULER_INTERVAL
     assert _state(world) == (1, 0)
 
 

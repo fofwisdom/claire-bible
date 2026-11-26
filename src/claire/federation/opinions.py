@@ -135,8 +135,16 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
         })
     # Each opinion row, also a hidden one: a note of this server that is an opinion row (RD30) does not come back as a local reply.
     seen = {item["iri"] for item in opinions} | {opinion.opinion_iri for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=True)}
-    parents = [object_iri, *(item["iri"] for item in opinions if not item.get("hidden"))]
-    opinions += [item for item in _local_replies(client, conn, parents, origin, actor_ids) if item["iri"] not in seen]
+    frontier = [object_iri, *(item["iri"] for item in opinions if not item.get("hidden"))]
+    for _ in range(8):
+        if not frontier:
+            break
+        batch = [item for item in _local_replies(client, conn, frontier, origin, actor_ids) if item["iri"] not in seen]
+        if not batch:
+            break
+        seen.update(item["iri"] for item in batch)
+        opinions += batch
+        frontier = [item["iri"] for item in batch]
     opinions.sort(key=lambda item: (item["published"] or 0.0, item["iri"]))
     shown = [item for item in opinions if not item.get("hidden")]
     quoted = sum(1 for item in shown if item["kind"] == "quote")

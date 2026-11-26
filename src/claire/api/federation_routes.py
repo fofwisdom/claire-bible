@@ -973,7 +973,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             client_store.set_following_state(client, found.id, answer_state, now=now())
             # The fill of recent posts of the actor (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.13 rule 1): one for each follow that becomes accepted.
             if answer_state == "accepted" and found.state != "accepted":
-                fills_store.request_fill(client, account.id, event.actor.iri, now=now())
+                fills_store.request_fill(client, account.id, event.actor.iri, followed=set(client_store.accepted_following_iris(client, account.id)), retention_days=int(client_store.get_reading_settings(store.conn)["retention_days"]), now=now())
             client.commit()
             if found.state != answer_state:
                 notification_events.ap_follow_answered(settings.db_file, account_id=account.id, actor_iri=event.actor.iri, accepted=event.type == "Accept")
@@ -991,18 +991,22 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         obj = None if owning is None else owning[0]
         if obj is None and public_id is not None:
             # An own note of an account (unit FP4-9): the same counters, in the same number space (RT7).
-            return _note_reaction(store, public_id, event, kind, undo)
+            return _note_reaction(store, origin, public_id, event, kind, undo)
         if obj is None or public_id is None:
             return missing
         if not undo:
-            # A new reaction needs an object that is public now: its account is an actor and its theme is public. An ``Undo`` removes the row in all states.
+            # A new reaction needs an object that is public now: its account is an actor, its theme is public, and its document is not hidden. An ``Undo`` removes the row in all states.
             theme = store.conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
+            document = dbm.get_document_row(store.conn, obj.document_id, kb_id=obj.kb_id)
             try:
                 owner = store.get(obj.account_id)
             except accounts_store.AccountNotFound:
                 owner = None
-            if not _is_actor(owner) or theme is None or not theme["is_public"]:
+            if not _is_actor(owner) or theme is None or not theme["is_public"] or document is None or document["hidden"]:
                 return missing
+            assert owner is not None
+            if kind == "like" and event.actor.iri == f"{origin}/ap/actors/{owner.public_id}":
+                return InboxEventResponse(decision="ignored", reply=None, reason=None)
         client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
         try:
             if undo:
@@ -1014,13 +1018,20 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             client.close()
         return InboxEventResponse(decision="accepted", reply=None, reason=None)
 
-    def _note_reaction(store: accounts_store.AccountStore, public_id: int, event: InboxEventRequest, kind: Literal["like", "announce"], undo: bool) -> InboxEventResponse:
+    def _note_reaction(store: accounts_store.AccountStore, origin: str, public_id: int, event: InboxEventRequest, kind: Literal["like", "announce"], undo: bool) -> InboxEventResponse:
         """``Like`` or ``Announce`` of an own note, or the ``Undo`` of one (Section 6.6 rule 3, unit FP4-9, decision GD7). A new reaction needs a note that is not deleted and whose account is an actor."""
         client = client_db.connect_client_existing(client_db.client_db_path(settings.db_file))
         try:
             note = notes_store.get_note(client, public_id)
             if note is None or (not undo and (note.deleted_at is not None or note.account_id not in _actor_account_ids(store))):
                 return InboxEventResponse(decision="ignored", reply=None, reason="no_object")
+            if kind == "like" and not undo:
+                try:
+                    owner = store.get(note.account_id)
+                except accounts_store.AccountNotFound:
+                    owner = None
+                if owner is not None and event.actor.iri == f"{origin}/ap/actors/{owner.public_id}":
+                    return InboxEventResponse(decision="ignored", reply=None, reason=None)
             if undo:
                 client_store.remove_object_reaction(client, object_public_id=public_id, kind=kind, actor_iri=event.actor.iri)
             else:
@@ -1091,17 +1102,14 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
 
     def _own_object(store: accounts_store.AccountStore, origin: str, account_id: int, iri: str) -> bool:
         """True when ``iri`` is a published object of the account (``{origin}/ap/objects/{public_id}``)."""
-        prefix = f"{origin}/ap/objects/"
-        if not iri.startswith(prefix):
+        public_id = _local_object_public_id(origin, iri)
+        if public_id is None:
             return False
-        try:
-            found = federation_store.get_object(store.conn, ids.parse_public_id(iri[len(prefix) :]))
-        except ValueError:
-            return False
-        if found is None:
+        owning = federation_store.owning_object(store.conn, public_id)
+        if owning is None:
             # An own note of the account (unit FP4-9).
-            return _note_owner(_local_object_public_id(origin, iri)) == account_id
-        return found.account_id == account_id
+            return _note_owner(public_id) == account_id
+        return owning[0].account_id == account_id
 
     def _mentioned_accounts(store: accounts_store.AccountStore, origin: str, event: TimelineEventRequest, obj: TimelineObject, actor_ids: list[int]) -> set[int]:
         """The accounts that are actors and that the object mentions, addresses, or answers (a reply to a published object of the account)."""
@@ -1112,9 +1120,9 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             if account is not None:
                 found.add(account.id)
         parent_id = _local_object_public_id(origin, obj.in_reply_to)
-        parent = None if parent_id is None else federation_store.get_object(store.conn, parent_id)
-        if parent is not None:
-            found.add(parent.account_id)
+        owning = None if parent_id is None else federation_store.owning_object(store.conn, parent_id)
+        if owning is not None:
+            found.add(owning[0].account_id)
         elif (note_owner := _note_owner(parent_id)) is not None:
             # A reply to an own note of an account (unit FP4-9).
             found.add(note_owner)

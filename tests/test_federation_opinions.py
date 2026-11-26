@@ -205,3 +205,173 @@ def test_version_12_adds_the_attachments_to_a_table_of_version_11(tmp_path):
         assert [o.attachments for o in opinions_store.opinions_of(conn, OBJECT)] == [[]]
     finally:
         conn.close()
+
+
+def test_opinions_view_includes_multi_hop_local_replies_up_to_depth_eight(internal):  # noqa: F811
+    client = _client(internal)
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        parent = OBJECT
+        for hop in range(1, 11):
+            pub = 7000 + hop
+            client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, mentions_json, published_at, updated_at) VALUES (?, ?, ?, ?, ?, '[]', ?, ?)", (pub, internal.alice, parent, f"Hop {hop}", f"<p>Hop {hop}</p>", NOW + hop, NOW + hop))
+            parent = f"{ORIGIN}/ap/objects/{pub}"
+        # Hide an opinion and add a local reply to it: the hidden child must stay hidden.
+        opinions_store.store_objects(client, OBJECT, [post(CAROL, in_reply_to=OBJECT)], quoting=set(), delivered=set(), now=NOW)
+        opinions_store.hide(client, OBJECT, CAROL, hidden_by=internal.alice, hidden=True, now=NOW)
+        client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, mentions_json, published_at, updated_at) VALUES (7099, ?, ?, 'Under hidden', '<p>Under hidden</p>', '[]', ?, ?)", (internal.alice, CAROL, NOW + 99, NOW + 99))
+        client.commit()
+        view = opinions_mod.opinions_view(conn, client, object_iri=OBJECT, object_public_id=OBJECT_ID, origin=ORIGIN, actor_ids={internal.alice}, now=NOW + 200)
+        iris = [item["iri"] for item in view["opinions"]]
+        assert iris == [f"{ORIGIN}/ap/objects/{7000 + h}" for h in range(1, 9)]
+        assert f"{ORIGIN}/ap/objects/7099" not in iris
+    finally:
+        conn.close()
+        client.close()
+
+
+def test_rendition_replies_and_self_or_hidden_reactions(internal):  # noqa: F811
+    from claire.store import document_renditions as renditions_store
+    from claire.store import federation as federation_store
+    from tests.test_federation_routes import ALICE_IRI, ALICE_THEME_ID, BOB_IRI, SECOND_OBJECT_ID
+
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        renditions_store.record_primary(conn, "doc-published", ALICE_THEME_ID, lineage={}, now=NOW - 100)
+        renditions_store.store_additional(conn, "doc-published", ALICE_THEME_ID, template="concise", detail="= 간결\n\nShort", lineage={}, now=NOW - 90)
+        conn.commit()
+        rendition_id = federation_store.rendition_objects_of(conn, OBJECT_ID)[0].public_id
+    finally:
+        conn.close()
+    rendition_iri = f"{ORIGIN}/ap/objects/{rendition_id}"
+
+    # Non-follower remote reply to a non-primary rendition object (no explicit mention) triggers mention, timeline item, notification, and opinion discovery.
+    reply_iri = "https://remote.example/users/stranger/notes/77"
+    reply_event = {
+        "method": "POST",
+        "path": "/internal/federation/v1/timeline-events",
+        "body": {
+            "event_id": "https://remote.example/activities/r77",
+            "type": "Create",
+            "recipient_public_id": None,
+            "actor": {"iri": "https://remote.example/users/stranger", "inbox": "https://remote.example/users/stranger/inbox", "shared_inbox": None},
+            "announced_by": None,
+            "object_iri": reply_iri,
+            "public": True,
+            "object": {**post(reply_iri, in_reply_to=rendition_iri), "quote": None},
+            "parents": [],
+            "actor_type": "Person",
+            "mentioned": [],
+            "in_reply_to": rendition_iri,
+            "verified_by": "http-signature",
+        },
+    }
+    res = internal.call(reply_event)
+    assert res.status_code == 200 and res.json() == {"decision": "accepted", "reason": None, "items": 1, "notices": []}
+    client = _client(internal)
+    try:
+        assert [(r[0], r[1], r[2]) for r in client.execute("SELECT in_timeline, mention, in_reply_to_iri FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (internal.alice, reply_iri))] == [(1, 1, rendition_iri)]
+        assert [r[0] for r in client.execute("SELECT kind FROM notifications WHERE account_id=?", (internal.alice,))] == ["ap_mention"]
+        assert opinions_store.request_fetch(client, rendition_iri, own=True, object_published=NOW - 3600, now=NOW) is not None
+        client.commit()
+    finally:
+        client.close()
+    tasks = internal.get("/opinion-tasks").json()["tasks"]
+    assert any(t["object_iri"] == rendition_iri and reply_iri in t["start"] for t in tasks)
+
+    # Self-like on own document object and own note are ignored without storing reactions; Announce from owner is still accepted.
+    own_note_id = 816412345678901255
+    client = _client(internal)
+    try:
+        client.execute("INSERT INTO federation_notes (public_id, account_id, content_text, content_html, published_at, updated_at) VALUES (?, ?, 'hi', '<p>hi</p>', ?, ?)", (own_note_id, internal.alice, NOW, NOW))
+        client.commit()
+    finally:
+        client.close()
+
+    def _inbox_like(actor_iri: str, target_iri: str, kind: str = "Like"):
+        return internal.call({"method": "POST", "path": "/internal/federation/v1/inbox-events", "body": {"event_id": f"{actor_iri}#act/{kind}/{target_iri[-4:]}", "type": kind, "object_type": None, "recipient_public_id": None, "actor": {"iri": actor_iri, "inbox": f"{actor_iri}/inbox", "shared_inbox": None}, "object_iri": target_iri, "verified_by": "http-signature"}})
+
+    assert _inbox_like(ALICE_IRI, OBJECT).json() == {"decision": "ignored", "reply": None, "reason": None}
+    assert _inbox_like(ALICE_IRI, f"{ORIGIN}/ap/objects/{own_note_id}").json() == {"decision": "ignored", "reply": None, "reason": None}
+    assert _inbox_like(ALICE_IRI, OBJECT, kind="Announce").json() == {"decision": "accepted", "reply": None, "reason": None}
+
+    # Hidden document rejects new reactions with no_object.
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        conn.execute("UPDATE documents SET hidden=1 WHERE id='doc-second'")
+        conn.commit()
+    finally:
+        conn.close()
+    assert _inbox_like(BOB_IRI, f"{ORIGIN}/ap/objects/{SECOND_OBJECT_ID}").json() == {"decision": "ignored", "reply": None, "reason": "no_object"}
+
+
+def test_opinions_item_access_control_and_note_id_collision_guard(internal, monkeypatch):  # noqa: F811
+    from types import SimpleNamespace
+    from starlette.testclient import TestClient
+    from claire.api.server import create_app
+    from claire.core import ids
+    from claire.store import accounts as accounts_store
+    from tests.test_federation_routes import SECOND_OBJECT_ID
+
+    rendition_id = 816412345678901266
+    second_obj_iri = f"{ORIGIN}/ap/objects/{SECOND_OBJECT_ID}"
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        conn.execute("INSERT INTO federation_rendition_objects (public_id, parent_public_id, template, created_at, updated_at) VALUES (?, ?, 'concise', ?, ?)", (rendition_id, OBJECT_ID, NOW, NOW))
+        alice_session = accounts_store.create_account_session(conn, account_id=internal.alice, scope="owner", now=NOW)
+        conn.commit()
+    finally:
+        conn.close()
+
+    client = _client(internal)
+    try:
+        # Local notes: n_valid -> OBJECT, n_chain_16 -> ... -> n_valid, n_too_deep (17 hops), n_unrelated -> None, n_hidden -> OBJECT (also hidden in federation_opinions), n_under_hidden -> n_hidden, n_cycle_a <-> n_cycle_b.
+        n_valid = 7100
+        client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, ?, 'valid', '<p>valid</p>', ?, ?)", (n_valid, internal.alice, OBJECT, NOW, NOW))
+        prev = f"{ORIGIN}/ap/objects/{n_valid}"
+        for idx in range(1, 17):
+            nid = 7100 + idx
+            client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, ?, 'hop', '<p>hop</p>', ?, ?)", (nid, internal.alice, prev, NOW, NOW))
+            prev = f"{ORIGIN}/ap/objects/{nid}"
+        n_unrelated = 7200
+        client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, NULL, 'unrelated', '<p>unrelated</p>', ?, ?)", (n_unrelated, internal.alice, NOW, NOW))
+        n_hidden = 7201
+        hidden_iri = f"{ORIGIN}/ap/objects/{n_hidden}"
+        client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, ?, 'hidden note', '<p>hidden</p>', ?, ?)", (n_hidden, internal.alice, OBJECT, NOW, NOW))
+        opinions_store.store_objects(client, OBJECT, [post(hidden_iri, in_reply_to=OBJECT)], quoting=set(), delivered=set(), now=NOW)
+        opinions_store.hide(client, OBJECT, hidden_iri, hidden_by=internal.alice, hidden=True, now=NOW)
+        n_under_hidden = 7202
+        client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, ?, 'under hidden', '<p>under</p>', ?, ?)", (n_under_hidden, internal.alice, hidden_iri, NOW, NOW))
+        client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (7203, ?, ?, 'cyc a', '<p>a</p>', ?, ?)", (internal.alice, f"{ORIGIN}/ap/objects/7204", NOW, NOW))
+        client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (7204, ?, ?, 'cyc b', '<p>b</p>', ?, ?)", (internal.alice, f"{ORIGIN}/ap/objects/7203", NOW, NOW))
+        client.commit()
+    finally:
+        client.close()
+
+    with TestClient(create_app(settings=internal.settings, service=SimpleNamespace(provider=SimpleNamespace(name="stub"))), base_url=ORIGIN, follow_redirects=False) as http:
+        headers = {"Cookie": f"claire_session={alice_session}", "Origin": ORIGIN}
+        # Allowed: target object itself, direct local note, 15-hop local note (16 steps including direct parent -> OBJECT).
+        assert http.post("/api/federation/opinions/item", json={"object": OBJECT, "opinion": OBJECT}, headers=headers).status_code == 200
+        assert http.post("/api/federation/opinions/item", json={"object": OBJECT, "opinion": f"{ORIGIN}/ap/objects/{n_valid}"}, headers=headers).status_code == 200
+        assert http.post("/api/federation/opinions/item", json={"object": OBJECT, "opinion": f"{ORIGIN}/ap/objects/7115"}, headers=headers).status_code == 200
+
+        # Refused with 404 opinion_not_found: >16 hops, unrelated note, unrelated published document, hidden opinion (must not fall through), reply under hidden opinion, cycle.
+        for bad_opinion in (f"{ORIGIN}/ap/objects/7116", f"{ORIGIN}/ap/objects/{n_unrelated}", second_obj_iri, hidden_iri, f"{ORIGIN}/ap/objects/{n_under_hidden}", f"{ORIGIN}/ap/objects/7203"):
+            r = http.post("/api/federation/opinions/item", json={"object": OBJECT, "opinion": bad_opinion}, headers=headers)
+            assert (r.status_code, r.json()["error"]) == (404, "opinion_not_found"), bad_opinion
+
+        # Hidden target document also returns 404 opinion_not_found.
+        conn = dbm.connect_existing(internal.settings.db_file)
+        try:
+            conn.execute("UPDATE documents SET hidden=1 WHERE id='doc-second'")
+            conn.commit()
+        finally:
+            conn.close()
+        r = http.post("/api/federation/opinions/item", json={"object": second_obj_iri, "opinion": second_obj_iri}, headers=headers)
+        assert (r.status_code, r.json()["error"]) == (404, "opinion_not_found")
+
+        # Note ID generation avoids colliding with federation_rendition_objects.
+        generated = iter([rendition_id, 816412345678901277])
+        monkeypatch.setattr(ids, "timestamp_id", lambda *_args, **_kwargs: next(generated))
+        note_res = http.post("/api/federation/notes", json={"content": "No collision"}, headers=headers)
+        assert note_res.status_code == 201 and note_res.json()["note"]["id"] == "816412345678901277"

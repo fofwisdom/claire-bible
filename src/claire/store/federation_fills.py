@@ -101,23 +101,27 @@ def get_fill(conn: sqlite3.Connection, fill_id: int) -> Fill | None:
     return None if row is None else _fill(row)
 
 
-def _copy(conn: sqlite3.Connection, *, account_id: int, actor_iri: str, now: float) -> int | None:
+def _copy(conn: sqlite3.Connection, *, account_id: int, actor_iri: str, followed: set[str] | None = None, retention_days: int = 0, now: float) -> int | None:
     """Rule 7: when another account filled the same actor in the last hour, copy its filled items and read nothing. Return the number of copied items, or ``None`` when no such fill exists."""
     source = conn.execute("SELECT account_id FROM federation_fills WHERE actor_iri=? AND account_id<>? AND status IN ('finished', 'copied') AND finished_at>=? ORDER BY finished_at DESC LIMIT 1", (actor_iri, account_id, now - COPY_SECONDS)).fetchone()
     if source is None:
         return None
     copied = 0
-    for item in conn.execute("SELECT object_iri FROM federation_timeline_items WHERE account_id=? AND author_iri=? AND filled=1", (int(source[0]), actor_iri)).fetchall():
+    for object_iri, in_reply_to_iri, published_at in conn.execute("SELECT object_iri, in_reply_to_iri, published_at FROM federation_timeline_items WHERE account_id=? AND author_iri=? AND filled=1", (int(source[0]), actor_iri)).fetchall():
+        if retention_days > 0 and (published_at is None or float(published_at) < now - retention_days * 86400.0):
+            continue
+        if followed is not None and isinstance(in_reply_to_iri, str) and not _reply_kept(conn, account_id, actor_iri, in_reply_to_iri, followed):
+            continue
         made = conn.execute(
             "INSERT OR IGNORE INTO federation_timeline_items (account_id, object_iri, url, object_type, author_iri, author_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, quote_of_iri, published_at, updated_at, in_timeline, mention, received_at, unread, filled) "
             "SELECT ?, object_iri, url, object_type, author_iri, author_json, name, summary, sensitive, content_html, language, attachments_json, context_iri, in_reply_to_iri, quote_of_iri, published_at, updated_at, 0, 0, ?, 0, 1 FROM federation_timeline_items WHERE account_id=? AND object_iri=?",
-            (account_id, now, int(source[0]), str(item[0])),
+            (account_id, now, int(source[0]), str(object_iri)),
         ).rowcount
         copied += int(bool(made))
     return copied
 
 
-def request_fill(conn: sqlite3.Connection, account_id: int, actor_iri: str, *, now: float) -> Fill | None:
+def request_fill(conn: sqlite3.Connection, account_id: int, actor_iri: str, *, now: float, followed: set[str] | None = None, retention_days: int = 0) -> Fill | None:
     """Ask for the fill of a follow that became ``accepted`` (rule 1). Return the fill, or ``None`` when the last fill of the same account and actor is less than 24 hours old or the address has no host. A fill of another account of the last hour is copied at once (status ``copied``). The caller commits."""
     domain = (urlsplit(actor_iri).hostname or "").lower()
     if not domain:
@@ -130,7 +134,7 @@ def request_fill(conn: sqlite3.Connection, account_id: int, actor_iri: str, *, n
         "ON CONFLICT(account_id, actor_iri) DO UPDATE SET status='pending', requested_at=excluded.requested_at, started_at=NULL, lease_until=NULL, attempts=0, finished_at=NULL, stored=NULL",
         (account_id, actor_iri, domain, now),
     )
-    copied = _copy(conn, account_id=account_id, actor_iri=actor_iri, now=now)
+    copied = _copy(conn, account_id=account_id, actor_iri=actor_iri, followed=followed, retention_days=retention_days, now=now)
     if copied is not None:
         conn.execute("UPDATE federation_fills SET status='copied', finished_at=?, stored=? WHERE account_id=? AND actor_iri=?", (now, copied, account_id, actor_iri))
     found = conn.execute(f"SELECT {_COLUMNS} FROM federation_fills WHERE account_id=? AND actor_iri=?", (account_id, actor_iri)).fetchone()

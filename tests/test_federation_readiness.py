@@ -108,6 +108,8 @@ def _public_request(
             return federation_readiness.HttpResponse(status=401, headers={**SIDECAR}, body=b"")
         if key == ("GET", "/ns/v1"):
             return federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, "access-control-allow-origin": "*", **CLAIRE}, body=vocabulary.context_json().encode("utf-8"))
+        if key == ("GET", "/ns/v2"):
+            return federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, "access-control-allow-origin": "*", **CLAIRE}, body=vocabulary.context_json_v2().encode("utf-8"))
         if key == ("GET", "/ns"):
             return federation_readiness.HttpResponse(status=200, headers={"content-type": "text/html; charset=utf-8", **CLAIRE}, body=b"<!doctype html><title>Claire NS</title>")
         if key == ("GET", "/.well-known/nodeinfo"):
@@ -927,6 +929,10 @@ def test_gf17_is_a_warning_and_never_fails_the_report(ready):
     assert report.passed is True
     by_id = {item.id: item for item in report.items}
     assert by_id["GF17"].level == "warning" and by_id["GF17"].passed is False and by_id["GF17"].code == "ns_context_failed"
+
+    bad_v2 = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ns/v2"): federation_readiness.HttpResponse(status=200, headers={"content-type": vocabulary.CONTEXT_MEDIA_TYPE, "access-control-allow-origin": "*", **CLAIRE}, body=vocabulary.context_json().encode("utf-8"))})
+    items = _report(ready, request=bad_v2)
+    assert items["GF17"]["passed"] is False and items["GF17"]["code"] == "ns_context_failed" and "GET /ns/v2 through the public origin:" in items["GF17"]["detail"]
 
     bad_vocab = _public_request(ready.public_url, data_dir=ready.data_dir, overrides={("GET", "/ns"): federation_readiness.HttpResponse(status=404, headers={**CLAIRE}, body=b"")})
     items = _report(ready, request=bad_vocab)

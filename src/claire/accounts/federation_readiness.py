@@ -843,30 +843,31 @@ def _check_ns_documents(probes: _Probes | None) -> FederationReadinessItem:
     if probes is None:
         return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=False, code="runtime_invalid", detail="The runtime configuration is not valid.")
 
-    def fail_context(problem: str) -> FederationReadinessItem:
-        return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=False, code="ns_context_failed", detail=f"GET /ns/v1 through the public origin: {problem}.", values={"problem": problem})
+    def fail_context(path: str, problem: str) -> FederationReadinessItem:
+        return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=False, code="ns_context_failed", detail=f"GET {path} through the public origin: {problem}.", values={"problem": problem})
 
     def fail_vocab(problem: str) -> FederationReadinessItem:
         return FederationReadinessItem(id="GF17", name=name, group="knowledge", level="warning", applies=True, passed=False, code="ns_vocabulary_failed", detail=f"GET /ns through the public origin: {problem}.", values={"problem": problem})
 
-    ctx_resp, answer = probes.send("GET", "/ns/v1", headers={"Accept": "application/ld+json, application/json"})
-    if ctx_resp is None or answer.party != "claire":
-        return _failed_item("GF17", name, "knowledge", "warning", "/ns/v1", answer, expected="claire", source="Claire")
-    if 300 <= ctx_resp.status < 400:
-        return fail_context(f"unexpected redirect (HTTP {ctx_resp.status})")
-    if ctx_resp.status != 200:
-        return fail_context(f"HTTP status {ctx_resp.status}")
-    media_type = _media_type(ctx_resp.headers)
-    if media_type != vocabulary.CONTEXT_MEDIA_TYPE:
-        return fail_context(f"media type is {media_type or 'missing'}")
-    if ctx_resp.headers.get("access-control-allow-origin") != "*":
-        return fail_context("missing header Access-Control-Allow-Origin: *")
-    try:
-        ctx_doc = json.loads(ctx_resp.body)
-    except (ValueError, TypeError):
-        ctx_doc = None
-    if ctx_doc != vocabulary.context_document():
-        return fail_context("body is not the context document of this version")
+    for path, expected_doc in (("/ns/v1", vocabulary.context_document()), ("/ns/v2", vocabulary.context_document_v2())):
+        ctx_resp, answer = probes.send("GET", path, headers={"Accept": "application/ld+json, application/json"})
+        if ctx_resp is None or answer.party != "claire":
+            return _failed_item("GF17", name, "knowledge", "warning", path, answer, expected="claire", source="Claire")
+        if 300 <= ctx_resp.status < 400:
+            return fail_context(path, f"unexpected redirect (HTTP {ctx_resp.status})")
+        if ctx_resp.status != 200:
+            return fail_context(path, f"HTTP status {ctx_resp.status}")
+        media_type = _media_type(ctx_resp.headers)
+        if media_type != vocabulary.CONTEXT_MEDIA_TYPE:
+            return fail_context(path, f"media type is {media_type or 'missing'}")
+        if ctx_resp.headers.get("access-control-allow-origin") != "*":
+            return fail_context(path, "missing header Access-Control-Allow-Origin: *")
+        try:
+            ctx_doc = json.loads(ctx_resp.body)
+        except (ValueError, TypeError):
+            ctx_doc = None
+        if ctx_doc != expected_doc:
+            return fail_context(path, "body is not the context document of this version")
 
     vocab_resp, answer = probes.send("GET", "/ns", headers={"Accept": "text/html"})
     if vocab_resp is None or answer.party != "claire":

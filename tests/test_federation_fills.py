@@ -84,3 +84,40 @@ def test_a_domain_with_thirty_fills_in_one_hour_waits(internal):  # noqa: F811
         assert [f.actor_iri for f in fills_store.lease(client, now=NOW + 3601.0, limit=50, account_ids=accounts) if f.actor_iri.endswith(f"u{fills_store.DOMAIN_HOURLY_LIMIT}")] == [f"https://busy.example/users/u{fills_store.DOMAIN_HOURLY_LIMIT}"]
     finally:
         client.close()
+
+
+def test_copied_fill_filters_replies_and_expired_items(internal):  # noqa: F811
+    from claire.store import federation_client as client_store
+    from claire.store import db as dbm
+
+    zoe = "https://other.example/users/zoe"
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        client_store.set_reading_settings(conn, {"retention_days": 30}, updated_by=1, now=NOW)
+    finally:
+        conn.close()
+    client = _client(internal)
+    try:
+        fill = need(fills_store.request_fill(client, internal.alice, DAN, now=NOW))
+        kept_post = {"object_iri": f"{DAN}/statuses/10", "url": None, "type": "Note", "author": {"iri": DAN, "name": "Dan", "handle": "@dan@remote.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>recent</p>", "language": "en", "published_at": NOW - 5 * 86400.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": None, "quote": None}
+        # Account A follows Zoe, so this reply is stored for A, and becomes older than 30 days at the time of B's copy.
+        reply_to_zoe = {**kept_post, "object_iri": f"{DAN}/statuses/11", "published_at": NOW - 100.0, "in_reply_to": f"{zoe}/statuses/1"}
+        expiring_post = {**kept_post, "object_iri": f"{DAN}/statuses/12", "published_at": NOW - 30 * 86400.0 + 600.0}
+        assert fills_store.store_objects(client, fill, [kept_post, reply_to_zoe, expiring_post], followed={DAN, zoe}, retention_days=30, now=NOW) == 3
+        fills_store.finish(client, fill.id, now=NOW + 5.0)
+        # Account B follows Dan 35 minutes later; B does not follow Zoe, and expiring_post is now older than 30 days.
+        # Add an unfollowed account B via pending follow + Accept inbox event to verify federation_routes passes followed and retention_days.
+        client.execute("INSERT INTO federation_following (id, account_id, request, actor_iri, state, created_at, updated_at) VALUES (99, ?, '@dan@remote.example', ?, 'pending', ?, ?)", (internal.bob, DAN, NOW, NOW))
+        client.commit()
+    finally:
+        client.close()
+    internal.now = float(NOW + 2100.0)
+    resp = internal.call({"method": "POST", "path": "/internal/federation/v1/inbox-events", "body": {"event_id": f"{DAN}#accept/99", "type": "Accept", "object_type": "Follow", "recipient_public_id": "216412345678901234", "actor": {"iri": DAN, "inbox": f"{DAN}/inbox", "shared_inbox": None}, "object_iri": f"https://claire.example.com/ap/actors/216412345678901234#follows/99", "verified_by": "http-signature"}})
+    assert resp.status_code == 200 and resp.json() == {"decision": "accepted", "reply": None, "reason": None}
+    client = _client(internal)
+    try:
+        assert _items(client, internal.bob, DAN) == [(f"{DAN}/statuses/10", 0, 1)]
+        copied = need(fills_store.get_fill(client, 2))
+        assert (copied.status, copied.stored) == ("copied", 1)
+    finally:
+        client.close()

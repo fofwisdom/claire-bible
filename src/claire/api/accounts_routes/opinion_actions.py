@@ -56,38 +56,72 @@ def routes(ctx: AccountsContext) -> list[Route]:
         number = object_iri[len(prefix):]
         return int(number) if number.isascii() and number.isdigit() else None
 
-    def _local_item(conn: Any, client: Any, iri: str) -> dict[str, Any] | None:
-        """The normal form of an object of this server for an item: a note that is not deleted, or a published document object (the data of its object at its ID). ``None`` for another address."""
+    def _actor(conn: Any, account_id: int) -> accounts_store.Account | None:
+        try:
+            account = accounts_store.AccountStore(conn).get(account_id)
+        except accounts_store.AccountNotFound:
+            return None
+        return account if account is not None and actor_state(account) == "active" else None
+
+    def _public_document_object(conn: Any, number: int) -> tuple[federation_store.FederationObject, federation_store.RenditionObject | None, accounts_store.Account] | None:
+        """Return the published document object, optional rendition object, and active actor owner when public now."""
+        owning = federation_store.owning_object(conn, number)
+        if owning is None:
+            return None
+        obj, rendition = owning
+        author = _actor(conn, obj.account_id)
+        if author is None:
+            return None
+        row = conn.execute("SELECT 1 FROM knowledge_bases k JOIN documents d ON d.kb_id=k.id WHERE k.id=? AND k.is_public=1 AND d.id=? AND COALESCE(d.hidden, 0)=0", (obj.kb_id, obj.document_id)).fetchone()
+        return None if row is None else (obj, rendition, author)
+
+    def _note_in_thread(client: Any, note: notes_store.Note, note_iri: str, *, visible_targets: set[str], hidden_targets: set[str]) -> bool:
+        """Return true when ``note`` reaches ``visible_targets`` within 16 parent hops without cycles or hidden opinions."""
+        seen = {note_iri}
+        parent_iri = note.in_reply_to_iri
+        for _ in range(16):
+            if parent_iri is None or parent_iri in hidden_targets:
+                return False
+            if parent_iri in visible_targets:
+                return True
+            if parent_iri in seen:
+                return False
+            seen.add(parent_iri)
+            parent_num = _number(parent_iri)
+            if parent_num is None:
+                return False
+            parent_note = notes_store.get_note(client, parent_num)
+            if parent_note is None or parent_note.deleted_at is not None:
+                return False
+            parent_iri = parent_note.in_reply_to_iri
+        return False
+
+    def _local_item(conn: Any, client: Any, *, object_iri: str, target: tuple[federation_store.FederationObject, federation_store.RenditionObject | None, accounts_store.Account], iri: str, visible_opinions: set[str], hidden_opinions: set[str]) -> dict[str, Any] | None:
+        """Build a timeline item only for the public target object or a non-deleted local note in its visible thread."""
         number = _number(iri)
         if number is None:
             return None
-        account_id: int | None = None
-        item: dict[str, Any] | None = None
-        obj = federation_store.get_object(conn, number)
-        if obj is not None:
+        if iri == object_iri:
             from ..federation_routes import _published_object_content
 
+            obj, rendition, author = target
             document = conn.execute("SELECT title FROM documents WHERE id=? AND kb_id=?", (obj.document_id, obj.kb_id)).fetchone()
             token = permalinks.token_of(conn, "document", obj.document_id)
-            url = None if token is None else permalinks.permalink_url(origin, token)
+            url = None if token is None else permalinks.permalink_url(origin, token) + ("" if rendition is None else f"/renditions/{rendition.template}")
             title = str(document[0] or "") if document is not None else ""
-            account_id = obj.account_id
-            item = {"object_iri": iri, "url": url, "type": "Article", "name": title, "summary": None, "sensitive": False, "content_html": _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id), title, url), "language": None, "attachments": [], "context": None, "in_reply_to": None, "quote": None, "published_at": obj.published_at, "updated_at": obj.updated_at}
+            published_at = obj.published_at if rendition is None else rendition.created_at
+            updated_at = obj.updated_at if rendition is None else rendition.updated_at
+            item: dict[str, Any] = {"object_iri": iri, "url": url, "type": "Article", "name": title, "summary": None, "sensitive": False, "content_html": _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id), title, url), "language": None, "attachments": [], "context": None, "in_reply_to": None, "quote": None, "published_at": published_at, "updated_at": updated_at}
         else:
             note = notes_store.get_note(client, number)
             if note is None or note.deleted_at is not None:
                 return None
-            account_id = note.account_id
+            author = _actor(conn, note.account_id)
+            if author is None or not _note_in_thread(client, note, iri, visible_targets={object_iri, *visible_opinions}, hidden_targets=hidden_opinions):
+                return None
             item = notes_store.note_timeline_item(note, object_iri=iri, author={}, context_iri=None)
-        author = _actor(conn, account_id)
-        if author is None:
-            return None
         item["author"] = {"iri": f"{origin}/ap/actors/{author.public_id}", "name": author.display_name or None, "handle": f"@{author.username}@{ctx.config.expected_authority}"}
         return item
-
-    def _actor(conn: Any, account_id: int) -> accounts_store.Account | None:
-        account = accounts_store.AccountStore(conn).get(account_id)
-        return account if account is not None and actor_state(account) == "active" else None
 
     async def item_post(request: Request) -> Response:
         principal = request_principal(request)
@@ -108,12 +142,18 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 if _actor(conn, account_id) is None:
                     return 409, {"error": "not_actor"}
-                if federation_store.owning_object(conn, number) is None:
+                target = _public_document_object(conn, number)
+                if target is None:
                     return 404, {"error": "opinion_not_found"}
-                opinion = next((o for o in opinions_store.opinions_of(client, object_iri) if o.opinion_iri == opinion_iri), None)
+                all_opinions = opinions_store.opinions_of(client, object_iri, include_hidden=True)
+                opinion = next((o for o in all_opinions if o.opinion_iri == opinion_iri), None)
+                if opinion is not None and opinion.hidden_at is not None:
+                    return 404, {"error": "opinion_not_found"}
                 if opinion is None:
                     # RD30: a note of this server in the thread, or the post of the page, is an item as a post of another server.
-                    local = _local_item(conn, client, opinion_iri)
+                    visible_opinions = {o.opinion_iri for o in all_opinions if o.hidden_at is None}
+                    hidden_opinions = {o.opinion_iri for o in all_opinions if o.hidden_at is not None}
+                    local = _local_item(conn, client, object_iri=object_iri, target=target, iri=opinion_iri, visible_opinions=visible_opinions, hidden_opinions=hidden_opinions)
                     if local is None:
                         return 404, {"error": "opinion_not_found"}
                     client_store.upsert_timeline_item(client, account_id=account_id, item=local, announced_by=None, in_timeline=False, now=time.time())

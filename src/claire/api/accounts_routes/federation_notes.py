@@ -269,8 +269,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 when = time.time()
 
                 def _taken(number: int) -> bool:
-                    # RT7: the number space of the published documents and their tombstones (claire.db).
-                    return conn.execute("SELECT 1 FROM federation_objects WHERE public_id=? UNION ALL SELECT 1 FROM federation_tombstones WHERE public_id=?", (number, number)).fetchone() is not None
+                    # RT7: the number space of the published documents, rendition objects, and their tombstones (claire.db).
+                    return conn.execute("SELECT 1 FROM federation_objects WHERE public_id=? UNION ALL SELECT 1 FROM federation_rendition_objects WHERE public_id=? UNION ALL SELECT 1 FROM federation_tombstones WHERE public_id=?", (number, number, number)).fetchone() is not None
 
                 note = notes_store.add_note(
                     client, account_id=account_id, salt=store.id_salt(), taken=_taken, in_reply_to_iri=own_parent if parent is None else parent.object_iri,
