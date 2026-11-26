@@ -6398,6 +6398,57 @@ def create_app(
             return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=True)
         return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
 
+    async def permalink_opinions_route(request: Request) -> Response:
+        """``GET /silvercord/{token}/opinions`` and ``GET /silvercord/{token}/renditions/{template}/opinions``: the opinions of the object of the page, with the refresh state of its fetch (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.8 and 5.11 B and D, phase E7a). A request starts a fetch when the conditions of Section 5.11 B2 hold; anonymous visitors too, because the conditions are of the object. The access rules are the ones of the document; a document that is not published gives ``{"published": false}`` (Section 5.11 D6)."""
+        from ..federation import opinions as opinions_mod
+        from ..store import federation_opinions as opinions_store
+        from .accounts_routes import rendition_marks
+
+        token = str(request.path_params.get("token", ""))
+        template = request.path_params.get("template")
+        if not permalinks.plausible_token(token) or (template is not None and template not in RENDITION_TEMPLATE_IDS):
+            return PlainTextResponse("Not Found", status_code=404)
+        found, doc_meta, gone, pending = await asyncio.to_thread(_load_document_permalink, token, with_detail=False)
+        if found is None or found.kind != "document":
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.alias is not None:
+            return RedirectResponse(permalinks.permalink_path(found.token) + (f"/renditions/{template}" if template else "") + "/opinions", status_code=308)
+        if found.gone_at is not None or gone or doc_meta is None:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        is_member = await _caller_is_member(request, kb)
+        if not is_member and (pending or bool(doc_meta.get("hidden"))):
+            return PlainTextResponse("Not Found", status_code=404)
+        if not is_member and _kb_decide(request, kb, "read") != "allow" and not found.link_access:
+            return PlainTextResponse("Not Found", status_code=404)
+        origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+
+        def _view() -> dict[str, Any]:
+            conn = dbm.connect_existing(s.db_file)
+            client = client_db.connect_client_existing(client_db.client_db_path(s.db_file))
+            try:
+                target = rendition_marks.local_rendition_object(conn, kb_id=kb.id, document_id=found.target, template=template or PRIMARY_RENDITION_TEMPLATE)
+                if target is None:
+                    return {"published": False, "object": None, "opinions": [], "counts": None, "refresh": None}
+                public_id = target[0]
+                obj = federation_store.get_object(conn, public_id)
+                published = obj.published_at if obj is not None else (federation_store.get_rendition_object(conn, public_id).created_at)  # type: ignore[union-attr]
+                object_iri = f"{origin}/ap/objects/{public_id}"
+                if opinions_store.request_fetch(client, object_iri, own=True, object_published=published, now=time.time()) is not None:
+                    client.commit()
+                actor_ids = {int(row[0]) for row in conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")}
+                return opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time())
+            finally:
+                client.close()
+                conn.close()
+
+        view = await asyncio.to_thread(_view)
+        # The posts of other people are not indexed under this server (Section 5.11 D7).
+        return JSONResponse(view, headers={"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "strict-origin-when-cross-origin", "Vary": "Cookie"})
+
     async def permalink_remote_rendition_route(request: Request) -> Response:
         """``GET /silvercord/{token}/renditions/remote/{key}``: the body of one rendition of another Claire server, as a page for the sandbox frame of the document page (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.5 and 5.8 rule 4, phase E5c). The access rules are the ones of the document; the page has no script and an opaque origin (``usercontent.remote_item_response``)."""
         from . import usercontent
@@ -7420,6 +7471,8 @@ def create_app(
         Route("/silvercord/{token}/graph", permalink_graph_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/renditions/{template}", permalink_rendition_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/renditions/remote/{key}", permalink_remote_rendition_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/opinions", permalink_opinions_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/renditions/{template}/opinions", permalink_opinions_route, methods=["GET", "HEAD"]),
         Route("/entity/{token}", entity_address_route, methods=["GET", "HEAD"]),
         Route("/entities/{entity_id}/share", entity_share_route, methods=["POST", "DELETE"]),
         Route("/p", shared_doc_page, methods=["GET"]),

@@ -40,9 +40,20 @@ export interface ThreadFetchOptions {
 }
 
 // The public posts of the thread of the object `objectIri`, without that object, `maxItems` at most. "object_not_found": the start object is not an available post.
-export async function fetchThread(objectIri: string, options: ThreadFetchOptions): Promise<TimelineObject[] | "object_not_found"> {
+// The result of a walk: the public posts in the normal form, and the start addresses that are gone at their origin (a 404 or 410).
+export interface WalkResult {
+  objects: TimelineObject[];
+  gone: string[];
+}
+
+// Walks from start posts with @fedify/backfill and gives the public posts that it found (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B4 and F).
+// Each start post is read from its origin; the walk reads the FEP-7888 `context` collection of each one and its reply tree, and merges the two (Section 5.11 F: Mastodon gives a `context` that is not a useful collection and a complete reply tree).
+// includeStarts: the start posts are in the result too (the opinions of an own object start from the replies that this server knows, and a second read refreshes them).
+// readIris: posts that are read and put in the result without a walk (the quote posts of an own object: their replies are not opinions of the object, Section 5.11 B4).
+export async function walkPosts(startIris: string[], options: ThreadFetchOptions, includeStarts: boolean, readIris: string[] = []): Promise<WalkResult | "object_not_found"> {
   const maxRequests = requestLimit(options.maxItems);
   let requests = 0;
+  const gone: string[] = [];
   // The objects that came from a document on the origin of their own ID. The key is the ID.
   const direct = new Map<string, ASObject>();
   // Never throws: a request that is not permitted or that fails gives null.
@@ -55,37 +66,51 @@ export async function fetchThread(objectIri: string, options: ThreadFetchOptions
       const remote = await options.documentLoader(iri.href);
       const object = await ASObject.fromJsonLd(remote.document, { documentLoader: options.documentLoader, contextLoader: options.contextLoader });
       if (object.id !== null && object.id.origin === new URL(remote.documentUrl).origin) direct.set(object.id.href, object);
-      return object;
-    } catch {
+      // backfill gets its own instance: when it resolves a link that cannot be read (for example the reply target on this server), Fedify keeps an empty value on that instance, and the normal form would lose `inReplyTo`.
+      return await ASObject.fromJsonLd(remote.document, { documentLoader: options.documentLoader, contextLoader: options.contextLoader });
+    } catch (error) {
+      const status = (error as { response?: unknown } | null)?.response instanceof Response ? ((error as { response: Response }).response.status) : null;
+      if (status === 404 || status === 410) gone.push(iri.href);
       return null;
     }
   };
 
-  let start: URL;
-  try {
-    start = new URL(objectIri);
-  } catch {
-    return "object_not_found";
-  }
-  await load(start);
-  const seed = direct.get(start.href);
-  if (!isPost(seed)) return "object_not_found";
-
-  const found: URL[] = [];
-  const run = async (strategy: BackfillStrategy) => {
-    const left = options.maxItems - found.length;
-    if (left < 1 || requests >= maxRequests) return;
-    for await (const item of backfill({ documentLoader: load }, seed, { strategies: [strategy], maxItems: left, maxDepth: options.maxDepth, maxRequests: maxRequests - requests })) {
-      if (item.id !== undefined) found.push(item.id);
+  const parse = (raw: string): URL | null => {
+    try {
+      return new URL(raw);
+    } catch {
+      return null;
     }
   };
-  await run("context-auto");
-  // No context collection, or an empty one: the reply tree.
-  if (found.length === 0) await run("reply-tree");
+  const seeds: ASObject[] = [];
+  for (const raw of startIris) {
+    const start = parse(raw);
+    if (start === null) continue;
+    const seed = await load(start);
+    if (isPost(seed) && direct.has(start.href)) seeds.push(seed);
+  }
+  if (seeds.length === 0 && !includeStarts) return "object_not_found";
+
+  const found = new Map<string, URL>();
+  if (includeStarts) for (const seed of seeds) if (seed.id !== null) found.set(seed.id.href, seed.id);
+  for (const raw of readIris) {
+    const iri = parse(raw);
+    if (iri === null || found.size >= options.maxItems) continue;
+    if (isPost(await load(iri)) && direct.has(iri.href)) found.set(iri.href, iri);
+  }
+  for (const seed of seeds) {
+    for (const strategy of ["context-auto", "reply-tree"] as BackfillStrategy[]) {
+      const left = options.maxItems - found.size;
+      if (left < 1 || requests >= maxRequests) break;
+      for await (const item of backfill({ documentLoader: load }, seed, { strategies: [strategy], maxItems: left, maxDepth: options.maxDepth, maxRequests: maxRequests - requests })) {
+        if (item.id !== undefined && !(seed.id !== null && item.id.href === seed.id.href && !includeStarts)) found.set(item.id.href, item.id);
+      }
+    }
+  }
 
   const authors = new Map<string, TimelineActor>();
   const objects: TimelineObject[] = [];
-  for (const id of found) {
+  for (const id of found.values()) {
     if (!direct.has(id.href)) await load(id);
     const post = direct.get(id.href);
     if (!isPost(post) || !isPublic(post)) continue;
@@ -102,7 +127,13 @@ export async function fetchThread(objectIri: string, options: ThreadFetchOptions
     const normal = await normalObject(post, author, { contextLoader: options.contextLoader });
     if (typeof normal !== "string") objects.push(normal);
   }
-  return objects;
+  return { objects, gone: gone.filter((iri) => startIris.includes(iri) || readIris.includes(iri)) };
+}
+
+// The thread of one remote post for the timeline of an account: the walk from that post, without the post itself.
+export async function fetchThread(objectIri: string, options: ThreadFetchOptions): Promise<TimelineObject[] | "object_not_found"> {
+  const result = await walkPosts([objectIri], options, false);
+  return result === "object_not_found" ? result : result.objects;
 }
 
 // The parts of a list of objects for `context-objects` requests: OBJECTS_BATCH objects and OBJECTS_BATCH_BYTES bytes at most in each part (one object can be larger than the byte limit; then it is alone).

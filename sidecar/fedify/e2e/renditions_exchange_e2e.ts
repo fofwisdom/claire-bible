@@ -5,6 +5,7 @@
 // Phases (E2E_PHASE):
 // - read:   B reads the source index of A, its rendition objects, their bodies, and the account of the author, with requests that the server actor of B signs (the read queue of B).
 // - plus:   B delivers the +1 of an account of B to the inbox of the author on A (the knowledge outbox of B); A records the mark and shows the count on the object.
+// - opinions: A fetches the opinions of its object from B (the replies of accounts of B), with requests that its server actor signs.
 // - delete: A delivers the Delete of each gone rendition object to the server actor of B, the reader of its body (the knowledge outbox of A).
 //
 // Environment: E2E_PHASE, CLAIRE_A_SOCKET, CLAIRE_A_KEY_FILE, CLAIRE_B_SOCKET, CLAIRE_B_KEY_FILE, E2E_RENDITION (the number of the rendition object "concise" on A, phase plus).
@@ -69,6 +70,13 @@ Deno.test(`renditions between two Claire servers: ${Deno.env.get("E2E_PHASE")}`,
       const rendition = Deno.env.get("E2E_RENDITION")!;
       const object = await (await a.handle(new Request(`${A_ORIGIN}/ap/objects/${rendition}`, { headers: { accept: AS2 } }))).json();
       assert.deepEqual([object["claire:plusOnes"].totalItems, object["claire:plusOnes"]["claire:servers"], object["claire:plusOnes"]["claire:score"]], [1, 1, 1]);
+    } else if (phase === "opinions") {
+      // A fetches the opinions of its object: it reads the reply of carol from B and its replies collection, and the reply of dan in it.
+      const tasks = await drain(() => a.processOpinionTasks());
+      assert.equal(tasks, 1, traffic.join("\n"));
+      assert.equal(a.outboxCounters.handed_off, 1, traffic.join("\n"));
+      assert.ok(traffic.some((line) => line.startsWith("GET b.claire.test/ap/objects/") && line.endsWith("/replies")), traffic.join("\n"));
+      assert.ok(traffic.every((line) => !line.startsWith("GET a.claire.test/ap/objects/")), traffic.join("\n"));
     } else if (phase === "delete") {
       const delivered = await drain(() => a.processKnowledgeOutbox());
       // One Delete for each gone object that B read: the document object and the rendition object.

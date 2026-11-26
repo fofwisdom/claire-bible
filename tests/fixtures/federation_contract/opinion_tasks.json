@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/opinion-tasks?limit=2"
+  },
+  "status": 200,
+  "response": {
+    "tasks": [
+      {
+        "id": 1,
+        "object_iri": "https://claire.example.com/ap/objects/816412345678901234",
+        "own": true,
+        "start": [
+          "https://remote.example/users/carol/notes/9"
+        ],
+        "quotes": [
+          "https://remote.example/users/dan/notes/5"
+        ],
+        "max_items": 1000,
+        "max_depth": 16,
+        "lease_until": 1800000700.0
+      }
+    ]
+  }
+}

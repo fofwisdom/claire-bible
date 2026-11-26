@@ -85,7 +85,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.22"
+CONTRACT_VERSION = "1.23"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -718,6 +718,7 @@ def allow_private_addresses(settings: Any) -> bool:
 def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time.time) -> list[BaseRoute]:
     """Make the route table for ``create_internal_federation_app``."""
     from .federation_collection_routes import collection_internal_routes
+    from .federation_opinion_routes import opinion_internal_routes
     from .federation_note_routes import note_internal_routes
     from .federation_quote_routes import quote_internal_routes
     from .knowledge_federation_internal import knowledge_internal_routes
@@ -1610,6 +1611,7 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
         # Outbound interactions (contract 1.6, unit FP4-9): own notes and the tasks of notes, favourites, and boosts.
         *note_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         *collection_internal_routes(origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids, open_writer=lambda: dbm.connect_existing(settings.db_file)),
+        *opinion_internal_routes(origin=lambda: _runtime().public_origin, now=now, open_conn=lambda: dbm.connect_existing(settings.db_file), open_client=lambda: client_db.connect_client_existing(client_db.client_db_path(settings.db_file)), object_refusal=_object_refusal, own_object_public_id=lambda iri: _local_object_public_id(_runtime().public_origin, iri)),
         # Quotes (contract 1.7, unit FP4-9Q): the events of the quote protocol and the record of an authorization.
         *quote_internal_routes(settings, now=now, origin=lambda: _runtime().public_origin, open_store=_open_store, open_client=_client, actor_account_ids=_actor_account_ids),
         # Federation of shared knowledge (unit KF1): the inbox journal, the signed reads of the collections, and the reads of known servers. No shape that existed changed.

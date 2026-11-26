@@ -6,7 +6,7 @@
 //
 // Each response is checked against a sealed shape: an absent field, an extra field, or a wrong type is an error.
 
-export const CONTRACT_VERSION = "1.22";
+export const CONTRACT_VERSION = "1.23";
 export const INTERNAL_PREFIX = "/internal/federation/v1";
 export const TIMESTAMP_HEADER = "x-claire-timestamp";
 export const SIGNATURE_HEADER = "x-claire-signature";
@@ -287,6 +287,18 @@ export interface TimelineInterest {
 }
 
 // One thread fetch task (contract 1.5, unit FP4-6): the sidecar reads the thread of object_iri with requests that the actor actor_public_id signs. max_items and max_depth are the limits of the task.
+// One fetch of the opinions of an object (contract 1.23, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B). own: an object of this server; then start has the replies and the quoting objects that Claire knows.
+export interface OpinionTask {
+  id: number;
+  object_iri: string;
+  own: boolean;
+  start: string[];
+  quotes: string[];
+  max_items: number;
+  max_depth: number;
+  lease_until: number;
+}
+
 export interface ContextTask {
   id: number;
   actor_public_id: string;
@@ -675,6 +687,8 @@ const timelineDecisionShape = sealed({
 });
 const timelineInterestShape = sealed({ followed: bool, context_fetch: oneOf("on", "off"), context_depth: int });
 const contextTasksShape = sealed({ tasks: list(sealed({ id: int, actor_public_id: str, object_iri: str, max_items: int, max_depth: int, created_at: num, lease_until: num })) });
+const opinionTasksShape = sealed({ tasks: list(sealed({ id: int, object_iri: str, own: bool, start: list(str), quotes: list(str), max_items: int, max_depth: int, lease_until: num })) });
+const opinionObjectsShape = sealed({ decision: oneOf("accepted"), stored: int });
 const contextObjectsShape = sealed({ decision: oneOf("accepted", "rejected"), reason: nullable(oneOf("not_an_actor", "context_fetch_off")), stored: int, refused: int });
 const knowledgeActivityShape = sealed({ decision: oneOf("processed", "failed", "refused", "duplicate", "rejected"), reason: nullable(str), journal_id: nullable(int) });
 const knowledgeCollectionShape = sealed({ collection: oneOf("kb", "themes"), server: str, document: jsonObject });
@@ -873,6 +887,22 @@ export class InternalApi {
     if (value === null) throw new InternalApiError(404, "not_found");
     contextTasksShape(value, "context_tasks");
     return (value as { tasks: ContextTask[] }).tasks;
+  }
+
+  // The fetches of opinions that wait, each with a lease (contract 1.23).
+  async opinionTasks(limit?: number): Promise<OpinionTask[]> {
+    const value = await this.#call("GET", `/opinion-tasks${limit === undefined ? "" : `?limit=${limit}`}`);
+    if (value === null) throw new InternalApiError(404, "not_found");
+    opinionTasksShape(value, "opinion_tasks");
+    return (value as { tasks: OpinionTask[] }).tasks;
+  }
+
+  // Gives posts of one fetch of opinions to Claire, the start addresses that are gone, and done with the last call. null: Claire has no such fetch that waits.
+  async opinionObjects(taskId: number, objects: TimelineObject[], gone: string[], done: boolean): Promise<{ decision: "accepted"; stored: number } | null> {
+    const value = await this.#call("POST", "/opinion-objects", { task_id: taskId, objects, gone, done });
+    if (value === null) return null;
+    opinionObjectsShape(value, "opinion_objects");
+    return value as { decision: "accepted"; stored: number };
   }
 
   // Gives fetched objects of a thread fetch task to Claire. Returns null when Claire has no such task that waits.

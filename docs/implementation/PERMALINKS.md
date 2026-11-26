@@ -76,6 +76,17 @@ Test: `tests/test_silvercord_rendering.py` (`test_silvercord_rendition_sub_paths
 
 Test: `tests/test_silvercord_rendering.py` (`test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_gives_a_sandbox_page`), E2E `e2e/renditions.spec.js`.
 
+### 3.1c Route `GET /silvercord/{token}/opinions`
+
+**[code]** `permalink_opinions_route` in `src/claire/api/server.py` ([`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.11 B and D, phase E7a). Route rule: `_system("public", "none")` for `GET` and `HEAD`. The same route for a rendition: `GET /silvercord/{token}/renditions/{template}/opinions`.
+
+1. The rules of the document token, as for the graph route: alias 308 to the same sub-path of the target, gone 410, a note 404, hidden or not extracted 404 for a caller who is not a member, and 404 for a caller who cannot read the document.
+2. The answer is the JSON of the opinions of the object of the page ([`FEDERATION.md`](FEDERATION.md) Section 4.7). A document or a rendition without an object gives `{"published": false}`.
+3. The request starts a fetch of the opinions when the conditions of Section 5.11 B2 hold, also for an anonymous caller.
+4. Headers: `X-Robots-Tag: noindex, nofollow`, `Cache-Control: private, no-store`, `Vary: Cookie`.
+
+Test: `tests/test_silvercord_rendering.py`.
+
 ### 3.2 Route `GET /silvercord/{token}/graph`
 
 **[code]** `permalink_graph_route` in `src/claire/api/server.py` (design `SD2`, `SQ4`, `A1`, `A2`). Route rule: `_system("public", "none")` for `GET` and `HEAD`.

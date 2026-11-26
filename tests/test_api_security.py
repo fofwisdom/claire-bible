@@ -275,6 +275,8 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         "/silvercord/{token}/graph",
         "/silvercord/{token}/renditions/{template}",
         "/silvercord/{token}/renditions/remote/{key}",
+        "/silvercord/{token}/opinions",
+        "/silvercord/{token}/renditions/{template}/opinions",
         "/silvercord/{token}/workspace",
         "/entity/{token}",
         "/p/presentation",

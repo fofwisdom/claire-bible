@@ -22,6 +22,7 @@ from . import federation_notes as notes_store
 from .client_db import QUOTE_POLICIES, QUOTE_STATES
 
 __all__ = [
+    "approved_quoting_objects",
     "QUOTE_POLICIES",
     "QUOTE_STATES",
     "QUOTE_TASK_KINDS",
@@ -207,6 +208,11 @@ def count_approved_quotes(conn: sqlite3.Connection, object_public_ids: list[int]
     for public_id, number in conn.execute(f"SELECT object_public_id, COUNT(*) FROM federation_quote_authorizations WHERE state='approved' AND object_public_id IN ({marks}) GROUP BY object_public_id", object_public_ids):
         counts[int(public_id)] = int(number)
     return counts
+
+
+def approved_quoting_objects(conn: sqlite3.Connection, object_public_id: int) -> list[str]:
+    """The quoting objects of the approved stamps of one own object (``interactingObject`` of FEP-044f): opinions of the kind ``quote`` (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B3)."""
+    return [str(row[0]) for row in conn.execute("SELECT quoting_object_iri FROM federation_quote_authorizations WHERE object_public_id=? AND state='approved' ORDER BY id", (object_public_id,))]
 
 
 def recent_request_actors(conn: sqlite3.Connection, account_id: int, *, since: float) -> list[str]:

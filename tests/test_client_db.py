@@ -139,7 +139,7 @@ def test_v8_removes_the_account_retention_table_and_keeps_the_other_rows(tmp_pat
     with caplog.at_level("WARNING", logger="claire.store.client_db"):
         client = client_db.connect_client_db(path)
     try:
-        assert client_db.stored_client_version(client) == client_db.CLIENT_SCHEMA_VERSION == 10
+        assert client_db.stored_client_version(client) == client_db.CLIENT_SCHEMA_VERSION
         assert "federation_account_settings" not in _tables(client)
         assert client.execute("SELECT COUNT(*) FROM federation_following").fetchone()[0] == 1
     finally:

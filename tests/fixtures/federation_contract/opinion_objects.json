@@ -1,0 +1,102 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/internal/federation/v1/opinion-objects",
+    "body": {
+      "task_id": 1,
+      "objects": [
+        {
+          "object_iri": "https://remote.example/users/carol/notes/9",
+          "url": "https://remote.example/users/carol/notes/9",
+          "type": "Note",
+          "author": {
+            "iri": "https://remote.example/users/carol",
+            "name": "Carol",
+            "handle": "@carol@remote.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>A reply <a href=\"https://example.org/x\">link</a></p><script>x</script>",
+          "language": "en",
+          "published_at": 1800000100.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": "https://claire.example.com/ap/objects/816412345678901234",
+          "quote": null
+        },
+        {
+          "object_iri": "https://other.example/users/erin/notes/3",
+          "url": "https://other.example/users/erin/notes/3",
+          "type": "Note",
+          "author": {
+            "iri": "https://other.example/users/erin",
+            "name": "Erin",
+            "handle": "@erin@other.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>A reply <a href=\"https://example.org/x\">link</a></p><script>x</script>",
+          "language": "en",
+          "published_at": 1800000300.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": "https://remote.example/users/carol/notes/9",
+          "quote": null
+        },
+        {
+          "object_iri": "https://other.example/users/erin/notes/4",
+          "url": "https://other.example/users/erin/notes/4",
+          "type": "Note",
+          "author": {
+            "iri": "https://other.example/users/erin",
+            "name": "Erin",
+            "handle": "@erin@other.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>A reply <a href=\"https://example.org/x\">link</a></p><script>x</script>",
+          "language": "en",
+          "published_at": 1800000300.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": "https://other.example/x",
+          "quote": null
+        },
+        {
+          "object_iri": "https://remote.example/users/dan/notes/5",
+          "url": "https://remote.example/users/dan/notes/5",
+          "type": "Note",
+          "author": {
+            "iri": "https://remote.example/users/dan",
+            "name": "Dan",
+            "handle": "@dan@remote.example"
+          },
+          "name": null,
+          "summary": null,
+          "sensitive": false,
+          "content_html": "<p>A reply <a href=\"https://example.org/x\">link</a></p><script>x</script>",
+          "language": "en",
+          "published_at": 1800000200.0,
+          "updated_at": null,
+          "attachments": [],
+          "context": null,
+          "in_reply_to": null,
+          "quote": "https://claire.example.com/ap/objects/816412345678901234"
+        }
+      ],
+      "gone": [],
+      "done": true
+    }
+  },
+  "status": 200,
+  "response": {
+    "decision": "accepted",
+    "stored": 3
+  }
+}

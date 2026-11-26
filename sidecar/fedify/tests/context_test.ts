@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { MemoryKvStore } from "@fedify/fedify";
 import { Collection, CollectionPage, Note, type Object as ASObject, OrderedCollection, Person, PUBLIC_COLLECTION } from "@fedify/fedify/vocab";
-import { fetchThread, objectBatches, OBJECTS_BATCH, requestLimit } from "../src/context.ts";
+import { fetchThread, objectBatches, OBJECTS_BATCH, requestLimit, walkPosts } from "../src/context.ts";
+import { processOpinionTasks } from "../src/opinions.ts";
 import { InternalApi, type TimelineObject } from "../src/internal_api.ts";
 import { Sidecar } from "../src/sidecar.ts";
 import { fakeClaire, fixture, KEY } from "./fixtures.ts";
@@ -119,6 +120,77 @@ Deno.test("an object without a context collection gives the reply tree: the pare
     assert.deepEqual(iris(await fetchWith(100)).sort(), [39, 41, 42, 43].map((n) => `https://remote.example/notes/${n}`));
     assert.deepEqual(iris(await fetchWith(100, 1)).sort(), [39, 41, 42].map((n) => `https://remote.example/notes/${n}`));
     assert.deepEqual(await fetchWith(100, 0), []);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("the context collection and the reply tree are merged (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 F)", async () => {
+  const { add, fetchWith, iris, restore } = setup();
+  try {
+    // A context collection with one reply, and a reply tree with another one that the collection does not have: the fetch gives both.
+    await add(note(ROOT, DAN, { contexts: [new URL(CONTEXT)], replies: new Collection({ id: new URL(`${ROOT}/replies`), items: [new URL("https://remote.example/notes/42")] }) }));
+    await add(note("https://remote.example/notes/41", ERIN, { replyTarget: new URL(ROOT), contexts: [new URL(CONTEXT)] }));
+    await add(note("https://remote.example/notes/42", ERIN, { replyTarget: new URL(ROOT) }));
+    await add(new OrderedCollection({ id: new URL(CONTEXT), items: [new URL(ROOT), new URL("https://remote.example/notes/41")] }));
+    assert.deepEqual(iris(await fetchWith(100)).sort(), [41, 42].map((n) => `https://remote.example/notes/${n}`));
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("the reply tree follows the first and next pages of a replies collection (R15: @fedify/backfill 2.4.6)", async () => {
+  const { add, fetchWith, iris, restore } = setup();
+  try {
+    const replies = `${ROOT}/replies`;
+    await add(note(ROOT, DAN, { replies: new Collection({ id: new URL(replies), first: new CollectionPage({ id: new URL(`${replies}?page=1`), partOf: new URL(replies), next: new URL(`${replies}?page=2`), items: [new URL("https://remote.example/notes/41")] }) }) }));
+    await add(new CollectionPage({ id: new URL(`${replies}?page=2`), partOf: new URL(replies), items: [new URL("https://remote.example/notes/42")] }));
+    await add(note("https://remote.example/notes/41", ERIN, { replyTarget: new URL(ROOT) }));
+    await add(note("https://remote.example/notes/42", ERIN, { replyTarget: new URL(ROOT) }));
+    assert.deepEqual(iris(await fetchWith(100)).sort(), ["https://remote.example/notes/41", "https://remote.example/notes/42"]);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("the opinions of an own object start from the known replies, read the quote posts without a walk, keep them in the result, and report a start that is gone", async () => {
+  const { fake, sidecar, add, fetched, restore } = setup();
+  try {
+    const own = `${ORIGIN}/ap/objects/816412345678901234`;
+    // carol replied to the own object; erin replied to carol on another server; the reply of erin is in the replies collection of carol only.
+    await add(note("https://remote.example/notes/50", DAN, { replyTarget: new URL(own), replies: new Collection({ id: new URL("https://remote.example/notes/50/replies"), items: [new URL("https://other.example/notes/51")] }) }));
+    await add(note("https://other.example/notes/51", "https://other.example/users/erin", { replyTarget: new URL("https://remote.example/notes/50") }));
+    // dan quoted the own object; the replies of the quote post are not opinions of the object, so the walk does not read them.
+    await add(note("https://remote.example/notes/60", DAN, { replies: new Collection({ id: new URL("https://remote.example/notes/60/replies"), items: [new URL("https://other.example/notes/61")] }) }));
+    await add(note("https://other.example/notes/61", "https://other.example/users/erin", { replyTarget: new URL("https://remote.example/notes/60") }));
+    const ctx = await sidecar.createContext();
+    const options = { documentLoader: await ctx.getDocumentLoader({ identifier: "server" }), contextLoader: ctx.contextLoader, origin: ORIGIN, isBlocked: () => Promise.resolve(false), maxItems: 100, maxDepth: 5 };
+    const result = await walkPosts(["https://remote.example/notes/50", "https://remote.example/missing"], options, true, ["https://remote.example/notes/60"]);
+    assert.ok(result !== "object_not_found");
+    assert.deepEqual(result.objects.map((o) => o.object_iri).sort(), ["https://other.example/notes/51", "https://remote.example/notes/50", "https://remote.example/notes/60"]);
+    assert.ok(!fetched.includes("https://other.example/notes/61") && !fetched.includes("https://remote.example/notes/60/replies"), fetched.join("\n"));
+    assert.deepEqual(result.gone, ["https://remote.example/missing"]);
+    // A start keeps its reply target although the walk cannot read it (the own object): Claire attaches the post to the object with it.
+    const parents = Object.fromEntries(result.objects.map((o) => [o.object_iri, o.in_reply_to]));
+    assert.deepEqual(parents, { "https://remote.example/notes/50": own, "https://other.example/notes/51": "https://remote.example/notes/50", "https://remote.example/notes/60": null });
+    // The walk never reads the own object, although it is the reply target of carol.
+    assert.ok(!fetched.includes(own));
+
+    // The task: the lease of Claire, the walk, and one call with the posts, the gone start, and done.
+    fake.overrides.set(`GET ${PREFIX}/opinion-tasks?limit=2`, { status: 200, response: { tasks: [{ id: 7, object_iri: own, own: true, start: ["https://remote.example/notes/50", "https://remote.example/missing"], quotes: ["https://remote.example/notes/60"], max_items: 100, max_depth: 5, lease_until: fake.now + 300 }] } });
+    const sent: unknown[] = [];
+    const api = InternalApi.prototype;
+    const original = api.opinionObjects;
+    api.opinionObjects = function (taskId: number, objects: TimelineObject[], gone: string[], done: boolean) {
+      sent.push({ taskId, iris: objects.map((o) => o.object_iri).sort(), gone, done });
+      return Promise.resolve({ decision: "accepted" as const, stored: objects.length });
+    };
+    try {
+      assert.equal(await processOpinionTasks({ api: new InternalApi({ key: KEY, transport: fake.transport, now: () => fake.now }), ctx, origin: ORIGIN, isBlocked: () => Promise.resolve(false), counters: sidecar.outboxCounters }), 1);
+    } finally {
+      api.opinionObjects = original;
+    }
+    assert.deepEqual(sent, [{ taskId: 7, iris: ["https://other.example/notes/51", "https://remote.example/notes/50", "https://remote.example/notes/60"], gone: ["https://remote.example/missing"], done: true }]);
   } finally {
     restore();
   }

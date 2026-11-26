@@ -43,6 +43,7 @@ import { QuoteAuthorization } from "@fedify/fedify/vocab";
 import { buildQuoteAuthorization, quoteEventOf, quoteInteractionPolicy } from "./quotes.ts";
 import { OBJECT_COLLECTION_PATH, type ObjectCollectionName, objectCollections, RENDITION_BODY_PATH, SOURCE_INDEX_PATH } from "./object_collections.ts";
 import { renditionFields, withRenditionFields } from "./renditions.ts";
+import { OPINION_TASK_BATCH, processOpinionTasks } from "./opinions.ts";
 
 // The USERNAME of the server actor. Claire reserves this word, so no account can have it.
 export const SERVER_ACTOR_USERNAME = "claire";
@@ -998,6 +999,13 @@ export class Sidecar {
     const config = await this.config();
     const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
     return await processContextTasks({ api: this.#api, ctx, origin: config.canonical_origin, isBlocked: (host) => this.isBlocked(host), counters: this.outboxCounters }, limit);
+  }
+
+  // Takes the fetches of opinions that wait from Claire and does them with requests that the server actor signs (contract 1.23, opinions.ts). Returns the number of fetches that Claire gave.
+  async processOpinionTasks(limit = OPINION_TASK_BATCH): Promise<number> {
+    const config = await this.config();
+    const ctx = this.#federationFor(config).createContext(new URL(config.canonical_origin), undefined);
+    return await processOpinionTasks({ api: this.#api, ctx, origin: config.canonical_origin, isBlocked: (host) => this.isBlocked(host), counters: this.outboxCounters }, limit);
   }
 
   // One verified inbound activity: makes the event, gets the decision of Claire, and sends the reply (design Section 6.3).

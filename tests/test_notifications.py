@@ -170,7 +170,7 @@ def test_migration_from_version_8_keeps_data(tmp_path: Path):
     conn.close()
     conn = client_db.connect_client_db(path)
     try:
-        assert client_db.stored_client_version(conn) == client_db.CLIENT_SCHEMA_VERSION == 10
+        assert client_db.stored_client_version(conn) == client_db.CLIENT_SCHEMA_VERSION
         assert conn.execute("SELECT count FROM federation_auto_replies").fetchone()[0] == 4
         assert _subscribe(conn, 2).id == 1
     finally:

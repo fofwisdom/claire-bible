@@ -47,7 +47,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 CLIENT_DB_FILENAME = "client.db"
-CLIENT_SCHEMA_VERSION = 10
+CLIENT_SCHEMA_VERSION = 11
 CLIENT_SCHEMA_LINEAGE = "claire-client"
 # FEDERATION_REMOTE_READING_DESIGN.md Section 5.2: the kinds of the client outbox. The publish kinds (create, update, delete, update_actor, delete_actor) stay in the publish outbox of claire.db.
 CLIENT_OUTBOX_KINDS: tuple[str, ...] = (
@@ -120,6 +120,7 @@ def init_client_db(conn: sqlite3.Connection) -> None:
     _migrate_v8_drop_account_settings(conn)
     _migrate_v9(conn)
     _migrate_v10(conn)
+    _migrate_v11(conn)
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(CLIENT_SCHEMA_VERSION),))
     conn.execute("INSERT INTO client_meta (key, value) VALUES ('schema_lineage', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (CLIENT_SCHEMA_LINEAGE,))
     conn.commit()
@@ -398,6 +399,13 @@ def _migrate_v6(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_federation_quote_authorizations_account ON federation_quote_authorizations(account_id, state, id)")
+
+
+def _migrate_v11(conn: sqlite3.Connection) -> None:
+    # The opinions of published objects and their fetches (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 C, phase E7a). The rows are of the server; the module ``federation_opinions`` owns the tables.
+    from . import federation_opinions
+
+    federation_opinions.ensure_schema(conn)
 
 
 def _migrate_v10(conn: sqlite3.Connection) -> None:

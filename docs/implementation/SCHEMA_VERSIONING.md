@@ -210,7 +210,7 @@ v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/c
 
 ### 별도 저장소: `client.db` (`claire.db` 옆)
 
-- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 받은 게시물, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 9`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
+- **[코드]** 계정의 소통 데이터(피드, 팔로잉, 받은 게시물, 클라이언트 아웃박스)는 `claire.db`와 같은 폴더의 `client.db`에 있다(`src/claire/store/client_db.py`). 자체 `client_meta.schema_version`을 쓰며 현재 값은 `CLIENT_SCHEMA_VERSION = 11`, lineage는 `claire-client`다. 이 번호는 `claire.db` version과 무관하다.
   - **v1 (FP4-2)**: `feed_subscriptions`, `feed_items`(v21과 같은 열, `account_id`는 외래키 없는 값), `federation_following`, `federation_account_settings`(v8에서 제거), `federation_client_outbox`(설계 §5.2의 클라이언트 작업 종류, `target_iri`, `ref_id`).
   - **v2 (FP4-4)**: `federation_timeline_items`(계정이 받은 원격 게시물, 키 `(account_id, object_iri)`, 설계 §7.1). 테이블 추가만 한다.
   - **v3 (FP4-7)**: `federation_media_cache`(원격 미디어 캐시 기록, 키 `url_hash`, 설계 §7.2). 계정 열이 없고 모든 계정이 함께 쓴다. 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다.
@@ -221,6 +221,7 @@ v14는 물리적으로 분리되어 있던 멀티 데이터베이스(`themes/*/c
   - **v8 (2026-11-18)**: `federation_account_settings`를 지운다(`_migrate_v8_drop_account_settings`). 받은 게시물 보존 기간은 서버 관리자의 고유 권한이므로(소유자 결정) 계정 값이 없고, 보존 실행은 모든 계정에 서버 값을 쓴다. 지운 계정 값의 개수를 경고 로그로 남긴다. 멱등이다. 테스트: `tests/test_client_db.py`.
   - **v9 (PN1, 2026-11-22)**: 알림과 웹 푸시 테이블 `notifications`(부분 유일 인덱스 `idx_notifications_group`: 읽지 않은 행의 `(account_id, kind, group_key)`), `push_subscriptions`(유일 `endpoint`), `push_queue`(키 `(notification_id, subscription_id)`), `notification_push_off`(키 `(account_id, kind)`), `notification_scan_seen`(키 `(scope, item_id)`)을 더한다(`_migrate_v9`). 테이블 추가만 하며, 이관은 기동 때 스스로 끝난다. 계정 퍼지가 앞의 네 테이블에서 그 계정 행을 지운다([NOTIFICATIONS.md](NOTIFICATIONS.md) §3). 테스트: `tests/test_notifications.py`.
   - **v10 (E6, 2026-11-26)**: 자기 객체의 `replies` 컬렉션이 답글 대상으로 읽는 인덱스 두 개: `idx_federation_timeline_reply`(`federation_timeline_items.in_reply_to_iri`), `idx_federation_notes_reply`(`federation_notes.in_reply_to_iri`). 테이블은 바뀌지 않는다([FEDERATION.md](FEDERATION.md) §4.5).
+  - **v11 (E7a, 2026-11-26)**: 의견 테이블 `federation_opinion_fetches`(객체 하나에 가져오기 한 행, 사이드카의 대기열과 페이지의 새로 고침 상태)와 `federation_opinions`(키 `(object_iri, opinion_iri)`, 계정이 아니라 서버의 행), 인덱스 `idx_federation_opinions_parent`. 테이블 추가만 한다(`_migrate_v11`, `federation_opinions.ensure_schema`). [FEDERATION.md](FEDERATION.md) §4.7.
 - **[코드]** 파일을 건너는 트랜잭션은 없다. 계정 퍼지는 `client.db`의 그 계정 행을 따로 지우고 커밋한다(`purge_account_of_claire_db`).
 - **[코드]** 저장된 값이 `CLIENT_SCHEMA_VERSION`보다 크면 `RuntimeError`(다운그레이드 거부). `claire migrate`와 서비스 기동이 파일을 만들거나 맞춘다. `cb-manuscript backup`은 `claire.db`·`auth.db`처럼 스냅샷으로 복사한다.
 

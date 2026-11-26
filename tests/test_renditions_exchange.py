@@ -4,7 +4,8 @@ A (``https://a.claire.test``) publishes a document with the renditions "standard
 
 1. ``read``: the read queue of B gets the source index, the objects, the bodies, and the account from A with signed requests; B shows the two renditions, and A records B as a reader of each body.
 2. ``plus``: an account of B gives a +1 to the rendition "concise"; the knowledge outbox of B delivers it; A stores the mark.
-3. ``delete``: A retracts the document; the knowledge outbox of A sends one ``Delete`` for each object to the server actor of B only; B removes its copies.
+3. ``opinions``: carol of B replied to the document of A (A got the reply), and dan of B replied to carol (A did not get it). A fetches the opinions of its object with requests that its server actor signs: it reads the reply of carol from B and finds the reply of dan in the ``replies`` collection of carol. The 의견 route of A shows the two.
+4. ``delete``: A retracts the document; the knowledge outbox of A sends one ``Delete`` for each object to the server actor of B only; B removes its copies.
 
 The same as ``tests/test_fedify_sidecar.py``: it needs Deno, and it is skipped without it.
 """
@@ -27,6 +28,7 @@ from claire.federation import plus_one_marks, remote_renditions
 from claire.federation.knowledge import known_servers
 from claire.ingest.source_key import source_key
 from claire.store import accounts as accounts_store
+from claire.store import client_db
 from claire.store import db as dbm
 from claire.store import document_renditions as renditions_store
 from claire.store import federation as federation_store
@@ -108,7 +110,8 @@ def _prepare(a: _Server, b: _Server) -> dict[str, int]:
         renditions_store.record_primary(conn, "doc-a", 31, lineage={}, now=now)
         renditions_store.store_additional(conn, "doc-a", 31, template="concise", detail="= 간결\n\n== 핵심\n\n* 간결 본문.", lineage={}, now=now)
         permalinks.ensure_document(conn, "doc-a", 31)
-        obj, _task, _made = federation_store.publish_document(conn, account_id=alice, kb_id=31, document_id="doc-a", published_by_account_id=alice, salt=store.id_salt(), now=now)
+        # Published one hour ago: a fetch of its opinions is due (an object older than five minutes, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B2).
+        obj, _task, _made = federation_store.publish_document(conn, account_id=alice, kb_id=31, document_id="doc-a", published_by_account_id=alice, salt=store.id_salt(), now=now - 3600)
         conn.commit()
         concise = federation_store.rendition_objects_of(conn, obj.public_id)[0].public_id
     finally:
@@ -182,7 +185,45 @@ def test_e2e_two_claire_servers_exchange_renditions_plus_ones_and_deletes(tmp_pa
         assert journal == [("plus_one", "processed", None)]
         assert marks == [(ids["concise"], f"{b.origin}/ap/actors/216412345678901234", "b.claire.test")]
 
-        # 3. alice of A retracts the document: B, the reader of the two bodies, gets one Delete for each object and removes its copies.
+        # 3. The opinions of the document of A from B.
+        object_iri = f"{a.origin}/ap/objects/{ids['document']}"
+        carol_note, dan_note = 916412345678901001, 916412345678901002
+        conn = b.db()
+        try:
+            dan = _account(conn, "dan", 316412345678901234)
+            conn.commit()
+        finally:
+            conn.close()
+        client = client_db.connect_client_existing(client_db.client_db_path(b.data_dir / "claire.db"))
+        try:
+            for public_id, account_id, parent, text in ((carol_note, ids["carol"], object_iri, "Carol on the paper"), (dan_note, dan, f"{b.origin}/ap/objects/{carol_note}", "Dan answers Carol")):
+                client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (public_id, account_id, parent, text, f"<p>{text}</p>", time.time() - 120, time.time() - 120))
+            client.commit()
+        finally:
+            client.close()
+        client = client_db.connect_client_existing(client_db.client_db_path(a.data_dir / "claire.db"))
+        try:
+            # The delivery of the reply of carol to alice (the timeline of alice has it); a page of the document asks for a fetch.
+            client.execute("INSERT INTO federation_timeline_items (account_id, object_iri, object_type, author_iri, author_json, content_html, in_reply_to_iri, received_at) VALUES (?, ?, 'Note', ?, '{}', '<p>Carol on the paper</p>', ?, ?)", (ids["alice"], f"{b.origin}/ap/objects/{carol_note}", f"{b.origin}/ap/actors/216412345678901234", object_iri, time.time()))
+            client.commit()
+        finally:
+            client.close()
+        conn = a.db()
+        try:
+            token = permalinks.token_of(conn, "document", "doc-a")
+        finally:
+            conn.close()
+        page = httpx.get(f"http://127.0.0.1:{a.port}/silvercord/{token}/opinions", headers={"Host": a.host}, timeout=10).json()
+        assert page["refresh"]["status"] == "running", page
+        _phase(a, b, "opinions")
+        page = httpx.get(f"http://127.0.0.1:{a.port}/silvercord/{token}/opinions", headers={"Host": a.host}, timeout=10).json()
+        assert page["refresh"]["status"] == "finished" and page["refresh"]["result_count"] == 2, page
+        assert [(o["iri"], o["parent"], o["author"]["handle"], o["text"]) for o in page["opinions"]] == [
+            (f"{b.origin}/ap/objects/{carol_note}", object_iri, "@carol@b.claire.test", [[{"text": "Carol on the paper"}]]),
+            (f"{b.origin}/ap/objects/{dan_note}", f"{b.origin}/ap/objects/{carol_note}", "@dan@b.claire.test", [[{"text": "Dan answers Carol"}]]),
+        ]
+
+        # 4. alice of A retracts the document: B, the reader of the two bodies, gets one Delete for each object and removes its copies.
         conn = a.db()
         try:
             federation_store.retract_object(conn, federation_store.get_object(conn, ids["document"]), now=time.time())

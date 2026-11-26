@@ -1,7 +1,7 @@
 // Internal API client against the shared contract fixtures (module interface between the sidecar and Claire).
 
 import assert from "node:assert/strict";
-import { ContractError, type InboxEvent, InternalApi, InternalApiError, type QuoteEvent, signRequest, type TimelineEvent } from "../src/internal_api.ts";
+import { type TimelineObject, ContractError, type InboxEvent, InternalApi, InternalApiError, type QuoteEvent, signRequest, type TimelineEvent } from "../src/internal_api.ts";
 import { fakeClaire, fixture, FIXTURE_DIR, fixtureNames, KEY, NOW } from "./fixtures.ts";
 
 function client(fake = fakeClaire(), now = NOW) {
@@ -15,7 +15,7 @@ Deno.test("the signature agrees with the vector that the Python code made", asyn
 });
 
 Deno.test("each fixture has a test in this file", () => {
-  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "context_objects", "context_tasks", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "interaction_task_ack", "interaction_tasks", "note", "note_gone", "object", "object_body", "object_body_unsigned", "object_collection_likes", "object_collection_not_found", "object_collection_plus_ones", "object_collection_renditions", "object_collection_replies", "object_collection_replies_page", "object_gone", "object_not_found", "object_rendition", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "quote_authorization", "quote_authorization_gone", "quote_event_accept", "quote_event_nobody", "quote_event_request", "quote_note", "quote_tasks", "server_actor_keys", "source_index", "source_index_unsigned", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
+  assert.deepEqual(fixtureNames(), ["actor", "actor_by_username", "actor_by_username_not_found", "actor_gone", "actor_keys", "actor_keys_not_found", "actor_not_found", "actor_outbox", "actor_outbox_not_found", "client_task_ack", "client_tasks", "config", "context_objects", "context_tasks", "domain_blocks", "followers", "followers_next", "followers_not_found", "following", "heartbeat", "heartbeat_version_mismatch", "inbox_event_accept_follow", "inbox_event_blocked_domain", "inbox_event_delete_actor", "inbox_event_follow", "inbox_event_ignored", "inbox_event_like", "inbox_event_no_object", "inbox_event_not_an_actor", "inbox_event_undo_follow", "inbox_event_undo_like", "inbox_event_update_actor", "interaction_task_ack", "interaction_tasks", "note", "note_gone", "object", "object_body", "object_body_unsigned", "object_collection_likes", "object_collection_not_found", "object_collection_plus_ones", "object_collection_renditions", "object_collection_replies", "object_collection_replies_page", "object_gone", "object_not_found", "object_rendition", "opinion_objects", "opinion_tasks", "outbox_task_ack", "outbox_task_ack_not_found", "outbox_task_ack_rejected", "outbox_tasks", "quote_authorization", "quote_authorization_gone", "quote_event_accept", "quote_event_nobody", "quote_event_request", "quote_note", "quote_tasks", "server_actor_keys", "source_index", "source_index_unsigned", "timeline_event_announce", "timeline_event_create", "timeline_event_delete", "timeline_event_mention", "timeline_event_not_public", "timeline_event_private_notice", "timeline_interest"]);
 });
 
 Deno.test("config, actor, and key calls agree with the fixtures", async () => {
@@ -180,6 +180,14 @@ Deno.test("rendition objects, the collection of the renditions, and the body agr
 Deno.test("the +1 counts of a rendition object agree with the fixtures (contract 1.22)", async () => {
   const { api } = client();
   assert.deepEqual(await api.objectCollection("816412345678901260", "plus-ones", {}), (fixture("object_collection_plus_ones").response as { document: unknown }).document);
+});
+
+Deno.test("the fetches of opinions agree with the fixtures (contract 1.23)", async () => {
+  const { api, fake } = client();
+  assert.deepEqual(await api.opinionTasks(2), (fixture("opinion_tasks").response as { tasks: unknown }).tasks);
+  const body = fixture("opinion_objects").request.body as { task_id: number; objects: TimelineObject[]; gone: string[]; done: boolean };
+  assert.deepEqual(await api.opinionObjects(body.task_id, body.objects, body.gone, body.done), fixture("opinion_objects").response);
+  assert.deepEqual(fake.calls, ["GET /internal/federation/v1/opinion-tasks?limit=2", "POST /internal/federation/v1/opinion-objects"]);
 });
 
 Deno.test("the source index agrees with the fixtures (contract 1.21)", async () => {

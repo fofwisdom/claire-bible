@@ -676,3 +676,49 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     finally:
         conn.close()
     assert anon("GET", sc["remote_renditions"][0]["frame_url"]).status_code == 404
+
+
+def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_path: Path) -> None:
+    """``GET /silvercord/{token}/opinions`` (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B and D, phase E7a): the opinions as text and links, the counts, a fetch for an object older than five minutes, and no indexing."""
+    import time as _time
+
+    from claire.store import document_renditions as renditions_store
+    from claire.store import federation as federation_store
+    from claire.store import federation_opinions as opinions_store
+
+    s, env = _setup_network_env(tmp_path)
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("UPDATE documents SET detail='= 기본\n\n본문.' WHERE id IN ('doc1', 'doc2')")
+        renditions_store.record_primary(conn, "doc1", 10, lineage={}, now=1.0)
+        obj, _task, _made = federation_store.publish_document(conn, account_id=env["alice_id"], kb_id=10, document_id="doc1", published_by_account_id=env["alice_id"], salt=accounts_store.AccountStore(conn).id_salt(), now=_time.time() - 3600)
+        token = permalinks.ensure_document(conn, "doc1", 10)
+        token2 = permalinks.ensure_document(conn, "doc2", 10)
+        conn.commit()
+    finally:
+        conn.close()
+    origin = s.public_url.rstrip("/")
+    object_iri = f"{origin}/ap/objects/{obj.public_id}"
+    client = client_db.connect_client_db(client_db.client_db_path(env["db_file"]))
+    try:
+        reply = {"object_iri": "https://remote.example/users/carol/notes/9", "url": "https://remote.example/@carol/9", "type": "Note", "author": {"iri": "https://remote.example/users/carol", "name": "Carol", "handle": "@carol@remote.example"}, "name": None, "summary": "spoiler", "sensitive": True, "content_html": "<p>Good <a href=\"https://example.org/a\">read</a></p><img src=\"https://x/i.png\">", "language": "en", "published_at": 1800000000.0, "updated_at": None, "attachments": [], "context": None, "in_reply_to": object_iri, "quote": None}
+        assert opinions_store.store_objects(client, object_iri, [reply], quoting=set(), delivered=set(), now=1800000001.0) == 1
+        client.commit()
+    finally:
+        client.close()
+    test_client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
+    anon = _make_caller(test_client, origin)
+    resp = anon("GET", f"/silvercord/{token}/opinions")
+    assert resp.status_code == 200
+    assert resp.headers["x-robots-tag"] == "noindex, nofollow" and resp.headers["cache-control"] == "private, no-store"
+    view = resp.json()
+    assert (view["published"], view["object"]) == (True, object_iri)
+    assert view["counts"] == {"replies": 1, "quotes": 0, "likes": 0, "shares": 0}
+    assert view["opinions"] == [{"iri": reply["object_iri"], "parent": object_iri, "kind": "reply", "local": False, "author": reply["author"], "url": "https://remote.example/@carol/9", "summary": "spoiler", "sensitive": True, "language": "en", "published": 1800000000.0, "text": [[{"text": "Good "}, {"text": "read", "href": "https://example.org/a"}]]}]
+    # The object is older than five minutes and has no fetch: the request starts one, and the page sees it run.
+    assert view["refresh"]["status"] == "running" and view["refresh"]["retry"] == 3
+    assert anon("GET", f"/silvercord/{token}/opinions").json()["refresh"]["id"] == view["refresh"]["id"]
+    # A document that is not published has no opinions; a template without an object is the same.
+    assert anon("GET", f"/silvercord/{token2}/opinions").json() == {"published": False, "object": None, "opinions": [], "counts": None, "refresh": None}
+    assert anon("GET", f"/silvercord/{token}/renditions/concise/opinions").json()["published"] is False
+    assert anon("GET", f"/silvercord/{token}/renditions/default/opinions").status_code == 404

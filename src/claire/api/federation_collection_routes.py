@@ -60,9 +60,12 @@ def known_replies(conn: Any, client: Any, *, origin: str, public_id: int, author
     for note_id, account_id in notes_store.reply_notes(client, object_iri):
         if account_id in actor_ids:
             (own if account_id == author_account_id else others).append(f"{origin}/ap/objects/{note_id}")
-    for iri in client_store.received_reply_iris(client, object_iri):
+    # The posts of other servers: delivered (the timeline) and fetched (the opinions, phase E7a). An opinion that the owner or the admin hid is not listed (Section 5.11 D5).
+    hidden = {str(row[0]) for row in client.execute("SELECT opinion_iri FROM federation_opinions WHERE object_iri=? AND hidden_at IS NOT NULL", (object_iri,))}
+    fetched = [str(row[0]) for row in client.execute("SELECT opinion_iri FROM federation_opinions WHERE object_iri=? AND parent_iri=? AND kind='reply' AND hidden_at IS NULL ORDER BY COALESCE(published, fetched_at)", (object_iri, object_iri))]
+    for iri in dict.fromkeys([*client_store.received_reply_iris(client, object_iri), *fetched]):
         host = _remote_host(iri, origin)
-        if host is not None and federation_store.blocking_domain(conn, host) is None:
+        if host is not None and iri not in hidden and federation_store.blocking_domain(conn, host) is None:
             others.append(iri)
     return own, others
 
