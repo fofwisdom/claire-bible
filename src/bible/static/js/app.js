@@ -4836,6 +4836,7 @@ function resetWorkspaceState(){
   currentNodeData = null;
   curReaderDoc = null;
   curReaderDocData = null;
+  if(typeof hideWorkspaceRenditionBar === 'function') hideWorkspaceRenditionBar();
 
   // Reset curMinDeg to initial default based on node count (0/1/2/5)
   const totalCount = allNodes ? allNodes.length : 0;
@@ -5694,6 +5695,9 @@ function setAccessScope(scope, reason){
   else if(centerView === 'graph' && typeof renderGraphInsights === 'function') renderGraphInsights();
   else if(centerView === 'reader' && (activeDoc || (typeof curReaderDoc !== 'undefined' && curReaderDoc))) loadDocPanel(activeDoc || curReaderDoc);
   else if(panel) panel.innerHTML=defaultHint();
+  if(typeof renderWorkspaceRenditionBar === 'function' && curReaderDocData && (activeDoc === curReaderDocData.id || (typeof curReaderDoc !== 'undefined' && curReaderDoc === curReaderDocData.id))){
+    renderWorkspaceRenditionBar(curReaderDocData);
+  }
   if(canIngest()) refreshIngestEffortSpec();
 }
 function expireWriteAccess(){
@@ -7707,4 +7711,215 @@ if(window.ClaireCommandPalette){
     }
   });
 }
+
+// Workspace reader rendition switcher and add-rendition control (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 9.1).
+const wsActiveRenditionByDoc = new Map();
+let wsRenditionOutsideBound = false;
+
+function ensureWorkspaceRenditionBar(){
+  let bar = document.getElementById('ws-rendition-bar');
+  if(bar) return bar;
+  const sheet = document.querySelector('#reader .sheet');
+  if(!sheet) return null;
+  bar = document.createElement('div');
+  bar.id = 'ws-rendition-bar';
+  bar.className = 'ws-rendition-bar';
+  bar.hidden = true;
+  const bodyWrap = sheet.querySelector('.rbody-wrap');
+  if(bodyWrap) sheet.insertBefore(bar, bodyWrap);
+  else sheet.appendChild(bar);
+  return bar;
+}
+
+function hideWorkspaceRenditionBar(){
+  const bar = document.getElementById('ws-rendition-bar');
+  if(!bar) return;
+  bar.hidden = true;
+  bar.innerHTML = '';
+}
+
+function closeWorkspaceRenditionPopover(){
+  const pop = document.getElementById('ws-rendition-popover');
+  const btn = document.querySelector('#ws-rendition-bar [data-ws-rendition-add]');
+  if(pop) pop.hidden = true;
+  if(btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function bindWorkspaceRenditionDismiss(){
+  if(wsRenditionOutsideBound || typeof document === 'undefined') return;
+  wsRenditionOutsideBound = true;
+  document.addEventListener('click', ev => {
+    const pop = document.getElementById('ws-rendition-popover');
+    if(!pop || pop.hidden) return;
+    const wrap = document.querySelector('#ws-rendition-bar .ws-rendition-add-wrap');
+    if(wrap && !wrap.contains(ev.target)) closeWorkspaceRenditionPopover();
+  });
+  document.addEventListener('keydown', ev => {
+    if(ev.key !== 'Escape') return;
+    const pop = document.getElementById('ws-rendition-popover');
+    if(!pop || pop.hidden) return;
+    closeWorkspaceRenditionPopover();
+    const btn = document.querySelector('#ws-rendition-bar [data-ws-rendition-add]');
+    if(btn && typeof btn.focus === 'function') btn.focus();
+  });
+}
+
+function workspaceRenditionOptionLabel(entry){
+  const tpl = String((entry && entry.template) || '');
+  const parts = [tr('rendition.template.' + tpl + '.label')];
+  if(entry && entry.is_primary) parts.push(tr('reader.rendition.primary'));
+  if(entry && entry.template_version === 'pre-template') parts.push(tr('reader.rendition.version_pre_template'));
+  return parts.join(' · ');
+}
+
+function setWorkspaceRenditionControlsDisabled(bar, disabled){
+  bar.querySelectorAll('select, button').forEach(el => { el.disabled = Boolean(disabled); });
+}
+
+async function addWorkspaceRendition(dc, template, bar){
+  if(!dc || !dc.id || !template || !bar) return;
+  const statusEl = bar.querySelector('[data-ws-rendition-status]');
+  const label = tr('rendition.template.' + template + '.label');
+  closeWorkspaceRenditionPopover();
+  setWorkspaceRenditionControlsDisabled(bar, true);
+  if(statusEl){
+    statusEl.classList.remove('is-error');
+    statusEl.textContent = tr('reader.rendition.adding', { label: label });
+  }
+  const url = rootUrl('api/v1/kbs/personal/documents/' + encodeURIComponent(dc.id) + '/renditions');
+  try{
+    const resp = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ template: template }) });
+    const data = await resp.json().catch(() => null);
+    const item = data && data.rendition;
+    if(resp.ok && item && (item.state === 'made' || item.state === 'existing')){
+      wsActiveRenditionByDoc.set(dc.id, template);
+      const docResp = await fetch(apiUrl('document?id=' + encodeURIComponent(dc.id)), { credentials: 'same-origin' });
+      const nextDc = await docResp.json().catch(() => null);
+      if(docResp.ok && nextDc && !nextDc.error){
+        if((typeof curReaderDoc !== 'undefined' && curReaderDoc === dc.id) || activeDoc === dc.id){
+          renderReader(nextDc);
+          if(activeDoc === dc.id && typeof renderDocPanel === 'function') renderDocPanel(nextDc);
+        }
+        return;
+      }
+      throw new Error('HTTP ' + docResp.status);
+    }
+    const err = (item && item.error) || (data && data.error && (data.error.message || data.error.code || data.error)) || String(resp.status);
+    if(statusEl){
+      statusEl.classList.add('is-error');
+      statusEl.textContent = tr('reader.rendition.add_failed', { error: String(err) });
+    }
+  }catch(err){
+    if(statusEl){
+      statusEl.classList.add('is-error');
+      statusEl.textContent = tr('reader.rendition.add_failed', { error: String((err && err.message) || 'network_error') });
+    }
+  }finally{
+    if(bar.isConnected) setWorkspaceRenditionControlsDisabled(bar, false);
+  }
+}
+
+function renderWorkspaceRenditionBar(dc, activeTemplate){
+  const bar = ensureWorkspaceRenditionBar();
+  if(!bar) return;
+  const renditions = (dc && Array.isArray(dc.renditions)) ? dc.renditions : [];
+  if(!dc || !dc.id || !renditions.length){
+    hideWorkspaceRenditionBar();
+    return;
+  }
+  const chosen = activeTemplate || wsActiveRenditionByDoc.get(dc.id) || (renditions.find(r => r && r.is_primary) || renditions[0]).template;
+  const missing = (canWrite() && dc.can_add_renditions && Array.isArray(dc.missing_renditions)) ? dc.missing_renditions : [];
+  let h = '<label class="ws-rendition-label" for="ws-rendition-select">' + esc(tr('reader.section.rendition')) + '</label>';
+  h += '<select id="ws-rendition-select" class="ws-rendition-select" data-ws-rendition-select>';
+  renditions.forEach(r => {
+    if(!r || !r.template) return;
+    const sel = r.template === chosen ? ' selected' : '';
+    h += '<option value="' + esc(r.template) + '"' + sel + '>' + esc(workspaceRenditionOptionLabel(r)) + '</option>';
+  });
+  h += '</select>';
+  if(missing.length > 0){
+    h += '<div class="ws-rendition-add-wrap">';
+    h += '<button type="button" class="ws-rendition-add-btn" data-ws-rendition-add aria-expanded="false" aria-controls="ws-rendition-popover"><span data-icon="plus"></span> ' + esc(tr('reader.rendition.add')) + '</button>';
+    h += '<div id="ws-rendition-popover" class="ws-rendition-popover" data-ws-rendition-popover hidden>';
+    h += '<p class="ws-rendition-cost">' + esc(tr('reader.rendition.add_cost')) + '</p>';
+    h += '<div class="ws-rendition-add-list">';
+    missing.forEach(tpl => {
+      h += '<button type="button" class="ws-rendition-tpl-btn" data-ws-add-template="' + esc(tpl) + '"><span class="ws-rendition-tpl-title">' + esc(tr('rendition.template.' + tpl + '.label')) + '</span><span class="ws-rendition-tpl-desc">' + esc(tr('rendition.template.' + tpl + '.desc')) + '</span></button>';
+    });
+    h += '</div></div></div>';
+  }
+  h += '<span class="ws-rendition-status" data-ws-rendition-status role="status" aria-live="polite"></span>';
+  bar.innerHTML = h;
+  bar.hidden = false;
+  bindWorkspaceRenditionDismiss();
+  const selectEl = bar.querySelector('[data-ws-rendition-select]');
+  if(selectEl){
+    selectEl.addEventListener('change', () => {
+      const nextTpl = selectEl.value;
+      if(!nextTpl) return;
+      wsActiveRenditionByDoc.set(dc.id, nextTpl);
+      renderReader(dc);
+      window.requestAnimationFrame(() => {
+        const nextSelect = document.querySelector('#ws-rendition-bar [data-ws-rendition-select]');
+        if(nextSelect && typeof nextSelect.focus === 'function') nextSelect.focus();
+      });
+    });
+  }
+  const addBtn = bar.querySelector('[data-ws-rendition-add]');
+  const popEl = bar.querySelector('[data-ws-rendition-popover]');
+  if(addBtn && popEl){
+    addBtn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const willOpen = popEl.hidden;
+      popEl.hidden = !willOpen;
+      addBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+  }
+  bar.querySelectorAll('[data-ws-add-template]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tpl = btn.getAttribute('data-ws-add-template');
+      if(tpl) addWorkspaceRendition(dc, tpl, bar);
+    });
+  });
+}
+
+const _baseOpenReader = (typeof openReader === 'function') ? openReader : null;
+if(_baseOpenReader){
+  openReader = function(docId, pushHist = true){
+    hideWorkspaceRenditionBar();
+    return _baseOpenReader(docId, pushHist);
+  };
+  if(typeof window !== 'undefined') window.openReader = openReader;
+  if(typeof ClaireReader === 'object' && ClaireReader) ClaireReader.openReader = openReader;
+}
+
+const _baseRenderReader = (typeof renderReader === 'function') ? renderReader : null;
+if(_baseRenderReader){
+  renderReader = function(dc){
+    if(!dc || typeof dc !== 'object'){
+      hideWorkspaceRenditionBar();
+      return _baseRenderReader(dc);
+    }
+    const renditions = Array.isArray(dc.renditions) ? dc.renditions : [];
+    const docId = dc.id || '';
+    const preferred = docId ? wsActiveRenditionByDoc.get(docId) : null;
+    const activeEntry = (preferred && renditions.find(r => r && r.template === preferred)) || renditions.find(r => r && r.is_primary) || renditions[0] || null;
+    if(docId && activeEntry && activeEntry.template) wsActiveRenditionByDoc.set(docId, activeEntry.template);
+    let viewDoc = dc;
+    if(activeEntry && !activeEntry.is_primary){
+      viewDoc = Object.assign({}, dc, {
+        detail: activeEntry.detail || '',
+        detail_format: activeEntry.detail_format || dc.detail_format || 'adoc',
+        detail_html: activeEntry.detail_html || ''
+      });
+    }
+    _baseRenderReader(viewDoc);
+    // Keep curReaderDocData bound to the full document payload without mutating primary detail fields.
+    curReaderDocData = dc;
+    renderWorkspaceRenditionBar(dc, activeEntry ? activeEntry.template : null);
+  };
+  if(typeof window !== 'undefined') window.renderReader = renderReader;
+  if(typeof ClaireReader === 'object' && ClaireReader) ClaireReader.renderReader = renderReader;
+}
+
 

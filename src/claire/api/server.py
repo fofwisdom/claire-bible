@@ -4741,6 +4741,7 @@ def create_app(
         )
 
     async def document_detail_route(request: Request) -> JSONResponse:
+        from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES, PRIMARY_RENDITION_TEMPLATE
         from ..store.queries import document_detail
 
         document_id = request.query_params.get("id", "")
@@ -4752,6 +4753,8 @@ def create_app(
         # A hidden document (also the copy of a pending or hidden contribution) is for the account of a personal knowledge base and for the reviewers of a shared one (design Sections 6.2, 9.4, 9.6).
         include_hidden = _sees_hidden(request, theme)
         hides_sources = _hides_sources(request, theme)
+        # Only the owner of a personal knowledge base can add renditions via POST /api/v1/kbs/{kb}/documents/{doc_id}/renditions.
+        can_add_renditions = bool(theme.is_personal and request_auth_scope(request) == "owner" and _kb_decide(request, theme, "curate") == "allow")
 
         def _load(settings: Settings, t_info: KnowledgeBaseInfo) -> dict[str, Any] | None:
             conn = dbm.connect_existing(settings.db_file, readonly=True)
@@ -4763,6 +4766,38 @@ def create_app(
                 if rep is not None:
                     rep["kb_id"] = t_info.id
                     rep["theme_label"] = t_info.label
+                    listed_renditions = renditions_store.list_renditions(conn, document_id, t_info.id)
+                    by_template = {r.template: r for r in listed_renditions}
+                    std_row = by_template.get(PRIMARY_RENDITION_TEMPLATE)
+                    renditions_payload: list[dict[str, Any]] = [
+                        {
+                            "template": PRIMARY_RENDITION_TEMPLATE,
+                            "template_version": std_row.template_version if std_row is not None else "",
+                            "is_primary": True,
+                            "detail": rep.get("detail") or "",
+                            "detail_format": rep.get("detail_format") or "adoc",
+                            "detail_html": rep.get("detail_html") or "",
+                            "updated_at": std_row.updated_at if std_row is not None else rep.get("fetched_at"),
+                        }
+                    ]
+                    for r in listed_renditions:
+                        if r.primary:
+                            continue
+                        renditions_payload.append(
+                            {
+                                "template": r.template,
+                                "template_version": r.template_version,
+                                "is_primary": False,
+                                "detail": r.detail or "",
+                                "detail_format": "adoc",
+                                "detail_html": r.detail_html or "",
+                                "updated_at": r.updated_at,
+                            }
+                        )
+                    present_templates = {entry["template"] for entry in renditions_payload}
+                    rep["renditions"] = renditions_payload
+                    rep["can_add_renditions"] = can_add_renditions
+                    rep["missing_renditions"] = [t for t in ADDITIONAL_RENDITION_TEMPLATES if t not in present_templates] if can_add_renditions else []
                 return rep
             finally:
                 conn.close()

@@ -131,6 +131,33 @@
   #reader .sharebox.on{display:flex}
   #reader .sharebox input{flex:1;min-width:0}
   #reader .sharebox button{background:var(--accent);color:#fff;border:0;border-radius:4px;padding:3px 9px;font-size:12px;cursor:pointer}
+  /* Workspace reader rendition bar (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 9.1). */
+  #reader .ws-rendition-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 18px;border-bottom:1px solid var(--border);background:var(--bar-bg);font-size:12.5px;position:relative;z-index:2}
+  #reader .ws-rendition-bar[hidden]{display:none}
+  #reader .ws-rendition-label{color:var(--muted);font-size:11.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;flex-shrink:0}
+  #reader .ws-rendition-select{min-width:min(100%,220px);max-width:100%;height:30px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);color:var(--fg);font-size:12.5px;cursor:pointer}
+  #reader .ws-rendition-select:disabled{opacity:.6;cursor:wait}
+  #reader .ws-rendition-add-wrap{position:relative;display:inline-flex;align-items:center}
+  #reader .ws-rendition-add-btn{display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--sec-bg);color:var(--sec-fg);font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap}
+  #reader .ws-rendition-add-btn:hover{background:var(--hover)}
+  #reader .ws-rendition-add-btn:disabled{opacity:.6;cursor:wait}
+  #reader .ws-rendition-popover{position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:260px;max-width:min(92vw,360px);padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);color:var(--fg);box-shadow:0 4px 16px var(--shadow)}
+  #reader .ws-rendition-popover[hidden]{display:none}
+  #reader .ws-rendition-cost{margin:0 0 8px;font-size:12px;color:var(--muted);line-height:1.45}
+  #reader .ws-rendition-add-list{display:grid;gap:6px}
+  #reader .ws-rendition-tpl-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--sec-bg);color:var(--sec-fg);text-align:start;cursor:pointer;font-size:12.5px}
+  #reader .ws-rendition-tpl-btn:hover{background:var(--hover);border-color:var(--accent)}
+  #reader .ws-rendition-tpl-btn:disabled{opacity:.6;cursor:wait}
+  #reader .ws-rendition-tpl-title{font-weight:600;color:var(--fg)}
+  #reader .ws-rendition-tpl-desc{font-size:11.5px;color:var(--muted);line-height:1.35}
+  #reader .ws-rendition-status{font-size:12px;color:var(--muted);line-height:1.4}
+  #reader .ws-rendition-status:empty{display:none}
+  #reader .ws-rendition-status.is-error{color:var(--danger)}
+  @media (max-width:768px){
+    #reader .ws-rendition-bar{padding:6px 12px}
+    #reader .ws-rendition-select{flex:1 1 auto;min-width:160px}
+    #reader .ws-rendition-popover{left:auto;right:0}
+  }
 
   #presentationwrap .sharebox{
     display:none;
