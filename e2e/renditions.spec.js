@@ -5,6 +5,11 @@ const { authenticateOwner, watchErrors, expectNoRawKeys } = require('./support/c
 
 test.use({ serviceWorkers: 'block' });
 
+// The errors of the page without the errors of the test tool in a sandbox frame. Playwright runs its own scripts in each frame (the service worker block of test.use, and the trace recorder); a frame with the sandbox policy and no allow-scripts stops them and writes an error. The frame page of a remote rendition has no script of its own.
+function pageErrors(errors) {
+  return errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed') && !(e.includes('Blocked script execution') && e.includes('/renditions/remote/')));
+}
+
 test('an ingest with 간결 makes two renditions, the picker opens each page, and the owner adds 학술', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
@@ -123,8 +128,7 @@ test('a rendition of another server opens in a sandbox frame inside the page and
   await expect(page.locator('#sc-rendition-body iframe')).toHaveCount(0);
   expect((await page.locator('#sc-rendition-body').innerText()).trim()).toBe(localText.trim());
   expect(new URL(page.url()).search).toBe('');
-  // The service worker block of this test (test.use) runs a script in each frame; in a sandbox frame without allow-same-origin that script fails. It is not a script of the page.
-  expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed'))).toEqual([]);
+  expect(pageErrors(errors)).toEqual([]);
 });
 
 // The +1 control (phase E9b). The page data comes from the test, as in the test of the frame; the route and the counts of the server are in tests/test_plus_one_marks.py.
@@ -190,5 +194,5 @@ test('the +1 control is a toggle for a reader, follows the rendition that the pa
   await page.goto(DOC_PATH, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#sc-plus-one-count')).toHaveText('2');
   await expect(page.locator('#sc-plus-one')).toHaveCount(0);
-  expect(errors.filter((e) => !e.includes('Service worker is disabled because the context is sandboxed'))).toEqual([]);
+  expect(pageErrors(errors)).toEqual([]);
 });
