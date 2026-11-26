@@ -49,7 +49,7 @@
 | 영역 | 엔드포인트 |
 |---|---|
 | 상태·계정·테마·KB | `GET /api/v1/health`, `GET /api/v1/me`, `GET`/`POST /api/v1/kbs`, `GET`/`PATCH`/`DELETE /api/v1/kbs/{kb}`, `GET /api/v1/themes` |
-| 문서·적재·검색·그래프 | `GET /api/v1/kbs/{kb}/documents`, `GET`/`PATCH`/`DELETE /api/v1/kbs/{kb}/documents/{doc_id}`, `GET .../raw`, `GET .../export`, `POST /api/v1/kbs/personal/ingest`, `POST /api/v1/kbs/personal/ingest/stream`, `POST /api/v1/kbs/{kb}/search`, `GET /api/v1/kbs/{kb}/graph`, `GET /api/v1/kbs/{kb}/entities/{entity_id}`, `GET .../neighbors`, `GET /api/v1/kbs/{kb}/graph/path` |
+| 문서·적재·검색·그래프 | `GET /api/v1/kbs/{kb}/documents`, `GET`/`PATCH`/`DELETE /api/v1/kbs/{kb}/documents/{doc_id}`, `GET .../raw`, `GET .../export`, `GET`/`POST /api/v1/kbs/{kb}/documents/{doc_id}/renditions`, `DELETE /api/v1/kbs/{kb}/documents/{doc_id}/renditions/{template}`, `POST /api/v1/kbs/personal/ingest`, `POST /api/v1/kbs/personal/ingest/stream`, `POST /api/v1/kbs/{kb}/search`, `GET /api/v1/kbs/{kb}/graph`, `GET /api/v1/kbs/{kb}/entities/{entity_id}`, `GET .../neighbors`, `GET /api/v1/kbs/{kb}/graph/path` |
 | 협업 (기여·멤버십) | `GET`/`POST /api/v1/kbs/{kb}/contributions`, `GET`/`PATCH /api/v1/kbs/{kb}/contributions/{number}`, `POST .../retry`, `POST .../remove`, `GET`/`POST`/`DELETE /api/v1/kbs/{kb}/members`, `PATCH /api/v1/kbs/{kb}/members/{account}` |
 | 에이전트 추출 | `GET /api/v1/extraction/spec`, `POST /api/v1/extraction/stage`, `GET /api/v1/extraction/sources`, `GET /api/v1/extraction/sources/{document_id}`, `POST .../claim`, `POST .../renew`, `POST .../submit` |
 | 연합·피드·OAuth·지원 번들 | `GET /api/v1/federation/status`, `POST /api/v1/federation/publish`, `POST /api/v1/federation/retract`, `GET`/`POST`/`DELETE /api/v1/feeds`, `GET`/`PATCH /api/v1/feeds/items`, `POST /api/v1/feeds/items/{item_id}/ingest`, `GET`/`DELETE /api/v1/me/oauth/grants`, `GET`/`POST /api/v1/support/bundles`, `DELETE /api/v1/support/bundles/{bundle_id}` |
@@ -163,6 +163,8 @@
 | `POST` | `/api/feeds/discover` | Body `{"url"}`. 200 `{"url", "feeds": [{"url", "title", "format", "subscribed"}], "error"}` | 400 `invalid_request`, 400 `invalid_url` |
 | `POST` | `/api/feeds/items/{item_id}/ingest` | Body `{"extraction_mode"}` (`provider` or `client`, required; a `theme` field is ignored). 200: the ingest report with `linked` (`{"kb_id", "document_id"}` or `null`). `POST /api/federation/timeline/{item_id}/ingest` has the same body | 400 `invalid_request`, 400 `invalid_extraction_mode` (after the item check), 404 `item_not_found`, 404 (theme), 409 `item_without_url` |
 | `GET` | `/render/feed/{item_id}?t={token}` | 200 HTML for a sandbox `iframe`. On the app origin only without a `usercontent` host | 404 |
+| `GET`/`HEAD` | `/render/remote-rendition/{key}?t={token}` | 200 HTML for a sandbox `iframe` on the `usercontent` host (`account_id=0` media proxy when a `media` host is configured; app-origin fallback is `/silvercord/{token}/renditions/remote/{key}`) | 404 |
+| `GET`/`HEAD` | `/render/opinion/{object_key}/{key}?t={token}` | 200 HTML for a sandbox `iframe` on the `usercontent` host (`account_id=0` media proxy when a `media` host is configured; app-origin fallbacks are `/silvercord/{token}/opinions/{key}`, `/silvercord/{token}/renditions/{template}/opinions/{key}`, and `/silvercord/{token}/renditions/remote/{rkey}/opinions/{key}`) | 404 |
 
 ## 4. 연합 클라이언트 발신 상호작용 경로 (FP4-9)
 

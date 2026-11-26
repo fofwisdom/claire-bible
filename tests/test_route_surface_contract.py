@@ -59,7 +59,7 @@ SYSTEM = {
     "/sw.js",
     "/icon", "/font", "/fonts/NotoSansKR-Regular.woff2", "/fonts/NotoSansKR-Bold.woff2",
     "/fonts/NotoSerifKR-Regular.woff2", "/fonts/NotoSerifKR-Bold.woff2", "/fonts/D2Coding.woff2",
-    "/fonts/D2CodingBold.woff2", "/p", "/silvercord/{token}", "/silvercord/{token}/graph", "/silvercord/{token}/workspace", "/silvercord/{token}/renditions/{template}", "/silvercord/{token}/renditions/remote/{key}", "/silvercord/{token}/opinions", "/silvercord/{token}/renditions/{template}/opinions", "/silvercord/{token}/opinions/{key}", "/silvercord/{token}/renditions/{template}/opinions/{key}", "/silvercord/{token}/renditions/remote/{key}/opinions", "/entity/{token}", "/p/presentation", "/image", "/images/{filename:path}",
+    "/fonts/D2CodingBold.woff2", "/p", "/silvercord/{token}", "/silvercord/{token}/graph", "/silvercord/{token}/workspace", "/silvercord/{token}/renditions/{template}", "/silvercord/{token}/renditions/remote/{key}", "/silvercord/{token}/opinions", "/silvercord/{token}/renditions/{template}/opinions", "/silvercord/{token}/opinions/{key}", "/silvercord/{token}/renditions/{template}/opinions/{key}", "/silvercord/{token}/renditions/remote/{key}/opinions", "/silvercord/{token}/renditions/remote/{rkey}/opinions/{key}", "/entity/{token}", "/p/presentation", "/image", "/images/{filename:path}",
     "/p/images/{filename:path}", "/static/locales/{path:path}", "/static/{path:path}", "/reference", "/openapi/v1.json", "/openapi/account.json", "/openapi/admin.json", "/openapi.yaml",
     *(spec.path for spec in V1_ROUTE_SPECS),
     "/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server",
