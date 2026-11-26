@@ -115,6 +115,7 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
         "can_open_workspace": True,
         "workspace_url": f"/silvercord/{tok_doc1}/workspace",
         "graph_url": f"/silvercord/{tok_doc1}/graph",
+        "opinions_url": f"/silvercord/{tok_doc1}/opinions",
         "object_id": 50123,
         "entity_count": 2,
         "link_only": False,
@@ -215,6 +216,7 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
             "can_open_workspace": False,
             "workspace_url": None,
             "graph_url": f"/silvercord/{tok_doc1}/graph",
+            "opinions_url": f"/silvercord/{tok_doc1}/opinions",
             "object_id": None,
             "entity_count": 2,
             "link_only": True,
@@ -554,6 +556,8 @@ def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> 
     assert concise.status_code == 200
     data = _extract_docdata(concise.text)
     assert data["silvercord"]["rendition"] == "concise" and "간결 본문" in data["detail_html"] and "기본 본문" not in data["detail_html"]
+    # The 의견 tab of a rendition page asks for the opinions of the rendition object.
+    assert data["silvercord"]["opinions_url"] == f"/silvercord/{token}/renditions/concise/opinions"
     assert f'<link rel="cite-as" href="{origin}/silvercord/{token}/renditions/concise"/>' in concise.text
     # The 대표 정리본 has the address of the document; a template outside the set or one that the document does not have is not a page.
     standard = anon("GET", f"/silvercord/{token}/renditions/standard")

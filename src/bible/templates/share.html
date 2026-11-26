@@ -48,7 +48,7 @@ body.shared-page.stt-modal-open{overflow:hidden}
   <div class="sc-bar-center">
     <div class="sc-tablist" id="sc-tablist-top" role="tablist" focusgroup="tablist nomemory" aria-label="${t:share.sc.tabs_aria}">
       <button type="button" class="sc-tab" role="tab" id="tab-doc-top" data-tab="doc" aria-selected="true" focusgroupstart><span data-icon="doc"></span><span>${t:share.sc.tab_doc}</span></button>
-      <button type="button" class="sc-tab" role="tab" id="tab-op-top" data-tab="opinions" aria-selected="false"><span data-icon="comment"></span><span>${t:share.sc.tab_opinions}</span><span class="proto-pill" id="sc-op-sample-badge-top" hidden>${t:share.sc.op_sample_badge}</span></button>
+      <button type="button" class="sc-tab" role="tab" id="tab-op-top" data-tab="opinions" aria-selected="false"><span data-icon="comment"></span><span>${t:share.sc.tab_opinions}</span></button>
     </div>
   </div>
   <div class="sc-bar-end">
@@ -67,10 +67,11 @@ body.shared-page.stt-modal-open{overflow:hidden}
 <nav class="sc-bottom-bar" id="sc-bottom-bar" aria-label="${t:share.sc.bottom_nav_aria}" hidden>
   <div class="sc-tablist" id="sc-tablist-bottom" role="tablist" focusgroup="tablist nomemory" aria-label="${t:share.sc.tabs_aria}">
     <button type="button" class="sc-tab" role="tab" id="tab-doc-bot" data-tab="doc" aria-selected="true" focusgroupstart><span data-icon="doc"></span><span>${t:share.sc.tab_doc}</span></button>
-    <button type="button" class="sc-tab" role="tab" id="tab-op-bot" data-tab="opinions" aria-selected="false"><span data-icon="comment"></span><span>${t:share.sc.tab_opinions}</span><span class="proto-pill" id="sc-op-sample-badge-bot" hidden>${t:share.sc.op_sample_badge}</span></button>
+    <button type="button" class="sc-tab" role="tab" id="tab-op-bot" data-tab="opinions" aria-selected="false"><span data-icon="comment"></span><span>${t:share.sc.tab_opinions}</span></button>
   </div>
   <button type="button" class="sc-btn sc-bottom-graph-btn" id="sc-graph-toggle-bot" aria-expanded="false" aria-controls="sc-mobile-dialog"><span data-icon="graph"></span><span>${t:share.sc.graph_btn_short}</span><span class="sc-count-badge" id="sc-graph-count-bot">0</span></button>
 </nav>
+<p class="sr-only" id="sc-live" role="status" aria-live="polite"></p>
 <dialog class="sc-sheet-dialog" id="sc-mobile-dialog" closedby="any" aria-label="${t:share.sc.graph_dialog_aria}"></dialog>
 <template id="sc-graph-panel-template">
   <div class="gp-head">
@@ -1006,6 +1007,7 @@ if(typeof window.gtag === 'function' && dc && dc.id){
 if(typeof window !== 'undefined'){ window.updateSharedRail = updateSharedRail; }
 </script>
 <script src="/static/js/local_graph.js"></script>
+<script src="/static/js/silvercord_opinions.js"></script>
 <script src="/static/js/silvercord.js"></script>
 </body>
 </html>

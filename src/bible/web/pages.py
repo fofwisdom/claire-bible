@@ -163,6 +163,7 @@ def _build_standalone_shared_html() -> str:
     doc_content_js = (_STATIC_DIR / "js" / "renderers" / "doc_content.js").read_text(encoding="utf-8")
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     local_graph_js = (_STATIC_DIR / "js" / "local_graph.js").read_text(encoding="utf-8")
+    silvercord_opinions_js = (_STATIC_DIR / "js" / "silvercord_opinions.js").read_text(encoding="utf-8")
     silvercord_js = (_STATIC_DIR / "js" / "silvercord.js").read_text(encoding="utf-8")
     share_tmpl = (_TEMPLATES_DIR / "share.html").read_text(encoding="utf-8")
 
@@ -172,11 +173,12 @@ def _build_standalone_shared_html() -> str:
 
     html = html.replace("<script src=/static/js/renderers/doc_content.js></script>\n", "")
     html = html.replace('<script src="/static/js/local_graph.js"></script>\n', "")
+    html = html.replace('<script src="/static/js/silvercord_opinions.js"></script>\n', "")
     html = html.replace('<script src="/static/js/silvercord.js"></script>\n', "")
     idx = html.find("<script>", html.find('id="docdata"'))
     if idx != -1:
         html = html[: idx + 8] + f"\n{icons_js}\n{doc_content_js}\n" + html[idx + 8 :]
-    sc_bundle = f"<script>\n{local_graph_js}\n{silvercord_js}\n</script>"
+    sc_bundle = f"<script>\n{local_graph_js}\n{silvercord_opinions_js}\n{silvercord_js}\n</script>"
     html = html.replace("</body>", f"{sc_bundle}\n</body>")
     return html
 

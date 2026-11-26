@@ -6332,6 +6332,8 @@ def create_app(
             "can_open_workspace": bool(is_member or readable_kb),
             "workspace_url": (f"/silvercord/{found.token}/workspace" if (is_member or readable_kb) else None),
             "graph_url": f"/silvercord/{found.token}/graph",
+            # The JSON of the 의견 tab (Section 5.11 D7): the page asks for it only when the reader opens the tab.
+            "opinions_url": permalinks.permalink_path(found.token) + (f"/renditions/{rendition}" if rendition else "") + "/opinions",
             "object_id": object_id,
             "entity_count": len(document.get("nodes") or []),
             "link_only": bool(not is_member and not readable_kb and found.link_access),

@@ -1,4 +1,4 @@
-/* --- Claire Bible: Unified Silvercord Shell, Pull-Out Local Graph, and Opinions Prototype --- */
+/* --- Claire Bible: Unified Silvercord Shell, Pull-Out Local Graph, and the 의견 Tab (silvercord_opinions.js) --- */
 (function () {
   "use strict";
 
@@ -87,8 +87,6 @@
   var scGraphToggleBot = document.getElementById("sc-graph-toggle-bot");
   var scGraphCountTop = document.getElementById("sc-graph-count-top");
   var scGraphCountBot = document.getElementById("sc-graph-count-bot");
-  var scOpBadgeTop = document.getElementById("sc-op-sample-badge-top");
-  var scOpBadgeBot = document.getElementById("sc-op-sample-badge-bot");
   var scMainCol = document.getElementById("sc-main-col");
   var panelDoc = document.getElementById("sc-panel-doc");
   var panelOpinions = document.getElementById("sc-panel-opinions");
@@ -126,8 +124,6 @@
   }
   if (scGraphCountTop) scGraphCountTop.textContent = String(initialEntityCount);
   if (scGraphCountBot) scGraphCountBot.textContent = String(initialEntityCount);
-  if (scOpBadgeTop) scOpBadgeTop.hidden = !kbPublic;
-  if (scOpBadgeBot) scOpBadgeBot.hidden = !kbPublic;
   syncThemeButton(initialTheme);
   if (scThemeBtn) {
     scThemeBtn.addEventListener("click", toggleTheme);
@@ -168,68 +164,20 @@
     }
   }
 
-  function renderOpinionsPrototype() {
+  // The 의견 tab (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D). A document of a private knowledge base is not published: the tab keeps the notice that it is not federated and asks nothing (rule D6). Else the tab asks for its JSON when the reader opens it the first time (rule D7).
+  var opinionsTab = null;
+  function renderOpinionsPrivate() {
     if (!opinionsInner) return;
-    var targetObj = sc.object_id != null ? ("/ap/objects/" + String(sc.object_id)) : (token ? ("/silvercord/" + token) : "/ap/objects/0");
-    var html = '<div class="op-proto-banner">' +
-      '<div class="op-proto-head">' +
-      iconSvg("broadcast") +
-      "<span>" + escFn(rtrFn("share.sc.op_heading")) + "</span>" +
-      '<span class="proto-pill">' + escFn(rtrFn("share.sc.op_proto_badge")) + "</span>" +
-      "</div>" +
-      '<p class="op-proto-desc">' + escFn(rtrFn("share.sc.op_proto_desc")) + "</p>" +
+    opinionsInner.innerHTML = '<div id="op-private-content" class="op-private-box">' +
+      "<strong>" + iconSvg("lock") + " " + escFn(rtrFn("share.sc.op_private_title")) + "</strong>" +
+      "<span>" + escFn(rtrFn("share.sc.op_private_desc")) + "</span>" +
       "</div>";
-
-    if (kbPublic) {
-      html += '<div id="op-public-content">' +
-        '<div class="op-ap-meta">' +
-        '<span class="remote-pill">' + iconSvg("globe") + " " + escFn(rtrFn("share.sc.op_ap_planned")) + "</span>" +
-        "<span>" + escFn(rtrFn("share.sc.op_target_label")) + ": <code>" + escFn(targetObj) + "</code></span>" +
-        "</div>" +
-        '<div class="op-composer" aria-label="' + escFn(rtrFn("share.sc.op_composer_aria")) + '">' +
-        '<textarea disabled aria-disabled="true" placeholder="' + escFn(rtrFn("share.sc.op_composer_placeholder", { target: targetObj })) + '"></textarea>' +
-        '<div class="op-composer-foot">' +
-        '<div class="op-action-row">' +
-        '<button type="button" class="op-disabled-btn" disabled aria-disabled="true">' + iconSvg("heart") + " " + escFn(rtrFn("share.sc.op_like_planned")) + "</button>" +
-        '<button type="button" class="op-disabled-btn" disabled aria-disabled="true">' + iconSvg("repeat") + " " + escFn(rtrFn("share.sc.op_boost_planned")) + "</button>" +
-        "</div>" +
-        '<button type="button" class="op-disabled-btn" disabled aria-disabled="true">' + iconSvg("send") + " " + escFn(rtrFn("share.sc.op_submit_disabled")) + "</button>" +
-        "</div>" +
-        "</div>" +
-        '<div class="op-thread-box">' +
-        '<div class="op-thread-title">' +
-        "<span>" + escFn(rtrFn("share.sc.op_thread_title")) + "</span>" +
-        '<span class="proto-pill">' + escFn(rtrFn("share.sc.op_sample_data")) + "</span>" +
-        "</div>" +
-        '<article class="op-post">' +
-        '<div class="op-post-meta">' +
-        '<span class="op-post-author">Alice</span>' +
-        "<span>@alice@claire.example</span>" +
-        '<span class="chip-pill">' + escFn(rtrFn("share.sc.op_badge_local")) + "</span>" +
-        "<span>" + escFn(rtrFn("share.sc.op_sample_1_time")) + "</span>" +
-        "</div>" +
-        '<div class="op-post-body">' + escFn(rtrFn("share.sc.op_sample_1_body")) + "</div>" +
-        '<div class="op-post-foot"><span>' + escFn(rtrFn("share.sc.op_sample_1_foot_1")) + "</span><span>" + escFn(rtrFn("share.sc.op_sample_1_foot_2")) + "</span></div>" +
-        "</article>" +
-        '<article class="op-post is-reply">' +
-        '<div class="op-post-meta">' +
-        '<span class="op-post-author">Infra Lab</span>' +
-        "<span>@researcher@mastodon.example</span>" +
-        '<span class="remote-pill">' + escFn(rtrFn("share.sc.op_badge_remote")) + "</span>" +
-        "<span>" + escFn(rtrFn("share.sc.op_sample_2_time")) + "</span>" +
-        "</div>" +
-        '<div class="op-post-body">' + escFn(rtrFn("share.sc.op_sample_2_body")) + "</div>" +
-        '<div class="op-post-foot"><span>' + escFn(rtrFn("share.sc.op_sample_2_foot")) + "</span></div>" +
-        "</article>" +
-        "</div>" +
-        "</div>";
-    } else {
-      html += '<div id="op-private-content" class="op-private-box">' +
-        "<strong>" + iconSvg("lock") + " " + escFn(rtrFn("share.sc.op_private_title")) + "</strong>" +
-        "<span>" + escFn(rtrFn("share.sc.op_private_desc")) + "</span>" +
-        "</div>";
-    }
-    opinionsInner.innerHTML = html;
+  }
+  function openOpinions() {
+    if (opinionsTab) opinionsTab.open();
+  }
+  if (opinionsInner && kbPublic && sc.opinions_url && window.ClaireSilvercordOpinions) {
+    opinionsTab = window.ClaireSilvercordOpinions.create({ root: opinionsInner, url: String(sc.opinions_url), rtr: rtrFn, live: document.getElementById("sc-live") });
   }
 
   function syncRailVisibility() {
@@ -257,6 +205,7 @@
       panelDoc.setAttribute("hidden", "until-found");
       panelOpinions.removeAttribute("hidden");
       document.body.classList.add("sc-opinions-active");
+      openOpinions();
     }
 
     document.querySelectorAll(".sc-tab[data-tab]").forEach(function (btn) {
@@ -1122,6 +1071,6 @@
   }
 
   syncPanelLabels();
-  renderOpinionsPrototype();
+  if (!opinionsTab) renderOpinionsPrivate();
   syncRailVisibility();
 })();

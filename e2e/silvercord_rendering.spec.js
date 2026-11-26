@@ -13,7 +13,7 @@ const LINK_ONLY_PATH = `/silvercord/${LINK_ONLY_TOKEN}`;
 const LINK_ONLY_GRAPH_PATH = `${LINK_ONLY_PATH}/graph`;
 const OWNER_COOKIE_TOKEN = 'e2e-owner-token-0123456789abcdef';
 
-// Emoji detection pattern matching tests/test_ui_line_icons.py (zero emojis in Silvercord chrome and Opinions prototype).
+// Emoji detection pattern matching tests/test_ui_line_icons.py (zero emojis in Silvercord chrome and the 의견 tab).
 const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
 
 function escapeDocDataJson(obj) {
@@ -189,7 +189,7 @@ test('desktop pull-out graph panel lazily fetches Ring 1 + Ring 2, highlights bo
   expect(errors).toEqual([]);
 });
 
-test('mobile bottom bar switches doc and opinions preserving scrollY, syncs srail, opens modal dialog sheet, and renders emoji-free Opinions prototype', async ({ page }) => {
+test('mobile bottom bar switches doc and opinions preserving scrollY, syncs srail, opens modal dialog sheet, and renders an emoji-free 의견 tab', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
 
@@ -208,7 +208,7 @@ test('mobile bottom bar switches doc and opinions preserving scrollY, syncs srai
   const savedY = await page.evaluate(() => window.scrollY);
   await expect(page.locator('#srail')).toBeVisible();
 
-  // Switch to 의견 tab: #srail hides and ActivityPub prototype shows disabled controls and zero emojis.
+  // Switch to 의견 tab: #srail hides and the tab loads its JSON (the document of the seed is not published).
   await page.locator('#tab-op-bot').click();
   await expect(page.locator('#tab-op-bot')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#tab-doc-bot')).toHaveAttribute('aria-selected', 'false');
@@ -216,10 +216,8 @@ test('mobile bottom bar switches doc and opinions preserving scrollY, syncs srai
   await expect(page.locator('#sc-panel-doc')).toHaveAttribute('hidden', 'until-found');
   await expect(page.locator('#srail')).toBeHidden();
 
-  await expect(page.locator('#op-public-content')).toBeVisible();
-  await expect(page.locator('#op-public-content textarea[disabled][aria-disabled="true"]')).toHaveCount(1);
-  await expect(page.locator('#op-public-content .op-disabled-btn[disabled][aria-disabled="true"]')).toHaveCount(3);
-  await expect(page.locator('#op-public-content .op-thread-box .op-post')).toHaveCount(2);
+  await expect(page.locator('#sc-opinions-inner .op-root[data-nosnippet]')).toBeVisible();
+  await expect(page.locator('#sc-opinions-inner progress')).toHaveCount(0);
 
   const uiTexts = await page.evaluate(() => {
     const parts = [];
@@ -249,6 +247,103 @@ test('mobile bottom bar switches doc and opinions preserving scrollY, syncs srai
   await dialog.locator('.gp-close-btn').click();
   await expect(dialog).toBeHidden();
   await expect(page.locator('#srail')).toBeVisible();
+  await expectNoRawKeys(page);
+  expect(errors).toEqual([]);
+});
+
+// The JSON of the 의견 tab (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 D, phase E7b). A post in the normal form of the route: the text is paragraphs of segments.
+function opinion(iri, parent, extra = {}) {
+  return { iri, parent, kind: 'reply', local: false, author: { iri: 'https://remote.example/users/carol', name: 'Carol', handle: '@carol@remote.example' }, url: iri, summary: null, sensitive: false, language: 'en', published: 1800000000 + Number(iri.split('/').pop()), text: [[{ text: 'Reply ' + iri.split('/').pop() }]], ...extra };
+}
+
+test('the 의견 tab loads on the first open, waits for the fetch with a progress bar, and shows the tree, the quotes, and the new opinions once', async ({ page }) => {
+  const errors = watchErrors(page);
+  const object = 'https://claire.example.com/ap/objects/1';
+  const posts = [
+    opinion('https://remote.example/notes/1', object, { text: [[{ text: 'Read ' }, { text: 'the source', href: 'https://example.org/paper' }, { text: '\n' }, { text: '<b>not markup</b>' }]] }),
+    opinion('https://remote.example/notes/2', 'https://remote.example/notes/1', { summary: 'Spoilers', sensitive: true }),
+    opinion('https://remote.example/notes/3', 'https://remote.example/notes/2'),
+    opinion('https://remote.example/notes/4', 'https://remote.example/notes/3'),
+    opinion('https://remote.example/notes/5', 'https://remote.example/notes/4'),
+    { ...opinion('https://remote.example/notes/6', object), kind: 'quote' },
+  ];
+  const fresh = opinion('https://remote.example/notes/7', object, { local: true });
+  const counts = { replies: 6, quotes: 1, likes: 2, shares: 3 };
+  let calls = 0;
+  await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
+    calls += 1;
+    const running = calls === 1;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: running ? posts : [...posts, fresh], counts, refresh: { id: '1', status: running ? 'running' : 'finished', retry: running ? 1 : 0, result_count: running ? null : 1 } }) });
+  });
+  await page.goto(PUBLIC_DOC_PATH, { waitUntil: 'domcontentloaded' });
+  // No request before the reader opens the tab (rule D7).
+  await page.waitForTimeout(300);
+  expect(calls).toBe(0);
+  await page.locator('#tab-op-top').click();
+  const tab = page.locator('#sc-opinions-inner');
+  // While the fetch runs: a progress bar with a text, not a live region (rule D8).
+  await expect(tab.locator('.op-status progress')).toBeVisible();
+  await expect(tab.locator('.op-status')).toContainText('다른 서버에서 의견을 가져오는 중');
+  await expect(tab.locator('.op-status [aria-live], .op-status [role="status"]')).toHaveCount(0);
+  await expect(tab.locator('.op-counts li')).toHaveText(['답글 6', '인용 1', '좋아요 2', '부스트 3']);
+  // The page asks again after `retry` seconds and shows the new opinion with its mark; one polite message says the number.
+  await expect(tab.locator('.op-status progress')).toHaveCount(0);
+  expect(calls).toBe(2);
+  await expect(page.locator('#sc-live')).toHaveText('의견을 가져왔습니다. 새 의견 1개.');
+  await expect(tab.locator('article.is-new')).toHaveCount(1);
+  await expect(tab.locator('article.is-new')).toContainText('새 의견');
+  await expect(tab.locator('article.is-new')).toContainText('이 서버');
+  // The tree: four levels on the page, and a link to the origin for the deeper level (rule D1).
+  const first = tab.locator('.op-thread > .op-tree > .op-item').first();
+  await expect(first.locator('article')).toHaveCount(4);
+  await expect(first.locator('.op-continue')).toHaveText('원 서버에서 계속 (1개 더)');
+  await expect(first.locator('.op-continue')).toHaveAttribute('href', 'https://remote.example/notes/4');
+  // Remote text is text: the link has the rel of rule D2, the markup shows as characters, and the content warning is closed.
+  const body = first.locator('article').first().locator('.op-post-body');
+  await expect(body.locator('a')).toHaveAttribute('href', 'https://example.org/paper');
+  await expect(body.locator('a')).toHaveAttribute('rel', 'nofollow noopener noreferrer');
+  await expect(body).toContainText('<b>not markup</b>');
+  await expect(body.locator('b')).toHaveCount(0);
+  await expect(body.locator('br')).toHaveCount(1);
+  const warning = first.locator('details.op-cw').first();
+  await expect(warning.locator('summary')).toHaveText('Spoilers');
+  expect(await warning.evaluate((el) => el.open)).toBe(false);
+  // Quotes are a separate group (rule D1); the opinions are outside search snippets (rule D7).
+  await expect(tab.locator('.op-quotes h3')).toHaveText('인용');
+  await expect(tab.locator('.op-quotes article')).toHaveCount(1);
+  await expect(tab.locator('.op-root[data-nosnippet]')).toHaveCount(1);
+  await expect(tab.locator('.op-reply-hint')).toContainText('이 페이지의 주소');
+  // A second open of the tab makes no new request.
+  await page.locator('#tab-doc-top').click();
+  await page.locator('#tab-op-top').click();
+  await page.waitForTimeout(300);
+  expect(calls).toBe(2);
+  await expectNoRawKeys(page);
+  expect(errors).toEqual([]);
+});
+
+test('a failed fetch of opinions shows an alert, the opinions that the server has, and a retry', async ({ page }) => {
+  const errors = watchErrors(page);
+  const object = 'https://claire.example.com/ap/objects/1';
+  let calls = 0;
+  await page.route((u) => u.pathname === `${PUBLIC_DOC_PATH}/opinions`, async (route) => {
+    calls += 1;
+    if (calls === 2) {
+      await route.fulfill({ status: 503, contentType: 'text/plain', body: 'Unavailable' });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ published: true, object, opinions: [opinion('https://remote.example/notes/1', object)], counts: { replies: 1, quotes: 0, likes: 0, shares: 0 }, refresh: { id: '1', status: 'failed', retry: 0, result_count: null } }) });
+  });
+  await page.goto(PUBLIC_DOC_PATH, { waitUntil: 'domcontentloaded' });
+  await page.locator('#tab-op-top').click();
+  const tab = page.locator('#sc-opinions-inner');
+  await expect(tab.locator('[role="alert"]')).toContainText('다른 서버에서 의견을 가져오지 못했습니다');
+  await expect(tab.locator('article')).toHaveCount(1);
+  // The retry asks again; a failed request is an alert too, and the opinions stay.
+  await tab.locator('.op-retry').click();
+  await expect(tab.locator('[role="alert"]')).toHaveText('의견을 불러오지 못했습니다.');
+  await expect(tab.locator('article')).toHaveCount(1);
+  expect(calls).toBe(2);
   await expectNoRawKeys(page);
   expect(errors).toEqual([]);
 });
@@ -314,7 +409,7 @@ test('private link_access=1 renders opaque IDs e0..eN, blocks other documents, h
   await page.locator('#tab-op-top').click();
   await expect(page.locator('#op-private-content')).toBeVisible();
   await expect(page.locator('#op-private-content')).toContainText('비공개 지식베이스 문서');
-  await expect(page.locator('#op-public-content')).toHaveCount(0);
+  await expect(page.locator('#sc-opinions-inner .op-root')).toHaveCount(0);
 
   // Graph panel shows Ring 1 + Ring 2 with opaque IDs and blocks other documents.
   await page.locator('#tab-doc-top').click();
