@@ -757,6 +757,8 @@
         state.selectedDocId = id;
         if (doc && prefs.autoMarkReadOnOpen) markDocumentSeen(doc);
         hydrateLiveDocument(doc);
+        // The view of a published document asks for the opinions of other servers (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B1).
+        if (typeof bridge.onOpenDocument === "function") bridge.onOpenDocument(curTheme().id, id);
         renderAll();
       });
     });
@@ -1293,7 +1295,8 @@
       if (publishedKeys) state.publishedKeys = publishedKeys;
       renderAll();
     },
-    onRender: null
+    onRender: null,
+    onOpenDocument: null
   };
   window.ClaireSyndication = bridge;
 

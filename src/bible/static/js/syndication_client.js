@@ -534,6 +534,15 @@
     });
   }
 
+  // The view of a published document asks for a fetch of its opinions (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B1), one time for each document and page load; the server applies the conditions of rule B2.
+  const opinionAsked = new Set();
+  bridge.onOpenDocument = (kbId, documentId) => {
+    const object = C.publishedObjects && C.publishedObjects[`${kbId}:${documentId}`];
+    if (!IS_OWNER || !object || opinionAsked.has(object.id)) return;
+    opinionAsked.add(object.id);
+    api("POST", `/api/federation/objects/${encodeURIComponent(object.id)}/opinions`);
+  };
+
   // --- Events --------------------------------------------------------------
 
   document.querySelectorAll("[data-stage-btn]").forEach((btn) => btn.addEventListener("click", () => setStage(btn.getAttribute("data-stage-btn"))));

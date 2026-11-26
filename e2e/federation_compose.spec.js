@@ -186,6 +186,8 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
       return route.fulfill(json({ quote: Object.assign({}, entry, { state }) }));
     });
     await page.route('**/api/federation/objects?**', route => route.fulfill(json({ total: published.items.length, items: published.items, next_max_id: null })));
+    const opinionRequests = [];
+    await page.route('**/api/federation/objects/*/opinions', route => { opinionRequests.push(route.request().method() + ' ' + new URL(route.request().url()).pathname); return route.fulfill(json({ refresh: null })); });
     await page.route('**/render/remote/**', route => route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><html><body><p>Body</p></body></html>' }));
     await page.route('**/api/federation/following?**', route => route.fulfill(json({ total: 0, limit: 1000, items: [], next_max_id: null })));
     await page.route('**/api/federation/status', route => route.fulfill(json({ handle: me.handle, actor_id: me.iri, is_actor: true, actor_state: 'active', discoverable: true, followers: { total: 0 }, pending_tasks: 0 })));
@@ -289,6 +291,10 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     await expect(publishedRow.locator('[data-reactions]')).toContainText('인용 2');
     // The +1 score of each rendition with a score (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 13).
     await expect(publishedRow.locator('[data-reactions]')).toContainText('+1 간결 3');
+    // The view of a published document asks for the opinions of other servers one time (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 B1).
+    await publishedRow.locator('[data-click-row]').first().click();
+    await publishedRow.locator('[data-click-row]').first().click();
+    await expect.poll(() => opinionRequests).toEqual(['POST /api/federation/objects/950/opinions']);
     await publishedRow.click({ button: 'right' });
     await expect(page.locator('#pop-doc-context')).toBeVisible();
     await expect(page.locator('#menu-doc-quote-policy, #modal-quote-policy')).toHaveCount(0);

@@ -3,6 +3,7 @@
 The caller is an account with the scope ``owner`` that is a federation actor (else 409 ``not_actor``).
 
 - ``POST /api/federation/opinions/item`` with ``{"object", "opinion"}``: the opinion as an item of the timeline of the account, so that the functions of the federation client work on it (favourite, boost, a reply with ``in_reply_to``, and a quote with ``quote_of``; Sections 25 and 26 of ``FEDERATION.md``). The item is not in the home stream (``in_timeline`` 0). The answer is ``{"item_id", "favourited", "boosted"}``. Refusals: 404 ``opinion_not_found`` (also a hidden opinion, and an object that is not an own published object), 400 ``blocked_domain``.
+- ``POST /api/federation/objects/{object_id}/opinions``: the view of a published object of the caller in ``/syndication`` asks for a fetch of its opinions (Section 5.11 B1), with the conditions of rule B2. The answer is ``{"refresh"}``: the state of the fetch, or ``null`` when no fetch was due and none exists. It needs no actor: the server actor signs the fetch. Refusal: 404 ``object_not_found`` for an object that is not a published document object of the caller.
 - ``POST /api/federation/opinions/like`` with ``{"object", "on"}``: the like of the post (Section 5.6 rule 4). The post is a published document; its object is on this server, so the like is a row of the reactions of the object, with the actor of the account and no activity. The answer is ``{"liked", "likes"}``. Refusals: 404 ``post_not_found`` (also a rendition object: it is not a post, Section 5.6 rule 2), 409 ``own_post`` (Section 5.6 rule 3).
 """
 
@@ -25,10 +26,11 @@ from ..security import read_json_body
 from .common import AccountsContext, json_error, not_found, open_client_db, open_db
 from .console_federation_panels import actor_state
 
-__all__ = ["OPINION_ITEM_PATH", "POST_LIKE_PATH", "item_states", "local_like", "routes"]
+__all__ = ["OBJECT_OPINIONS_PATH", "OPINION_ITEM_PATH", "POST_LIKE_PATH", "item_states", "local_like", "routes"]
 
 OPINION_ITEM_PATH = "/api/federation/opinions/item"
 POST_LIKE_PATH = "/api/federation/opinions/like"
+OBJECT_OPINIONS_PATH = "/api/federation/objects/{object_id}/opinions"
 _NO_STORE = {"Cache-Control": "no-store"}
 _MAX_IRI = 2048
 
@@ -151,4 +153,38 @@ def routes(ctx: AccountsContext) -> list[Route]:
         status, payload = await asyncio.to_thread(_execute)
         return JSONResponse(payload, status_code=status, headers=_NO_STORE)
 
-    return [Route(OPINION_ITEM_PATH, item_post, methods=["POST"]), Route(POST_LIKE_PATH, like_post, methods=["POST"])]
+    async def object_opinions_post(request: Request) -> Response:
+        principal = request_principal(request)
+        if principal.scope != "owner" or principal.account_id is None:
+            return not_found()
+        account_id = principal.account_id
+        raw = str(request.path_params.get("object_id", ""))
+        if not (raw.isascii() and raw.isdigit() and len(raw) <= 20):
+            return json_error(404, "object_not_found")
+
+        def _execute() -> tuple[int, dict[str, Any]]:
+            conn = open_db(ctx)
+            try:
+                obj = federation_store.get_object(conn, int(raw))
+            finally:
+                conn.close()
+            if obj is None or obj.account_id != account_id:
+                return 404, {"error": "object_not_found"}
+            from ...federation import opinions as opinions_mod
+
+            client = open_client_db(ctx)
+            try:
+                opinions_store.request_fetch(client, f"{prefix}{obj.public_id}", own=True, object_published=obj.published_at, now=time.time())
+                client.commit()
+                fetch = opinions_store.get_fetch(client, f"{prefix}{obj.public_id}")
+            finally:
+                client.close()
+            if fetch is None:
+                return 200, {"refresh": None}
+            status = "running" if fetch.status == "pending" else fetch.status
+            return 200, {"refresh": {"id": str(fetch.id), "status": status, "retry": opinions_mod.REFRESH_RETRY_SECONDS if status == "running" else 0, "result_count": fetch.result_count}}
+
+        status, payload = await asyncio.to_thread(_execute)
+        return JSONResponse(payload, status_code=status, headers=_NO_STORE)
+
+    return [Route(OPINION_ITEM_PATH, item_post, methods=["POST"]), Route(POST_LIKE_PATH, like_post, methods=["POST"]), Route(OBJECT_OPINIONS_PATH, object_opinions_post, methods=["POST"])]

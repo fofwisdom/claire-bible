@@ -86,6 +86,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 - **AD22. The opinions of a gone object are deleted by a run each hour** (`federation/opinion_scheduler.py`), not in each retract path (design rule C4). Reason: a retract, a gone rendition, a private knowledge base, and an account purge all end in a gone object; the routes show nothing for a gone object before the run. The same run makes the daily refresh of E8 (`opinions_refreshed_at` in `client_meta`).
 - **AD23. The page JSON lists the notes of this server that reply to the object or to one of its opinions** (`local: true`). Design rule D1 does not say it; without it, a reply from the page would not show.
 - **AD24. The author of the object and a server admin get the hidden opinions** with `hidden: true` and the control "다시 보이기". Design rule D5 says only "hide".
+- **AD34. "The view of a published object in `/syndication`" (rule B1) is the selection of a published document in the knowledge base view** (stage 2). The page sends `POST /api/federation/objects/{object_id}/opinions` one time for each document and page load; the server applies rule B2. Reason: `/syndication` has no other view of one published object. The route needs no actor (the server actor signs the fetch). Code: `syndication_live.js` (`bridge.onOpenDocument`), `syndication_client.js`, `accounts_routes/opinion_actions.py`.
 
 ### 3.5 Actions of a Signed-in Account (E7d)
 
@@ -136,14 +137,14 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | :--- | :--- | :--- | :--- |
 | `Undo` of each +1 at an account purge | 5.12 rule 14 | `db88222b` | AD33. Two-server phase `unplus`. |
 | `Like` and `Announce` of a rendition object | 5.6 rule 2 | `4d9e8a26` | Stored with the number of the rendition object; its document object gives the account and the access rules. Test through the internal API only: no Claire function sends a `Like` of a remote rendition object, so the two-server test has no such phase. |
-| +1 scores in the published list of `/syndication` | 5.12 rule 13 | (this commit) | `plus_ones` of `GET /api/federation/objects`; the knowledge base view shows "+1" with each rendition that has a score, else "+1 0". Tests: `tests/test_plus_one_marks.py`, `e2e/federation_compose.spec.js`. |
+| +1 scores in the published list of `/syndication` | 5.12 rule 13 | `b0fab1c3` | `plus_ones` of `GET /api/federation/objects`; the knowledge base view shows "+1" with each rendition that has a score, else "+1 0". Tests: `tests/test_plus_one_marks.py`, `e2e/federation_compose.spec.js`. |
+| Opinion fetch from the view of a published document in `/syndication` | 5.11 B1 | (this commit) | AD34. `POST /api/federation/objects/{object_id}/opinions`. Tests: `tests/test_silvercord_rendering.py`, `e2e/federation_compose.spec.js`. |
 
 ## 8. Open Items
 
 | Item | Design | State | Note |
 | :--- | :--- | :--- | :--- |
 | `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no property. |
-| Opinion fetch from the view of a published object in `/syndication` | 5.11 B1 | not done | |
 | Opinions of a remote rendition | 5.11 C2 | no trigger | The store and the sidecar can do it (`own` false). |
 | Notification to the author for a like or a reply from an account of this server | — | not done | Remote likes and replies notify; local ones do not. |
 | Prefetch of other renditions and `content-visibility` of long bodies | 5.10 | not done | |

@@ -747,6 +747,10 @@ def test_the_opinions_route_gives_the_tree_the_counts_and_the_refresh_state(tmp_
     finally:
         conn.close()
     alice, bob, admin = (_make_caller(test_client, origin, sessions[name]) for name in ("alice", "bob", "admin"))
+    # The view of the published document in /syndication asks for the same fetch (Section 5.11 B1); another account gets 404.
+    asked = alice("POST", f"/api/federation/objects/{obj.public_id}/opinions")
+    assert (asked.status_code, asked.json()["refresh"]["id"]) == (200, view["refresh"]["id"])
+    assert bob("POST", f"/api/federation/objects/{obj.public_id}/opinions").status_code == 404
     hide = {"object": object_iri, "opinion": reply["object_iri"], "hidden": True}
     assert alice("GET", f"/silvercord/{token}/opinions").json()["moderation"] == {"url": "/api/federation/opinions/hide"}
     assert bob("GET", f"/silvercord/{token}/opinions").json()["moderation"] is None
