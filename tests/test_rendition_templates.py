@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import pytest
 
-from claire.extract.prompts import render_detail_instructions_adoc
 from claire.extract.rendition_templates import (
-    BASE_TEMPLATE,
+    ADDITIONAL_RENDITION_TEMPLATES,
     CORE_RULES,
+    PRIMARY_RENDITION_TEMPLATE,
     DEFAULT_FIRST_SECTION,
     FIXED_RULES,
     RENDITION_TEMPLATE_IDS,
@@ -36,9 +36,16 @@ def test_an_unknown_identifier_has_no_default() -> None:
         rendition_template("default")
 
 
+def test_the_primary_template_is_standard_and_the_others_can_be_added() -> None:
+    assert PRIMARY_RENDITION_TEMPLATE == "standard"
+    assert ADDITIONAL_RENDITION_TEMPLATES == ("concise", "academic")
+
+
 @pytest.mark.parametrize(("images", "merged", "scale"), CASES)
-def test_the_core_rules_build_the_current_body_prompt(images: list[dict] | None, merged: bool, scale: int) -> None:
-    assert BASE_TEMPLATE.build_instructions(images=images, merged=merged, scale=scale) == render_detail_instructions_adoc(images=images, merged=merged, scale=scale)
+def test_the_template_academic_is_the_core_rules_without_changes(images: list[dict] | None, merged: bool, scale: int) -> None:
+    academic = rendition_template("academic").build_instructions(images=images, merged=merged, scale=scale)
+    for slot in CORE_RULES:
+        assert CORE_RULES[slot].replace("<<FIRST_SECTION>>", DEFAULT_FIRST_SECTION) in academic, slot
 
 
 @pytest.mark.parametrize("template_id", RENDITION_TEMPLATE_IDS)

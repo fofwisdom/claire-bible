@@ -266,7 +266,7 @@ def _gc_account_disk_artifacts(conn: sqlite3.Connection, account_id: int, data_d
         for tid in owned_kb_ids:
             dbm.reset_graph(conn, kb_id=tid)
             for tbl in (
-                "documents", "document_snapshots", "document_presentations", "raw_inbox",
+                "documents", "document_snapshots", "document_presentations", "document_renditions", "raw_inbox",
                 "extractions", "proposals", "jobs", "refresh_queue", "expand_queue", "same_subject_shadow",
                 "purged_tombstones", "syndication_dispatches",
                 *dbm.V20_RETIRED_SYNDICATION_TABLES,

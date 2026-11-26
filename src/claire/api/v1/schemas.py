@@ -698,6 +698,7 @@ class ExtractionSpecResponse(SealedModel):
     schema_version: str
     prompt_version: str
     prompt_template: str
+    template_version: str
     prompts: dict[str, Any]
     json_schema: dict[str, Any]
     ontology: dict[str, Any]

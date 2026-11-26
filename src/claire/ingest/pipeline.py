@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from ..accounts.provider_policy import ProviderPolicyError, context_of, split_gemini_model_and_effort
-from ..extract.provider import LineageCollector, Provider, RelationCandidate, emit_progress
+from ..extract.provider import LineageCollector, Provider, RelationCandidate, _accepts_kwarg, emit_progress
+from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
 from ..extract.resolver import _call_provider_embed, resolve_or_create
 from ..ontology.base import Document, Entity, Relation
 from ..ontology.registry import (
@@ -29,6 +30,7 @@ from ..ontology.registry import (
     validate_relation,
 )
 from ..store import db as dbm
+from ..store import document_renditions as renditions_store
 from ..store.graph import GraphStore
 from ..core.secret_scrub import scrub_exception, scrub_text
 from ..store.vectors import VectorStore, is_kb_active_space_eos, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
@@ -1391,7 +1393,6 @@ def _extract_resolve_store_impl(
         except Exception:
             pass
 
-    from ..extract.provider import _accepts_kwarg
 
     provider_lineage = getattr(provider, "lineage", None)
     has_provider_lineage = isinstance(provider_lineage, LineageCollector)
@@ -1930,6 +1931,8 @@ def ensure_document_detail(
 ) -> bool:
     """문서의 가독 렌더(detail)를 생성·저장. **그래프와 독립**(별도 LLM 호출).
 
+    The body is the 대표 정리본: the run uses the rendition template ``standard`` and records the template version in ``document_renditions`` (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.1 rule 4). The other renditions use ``render_additional_rendition``.
+
     신규 적재(extract_resolve_store)와 기존 문서 백필이 공유하는 단일 경로. detail 컬럼만 채우므로 엔티티/관계를 건드리지 않는다 → reset_graph/rebuild 없이 백필 가능(advisor). 이미 있으면(force=False) 건너뛰고, 생성 실패는 조용히 False(적재 실패로 번지지 않음).
     """
     if full_content:
@@ -1994,16 +1997,7 @@ def ensure_document_detail(
     eff = _effective_provider_effort(provider, eff, slot="render_detail")
 
     try:
-        try:
-            text = render(doc, format=fmt, focus=focus_val, effort=eff)
-        except TypeError:
-            try:
-                text = render(doc, format=fmt, focus=focus_val)
-            except TypeError:
-                try:
-                    text = render(doc, format=fmt)
-                except TypeError:
-                    text = render(doc)
+        text = _render_body(render, doc, template=PRIMARY_RENDITION_TEMPLATE, focus=focus_val, effort=eff)
     except Exception as e:  # noqa: BLE001
         import logging
 
@@ -2015,6 +2009,7 @@ def ensure_document_detail(
         return False
     if text and text.strip():
         dbm.set_document_detail(conn, doc.id, text.strip(), format=fmt, kb_id=tid)
+        renditions_store.record_primary(conn, doc.id, tid, lineage=render_lineage(provider))
         if focus_val is not None:
             if doc.meta is None:
                 doc.meta = {}
@@ -2024,6 +2019,23 @@ def ensure_document_detail(
     if out_error is not None:
         out_error.append("empty detail output returned by model")
     return False
+
+
+def render_lineage(provider: Any) -> dict[str, str]:
+    """The provider and the model of a body run, as the slot ``render_detail`` names them (the requested model)."""
+    slot_spec_fn = getattr(provider, "slot_spec", None)
+    spec = slot_spec_fn("render_detail") if callable(slot_spec_fn) else None
+    if isinstance(spec, (tuple, list)) and len(spec) >= 2 and spec[1]:
+        return {"provider": str(spec[0] or ""), "model": str(spec[1])}
+    raw_model = getattr(provider, "model", "")
+    return {"provider": str(getattr(provider, "name", "") or ""), "model": raw_model if isinstance(raw_model, str) else ""}
+
+
+def _render_body(render: Callable[..., str], doc: Document, *, template: str, focus: str | None, effort: str | None) -> str:
+    """One body run of one rendition template. A provider without the argument ``effort`` gets none."""
+    if _accepts_kwarg(render, "effort"):
+        return render(doc, format="adoc", focus=focus, template=template, effort=effort)
+    return render(doc, format="adoc", focus=focus, template=template)
 
 
 def ensure_watch_classification(

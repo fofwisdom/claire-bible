@@ -79,10 +79,13 @@ def test_render_detail():
     p.client.interactions.create.return_value = mock_interaction
 
     doc = Document(id="doc1", title="Doc", raw_text="Some text", source_type="text")
-    detail = p.render_detail(doc)
+    detail = p.render_detail(doc, template="concise")
 
     assert "## 핵심 정리" in detail
     assert "**OpenSkill**" in detail
+    # The call to the library sends the prompt of the rendition template (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.2).
+    sent = p.client.interactions.create.call_args.kwargs["input"]
+    assert "간결 구성" in sent and sent.rstrip().endswith("한국어 AsciiDoc:") and "Some text" in sent
 
 
 def test_classify_watch():

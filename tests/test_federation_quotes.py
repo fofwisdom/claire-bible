@@ -188,7 +188,7 @@ def test_version_49_drops_the_document_quote_policy_and_approves_document_reques
         try:
             dbm.init_db(conn)
             conn.commit()
-            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION == 49
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION == 50
             assert "quote_policy" not in {r[1] for r in conn.execute("PRAGMA table_info(federation_objects)")}
             # Each object whose policy was not ``public`` sends ``Update`` one time.
             assert [tuple(r) for r in conn.execute("SELECT kind, object_public_id, status FROM federation_outbox ORDER BY object_public_id")] == [("update", 801, "pending"), ("update", 803, "pending")]

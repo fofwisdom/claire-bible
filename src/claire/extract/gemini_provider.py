@@ -619,6 +619,7 @@ class GeminiProvider:
         format: str = "adoc",
         focus: str | None = None,
         *,
+        template: str,
         effort: str | None = None,
     ) -> str:
         """원문을 가독 렌더(MD 또는 ADOC)로 '편하게 읽을 수 있는 글'로 재구성(요약 아님).
@@ -631,14 +632,14 @@ class GeminiProvider:
         merged = bool((doc.meta or {}).get("extra_sources"))
         focus_val = focus
         text = self._render_detail_call(
-            body, images, merged=merged, scale=1, format=format, focus=focus_val, effort=effort
+            body, images, merged=merged, scale=1, template=template, focus=focus_val, effort=effort
         )
         if merged:
             for scale in (2, 4):
                 if len(text) >= _MERGED_DETAIL_MIN_CHARS:
                     break
                 text = self._render_detail_call(
-                    body, images, merged=merged, scale=scale, format=format, focus=focus_val, effort=effort
+                    body, images, merged=merged, scale=scale, template=template, focus=focus_val, effort=effort
                 )
         return text
 
@@ -649,12 +650,12 @@ class GeminiProvider:
         *,
         merged: bool,
         scale: int,
-        format: str = "adoc",
+        template: str,
         focus: str | None = None,
         effort: str | None = None,
     ) -> str:
         prompt = render_detail_prompt(
-            body, images, merged=merged, scale=scale, format=format, focus=focus
+            body, images, merged=merged, scale=scale, template=template, focus=focus
         )
         interaction = self._call(lambda: self.client.interactions.create(
             model=self._api_model(),

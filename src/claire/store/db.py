@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 49
+SCHEMA_VERSION = 50
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -905,6 +905,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v47_lab_runs(conn)
     _migrate_v48_anonymous_readonly(conn)
     _migrate_v49_document_quotes_always_permitted(conn)
+    _migrate_v50_document_renditions(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -1373,6 +1374,10 @@ def _recompile_stale_detail_html(conn: sqlite3.Connection) -> None:
     rows = conn.execute("SELECT rowid, detail FROM documents WHERE detail IS NOT NULL AND trim(detail) != ''").fetchall()
     for r in rows:
         conn.execute("UPDATE documents SET detail_html=? WHERE rowid=?", (renderer.render_to_html(r[1]), r[0]))
+    if _table_exists(conn, "document_renditions"):
+        # The bodies of the renditions that are not the 대표 정리본 (v50).
+        for r in conn.execute("SELECT rowid, detail FROM document_renditions WHERE detail IS NOT NULL AND trim(detail) != ''").fetchall():
+            conn.execute("UPDATE document_renditions SET detail_html=? WHERE rowid=?", (renderer.render_to_html(r[1]), r[0]))
     if rows:
         logging.getLogger(__name__).info("AOT renderer revision %s: rendered %d bodies again", renderer_revision, len(rows))
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (RENDERER_REVISION_KEY, str(renderer_revision)))
@@ -2278,6 +2283,41 @@ def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
     """v23 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5): ``federation_objects.content_digest`` is the digest of the summary and the share link that the followers got last. NULL for an object from before this version: the first comparison stores the digest and sends nothing (rule 7). Idempotent (A3)."""
     if _table_exists(conn, "federation_objects") and "content_digest" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
+
+
+def _migrate_v50_document_renditions(conn: sqlite3.Connection) -> None:
+    """v50 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.1 and 6): the renditions (정리본) of each document. Idempotent; it runs at each start.
+
+    The body of the 대표 정리본 (template ``standard``) stays in ``documents.detail``; its row has no body. When the step makes the table, each AsciiDoc body that exists gets a row of the template ``standard`` with the version ``pre-template`` (owner decision O21, 2026-11-26: a body of before the templates counts as the rendition 기본). Later starts do not add such rows: each body run writes its row.
+    """
+    from ..extract.rendition_templates import PRE_TEMPLATE_VERSION, PRIMARY_RENDITION_TEMPLATE
+
+    created = not _table_exists(conn, "document_renditions")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS document_renditions (
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+            template TEXT NOT NULL,
+            template_version TEXT NOT NULL,
+            detail TEXT,
+            detail_html TEXT,
+            model_lineage TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            PRIMARY KEY (document_id, template)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_document_renditions_kb ON document_renditions(kb_id, document_id)")
+    if created and _table_exists(conn, "documents"):
+        now = time.time()
+        conn.execute(
+            "INSERT OR IGNORE INTO document_renditions (document_id, kb_id, template, template_version, detail, detail_html, model_lineage, created_at, updated_at) "
+            "SELECT id, kb_id, ?, ?, NULL, NULL, '{}', ?, ? FROM documents "
+            "WHERE detail IS NOT NULL AND trim(detail) != '' AND lower(trim(coalesce(detail_format, 'adoc'))) = 'adoc'",
+            (PRIMARY_RENDITION_TEMPLATE, PRE_TEMPLATE_VERSION, now, now),
+        )
 
 
 def _migrate_v49_document_quotes_always_permitted(conn: sqlite3.Connection) -> None:

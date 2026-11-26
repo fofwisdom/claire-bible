@@ -30,6 +30,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from ..ontology.base import Document
+from .rendition_templates import rendition_template
 
 
 class ExtractedEntity(BaseModel):
@@ -202,7 +203,7 @@ class Provider(Protocol):
     def select_followups(self, context: str, candidates: list[dict]) -> list[int]: ...
 
     def render_detail(
-        self, doc: Document, format: str = "adoc", focus: str | None = None
+        self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str
     ) -> str: ...
 
     def compose_presentation(
@@ -376,7 +377,7 @@ class MockProvider:
         return self.extract(doc).summary
 
     def render_detail(
-        self, doc: Document, format: str = "adoc", focus: str | None = None
+        self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str
     ) -> str:
         """결정론적 stub — 문서 가독 렌더링(detail, MD 또는 ADOC) 파이프라인 연결만 보장.
 
@@ -386,7 +387,8 @@ class MockProvider:
         images = (doc.meta or {}).get("images") or []
         focus_val = focus
         focus_tag = f" [focus: {focus_val}]" if focus_val else ""
-        parts = [f"[mock-detail-adoc]{focus_tag} *{title}*", "", text[:600]]
+        # The template of the rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.2) is in the first line, so that a test can tell the renditions apart.
+        parts = [f"[mock-detail-adoc] [template: {rendition_template(template).id}]{focus_tag} *{title}*", "", text[:600]]
         if images:
             im = images[0]
             cap = im.get("caption") or im.get("alt") or "그림"
@@ -979,11 +981,11 @@ class FeatureRoutedProvider:
 
         return self._call_stage("summarize", _invoke, effort_override=effort)
 
-    def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+    def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str, effort: str | None = None) -> str:
         def _invoke(p: Provider) -> str:
             if effort is not None and _accepts_kwarg(p.render_detail, "effort"):
-                return p.render_detail(doc, format=format, focus=focus, effort=effort)
-            return p.render_detail(doc, format=format, focus=focus)
+                return p.render_detail(doc, format=format, focus=focus, template=template, effort=effort)
+            return p.render_detail(doc, format=format, focus=focus, template=template)
 
         return self._call_stage("render_detail", _invoke, effort_override=effort)
 

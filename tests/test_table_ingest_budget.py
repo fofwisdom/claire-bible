@@ -5,7 +5,7 @@ from claire.extract.prompts import (
     PROMPT_VERSION,
     doc_to_prompt,
     extract_system_prompt,
-    render_detail_prompt_adoc,
+    render_detail_prompt,
 )
 from claire.extract.table_budget import (
     extract_tables_from_text,
@@ -162,7 +162,7 @@ def test_prompt_rules_contain_table_preservation_rules():
     assert "MUST NOT omit or ignore the data inside tables" in sys_prompt
 
     # 3. AsciiDoc 가독 렌더링 프롬프트 검증 (테이블 보존 + 미디어 제거 허용 조건)
-    adoc_prompt = render_detail_prompt_adoc("Sample Body", [], merged=False)
+    adoc_prompt = render_detail_prompt("Sample Body", [], merged=False, template="academic")
     assert "테이블 보존" in adoc_prompt
     assert "|===" in adoc_prompt
     assert "테이블 내에 들어있는 미디어" in adoc_prompt

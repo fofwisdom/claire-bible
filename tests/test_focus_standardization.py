@@ -12,7 +12,6 @@ from claire.api import server
 from claire.core.config import Settings, get_settings
 from claire.extract.prompts import (
     render_detail_prompt,
-    render_detail_prompt_adoc,
 )
 from claire.extract.provider import MockProvider
 from claire.ingest.pipeline import ensure_document_detail, ingest
@@ -28,22 +27,18 @@ def test_prompts_with_focus():
     focus = "시스템 아키텍처 및 내부 컴포넌트 구조 중심"
 
     # 3. AsciiDoc prompt without focus
-    adoc_no_focus = render_detail_prompt_adoc(body, images, merged=False)
+    adoc_no_focus = render_detail_prompt(body, images, merged=False, template="academic")
     assert "중점 작성 초점" not in adoc_no_focus
 
     # 4. AsciiDoc prompt with focus
-    adoc_with_focus = render_detail_prompt_adoc(body, images, merged=False, focus=focus)
+    adoc_with_focus = render_detail_prompt(body, images, merged=False, focus=focus, template="academic")
     assert "중점 작성 초점" in adoc_with_focus
     assert focus in adoc_with_focus
 
-    # 5. Router function render_detail_prompt
-    routed_md = render_detail_prompt(body, images, merged=False, format="md", focus=focus)
-    assert "중점 작성 초점" in routed_md
-    assert focus in routed_md
-
-    routed_adoc = render_detail_prompt(body, images, merged=False, format="adoc", focus=focus)
-    assert "중점 작성 초점" in routed_adoc
-    assert focus in routed_adoc
+    # 5. Each rendition template has the focus of the request.
+    for template in ("standard", "concise", "academic"):
+        prompt = render_detail_prompt(body, images, merged=False, focus=focus, template=template)
+        assert "중점 작성 초점" in prompt and focus in prompt, template
 
 
 def test_mock_provider_focus():
@@ -51,17 +46,17 @@ def test_mock_provider_focus():
     doc = Document(id="doc_test1", title="Test Tool", raw_text="A tool for testing.")
 
     # No focus
-    detail_plain = provider.render_detail(doc, format="md")
-    assert "[mock-detail-adoc] *Test Tool*" in detail_plain
+    detail_plain = provider.render_detail(doc, template="standard")
+    assert "[mock-detail-adoc] [template: standard] *Test Tool*" in detail_plain
     assert "[focus:" not in detail_plain
 
     # With focus
-    detail_focus = provider.render_detail(doc, format="md", focus="아키텍처 중심")
+    detail_focus = provider.render_detail(doc, focus="아키텍처 중심", template="standard")
     assert "[focus: 아키텍처 중심]" in detail_focus
 
     # AsciiDoc with focus
-    detail_adoc = provider.render_detail(doc, format="adoc", focus="튜토리얼 중심")
-    assert "[mock-detail-adoc] [focus: 튜토리얼 중심]" in detail_adoc
+    detail_adoc = provider.render_detail(doc, focus="튜토리얼 중심", template="standard")
+    assert "[mock-detail-adoc] [template: standard] [focus: 튜토리얼 중심]" in detail_adoc
 
 
 def test_db_document_focus(tmp_path: Path):

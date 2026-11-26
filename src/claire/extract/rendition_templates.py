@@ -15,7 +15,7 @@ Templates:
 - ``concise`` (간결): a short body with a fixed section order, and the same two traits (owner decisions O18 and O20).
 - ``academic`` (학술): no changes, thus the current body prompt (owner decisions O2, O11, and O17). The owner changes it later.
 
-No ingest path selects a template yet: until phase E3, the ingest uses the current prompt ``prompts.render_detail_instructions_adoc``. A change of the text of a template increments its version from its first use.
+Each body run uses one template (phase E3): the 대표 정리본 of each document uses ``PRIMARY_RENDITION_TEMPLATE``, and an account can select the other templates at ingest or later. A change of the text of a template increments its version (``RenditionTemplate.version``); a body stores the version of its template. A body of before phase E3 has the version ``PRE_TEMPLATE_VERSION`` and counts as the rendition ``standard`` (owner decision O21).
 """
 
 from __future__ import annotations
@@ -80,6 +80,17 @@ def _standard_intro(merged: bool, scale: int) -> str:
     )
 
 
+def _focus_hint(focus: str | None) -> str:
+    """The focus of the request, after the scope sentence. Each template uses it in the same place."""
+    if not (focus and focus.strip()):
+        return ""
+    return (
+        f"\n[★ 최우선 중점 작성 초점(Focus)]\n"
+        f"- 사용자가 요청한 다음 핵심 초점(Focus) 및 구성 요소를 최우선으로 하여 본문 전체를 재구성하라: **{focus.strip()}**\n"
+        f"- 원문에서 위 초점과 관련된 핵심 개념, 구성 요소, 정의, 작동 원리, 사례, 수치를 빠짐없이 상세히 독립된 섹션/문단으로 다루어라.\n\n"
+    )
+
+
 def _concise_intro(merged: bool, scale: int) -> str:
     """The scope sentence of the concise rendition."""
     if merged:
@@ -135,11 +146,12 @@ class RenditionTemplate:
                     out.append((key, text))
         return out
 
-    def build_instructions(self, *, images: list[dict] | None, merged: bool, scale: int) -> str:
-        """The instructions without the source text."""
+    def build_instructions(self, *, images: list[dict] | None, merged: bool, scale: int, focus: str | None = None) -> str:
+        """The instructions without the source text. ``focus`` is the focus of the request (no focus: ``None``)."""
         numbered = "".join(f"{number}. {text}\n" for number, (_, text) in enumerate(self.rules(), start=1))
         return (
             self.intro(merged, scale)
+            + _focus_hint(focus)
             + RULES_HEADER
             + numbered
             + (self.image_hint if images else "")
@@ -179,8 +191,14 @@ RENDITION_TEMPLATES: dict[str, RenditionTemplate] = {
 
 RENDITION_TEMPLATE_IDS: tuple[str, ...] = tuple(RENDITION_TEMPLATES)
 
-BASE_TEMPLATE = RenditionTemplate(id="base", version="base", intro=_standard_intro)
-"""The core rules without changes. It builds the current body prompt; no rendition uses it."""
+PRIMARY_RENDITION_TEMPLATE = "standard"
+"""The template of the 대표 정리본 (Section 5.1 rule 4, owner decision O19). Each ingest makes it."""
+
+ADDITIONAL_RENDITION_TEMPLATES: tuple[str, ...] = tuple(t for t in RENDITION_TEMPLATE_IDS if t != PRIMARY_RENDITION_TEMPLATE)
+"""The templates that an account can select in addition to the 대표 정리본."""
+
+PRE_TEMPLATE_VERSION = "pre-template"
+"""The template version of a body that was made before phase E3, with the body prompt of before the templates. The owner decision O21 (2026-11-26) records such a body as the rendition ``standard``."""
 
 
 def rendition_template(template_id: str) -> RenditionTemplate:
@@ -189,3 +207,8 @@ def rendition_template(template_id: str) -> RenditionTemplate:
     if found is None:
         raise UnknownRenditionTemplate(template_id)
     return found
+
+
+def render_prompt(template_id: str, body: str, images: list[dict] | None, *, merged: bool, scale: int, focus: str | None) -> str:
+    """The full body prompt of one template: the instructions and the source text."""
+    return rendition_template(template_id).build_instructions(images=images, merged=merged, scale=scale, focus=focus) + f"\n원문:\n{body}\n\n한국어 AsciiDoc:"

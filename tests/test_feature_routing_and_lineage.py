@@ -156,7 +156,7 @@ def test_feature_routed_provider_decouples_extract_and_summarize_and_records_lin
             calls.append(("summarize_document", self.model))
             return "요약 모델이 생성한 독립 요약이다."
 
-        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str, effort: str | None = None) -> str:
             calls.append(("render_detail", self.model))
             return "상세 본문이다."
 
@@ -298,7 +298,7 @@ def test_feature_routed_provider_fixed_effort_and_per_document_isolation(monkeyp
         def summarize_document(self, doc: Document, *, effort: str | None = None) -> str:
             return "Summary for " + doc.id
 
-        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str, effort: str | None = None) -> str:
             return "= Detail\n\nBody for " + doc.id
 
     import claire.extract.provider as provider_mod
@@ -385,7 +385,7 @@ def test_direct_provider_lineage_completeness_and_gate1_embed_skip(monkeypatch: 
                 return ExtractionResult(summary="Gate 1 summary", entities=[ExtractedEntity(name="AlphaTool", type="Tool", observations=["tool"])], relations=[], model=self.model)
             return ExtractionResult(summary="Full summary", entities=[ExtractedEntity(name="AlphaTool Variant", type="Tool", observations=["improved version"])], relations=[], model=self.model)
 
-        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str, effort: str | None = None) -> str:
             if doc.id == "doc_gate1":
                 raise RuntimeError("detail boom")
             return "= Detail\n\nRendered content"

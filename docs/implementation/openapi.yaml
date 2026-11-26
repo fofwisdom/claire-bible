@@ -4468,6 +4468,9 @@ components:
         prompt_template:
           title: "Prompt Template"
           type: string
+        template_version:
+          title: "Template Version"
+          type: string
         prompts:
           additionalProperties: true
           title: Prompts
@@ -4504,6 +4507,7 @@ components:
         - schema_version
         - prompt_version
         - prompt_template
+        - template_version
         - prompts
         - json_schema
         - ontology

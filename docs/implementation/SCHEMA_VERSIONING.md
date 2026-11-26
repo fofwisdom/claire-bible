@@ -459,3 +459,13 @@ Basis: phase E1 of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/D
 - **[code]** Before the drop: each object whose policy was not `public` gets `updated_at` of the run and one `update` task in `federation_outbox`, so that the followers get the object with the new `canQuote`. Each row of `federation_quote_authorizations` in `client.db` that is `pending` or `refused` and whose `object_public_id` is a published document becomes `approved` with its `quote_authorize` task. A `revoked` row and a request for a note do not change. Then the step drops the column.
 - **[code]** `store.federation.DOCUMENT_QUOTE_POLICY` (`public`) is the policy of each published document. The policy is not data.
 - **[test]** `tests/test_federation_quotes.py` (`test_version_49_drops_the_document_quote_policy_and_approves_document_requests`).
+
+## v50 (renditions of a document)
+
+Basis: phase E3a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Sections 5.1 and 6 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 50. `_migrate_v50_document_renditions` (`src/claire/store/db.py`) runs at each start and makes `document_renditions`: (`document_id`, `template`) is the key, with `kb_id`, `template_version`, `detail`, `detail_html`, `model_lineage` (JSON: `provider`, `model`), `created_at`, `updated_at`. The rows go away with the document and with the knowledge base (foreign keys with `ON DELETE CASCADE`, and the lists of the account and knowledge base deletion).
+- **[code]** The body of the 대표 정리본 (template `standard`) stays in `documents.detail`; its row has no body. The rows of `concise` and `academic` have their bodies.
+- **[code] [decision]** When the step makes the table, each AsciiDoc body that exists gets a row `standard` with the version `pre-template` (owner decision O21: a body of before the templates is the rendition 기본). Later starts add no such row; each body run writes its row (`document_renditions.record_primary`).
+- **[code]** `_recompile_stale_detail_html` renders the bodies of the renditions again too.
+- **[test]** `tests/test_document_renditions.py`.

@@ -90,7 +90,7 @@ def test_adoc_thematic_break_strict_standards():
 def test_prompts_strict_adoc_purity():
     """render_detail_prompt_adoc 에 Markdown 혼용 절대 금지 및 ''' 표준 규칙이 명시되어 있는지 검증."""
     body = "샘플 본문"
-    prompt = render_detail_prompt(body, [], merged=False, format="adoc")
+    prompt = render_detail_prompt(body, [], merged=False, template="academic")
     assert "Markdown 혼용 절대 금지" in prompt
     assert "'''" in prompt
     assert "---" in prompt  # '---'는 절대 사용 금지 명시 포함
@@ -132,13 +132,11 @@ def test_db_detail_format_storage_and_migration():
 
 
 def test_prompts_adoc_only():
-    """render_detail_prompt 는 AsciiDoc 프롬프트만 만든다. format="md" 도 Markdown 프롬프트를 고르지 못한다(RD23)."""
+    """The body prompt is an AsciiDoc prompt (RD23). The template academic keeps the tables of the source."""
     body = "샘플 본문 내용"
     images = [{"url": "https://example.com/img.png", "alt": "다이어그램", "caption": "설명"}]
 
-    assert render_detail_prompt(body, images, merged=False, format="md") == render_detail_prompt(body, images, merged=False, format="adoc")
-
-    prompt_adoc = render_detail_prompt(body, images, merged=False, format="adoc")
+    prompt_adoc = render_detail_prompt(body, images, merged=False, template="academic")
     assert "AsciiDoc" in prompt_adoc
     assert "[quote" in prompt_adoc
     assert "[source" in prompt_adoc
@@ -147,7 +145,7 @@ def test_prompts_adoc_only():
 
 
 def test_mock_provider_dual_format():
-    """MockProvider.render_detail 이 포맷(md vs adoc)에 맞게 올바른 stub 을 생성하는지 검증."""
+    """MockProvider.render_detail gives the AsciiDoc stub with the template of the rendition."""
     prov = MockProvider()
     doc = Document(
         id="doc-1",
@@ -157,11 +155,9 @@ def test_mock_provider_dual_format():
         meta={"images": [{"url": "https://example.com/arch.png", "alt": "구조도", "caption": "아키텍처"}]},
     )
 
-    # RD25: a request for md also gives the AsciiDoc stub.
-    assert prov.render_detail(doc, format="md") == prov.render_detail(doc, format="adoc")
-
-    adoc_out = prov.render_detail(doc, format="adoc")
-    assert "[mock-detail-adoc]" in adoc_out
+    adoc_out = prov.render_detail(doc, template="standard")
+    assert "[mock-detail-adoc] [template: standard]" in adoc_out
+    assert "[template: concise]" in prov.render_detail(doc, template="concise")
     assert "image::" in adoc_out
 
 
@@ -931,7 +927,7 @@ def test_clean_plain_summary_anchors_and_xrefs():
 
 def test_prompts_adoc_phase1_guidelines():
     """render_detail_prompt_adoc 에 수식 및 상호참조 지침이 정상 포함되는지 검증."""
-    prompt_adoc = render_detail_prompt("샘플 텍스트", [], merged=False, format="adoc")
+    prompt_adoc = render_detail_prompt("샘플 텍스트", [], merged=False, template="academic")
     assert "stem:[공식]" in prompt_adoc
     assert "[latexmath]" in prompt_adoc
     assert "[#섹션ID]" in prompt_adoc
@@ -1050,7 +1046,7 @@ def test_init_db_renders_stored_bodies_again_after_renderer_revision_change(tmp_
 
 def test_detail_prompt_limits_quote_blocks_to_direct_quotes():
     """The body prompt keeps [quote] for direct quotes of the source: no paraphrase, no concept label or merged citation marks as attribution, no comma in the attribution."""
-    prompt = render_detail_prompt("본문", [], merged=False, format="adoc")
+    prompt = render_detail_prompt("본문", [], merged=False, template="academic")
 
     assert "원문 언어 그대로 옮긴 직접 인용만" in prompt
     assert "번역·요약·의역한 문장이나 여러 문장을 합친 문장은 `[quote]`에 넣지 마라" in prompt

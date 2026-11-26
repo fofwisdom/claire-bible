@@ -27,7 +27,7 @@ MAX_TASKS = 100
 # A client outbox task of a note that waits longer than this is a finding.
 PENDING_TASK_SECONDS = 600.0
 # The keys of ``meta.client_extraction`` that a bundle copies. ``expected_content_hash`` is a hash of the source and not a secret.
-_PROVENANCE_KEYS = ("extraction_origin", "client_id", "oauth_client_id", "model", "schema_version", "prompt_version", "prompt_template", "expected_content_hash", "committed_at")
+_PROVENANCE_KEYS = ("extraction_origin", "client_id", "oauth_client_id", "model", "schema_version", "prompt_version", "prompt_template", "template_version", "expected_content_hash", "committed_at")
 
 
 class SupportTargetNotFound(ValueError):

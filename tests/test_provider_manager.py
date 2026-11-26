@@ -464,7 +464,7 @@ def test_gemini_enumerated_effort_models_probe_and_sync(tmp_path: Path, monkeypa
     assert routed.slot_spec("render_detail")[2] == "high"
     doc = Document(id="doc-slot", title="Slot Test", raw_text="Sample body for slot dispatch.", source_type="text")
     assert routed.summarize_document(doc)
-    assert routed.render_detail(doc)
+    assert routed.render_detail(doc, template="standard")
     stages = [ev["stage"] for ev in routed.lineage.events]
     assert "summarize" in stages and "render_detail" in stages
 

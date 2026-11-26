@@ -13,14 +13,11 @@ from claire.ontology.base import Document
 from claire.store import db as dbm
 
 
-@pytest.mark.parametrize("format", ["md", "adoc"])
-def test_render_detail_prompt_forbids_forcing_biblio_in_body(format: str):
+def test_render_detail_prompt_forbids_forcing_biblio_in_body():
     prompt = render_detail_prompt(
         "URL: https://example.com/article\n\nCONTENT:\n본문",
         [],
-        merged=False,
-        format=format,
-    )
+        merged=False, template="academic")
 
     assert "서지 정보 표기" not in prompt
     assert "저자(AUTHORS)" not in prompt
@@ -86,7 +83,7 @@ def test_ensure_document_detail_cleans_before_storage(tmp_path):
     class ProviderWithSourceHeader:
         effort = "medium"
 
-        def render_detail(self, doc, format="adoc", focus=None, effort=None):
+        def render_detail(self, doc, format="adoc", focus=None, *, template, effort=None):
             return (
                 "= 제목\n"
                 "_저자: Kim | 출처: Example (https://example.com[원문])_\n\n"
@@ -146,8 +143,7 @@ def test_recompile_all_detail_html_cleans_existing_documents(tmp_path):
 def test_render_detail_prompt_explicitly_forbids_author_lines():
     """상세 프롬프트가 제목 직후 저자/부제 행 작성 및 플랫폼 인용을 명시적으로 금지하는지 검증."""
     prompt_adoc = render_detail_prompt(
-        "CONTENT:\n본문", [], merged=False, format="adoc"
-    )
+        "CONTENT:\n본문", [], merged=False, template="academic")
     assert "문서 레벨 서지 정보 및 저자 라인 표기 절대 금지" in prompt_adoc
     assert "단순 비디오 채널/호스팅 플랫폼/업로더 계정명은 출처로 인용하지 않는다" in prompt_adoc
 

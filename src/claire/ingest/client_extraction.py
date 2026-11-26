@@ -21,8 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from ..accounts.provider_policy import ProviderBudgetExceeded, ProviderKeyRejected, ProviderNotAllowed, ProviderNotConfigured
 from ..extract.decision import attach_resolution_meta
 from ..extract.frame import format_entity_frame
-from ..extract.prompts import DEFAULT_EXTRACTION_TEMPLATE, PROMPT_VERSION, build_extraction_prompt_bundle, clean_plain_summary, is_corrupted_summary, is_preface_summary, remove_leading_original_link, render_detail_instructions_adoc, sanitize_rendered_detail
+from ..extract.prompts import PROMPT_VERSION, build_extraction_prompt_bundle, clean_plain_summary, is_corrupted_summary, is_preface_summary, remove_leading_original_link, sanitize_rendered_detail
 from ..extract.provider import UnavailableProvider, get_provider
+from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE, rendition_template
 from ..extract.resolver import _call_provider_embed, is_type_compatible, passes_hard_invariants, resolve_or_create, sync_entity_space_embeddings
 from ..ingest.fetchers.base import FetchError, bound_fetch_settings
 from ..ingest.fetchers.textfile import MAX_STAGE_FILE_BYTES, fetch_file_bytes
@@ -33,6 +34,7 @@ from ..ontology.base import Entity, Relation, new_id, normalize_name
 from ..core.ports import get_document_renderer
 from ..ontology.registry import PROVISIONAL_TYPE_PATTERN, classify_entity_type, classify_relation_type, export_ontology_spec, validate_relation
 from ..store import db as dbm
+from ..store import document_renditions as renditions_store
 from ..store.telemetry import evaluate_summary_verdict
 from ..store.vectors import EmbedPin, is_kb_active_space_eos, make_vector_store, read_embed_pin, read_embedding_space, read_kb_embedding_spaces, resolve_embed_identity
 
@@ -248,14 +250,18 @@ def resolve_oauth_client_id(conn: sqlite3.Connection, *, account_id: int | None,
     return None
 
 
-def get_extraction_spec(*, focus: str | None = None, template: str | None = None) -> dict[str, Any]:
-    """Return the deterministic extraction specification, canonical server prompts, ontology rules, and JSON schema."""
+def get_extraction_spec() -> dict[str, Any]:
+    """Return the deterministic extraction specification, canonical server prompts, ontology rules, and JSON schema.
+
+    The body prompt is the prompt of the 대표 정리본 (rendition template ``standard``, DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.2 rules 5 and 6): ``prompt_template`` is the template identifier and ``template_version`` its version.
+    """
     ontology_spec = export_ontology_spec()
-    prompt_bundle = build_extraction_prompt_bundle(str(ontology_spec["prompt_block"]), focus=focus, template=template)
+    prompt_bundle = build_extraction_prompt_bundle(str(ontology_spec["prompt_block"]), template=PRIMARY_RENDITION_TEMPLATE)
     return {
         "schema_version": CLIENT_EXTRACTION_SCHEMA_VERSION,
         "prompt_version": prompt_bundle["prompt_version"],
         "prompt_template": prompt_bundle["template"],
+        "template_version": prompt_bundle["template_version"],
         "prompts": prompt_bundle,
         "json_schema": ClientExtractionPayload.model_json_schema(),
         "ontology": ontology_spec,
@@ -856,9 +862,10 @@ def get_staged_source(
         meta_focus = str(staged_meta.get("focus") or "").strip() or None
         is_merged = bool(staged_meta.get("extra_sources"))
         if (isinstance(meta_images, list) and meta_images) or meta_focus or is_merged:
-            result["render_detail_prompt"] = render_detail_instructions_adoc(
+            result["render_detail_prompt"] = rendition_template(PRIMARY_RENDITION_TEMPLATE).build_instructions(
                 images=meta_images if isinstance(meta_images, list) else None,
                 merged=is_merged,
+                scale=1,
                 focus=meta_focus,
             )
     return result
@@ -1460,6 +1467,8 @@ def submit_client_extraction(
                 now=commit_ts,
             )
             raise race_err or ClientExtractionError(409, "claim_conflict", "Document claim state changed before commit.")
+        # The body is the 대표 정리본 of the template standard (Section 5.1 rule 4).
+        renditions_store.record_primary(atomic_conn, doc_id, int(kb_id), lineage={"provider": "agent_client", "model": cleaned_model or ""}, now=commit_ts)
 
         dbm.rollback_document_graph_contributions(atomic_conn, [doc_id], prune_orphans=True, kb_id=int(kb_id))
         atomic_conn.execute("DELETE FROM extractions WHERE document_id=? AND kb_id=?", (doc_id, int(kb_id)))
@@ -1588,7 +1597,8 @@ def submit_client_extraction(
             "model": cleaned_model,
             "schema_version": validated.schema_version,
             "prompt_version": PROMPT_VERSION,
-            "prompt_template": DEFAULT_EXTRACTION_TEMPLATE,
+            "prompt_template": PRIMARY_RENDITION_TEMPLATE,
+            "template_version": rendition_template(PRIMARY_RENDITION_TEMPLATE).version,
             "expected_content_hash": expected_content_hash,
             "committed_at": commit_ts,
         }
@@ -1603,7 +1613,8 @@ def submit_client_extraction(
             "model": cleaned_model,
             "schema_version": validated.schema_version,
             "prompt_version": PROMPT_VERSION,
-            "prompt_template": DEFAULT_EXTRACTION_TEMPLATE,
+            "prompt_template": PRIMARY_RENDITION_TEMPLATE,
+            "template_version": rendition_template(PRIMARY_RENDITION_TEMPLATE).version,
             "expected_content_hash": expected_content_hash,
         }
         dbm.log_extraction(

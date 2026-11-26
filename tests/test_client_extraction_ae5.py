@@ -14,7 +14,9 @@ from starlette.testclient import TestClient
 from claire.accounts.provider_policy import ProviderKeyRejected
 from claire.api import server, usercontent
 from claire.core.config import Settings
-from claire.extract.prompts import DEFAULT_EXTRACTION_TEMPLATE, PROMPT_VERSION, extract_system_prompt, render_detail_instructions_adoc
+from claire.extract.prompts import PROMPT_VERSION, extract_system_prompt
+from claire.extract.rendition_templates import rendition_template
+from claire.store import document_renditions as renditions_store
 from claire.extract.provider import UnavailableProvider
 from claire.ingest import client_extraction as ce
 from claire.ingest.pipeline import stage_raw
@@ -166,12 +168,13 @@ def test_get_extraction_spec_and_ontology_export_contract() -> None:
     spec = ce.get_extraction_spec()
     assert spec["schema_version"] == ce.CLIENT_EXTRACTION_SCHEMA_VERSION
     assert spec["prompt_version"] == PROMPT_VERSION
-    assert spec["prompt_template"] == DEFAULT_EXTRACTION_TEMPLATE
+    # The body prompt of the agent client is the prompt of the 대표 정리본: the rendition template standard (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.2 rule 6).
+    assert (spec["prompt_template"], spec["template_version"]) == ("standard", rendition_template("standard").version)
     assert "detail_rules" not in spec
-    assert spec["prompts"]["template"] == DEFAULT_EXTRACTION_TEMPLATE
+    assert (spec["prompts"]["template"], spec["prompts"]["template_version"]) == ("standard", rendition_template("standard").version)
     assert spec["prompts"]["prompt_version"] == PROMPT_VERSION
     assert spec["prompts"]["extract_system_prompt"] == extract_system_prompt(ontology_prompt_block())
-    assert spec["prompts"]["render_detail_prompt"] == render_detail_instructions_adoc()
+    assert spec["prompts"]["render_detail_prompt"] == rendition_template("standard").build_instructions(images=None, merged=False, scale=1)
     assert spec["json_schema"]["additionalProperties"] is False
     assert "agent_client" in spec["json_schema"]["properties"]["model"]["description"]
     assert spec["model_rules"]["set_active_model_when_known"] is True
@@ -466,6 +469,9 @@ def test_option_b_embedding_failure_rolls_back_atomically_and_dual_embeds_aed7(t
         assert "<h1>추론 모델 분석</h1>" in str(doc_row["detail_html"])
         meta = json.loads(doc_row["meta"])
         assert meta["extraction_origin"] == "agent_client"
+        # The body is the 대표 정리본 of the template standard; the model is the model of the payload (claire.db version 50).
+        primary = renditions_store.get_rendition(post_conn, doc_id, world.alice_kb.id, "standard")
+        assert (primary.template_version, primary.model_lineage["provider"], primary.detail) == (rendition_template("standard").version, "agent_client", None)
         assert meta["client_extraction"]["oauth_client_id"] == "oauth-cid-1"
         assert meta["client_extraction"]["expected_content_hash"] == chash
 
@@ -786,9 +792,10 @@ def test_staged_source_canonical_render_detail_prompt_and_math_passthrough(tmp_p
             kb_id=world.alice_kb.id,
         )
         first_chunk = ce.get_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=focused_doc, offset=0, limit=50)
-        assert first_chunk["render_detail_prompt"] == render_detail_instructions_adoc(
+        assert first_chunk["render_detail_prompt"] == rendition_template("standard").build_instructions(
             images=[{"url": "https://example.com/arch.png", "alt": "Architecture"}],
             merged=False,
+            scale=1,
             focus="커널 메모리 격리",
         )
         next_chunk = ce.get_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=focused_doc, offset=50, limit=50)

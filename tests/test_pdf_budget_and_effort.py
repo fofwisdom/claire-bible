@@ -358,7 +358,7 @@ def test_fixed_effort_gemini_model_clamps_adaptive_and_explicit_effort(monkeypat
             extract_efforts.append(effort)
             return ExtractionResult(summary="Summary text", entities=[], relations=[], model=self.model)
 
-        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, effort: str | None = None) -> str:
+        def render_detail(self, doc: Document, format: str = "adoc", focus: str | None = None, *, template: str, effort: str | None = None) -> str:
             detail_efforts.append(effort)
             return "= Detail\n\nBody text"
 
