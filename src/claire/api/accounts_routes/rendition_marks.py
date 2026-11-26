@@ -55,9 +55,17 @@ def local_rendition_object(conn: Any, *, kb_id: int, document_id: str, template:
 
 
 def remote_score(conn: Any, rendition: Any, account_id: int | None) -> tuple[int, bool]:
-    """The score of a cached rendition of another server for a reader, and if the account of the reader has a mark. The score is the count of the origin (Section 5.12 rule 10); a mark of the account that is newer than the last read of the object counts at once (rule 11)."""
-    marked_at = None if account_id is None else plus_one_marks.has_remote_mark(conn, account_id, rendition.iri)
-    return rendition.plus_score + (1 if marked_at is not None and marked_at > rendition.fetched_at else 0), marked_at is not None
+    """The score of a cached rendition of another server for a reader, and if the account of the reader has a mark. The score is the count of the origin (Section 5.12 rule 10); a mark or undo of the account that is newer than the last read of the object updates the score at once (rule 11)."""
+    if account_id is None:
+        return max(0, rendition.plus_score), False
+    created_at, undone_at = plus_one_marks.remote_mark_state(conn, account_id, rendition.iri)
+    if created_at is not None and undone_at is None:
+        delta = 1 if created_at > rendition.fetched_at else 0
+        return max(0, rendition.plus_score + delta), True
+    if created_at is not None and undone_at is not None:
+        delta = -1 if created_at <= rendition.fetched_at and undone_at > rendition.fetched_at else 0
+        return max(0, rendition.plus_score + delta), False
+    return max(0, rendition.plus_score), False
 
 
 def routes(ctx: AccountsContext) -> list[Route]:

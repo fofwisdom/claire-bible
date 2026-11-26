@@ -521,3 +521,12 @@ Basis: phase E9b of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/
 - **[code]** `SCHEMA_VERSION` is 56. `_migrate_v56_account_plus_ones` calls `federation.plus_one_marks.ensure_schema`, which makes `account_plus_ones`: (`account_id`, `rendition_iri`) is the key, with `author_iri`, `activity_iri`, and `created_at`. The step also adds `plus_total` and `plus_score` to `remote_renditions` (the counts of the origin).
 - **[code] [decision]** The marks are in `claire.db`: the mark and the outbox task of its activity (`kf_outbox`) change in one transaction.
 - **[test]** `tests/test_plus_one_marks.py`.
+
+## v57 (+1 undo tracking and toggle rate-limit log)
+
+Basis: lifecycle and rate-limit hardening for `+1` marks (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 57. `_migrate_v57_plus_one_tracking` calls `store.plus_ones.ensure_schema` and `federation.plus_one_marks.ensure_schema`.
+- **[code]** Adds nullable `undone_at REAL` column to `account_plus_ones` when absent so remote `+1` undos update the optimistic score immediately after a cache refresh without dropping the undo timestamp.
+- **[code]** Adds table `plus_one_rate_log (id INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, key TEXT NOT NULL, created_at REAL NOT NULL)` and index `idx_plus_one_rate_log` on `(scope, key, created_at)` to count `+1` mark creations across toggles even after a mark is undone.
+- **[test]** `tests/test_plus_ones.py`, `tests/test_plus_one_marks.py`.

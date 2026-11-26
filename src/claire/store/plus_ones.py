@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 
-__all__ = ["DOMAIN_HOURLY_LIMIT", "SERVER_LIMIT", "add", "counts", "delete_for_object", "has_mark", "recent_from_host", "remove"]
+__all__ = ["DOMAIN_HOURLY_LIMIT", "SERVER_LIMIT", "add", "counts", "delete_for_object", "has_mark", "recent_from_host", "recent_rate_events", "record_rate_event", "remove"]
 
 # The marks of the accounts of one server count at most this number in the score (Section 5.12 rule 9, owner decision O15). ``vocabulary.PLUS_ONE_SERVER_LIMIT`` is the same number on the wire.
 SERVER_LIMIT = 1000
@@ -23,7 +23,14 @@ CREATE TABLE IF NOT EXISTS rendition_plus_ones (
     created_at REAL NOT NULL,
     PRIMARY KEY (object_public_id, actor_iri)
 );
-CREATE INDEX IF NOT EXISTS idx_rendition_plus_ones_host ON rendition_plus_ones(actor_host, created_at)
+CREATE INDEX IF NOT EXISTS idx_rendition_plus_ones_host ON rendition_plus_ones(actor_host, created_at);
+CREATE TABLE IF NOT EXISTS plus_one_rate_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,
+    key TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plus_one_rate_log ON plus_one_rate_log(scope, key, created_at)
 """
 
 
@@ -57,9 +64,21 @@ def counts(conn: sqlite3.Connection, object_public_id: int) -> dict[str, int]:
     return {"total": sum(by_host), "servers": len(by_host), "score": sum(min(count, SERVER_LIMIT) for count in by_host)}
 
 
+def record_rate_event(conn: sqlite3.Connection, scope: str, key: str, *, now: float) -> None:
+    """Record one +1 rate-limit event and prune rows older than two hours."""
+    conn.execute("INSERT INTO plus_one_rate_log (scope, key, created_at) VALUES (?, ?, ?)", (scope, key, now))
+    conn.execute("DELETE FROM plus_one_rate_log WHERE created_at < ?", (now - 7200.0,))
+
+
+def recent_rate_events(conn: sqlite3.Connection, scope: str, key: str, *, since: float) -> int:
+    """Return the count of +1 rate-limit events for one scope and key after ``since``."""
+    return int(conn.execute("SELECT COUNT(*) FROM plus_one_rate_log WHERE scope=? AND key=? AND created_at>?", (scope, key, since)).fetchone()[0])
+
+
 def recent_from_host(conn: sqlite3.Connection, actor_host: str, *, since: float) -> int:
     """The marks of the actors of one host that this server stored after ``since`` (the rate limit of the receiver)."""
-    return int(conn.execute("SELECT COUNT(*) FROM rendition_plus_ones WHERE actor_host=? AND created_at>?", (actor_host, since)).fetchone()[0])
+    live_count = int(conn.execute("SELECT COUNT(*) FROM rendition_plus_ones WHERE actor_host=? AND created_at>?", (actor_host, since)).fetchone()[0])
+    return max(live_count, recent_rate_events(conn, "domain", actor_host, since=since))
 
 
 def delete_for_object(conn: sqlite3.Connection, object_public_id: int) -> int:

@@ -144,3 +144,77 @@ def test_a_like_and_an_announce_of_a_rendition_object_are_counted_with_its_own_n
     undo = {**like, "type": "Undo", "object_type": "Like", "event_id": "https://remote.example/activities/303", "object_iri": f"https://claire.example.com/ap/objects/{RENDITION_ID}"}
     assert internal.call({"method": "POST", "path": "/internal/federation/v1/inbox-events", "body": undo}).json()["decision"] == "accepted"
     assert internal.get(f"/objects/{RENDITION_ID}").json()["likes"] == 0
+
+
+def test_account_purge_creates_rendition_tombstones_deletes_plus_ones_and_sends_server_signed_deletes(internal):  # noqa: F811
+    from claire.federation.knowledge import outbox as kf_outbox
+    from claire.federation.knowledge import vocabulary
+    from claire.store import accounts as accounts_store
+    from claire.store import plus_ones
+
+    _seed(internal)
+    reader = "https://remote.example/ap/actors/server"
+    assert internal.get(f"/objects/{OBJECT_ID}/body?signer={reader}").status_code == 200
+    assert internal.get(f"/objects/{RENDITION_ID}/body?signer={reader}").status_code == 200
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        plus_ones.add(conn, OBJECT_ID, actor_iri="https://remote.example/ap/actors/1", actor_host="remote.example", activity_iri="https://remote.example/a/1", now=1800000400.0)
+        plus_ones.add(conn, RENDITION_ID, actor_iri="https://remote.example/ap/actors/1", actor_host="remote.example", activity_iri="https://remote.example/a/2", now=1800000400.0)
+        conn.commit()
+        alice_public = int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (internal.alice,)).fetchone()[0])
+        accounts_store.AccountStore(conn).purge(internal.alice, data_dir=internal.settings.data_dir, now=1800000800.0)
+        assert federation_store.get_tombstone(conn, OBJECT_ID) is not None
+        assert federation_store.get_tombstone(conn, RENDITION_ID) is not None
+        assert plus_ones.counts(conn, OBJECT_ID)["total"] == 0
+        assert plus_ones.counts(conn, RENDITION_ID)["total"] == 0
+        kf_outbox.sync(conn, origin="https://claire.example.com", now=1800000900.0)
+        conn.commit()
+        tasks = conn.execute("SELECT t.kind, t.signer, t.recipient, a.payload FROM kf_outbox t JOIN kf_outbox_activities a ON a.activity_iri = t.activity_iri WHERE t.kind='delete_rendition' ORDER BY a.payload").fetchall()
+        assert len(tasks) == 2
+        for kind, signer, recipient, payload in tasks:
+            activity = json.loads(payload)
+            assert (kind, signer, recipient) == ("delete_rendition", kf_outbox.SERVER_SIGNER, reader)
+            assert activity["actor"] == f"https://claire.example.com/ap/actors/{alice_public}"
+            assert vocabulary.validate_activity(activity) == "delete_rendition"
+    finally:
+        conn.close()
+    assert internal.get(f"/objects/{RENDITION_ID}").status_code == 410
+
+
+def test_account_purge_without_send_delete_clears_plus_ones_and_body_readers(internal):  # noqa: F811
+    from claire.store import plus_ones
+
+    _seed(internal)
+    reader = "https://remote.example/ap/actors/server"
+    assert internal.get(f"/objects/{RENDITION_ID}/body?signer={reader}").status_code == 200
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        plus_ones.add(conn, RENDITION_ID, actor_iri="https://remote.example/ap/actors/1", actor_host="remote.example", activity_iri="https://remote.example/a/2", now=1800000400.0)
+        alice_public = int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (internal.alice,)).fetchone()[0])
+        federation_store.purge_account_federation(conn, account_id=internal.alice, public_id=alice_public, was_actor=True, send_delete=False, now=1800000800.0)
+        assert federation_store.get_tombstone(conn, RENDITION_ID) is not None
+        assert plus_ones.counts(conn, RENDITION_ID)["total"] == 0
+        assert conn.execute("SELECT COUNT(*) FROM federation_body_readers").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_publish_document_skips_numbers_taken_by_rendition_objects_or_tombstones(internal):  # noqa: F811
+    from claire.core import ids
+    from claire.store import accounts as accounts_store
+
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        salt = accounts_store.AccountStore(conn).id_salt()
+        now = 1800001000.0
+        unix_ms = int(now * 1000)
+        seq0 = ids.timestamp_id("federation_objects", salt=salt, unix_ms=unix_ms, seq=0)
+        seq1 = ids.timestamp_id("federation_objects", salt=salt, unix_ms=unix_ms, seq=1)
+        conn.execute("INSERT INTO federation_rendition_objects (public_id, parent_public_id, template, created_at, updated_at) VALUES (?, ?, 'academic', ?, ?)", (seq0, OBJECT_ID, now, now))
+        federation_store.add_tombstone(conn, seq1, "object", gone_at=now)
+        conn.execute("INSERT INTO documents (id, kb_id, url, title, raw_text, hidden, fetched_at, detail) VALUES ('doc-collide', ?, 'https://example.com/c', 'Collide', 'Body', 0, 1, '= T\n\nBody')", (ALICE_THEME_ID,))
+        obj, _task, made = federation_store.publish_document(conn, account_id=internal.alice, kb_id=ALICE_THEME_ID, document_id="doc-collide", published_by_account_id=internal.alice, salt=salt, now=now)
+        assert made is True
+        assert obj.public_id == ids.timestamp_id("federation_objects", salt=salt, unix_ms=unix_ms, seq=2)
+    finally:
+        conn.close()

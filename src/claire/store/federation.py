@@ -435,7 +435,7 @@ def forget_body_readers(conn: sqlite3.Connection, object_public_id: int) -> None
 
 
 def _number_taken(conn: sqlite3.Connection, number: int) -> bool:
-    return conn.execute(f"SELECT 1 FROM {_OBJECTS_TABLE} WHERE public_id=? UNION ALL SELECT 1 FROM federation_tombstones WHERE public_id=?", (number, number)).fetchone() is not None
+    return conn.execute(f"SELECT 1 FROM {_OBJECTS_TABLE} WHERE public_id=? UNION ALL SELECT 1 FROM {_RENDITION_OBJECTS_TABLE} WHERE public_id=? UNION ALL SELECT 1 FROM federation_tombstones WHERE public_id=?", (number, number, number)).fetchone() is not None
 
 
 def sync_rendition_objects(conn: sqlite3.Connection, *, kb_id: int, document_id: str, now: float) -> None:
@@ -501,7 +501,7 @@ def publish_document(conn: sqlite3.Connection, *, account_id: int, kb_id: int, d
                 (public_id, account_id, kb_id, document_id, published_by_account_id, now, now),
             )
 
-        public_id = ids.insert_with_timestamp_id(conn, table=_OBJECTS_TABLE, column="public_id", salt=salt, insert=_insert, now_ms=lambda: int(now * 1000))
+        public_id = ids.insert_with_timestamp_id(conn, table=_OBJECTS_TABLE, column="public_id", salt=salt, insert=_insert, now_ms=lambda: int(now * 1000), is_taken=lambda number: _number_taken(conn, number))
         made = get_object(conn, public_id)
         assert made is not None
         _store_content_digest(conn, made)
@@ -582,13 +582,27 @@ def retract_objects(conn: sqlite3.Connection, *, kb_id: int, document_ids: list[
 def purge_account_federation(conn: sqlite3.Connection, *, account_id: int, public_id: int, was_actor: bool, send_delete: bool, now: float) -> OutboxTask | None:
     """Apply the purge of an account to the federation data (design Section 8.1). Return the ``delete_actor`` task, or ``None`` when there is none. The caller commits.
 
-    - Each published object of the account gets a tombstone and its row is deleted. No ``delete`` task is made: the ``Delete`` of the actor removes the objects on a remote server.
+    - Each published object of the account and each of its rendition objects gets a tombstone, loses its +1 marks, and is deleted. If ``send_delete`` is true, its body readers are marked gone for ``delete_rendition``; otherwise its body-reader rows are deleted. No ``delete`` task is made for followers: the ``Delete`` of the actor removes the objects on a remote server.
     - Each ``pending`` task of the account gets the result ``rejected`` with the code ``account_purged``.
     - ``was_actor``: the actor ID gets a tombstone, and it returns 410 from then on.
     - ``send_delete`` and one follower or more: a ``delete_actor`` task is made, and the followers stay until the acknowledgement of that task (``finish_delete_actor``). If not, the followers are deleted now.
     """
+    from . import plus_ones
+
+    def _retire_object(obj_public_id: int, template: str) -> None:
+        add_tombstone(conn, obj_public_id, "object", gone_at=now)
+        if send_delete:
+            _readers_gone(conn, obj_public_id, template=template, account_id=account_id, now=now)
+        else:
+            plus_ones.delete_for_object(conn, obj_public_id)
+            conn.execute("DELETE FROM federation_body_readers WHERE object_public_id=?", (obj_public_id,))
+
     for row in conn.execute(f"SELECT public_id FROM {_OBJECTS_TABLE} WHERE account_id=?", (account_id,)).fetchall():
-        add_tombstone(conn, int(row[0]), "object", gone_at=now)
+        doc_public_id = int(row[0])
+        for r in rendition_objects_of(conn, doc_public_id):
+            _retire_object(r.public_id, r.template)
+            conn.execute(f"DELETE FROM {_RENDITION_OBJECTS_TABLE} WHERE public_id=?", (r.public_id,))
+        _retire_object(doc_public_id, "standard")
     conn.execute(f"DELETE FROM {_OBJECTS_TABLE} WHERE account_id=?", (account_id,))
     conn.execute("UPDATE federation_outbox SET status='rejected', error_code='account_purged', lease_until=NULL WHERE account_id=? AND status='pending'", (account_id,))
     if was_actor:

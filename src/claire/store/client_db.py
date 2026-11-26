@@ -511,6 +511,7 @@ def purge_account(conn: sqlite3.Connection, account_id: int) -> None:
     conn.execute("DELETE FROM federation_auto_replies WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_notes WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM federation_quote_authorizations WHERE account_id=?", (account_id,))
+    conn.execute("DELETE FROM federation_fills WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM push_queue WHERE notification_id IN (SELECT id FROM notifications WHERE account_id=?) OR subscription_id IN (SELECT id FROM push_subscriptions WHERE account_id=?)", (account_id, account_id))
     conn.execute("DELETE FROM notifications WHERE account_id=?", (account_id,))
     conn.execute("DELETE FROM push_subscriptions WHERE account_id=?", (account_id,))

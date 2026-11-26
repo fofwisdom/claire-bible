@@ -142,7 +142,7 @@ def test_e2e_a_plus_one_for_a_rendition_of_another_server_goes_to_its_account(tm
         kinds = [(r[0], json.loads(r[1])) for r in conn.execute("SELECT t.kind, a.payload FROM kf_outbox t JOIN kf_outbox_activities a ON a.activity_iri = t.activity_iri ORDER BY t.id")]
         assert [k for k, _ in kinds] == ["plus_one", "undo_plus_one"]
         assert kinds[1][1]["object"]["id"] == activity["id"]
-        assert conn.execute("SELECT COUNT(*) FROM account_plus_ones").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM account_plus_ones WHERE undone_at IS NULL").fetchone()[0] == 0
         # A blocked domain gets no mark.
         federation_store.add_domain_block(conn, "b.example", created_by=1, now=time.time())
         conn.commit()
@@ -170,3 +170,141 @@ def test_the_purge_of_an_account_takes_its_marks_back(tmp_path: Path) -> None:
         assert conn.execute("SELECT COUNT(*) FROM rendition_plus_ones").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+def test_sender_toggle_spam_rate_limit_counts_local_and_remote_undone_marks(tmp_path: Path) -> None:
+    s, env, tokens, callers = _world(tmp_path)
+    token = tokens["doc1"]
+    remote_key = hashlib.sha256(REMOTE.encode()).hexdigest()[:16]
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        bob_public = int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (env["bob_id"],)).fetchone()[0])
+        origin = s.public_url.rstrip("/")
+        now = time.time()
+        rendition_row = next(r for r in conn.execute("SELECT iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_hash, body_html, body_source, fetched_at, expires_at, plus_total, plus_score FROM remote_renditions"))
+        from claire.federation.remote_renditions import RemoteRendition
+
+        remote = RemoteRendition(*tuple(rendition_row))
+        obj_id = int(conn.execute("SELECT public_id FROM federation_objects WHERE document_id='doc1'").fetchone()[0])
+        half = plus_one_marks.ACCOUNT_HOURLY_LIMIT // 2
+        for i in range(half):
+            t = now - 60.0 + i * 0.1
+            assert plus_one_marks.give_local(conn, account_id=env["bob_id"], account_public_id=bob_public, object_public_id=obj_id, author_account_id=env["alice_id"], origin=origin, now=t) is True
+            assert plus_one_marks.take_back_local(conn, account_public_id=bob_public, object_public_id=obj_id, origin=origin) is True
+            assert plus_one_marks.give_remote(conn, account_id=env["bob_id"], account_public_id=bob_public, rendition=remote, origin=origin, now=t + 0.05) is True
+            assert plus_one_marks.take_back_remote(conn, account_id=env["bob_id"], account_public_id=bob_public, rendition_iri=remote.iri, origin=origin, now=t + 0.08) is True
+        assert conn.execute("SELECT COUNT(*) FROM rendition_plus_ones").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM account_plus_ones WHERE undone_at IS NULL").fetchone()[0] == 0
+        conn.commit()
+    finally:
+        conn.close()
+
+    limited_local = _mark(callers["bob"], token, "standard", True)
+    limited_remote = _mark(callers["bob"], token, f"remote:{remote_key}", True)
+    assert (limited_local.status_code, limited_local.json()) == (429, {"error": "rate_limited"})
+    assert (limited_remote.status_code, limited_remote.json()) == (429, {"error": "rate_limited"})
+
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        # After one hour, the account can give marks again.
+        assert plus_one_marks.give_local(conn, account_id=env["bob_id"], account_public_id=bob_public, object_public_id=obj_id, author_account_id=env["alice_id"], origin=origin, now=now + 3601.0) is True
+    finally:
+        conn.close()
+
+
+def test_remote_undo_decrements_optimistically_after_refresh_and_remark_avoids_double_count(tmp_path: Path) -> None:
+    _s, env, tokens, callers = _world(tmp_path)
+    token = tokens["doc1"]
+    remote_key = hashlib.sha256(REMOTE.encode()).hexdigest()[:16]
+    # Mark at t0 (fetched_at was now - 10): score goes 4 -> 5.
+    given = _mark(callers["bob"], token, f"remote:{remote_key}", True)
+    assert (given.status_code, given.json()) == (200, {"on": True, "score": 5})
+
+    # Cache refreshes at t1 after origin counted the mark: score stays 5 (no double count).
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("UPDATE remote_renditions SET fetched_at=?, plus_total=5, plus_score=5 WHERE iri=?", (time.time() + 10.0, REMOTE))
+        conn.commit()
+    finally:
+        conn.close()
+    assert _plus(callers["bob"], token)["remote_renditions"][0]["plus"] == {"score": 5, "mine": True, "own": False}
+
+    # Bob takes the mark back before the next refresh: score decrements optimistically 5 -> 4.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        bob_public = int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (env["bob_id"],)).fetchone()[0])
+        t_undo = time.time() + 20.0
+        assert plus_one_marks.take_back_remote(conn, account_id=env["bob_id"], account_public_id=bob_public, rendition_iri=REMOTE, origin=_s.public_url.rstrip("/"), now=t_undo) is True
+        conn.commit()
+    finally:
+        conn.close()
+    assert _plus(callers["bob"], token)["remote_renditions"][0]["plus"] == {"score": 4, "mine": False, "own": False}
+
+    # Cache refreshes after origin processed the Undo: score remains 4.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("UPDATE remote_renditions SET fetched_at=?, plus_total=4, plus_score=4 WHERE iri=?", (t_undo + 10.0, REMOTE))
+        conn.commit()
+    finally:
+        conn.close()
+    assert _plus(callers["bob"], token)["remote_renditions"][0]["plus"] == {"score": 4, "mine": False, "own": False}
+
+    # Re-mark succeeds on conflict and increments 4 -> 5, then refresh keeps 5 without double count.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        from claire.federation.remote_renditions import RemoteRendition
+
+        row = conn.execute("SELECT iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_hash, body_html, body_source, fetched_at, expires_at, plus_total, plus_score FROM remote_renditions WHERE iri=?", (REMOTE,)).fetchone()
+        t_remark = t_undo + 20.0
+        assert plus_one_marks.give_remote(conn, account_id=env["bob_id"], account_public_id=bob_public, rendition=RemoteRendition(*tuple(row)), origin=_s.public_url.rstrip("/"), now=t_remark) is True
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM kf_outbox WHERE kind='plus_one'").fetchone()[0] == 2
+    finally:
+        conn.close()
+    assert _plus(callers["bob"], token)["remote_renditions"][0]["plus"] == {"score": 5, "mine": True, "own": False}
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        conn.execute("UPDATE remote_renditions SET fetched_at=?, plus_total=5, plus_score=5 WHERE iri=?", (t_remark + 10.0, REMOTE))
+        conn.commit()
+    finally:
+        conn.close()
+    assert _plus(callers["bob"], token)["remote_renditions"][0]["plus"] == {"score": 5, "mine": True, "own": False}
+
+
+def test_purge_account_keeps_remote_actor_marks_with_same_public_id(tmp_path: Path) -> None:
+    s, env, _tokens, _callers = _world(tmp_path)
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        bob_public = int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (env["bob_id"],)).fetchone()[0])
+        obj_id = int(conn.execute("SELECT public_id FROM federation_objects WHERE document_id='doc1'").fetchone()[0])
+        assert plus_one_marks.give_local(conn, account_id=env["bob_id"], account_public_id=bob_public, object_public_id=obj_id, author_account_id=env["alice_id"], origin=s.public_url.rstrip("/"), now=100.0) is True
+        remote_actor = f"https://other.example/ap/actors/{bob_public}"
+        conn.execute("INSERT INTO rendition_plus_ones (object_public_id, actor_iri, actor_host, activity_iri, created_at) VALUES (?, ?, 'other.example', ?, 100.0)", (obj_id, remote_actor, f"{remote_actor}#plus-ones/abcdef0123456789/100000"))
+        counts = plus_one_marks.purge_account(conn, account_id=env["bob_id"], account_public_id=bob_public, send_undo=False, now=200.0)
+        assert counts["local"] == 1
+        remaining = [str(r[0]) for r in conn.execute("SELECT actor_iri FROM rendition_plus_ones")]
+        assert remaining == [remote_actor]
+    finally:
+        conn.close()
+
+
+def test_client_db_purge_account_deletes_federation_fills(tmp_path: Path) -> None:
+    from claire.store import client_db
+
+    path = tmp_path / "claire.db"
+    conn = dbm.connect(path)
+    dbm.init_db(conn)
+    client = client_db.connect_client_db(client_db.client_db_path(path))
+    try:
+        for account_id in (1, 2):
+            client.execute("INSERT INTO federation_fills (account_id, actor_iri, domain, status, requested_at) VALUES (?, 'https://remote.example/ap/actors/1', 'remote.example', 'pending', 1.0)", (account_id,))
+        client.commit()
+    finally:
+        client.close()
+    assert client_db.purge_account_of_claire_db(conn, 2) is True
+    conn.close()
+    client = client_db.connect_client_existing(client_db.client_db_path(path))
+    try:
+        assert [r[0] for r in client.execute("SELECT account_id FROM federation_fills")] == [1]
+    finally:
+        client.close()

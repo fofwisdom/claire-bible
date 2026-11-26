@@ -91,3 +91,61 @@ def test_one_server_counts_at_most_its_limit_and_a_domain_has_an_hourly_limit(in
         handlers.plus_one(journal.HandlerContext(conn=conn, origin=ORIGIN, now=now + 3600), _entry("https://busy.example/ap/actors/9999"), _mark("https://busy.example/ap/actors/9999"))
     finally:
         conn.close()
+
+
+def test_domain_hourly_rate_limit_persists_across_undo_toggles(internal):  # noqa: F811
+    _seed(internal)
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        now = 1800000000.0
+        actor = "https://toggle.example/ap/actors/1"
+        for i in range(plus_ones.DOMAIN_HOURLY_LIMIT):
+            t = now + i * 0.01
+            handlers.plus_one(journal.HandlerContext(conn=conn, origin=ORIGIN, now=t), _entry(actor), vocabulary.build_plus_one(activity_id=f"{actor}#plus-ones/{i}", account_actor=actor, rendition=RENDITION, author=f"{ORIGIN}/ap/actors/116412345678901234", published=t))
+            handlers.undo_plus_one(journal.HandlerContext(conn=conn, origin=ORIGIN, now=t + 0.005), _entry(actor), vocabulary.build_undo_plus_one(activity_id=f"{actor}#plus-ones/{i}/undo", plus_one=vocabulary.build_plus_one(activity_id=f"{actor}#plus-ones/{i}", account_actor=actor, rendition=RENDITION, author=f"{ORIGIN}/ap/actors/116412345678901234", published=t)))
+        assert plus_ones.counts(conn, RENDITION_ID)["total"] == 0
+        # Repeated toggles still exhaust the hourly domain limit.
+        with pytest.raises(journal.HandlerRefusal) as refusal:
+            handlers.plus_one(journal.HandlerContext(conn=conn, origin=ORIGIN, now=now + 100.0), _entry(actor), _mark(actor))
+        assert refusal.value.code == "rate_limited"
+        # After one hour, new marks succeed and old rate-log rows (>2h) are pruned on write.
+        later = now + 7300.0
+        handlers.plus_one(journal.HandlerContext(conn=conn, origin=ORIGIN, now=later), _entry(actor), _mark(actor))
+        assert conn.execute("SELECT COUNT(*) FROM plus_one_rate_log WHERE created_at < ?", (later - 7200.0,)).fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_v57_migration_is_idempotent_and_adds_undone_at_and_rate_log(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "v56.db"
+    with monkeypatch.context() as m:
+        m.setattr(dbm, "SCHEMA_VERSION", 56)
+        m.setattr(dbm, "_migrate_v57_plus_one_tracking", lambda conn: None)
+        conn = dbm.connect(db_path)
+        try:
+            dbm.init_db(conn)
+            conn.execute("DROP TABLE IF EXISTS plus_one_rate_log")
+            cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(account_plus_ones)")}
+            if "undone_at" in cols:
+                conn.execute("ALTER TABLE account_plus_ones DROP COLUMN undone_at")
+            conn.execute("INSERT INTO account_plus_ones (account_id, rendition_iri, author_iri, activity_iri, created_at) VALUES (1, 'https://b.example/ap/objects/1', 'https://b.example/ap/actors/1', 'https://a.example/ap/actors/1#plus-ones/1', 100.0)")
+            conn.commit()
+            assert dbm.stored_schema_version(conn) == 56
+        finally:
+            conn.close()
+
+    for _ in range(2):
+        conn = dbm.connect(db_path)
+        try:
+            dbm.init_db(conn)
+            assert dbm.stored_schema_version(conn) == dbm.SCHEMA_VERSION == 57
+            cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(account_plus_ones)")}
+            assert "undone_at" in cols
+            row = conn.execute("SELECT created_at, undone_at FROM account_plus_ones WHERE account_id=1").fetchone()
+            assert tuple(row) == (100.0, None)
+            tables = {str(r[0]) for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            indexes = {str(r[0]) for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+            assert "plus_one_rate_log" in tables
+            assert "idx_plus_one_rate_log" in indexes
+        finally:
+            conn.close()

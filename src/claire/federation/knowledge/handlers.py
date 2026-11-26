@@ -291,7 +291,8 @@ def plus_one(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity:
     public_id = _own_rendition(ctx, str(activity["object"]))
     if plus_ones.recent_from_host(ctx.conn, entry.actor_domain, since=ctx.now - 3600.0) >= plus_ones.DOMAIN_HOURLY_LIMIT:
         raise journal.HandlerRefusal("rate_limited")
-    plus_ones.add(ctx.conn, public_id, actor_iri=entry.actor, actor_host=entry.actor_domain, activity_iri=str(activity["id"]), now=ctx.now)
+    if plus_ones.add(ctx.conn, public_id, actor_iri=entry.actor, actor_host=entry.actor_domain, activity_iri=str(activity["id"]), now=ctx.now):
+        plus_ones.record_rate_event(ctx.conn, "domain", entry.actor_domain, now=ctx.now)
 
 
 def undo_plus_one(ctx: journal.HandlerContext, entry: journal.JournalEntry, activity: dict[str, Any]) -> None:

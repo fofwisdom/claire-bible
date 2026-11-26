@@ -358,17 +358,24 @@ def sync(conn: sqlite3.Connection, *, origin: str, now: float) -> None:
 
 
 def _sync_rendition_deletes(conn: sqlite3.Connection, *, origin: str, now: float) -> None:
-    """One ``Delete`` for each gone rendition object to the server actors that read its body, and to no other server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4). The account actor signs it. An account that is not an actor now sends nothing: its rows go away."""
+    """One ``Delete`` for each gone rendition object to the server actors that read its body, and to no other server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 4). The account actor signs it for an active account; the server actor signs it for a purged account. Other accounts send nothing: their rows go away."""
     from . import offers
 
     for public_id, template, account_id, readers in federation_store.gone_body_readers(conn):
-        row = conn.execute("SELECT public_id FROM accounts WHERE id=? AND status='active' AND username IS NOT NULL", (account_id,)).fetchone()
+        row = conn.execute("SELECT public_id, status, username FROM accounts WHERE id=?", (account_id,)).fetchone()
         recipients = [reader for reader in readers if access.remote_server_domain(reader, origin) is not None]
-        if row is not None and recipients:
-            actor = f"{origin}/ap/actors/{ids.format_public_id(int(row[0]))}"
-            rendition = f"{origin}/ap/objects/{ids.format_public_id(public_id)}"
-            activity = vocabulary.build_delete_rendition(activity_id=f"{rendition}#delete", account_actor=actor, rendition=rendition, template=template, readers=recipients)
-            enqueue(conn, activity, signer=offers.account_signer(int(row[0])), recipients=recipients, origin=origin, now=now)
+        if row is not None and row[0] is not None and recipients:
+            acct_public_id, status, username = int(row[0]), str(row[1]), row[2]
+            signer: str | None = None
+            if status == "active" and username:
+                signer = offers.account_signer(acct_public_id)
+            elif status == "purged":
+                signer = SERVER_SIGNER
+            if signer is not None:
+                actor = f"{origin}/ap/actors/{ids.format_public_id(acct_public_id)}"
+                rendition = f"{origin}/ap/objects/{ids.format_public_id(public_id)}"
+                activity = vocabulary.build_delete_rendition(activity_id=f"{rendition}#delete", account_actor=actor, rendition=rendition, template=template, readers=recipients)
+                enqueue(conn, activity, signer=signer, recipients=recipients, origin=origin, now=now)
         federation_store.forget_body_readers(conn, public_id)
 
 
