@@ -189,11 +189,11 @@ _MCP_TOOL_SPECS: tuple[dict[str, Any], ...] = (
         "name": "extract_stage",
         "domain": "extract",
         "title": "Stage Source or Document File",
-        "description": "Stage a URL, plain text note, or base64 document file in the personal knowledge base, or re-open an existing document_id for re-extraction (force=True, optional refetch=True), with zero server LLM calls (scope write).",
+        "description": "Stage a URL, plain text note, or base64 document file in the personal knowledge base, or re-open an existing document_id for re-extraction (force=True, optional refetch=True), with zero server LLM calls (scope write). renditions: additional renditions besides the standard rendition (\"concise\", \"academic\"); extract_read then gives their prompts in rendition_prompts.",
         "read_only": False,
         "scope": "write",
         "annotations": _OPEN_WRITE_ANNOTATIONS,
-        "parameters": [_param("url", "string"), _param("text", "string"), _param("filename", "string"), _param("content_base64", "string"), _param("document_id", "string"), _param("title", "string"), _param("source_type", "string"), _param("full_content", "boolean"), _param("force", "boolean"), _param("refetch", "boolean"), _param("kb", "string")],
+        "parameters": [_param("url", "string"), _param("text", "string"), _param("filename", "string"), _param("content_base64", "string"), _param("document_id", "string"), _param("title", "string"), _param("source_type", "string"), _param("full_content", "boolean"), _param("force", "boolean"), _param("refetch", "boolean"), _param("renditions", "array"), _param("kb", "string")],
     },
     {
         "name": "extract_queue",
@@ -1147,9 +1147,10 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
         full_content: bool = True,
         force: bool = False,
         refetch: bool = False,
+        renditions: list[str] | None = None,
         kb: str | int | None = None,
     ) -> dict[str, Any]:
-        """Stage a URL, plain text note, or base64 document file in the personal knowledge base, or re-open an existing document_id for re-extraction (scope write)."""
+        """Stage a URL, plain text note, or base64 document file in the personal knowledge base, or re-open an existing document_id for re-extraction (scope write). ``renditions`` selects additional renditions (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rule 1)."""
         scope_err = require_mcp_write_scope()
         if scope_err is not None:
             return scope_err
@@ -1162,6 +1163,12 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
             return {"ok": False, "error": "invalid_force", "message": "force must be a boolean."}
         if not isinstance(refetch, bool):
             return {"ok": False, "error": "invalid_refetch", "message": "refetch must be a boolean."}
+        from ..ingest.renditions import parse_rendition_selection
+
+        try:
+            wanted_renditions = parse_rendition_selection([] if renditions is None else renditions)
+        except ValueError:
+            return {"ok": False, "error": "invalid_renditions", "message": "renditions must be a list of distinct values of 'concise' and 'academic'."}
 
         clean_url = str(url).strip() if url is not None and str(url).strip() else None
         clean_text = str(text).strip() if text is not None and str(text).strip() else None
@@ -1185,6 +1192,21 @@ def build_mcp_app(s: Any, theme_mgr: Any = None, *, theme_manager: Any = None, s
         from ..ingest import client_extraction as ce
 
         def _work() -> dict[str, Any]:
+            result = _stage()
+            if wanted_renditions and result.get("document_id") and result.get("ok", True) is not False:
+                db_file = theme_mgr.get_settings_for_kb(personal_id, s).db_file if (theme_mgr is not None and personal_id != 0) else s.db_file
+                conn = dbm.connect_existing(db_file)
+                try:
+                    ce.request_client_renditions(conn, kb_id=personal_id, document_id=str(result["document_id"]), templates=wanted_renditions)
+                    conn.commit()
+                    result = {**result, "renditions": wanted_renditions}
+                except ce.ClientExtractionError as exc:
+                    return exc.to_response_dict()
+                finally:
+                    conn.close()
+            return result
+
+        def _stage() -> dict[str, Any]:
             db_file = theme_mgr.get_settings_for_kb(personal_id, s).db_file if (theme_mgr is not None and personal_id != 0) else s.db_file
             conn = dbm.connect_existing(db_file)
             try:

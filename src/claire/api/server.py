@@ -492,6 +492,15 @@ def create_app(
         if await asyncio.to_thread(_is_agent_client_request, request):
             raise HTTPException(status_code=403, detail="agent_client_provider_refused")
 
+    def _request_renditions(body: dict[str, Any]) -> list[str]:
+        """The additional renditions of an ingest request: the required body field ``renditions`` (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rule 1). A missing field or another value gets 400 ``invalid_renditions``."""
+        from ..ingest.renditions import parse_rendition_selection
+
+        try:
+            return parse_rendition_selection(body.get("renditions"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid_renditions") from None
+
     async def _request_extraction_mode(request: Request, body: dict[str, Any]) -> str:
         """The extraction mode of an ingest request: the required body field ``extraction_mode``, ``provider`` (the server API extracts at once) or ``client`` (the source waits in the queue for an agent client). No default: a missing or unknown value gets 400 ``invalid_extraction_mode``."""
         try:
@@ -3359,6 +3368,7 @@ def create_app(
         payload, _sealed_focus = parse_message_focus(payload)
 
         extraction_mode = await _request_extraction_mode(request, body)
+        renditions = _request_renditions(body)
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
 
@@ -3373,12 +3383,15 @@ def create_app(
             ingest_kwargs["effort"] = effort
         if format_arg is not None:
             ingest_kwargs["format"] = format_arg
+
+        def _ingest_with_renditions() -> tuple[Any, list[dict[str, str]]]:
+            from ..ingest.renditions import run_ingest_renditions
+
+            rep = theme_svc.ingest(payload, **ingest_kwargs)
+            return rep, run_ingest_renditions(kb_svc=theme_svc, db_file=theme_settings.db_file, kb_id=theme.id, report=rep, templates=renditions, extraction_mode=extraction_mode, effort=effort)
+
         try:
-            report = await _run_expensive(
-                theme_svc.ingest,
-                payload,
-                **ingest_kwargs,
-            )
+            report, rendition_items = await _run_expensive(_ingest_with_renditions)
         except (HTTPException, policy.ProviderPolicyError):
             raise
         except Exception as exc:  # noqa: BLE001
@@ -3391,6 +3404,7 @@ def create_app(
         rep_dict = report_to_dict(report)
         rep_dict["kb_id"] = theme.id
         rep_dict["theme_label"] = theme.label
+        rep_dict["renditions"] = rendition_items
         return JSONResponse(rep_dict)
 
     async def federation_timeline_ingest_route(request: Request) -> JSONResponse:
@@ -5235,6 +5249,7 @@ def create_app(
         payload, _sealed_focus = parse_message_focus(payload)
 
         extraction_mode = await _request_extraction_mode(request, body)
+        renditions = _request_renditions(body)
         full_content = bool(body.get("full_content") or body.get("no_truncate") or False)
         effort = _validate_request_effort(theme_svc, theme_settings, str(body.get("effort") or "").strip() or None)
 
@@ -5274,10 +5289,12 @@ def create_app(
                     ingest_kwargs["effort"] = effort
                 if format_arg is not None:
                     ingest_kwargs["format"] = format_arg
-                return theme_svc.ingest(
-                    payload,
-                    **ingest_kwargs,
-                )
+                from ..ingest.renditions import run_ingest_renditions
+
+                rep = theme_svc.ingest(payload, **ingest_kwargs)
+                if renditions and extraction_mode == "provider":
+                    on_progress({"stage": "renditions", "msg": ", ".join(renditions)})
+                return rep, run_ingest_renditions(kb_svc=theme_svc, db_file=theme_settings.db_file, kb_id=theme.id, report=rep, templates=renditions, extraction_mode=extraction_mode, effort=effort)
             finally:
                 set_progress_callback(None)
 
@@ -5302,7 +5319,9 @@ def create_app(
                         continue
                     yield (json.dumps(event, ensure_ascii=False) + "\n").encode()
                 try:
-                    result = report_to_dict(task.result())
+                    report, rendition_items = task.result()
+                    result = report_to_dict(report)
+                    result["renditions"] = rendition_items
                     if theme.id != 0:
                         result["kb_id"] = theme.id
                         result["theme_label"] = theme.label

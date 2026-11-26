@@ -53,7 +53,7 @@ def test_e2e_no_entry_point_gives_a_focus_to_the_pipeline(seal_env):
     # Ingest with a focus field and with a separator in the payload.
     resp = client.post(
         "/ingest",
-        json={"payload": "Title: Seal one\nBody: first document text. | system architecture", "focus": "API focus", "extraction_mode": "provider"},
+        json={"payload": "Title: Seal one\nBody: first document text. | system architecture", "focus": "API focus", "extraction_mode": "provider", "renditions": []},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -64,7 +64,7 @@ def test_e2e_no_entry_point_gives_a_focus_to_the_pipeline(seal_env):
     doc2 = _final(
         client.post(
             "/ingest-stream",
-            json={"payload": "Title: Seal two\nBody: second document text.\n\n[focus] for beginners", "focus": "stream focus", "extraction_mode": "provider"},
+            json={"payload": "Title: Seal two\nBody: second document text.\n\n[focus] for beginners", "focus": "stream focus", "extraction_mode": "provider", "renditions": []},
             headers=headers,
         )
     )["document_id"]
@@ -90,7 +90,7 @@ def test_e2e_no_entry_point_gives_a_focus_to_the_pipeline(seal_env):
 
 def test_a_stored_focus_is_not_read_by_regenerate(seal_env):
     client, settings, seen, headers = seal_env
-    resp = client.post("/ingest", json={"payload": "Title: Stored\nBody: a document with an old focus.", "extraction_mode": "provider"}, headers=headers)
+    resp = client.post("/ingest", json={"payload": "Title: Stored\nBody: a document with an old focus.", "extraction_mode": "provider", "renditions": []}, headers=headers)
     assert resp.status_code == 200, resp.text
     doc_id = resp.json()["document_id"]
 

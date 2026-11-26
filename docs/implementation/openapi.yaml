@@ -890,6 +890,81 @@ paths:
               - md
             default: markdown
           description: "Export format."
+  "/api/v1/kbs/{kb}/documents/{doc_id}/renditions":
+    post:
+      tags:
+        - "Documents & Ingest"
+      summary: "Add a rendition (정리본) to a document"
+      description: "Make one more rendition of a stored document from its stored raw text with the server API: `concise` (간결) or `academic` (학술). The primary rendition 기본 comes from the ingest. A rendition that the document has gives the state `existing`."
+      operationId: v1AddDocumentRendition
+      x-claire-access: owner
+      x-claire-surface: system
+      x-claire-capability: curate
+      security:
+        - BearerAuth: []
+        - SessionCookie: []
+      responses:
+        "200":
+          description: "Add a rendition (정리본) to a document"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AddRenditionResponse"
+        "400":
+          description: "Invalid request parameters or JSON body."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: "Insufficient scope or knowledge base capability."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: "Resource not found or inaccessible."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: "Resource state conflict."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: "Request payload failed schema validation."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: "Rate or concurrency limit exceeded."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorEnvelope"
+      parameters:
+        - name: kb
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Knowledge base selector: 'personal' for the authenticated caller's personal KB, or an 18-digit external KB number."
+        - name: doc_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: "Document identifier (e.g. doc_0123456789ab)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AddRenditionRequest"
   "/api/v1/kbs/{kb}/search":
     post:
       tags:
@@ -3195,6 +3270,34 @@ components:
         - account
         - display_name
       title: AccountRefSummary
+      type: object
+    AddRenditionRequest:
+      additionalProperties: false
+      description: "Request body for `POST /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."
+      properties:
+        template:
+          enum:
+            - concise
+            - academic
+          title: Template
+          type: string
+      required:
+        - template
+      title: AddRenditionRequest
+      type: object
+    AddRenditionResponse:
+      additionalProperties: false
+      description: "Response for `POST /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."
+      properties:
+        document_id:
+          title: "Document Id"
+          type: string
+        rendition:
+          "$ref": "#/components/schemas/RenditionRunItem"
+      required:
+        - document_id
+        - rendition
+      title: AddRenditionResponse
       type: object
     ContributionDetailResponse:
       additionalProperties: false
@@ -5504,6 +5607,16 @@ components:
             - client
           title: "Extraction Mode"
           type: string
+        renditions:
+          description: "The additional renditions (정리본) besides the primary rendition 기본, which each ingest makes: `concise` (간결), `academic` (학술). Required; an empty list selects none."
+          items:
+            enum:
+              - concise
+              - academic
+            type: string
+          maxItems: 2
+          title: Renditions
+          type: array
         full_content:
           default: false
           title: "Full Content"
@@ -5529,6 +5642,7 @@ components:
       required:
         - payload
         - extraction_mode
+        - renditions
       title: IngestRequest
       type: object
     IngestResponse:
@@ -5810,6 +5924,11 @@ components:
             - type: "null"
           default: null
           title: "Kb Number"
+        renditions:
+          items:
+            "$ref": "#/components/schemas/RenditionRunItem"
+          title: Renditions
+          type: array
       title: IngestResponse
       type: object
     JoinMemberResponse:
@@ -6330,6 +6449,33 @@ components:
       required:
         - removed
       title: RemoveContributionResponse
+      type: object
+    RenditionRunItem:
+      additionalProperties: false
+      description: "The result of one additional rendition: ``made``, ``existing`` (the document had it), ``queued`` (the agent client writes it with the extraction), or ``failed``."
+      properties:
+        template:
+          enum:
+            - concise
+            - academic
+          title: Template
+          type: string
+        state:
+          enum:
+            - made
+            - existing
+            - queued
+            - failed
+          title: State
+          type: string
+        error:
+          default: ""
+          title: Error
+          type: string
+      required:
+        - template
+        - state
+      title: RenditionRunItem
       type: object
     ReviewContributionRequest:
       additionalProperties: false

@@ -21,6 +21,7 @@ from ...core.secret_scrub import scrub_exception
 from ...extract.provider import set_progress_callback
 from ...ingest.active import purge_active_matrix
 from ...ingest.extraction_mode import parse_extraction_mode
+from ...ingest.renditions import run_ingest_renditions
 from ...ingest.report_json import report_to_dict
 from ...store import db as dbm, kb_collab, permalinks
 from ...store.queries import DOCUMENTS_MAX_IDS, DOCUMENTS_MAX_LIMIT, document_detail, documents_list, documents_page
@@ -43,6 +44,8 @@ from ._context import (
 from .errors import V1Error, error_response, not_found_error, v1_endpoint
 from .pagination import decode_document_cursor, encode_document_cursor, paginated_payload, parse_limit
 from .schemas import (
+    AddRenditionRequest,
+    AddRenditionResponse,
     DeleteDocumentResponse,
     DocumentDetailResponse,
     DocumentEntityItem,
@@ -127,6 +130,8 @@ async def _parse_ingest_request(ctx: V1Context, request: Request) -> tuple[Inges
     except ValueError as exc:
         raise V1Error(400, "invalid_extraction_mode", "extraction_mode must be 'provider' or 'client'") from exc
     req = IngestRequest.model_validate(raw)
+    if len(set(req.renditions)) != len(req.renditions):
+        raise V1Error(400, "invalid_renditions", "renditions must not repeat a template")
     payload_text = req.payload.strip()
     if not payload_text:
         raise V1Error(400, "invalid_payload", "payload is required")
@@ -136,6 +141,11 @@ async def _parse_ingest_request(ctx: V1Context, request: Request) -> tuple[Inges
     if not payload_clean:
         raise V1Error(400, "invalid_payload", "payload is required")
     return req, payload_clean, (req.effort.strip() if req.effort else None)
+
+
+def _ingest_renditions(kb: Any, kb_settings: Any, kb_svc: Any, report: Any, req: IngestRequest, effort: str | None) -> list[dict[str, str]]:
+    """The additional renditions of an ingest request (``claire.ingest.renditions``)."""
+    return run_ingest_renditions(kb_svc=kb_svc, db_file=kb_settings.db_file, kb_id=kb.id, report=report, templates=list(req.renditions), extraction_mode=req.extraction_mode, effort=effort)
 
 
 def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
@@ -562,6 +572,25 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
         return JSONResponse(result.model_dump())
 
     @v1_endpoint
+    async def add_document_rendition(request: Request) -> JSONResponse:
+        """정리본 추가: one more rendition of a stored document, from its stored raw text, with the server API (Section 5.3 rule 2)."""
+        kb = resolve_kb(ctx, request, capability="curate")
+        _, kb_settings, kb_svc = kb_runtime_context(ctx, request, kb)
+        doc_id = str(request.path_params.get("doc_id") or "").strip()
+        if not doc_id:
+            raise V1Error(400, "invalid_document_id", "Document id is required")
+        body = await read_v1_json(request, AddRenditionRequest)
+        # The run uses the server API; an agent client writes renditions only with a staged extraction.
+        await refuse_server_api_for_agent_client(ctx, request)
+        try:
+            items = await ctx.run_expensive(kb_svc.add_renditions, doc_id, [body.template])
+        except LookupError:
+            raise not_found_error("Document not found") from None
+        except ValueError as exc:
+            raise V1Error(409, "document_not_extracted", "The document waits for an agent client; add renditions after its extraction") from exc
+        return JSONResponse(AddRenditionResponse.model_validate({"document_id": doc_id, "rendition": items[0]}).model_dump())
+
+    @v1_endpoint
     async def ingest_personal(request: Request) -> JSONResponse:
         kb, kb_settings, kb_svc = resolve_personal_kb_context(ctx, request)
         req, payload, raw_effort = await _parse_ingest_request(ctx, request)
@@ -579,9 +608,14 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
         if req.format is not None and req.format.strip():
             ingest_kwargs["format"] = req.format.strip()
 
-        report = await ctx.run_expensive(kb_svc.ingest, payload, **ingest_kwargs)
+        def _ingest_with_renditions() -> tuple[Any, list[dict[str, str]]]:
+            report = kb_svc.ingest(payload, **ingest_kwargs)
+            return report, _ingest_renditions(kb, kb_settings, kb_svc, report, req, effort)
+
+        report, renditions = await ctx.run_expensive(_ingest_with_renditions)
         rep_dict = report_to_dict(report)
         rep_dict["kb_number"] = kb_number_str(kb)
+        rep_dict["renditions"] = renditions
         resp = IngestResponse.model_validate(rep_dict)
         return JSONResponse(resp.model_dump())
 
@@ -624,7 +658,10 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
                     ingest_kwargs["effort"] = effort
                 if req.format is not None and req.format.strip():
                     ingest_kwargs["format"] = req.format.strip()
-                return kb_svc.ingest(payload, **ingest_kwargs)
+                report = kb_svc.ingest(payload, **ingest_kwargs)
+                if req.renditions and req.extraction_mode == "provider":
+                    on_progress({"stage": "renditions", "msg": f"renditions: {', '.join(req.renditions)}"})
+                return report, _ingest_renditions(kb, kb_settings, kb_svc, report, req, effort)
             finally:
                 set_progress_callback(None)
 
@@ -651,8 +688,10 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
                         continue
                     yield (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
                 try:
-                    rep_dict = report_to_dict(task.result())
+                    report, renditions = task.result()
+                    rep_dict = report_to_dict(report)
                     rep_dict["kb_number"] = kb_number_str(kb)
+                    rep_dict["renditions"] = renditions
                     result: dict[str, Any] = IngestResponse.model_validate(rep_dict).model_dump()
                 except policy.ProviderPolicyError as exc:
                     result = {"ok": False, "error": exc.code, "remedy": exc.remedy or ""}
@@ -674,6 +713,7 @@ def build_document_handlers(ctx: V1Context) -> dict[str, Any]:
         "get_document_raw": get_document_raw,
         "export_document": export_document,
         "update_document": update_document,
+        "add_document_rendition": add_document_rendition,
         "delete_document": delete_document,
         "ingest_personal": ingest_personal,
         "ingest_personal_stream": ingest_personal_stream,

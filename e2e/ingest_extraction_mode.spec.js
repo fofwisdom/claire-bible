@@ -48,7 +48,7 @@ test('with an API the dialog shows the API first and checked, then the agent cli
   await expect(staged).toContainText('에이전트 클라이언트 대기 중');
   await expect(page.locator('#panel')).toContainText('원문 전체가 잡 큐에서 기다립니다.');
   expect(bodies).toHaveLength(1);
-  expect(bodies[0]).toMatchObject({ extraction_mode: 'client', full_content: false });
+  expect(bodies[0]).toMatchObject({ extraction_mode: 'client', full_content: false, renditions: [] });
   expect(bodies[0].effort).toBeUndefined();
 
   // A new dialog checks the API again (the default), and the API extracts at once.

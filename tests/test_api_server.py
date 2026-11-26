@@ -367,7 +367,7 @@ def test_ingest_stream_returns_newline_delimited_final_done_event(
 
     response = client.post(
         "/ingest-stream",
-        json={"payload": "hello", "expand_max": 2, "extraction_mode": "provider"},
+        json={"payload": "hello", "expand_max": 2, "extraction_mode": "provider", "renditions": []},
         headers=OWNER_HEADERS,
     )
 
@@ -379,7 +379,7 @@ def test_ingest_stream_returns_newline_delimited_final_done_event(
         {"stage": "work", "msg": "web:hello"},
         {
             "done": True,
-            "result": {"ok": True, "payload": "hello", "expand_max": 2},
+            "result": {"ok": True, "payload": "hello", "expand_max": 2, "renditions": []},
         },
     ]
 
@@ -656,7 +656,7 @@ def test_ingest_failure_is_500_without_internal_error_text(
     monkeypatch.setattr(service, "ingest", fail)
     response = client.post(
         "/ingest",
-        json={"payload": "x", "extraction_mode": "provider"},
+        json={"payload": "x", "extraction_mode": "provider", "renditions": []},
         headers=OWNER_HEADERS,
     )
 
@@ -711,12 +711,12 @@ def test_expensive_job_limit_applies_to_sync_and_stream_ingest(
 
     sync_response = client.post(
         "/ingest",
-        json={"payload": "x", "extraction_mode": "provider"},
+        json={"payload": "x", "extraction_mode": "provider", "renditions": []},
         headers=OWNER_HEADERS,
     )
     stream_response = client.post(
         "/ingest-stream",
-        json={"payload": "x", "extraction_mode": "provider"},
+        json={"payload": "x", "extraction_mode": "provider", "renditions": []},
         headers=OWNER_HEADERS,
     )
     search_response = client.post(
@@ -951,8 +951,8 @@ def test_stats_ingest_effort_visibility_and_http_400_no_fallback(
         assert effort_info["fixed"] is False
 
         for route, body in (
-            ("/ingest", {"payload": "test", "effort": "medium", "extraction_mode": "provider"}),
-            ("/ingest-stream", {"payload": "test", "effort": "max", "extraction_mode": "provider"}),
+            ("/ingest", {"payload": "test", "effort": "medium", "extraction_mode": "provider", "renditions": []}),
+            ("/ingest-stream", {"payload": "test", "effort": "max", "extraction_mode": "provider", "renditions": []}),
             ("/reingest", {"target": "doc-1", "effort": "none"}),
             ("/reingest-stream", {"target": "doc-1", "effort": "medium"}),
             ("/regenerate", {"target": "doc-1", "component": "summary", "effort": "xhigh"}),
@@ -963,7 +963,7 @@ def test_stats_ingest_effort_visibility_and_http_400_no_fallback(
             err_payload = bad_resp.json()
             assert "Unsupported effort" in (err_payload.get("error") or err_payload.get("detail") or "")
 
-        ok_resp = c.post("/ingest", json={"payload": "test", "effort": "high", "extraction_mode": "provider"}, headers=OWNER_HEADERS)
+        ok_resp = c.post("/ingest", json={"payload": "test", "effort": "high", "extraction_mode": "provider", "renditions": []}, headers=OWNER_HEADERS)
         assert ok_resp.status_code == 200
         assert ok_resp.json()["document_id"] == "doc-1"
         assert service.last_effort == "high"

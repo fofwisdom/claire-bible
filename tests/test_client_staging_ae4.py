@@ -148,13 +148,13 @@ def test_ingest_routes_take_the_extraction_mode_of_the_request(tmp_path: Path, m
             assert res.status_code == 400
             assert res.json()["error"] == "invalid_extraction_mode"
 
-        staged = client.post("/ingest", json={"payload": "https://example.com/route-queue", "extraction_mode": "client"}, headers=env.alice_headers)
+        staged = client.post("/ingest", json={"payload": "https://example.com/route-queue", "extraction_mode": "client", "renditions": []}, headers=env.alice_headers)
         assert staged.status_code == 200
         assert staged.json()["staged"] is True
         assert staged.json()["extraction_status"] == "pending"
 
         # The API mode of an account without an API fails with the policy error; the source does not go to the queue (no fallback, C2).
-        no_api = client.post("/ingest", json={"payload": "https://example.com/route-api", "extraction_mode": "provider"}, headers=env.alice_headers)
+        no_api = client.post("/ingest", json={"payload": "https://example.com/route-api", "extraction_mode": "provider", "renditions": []}, headers=env.alice_headers)
         assert no_api.status_code == 200
         assert no_api.json()["staged"] is False
         assert str(no_api.json()["error"]).startswith("provider_not_configured")
@@ -180,18 +180,18 @@ def test_agent_client_requests_never_run_the_server_api(tmp_path: Path, monkeypa
     app = server.create_app(env.settings, SimpleNamespace(provider=MockProvider()))
     with TestClient(app, base_url=PUBLIC_URL) as client:
         for path, body in (
-            ("/ingest", {"payload": "https://example.com/agent-api", "extraction_mode": "provider"}),
-            ("/ingest-stream", {"payload": "https://example.com/agent-api", "extraction_mode": "provider"}),
+            ("/ingest", {"payload": "https://example.com/agent-api", "extraction_mode": "provider", "renditions": []}),
+            ("/ingest-stream", {"payload": "https://example.com/agent-api", "extraction_mode": "provider", "renditions": []}),
             ("/reingest", {"target": "https://example.com/agent-api"}),
             ("/regenerate", {"target": "https://example.com/agent-api", "component": "summary"}),
         ):
             refused = client.post(path, json=body, headers=agent)
             assert (refused.status_code, refused.json()) == (403, {"error": "agent_client_provider_refused"}), path
-        queued = client.post("/ingest", json={"payload": "https://example.com/agent-queue", "extraction_mode": "client"}, headers=agent)
+        queued = client.post("/ingest", json={"payload": "https://example.com/agent-queue", "extraction_mode": "client", "renditions": []}, headers=agent)
         assert queued.status_code == 200
         assert queued.json()["staged"] is True
         # A manual API token of the same account is not an agent client: the API mode runs (and fails here only because Alice has no API).
-        manual = client.post("/ingest", json={"payload": "https://example.com/manual-api", "extraction_mode": "provider"}, headers=env.alice_headers)
+        manual = client.post("/ingest", json={"payload": "https://example.com/manual-api", "extraction_mode": "provider", "renditions": []}, headers=env.alice_headers)
         assert manual.status_code == 200
         assert str(manual.json()["error"]).startswith("provider_not_configured")
 

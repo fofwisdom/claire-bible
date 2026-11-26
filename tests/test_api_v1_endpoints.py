@@ -412,7 +412,7 @@ def test_ingest_aed4_rev_and_stream(v1_world: _World) -> None:
     # Agent client OAuth token with extraction_mode="provider" -> 403 agent_client_provider_refused.
     r_refused = v1_world.client.post(
         "/api/v1/kbs/personal/ingest",
-        json={"payload": "Note text", "extraction_mode": "provider"},
+        json={"payload": "Note text", "extraction_mode": "provider", "renditions": []},
         headers=_bearer(v1_world.alice_oauth_write),
     )
     assert r_refused.status_code == 403
@@ -421,7 +421,7 @@ def test_ingest_aed4_rev_and_stream(v1_world: _World) -> None:
     # Agent client OAuth token with extraction_mode="client" succeeds (staged=True).
     r_client = v1_world.client.post(
         "/api/v1/kbs/personal/ingest",
-        json={"payload": "https://example.test/article", "extraction_mode": "client"},
+        json={"payload": "https://example.test/article", "extraction_mode": "client", "renditions": []},
         headers=_bearer(v1_world.alice_oauth_write),
     )
     assert r_client.status_code == 200
@@ -431,7 +431,7 @@ def test_ingest_aed4_rev_and_stream(v1_world: _World) -> None:
     # Same-origin owner browser session can use extraction_mode="provider" on stream endpoint.
     r_stream = v1_world.client.post(
         "/api/v1/kbs/personal/ingest/stream",
-        json={"payload": "Stream note", "extraction_mode": "provider"},
+        json={"payload": "Stream note", "extraction_mode": "provider", "renditions": []},
         headers={**_cookie(v1_world.alice_session), "Origin": "http://127.0.0.1:8765"},
     )
     assert r_stream.status_code == 200

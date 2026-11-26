@@ -430,7 +430,7 @@ def test_ingest_stream_emits_heatmap_and_decision_events(tmp_path):
 
     resp = client.post(
         "/ingest-stream",
-        json={"payload": "https://example.com/test", "extraction_mode": "provider"},
+        json={"payload": "https://example.com/test", "extraction_mode": "provider", "renditions": []},
         headers=owner_headers,
     )
     assert resp.status_code == 200

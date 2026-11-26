@@ -152,6 +152,11 @@
     return el ? el.value : "";
   }
 
+  // The value of the request field ``renditions``: the checked additional rendition templates, in the template order (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rule 1). The standard rendition is always made and is not in the list.
+  function selectedRenditions() {
+    return Array.prototype.map.call(document.querySelectorAll('input[name="ingest-rendition"]:checked'), function (el) { return el.value; });
+  }
+
   function closeDialog(id) {
     var dlg = typeof id === "string" ? byId(id) : id;
     if (dlg && dlg.open) dlg.close();
@@ -174,6 +179,7 @@
     if (noticesEl) noticesEl.innerHTML = "";
     renderExtractionGrid(byId("ingest-extraction-grid"), opts.extractionModes !== undefined ? opts.extractionModes : currentExtractionModes, false);
     renderEffortGrid(byId("ingest-effort-grid"), opts.effortSpec !== undefined ? opts.effortSpec : currentEffortSpec);
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="ingest-rendition"]'), function (el) { el.checked = false; });
     if (!dlg.open) dlg.showModal();
     var ta = byId("ingin");
     if (ta) ta.focus();
@@ -390,6 +396,7 @@
       renderExtractionGrid(byId(id), currentExtractionModes, false);
     },
     selectedExtractionMode: selectedExtractionMode,
+    selectedRenditions: selectedRenditions,
     refreshExtractionModes: refreshExtractionModes,
     openIngestDialog: openIngestDialog,
     openReingestDialog: openReingestDialog,

@@ -1044,7 +1044,8 @@
       ticker(tr("synd.kb.ingest.sending"));
       try {
         // The queue of the agent client keeps the full source and calls no LLM: amount and effort do not apply.
-        const bodyObj = { payload, full_content: !toClient && !!(amountChoice && amountChoice.value === "full"), extraction_mode: extractionMode };
+        const renditions = window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.selectedRenditions === "function" ? window.ClaireIngestDialogs.selectedRenditions() : [];
+        const bodyObj = { payload, full_content: !toClient && !!(amountChoice && amountChoice.value === "full"), extraction_mode: extractionMode, renditions };
         if (!toClient && effortChoice && effortChoice.value) bodyObj.effort = effortChoice.value;
         const resp = await fetch("/ingest", {
           method: "POST",

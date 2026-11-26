@@ -50,7 +50,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     repo_a = out_a / "repo"
     marketplace = json.loads((repo_a / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     assert marketplace["name"] == "claire-agents"
-    assert marketplace["metadata"]["version"] == "0.0.14"
+    assert marketplace["metadata"]["version"] == "0.0.15"
     assert [p["name"] for p in marketplace["plugins"]] == ["claire"]
     assert marketplace["plugins"][0]["source"] == "./plugins/claude/claire"
 
@@ -62,7 +62,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     claude_dir = repo_a / "plugins" / "claude" / "claire"
     claude_plugin = json.loads((claude_dir / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert claude_plugin["name"] == "claire"
-    assert claude_plugin["version"] == "0.0.14"
+    assert claude_plugin["version"] == "0.0.15"
     assert claude_plugin["repository"] == "https://github.com/fofwisdom/claire-agents"
     assert sorted(p.name for p in (claude_dir / "skills").iterdir()) == ["extract-runner", "ingest", "query", "regenerate"]
 
@@ -141,7 +141,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     ag_plugin = json.loads((ag_dir / "plugin.json").read_text(encoding="utf-8"))
     assert ag_plugin["name"] == "claire"
     assert ag_plugin["displayName"] == "Claire Bible"
-    assert ag_plugin["version"] == "0.0.14"
+    assert ag_plugin["version"] == "0.0.15"
     assert ag_plugin["logo"] == "assets/logo.svg"
     assert (ag_dir / "assets" / "logo.svg").is_file()
     assert not (ag_dir / "mcp_config.json.tmpl").exists()
@@ -212,7 +212,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     codex_dir = repo_a / "plugins" / "codex" / "claire"
     codex_plugin = json.loads((codex_dir / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert codex_plugin["name"] == "claire"
-    assert codex_plugin["version"] == "0.0.14"
+    assert codex_plugin["version"] == "0.0.15"
     assert codex_plugin["skills"] == "./skills/"
     assert "mcpServers" not in codex_plugin
     assert sorted(p.name for p in (codex_dir / "skills").iterdir()) == ["claire"]
@@ -266,7 +266,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
             assert "Allow using this MCP tool?" in guide_text
             assert "Yes, and always allow" in guide_text
             assert "Add MCP Server (+)" not in guide_text
-            assert "claire-antigravity-v0.0.14.zip" in guide_text
+            assert "claire-antigravity-v0.0.15.zip" in guide_text
             assert "claire ingest" in guide_text
             assert "claire regenerate" in guide_text
             assert "claire query" in guide_text
@@ -276,7 +276,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
             assert "claude mcp login claire" in guide_text
             assert "/claire:regenerate" in guide_text
         else:
-            assert "claire-codex-v0.0.14.zip" in guide_text
+            assert "claire-codex-v0.0.15.zip" in guide_text
             assert 'codex mcp add claire --url "https://' in guide_text
             assert "codex mcp login claire" in guide_text
             assert "$claire ingest" in guide_text
@@ -301,7 +301,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert "docs/claude.en.md" in top_readme
     assert "docs/chatgpt.ko.md" in top_readme
     assert "docs/chatgpt.en.md" in top_readme
-    assert "claire-codex-v0.0.14.zip" in top_readme
+    assert "claire-codex-v0.0.15.zip" in top_readme
     assert "claire ingest" in top_readme and "claire regenerate" in top_readme and "claire query" in top_readme
     assert "$claire ingest" in top_readme and "$claire regenerate" in top_readme and "$claire query" in top_readme
     assert "/claire:ingest" in top_readme and "/claire:regenerate" in top_readme and "/claire:query" in top_readme
@@ -312,8 +312,8 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     notes_b = (out_b / "release_notes.md").read_bytes()
     assert notes_a == notes_b
     notes_text = notes_a.decode("utf-8")
-    assert "claire-antigravity-v0.0.14.zip" in notes_text
-    assert "claire-codex-v0.0.14.zip" in notes_text
+    assert "claire-antigravity-v0.0.15.zip" in notes_text
+    assert "claire-codex-v0.0.15.zip" in notes_text
     assert "MCP Servers -> claire" in notes_text
     assert "Allow using this MCP tool?" in notes_text
     assert "docs/antigravity.ko.md" in notes_text
@@ -328,7 +328,7 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
 
     manifest = json.loads((repo_a / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["repo"] == "fofwisdom/claire-agents"
-    assert manifest["version"] == "0.0.14"
+    assert manifest["version"] == "0.0.15"
     assert [p["id"] for p in manifest["plugins"]] == ["claire-antigravity", "claire-claude", "claire-codex"]
     assert all(p["plugin_name"] == "claire" for p in manifest["plugins"])
     manifest_ag = next(p for p in manifest["plugins"] if p["id"] == "claire-antigravity")
@@ -339,14 +339,14 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
     assert any(f["path"] == "assets/logo.svg" for f in manifest_ag["files"])
     assert any(f["path"] == "skills/claire/SKILL.md" for f in manifest_ag["files"])
 
-    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.0.14.tar.gz", "r:gz") as tf:
+    with tarfile.open(out_a / "releases" / "claire-antigravity-v0.0.15.tar.gz", "r:gz") as tf:
         assert "claire/plugin.json" in tf.getnames()
         assert "claire/assets/logo.svg" in tf.getnames()
         assert "claire/README.md" in tf.getnames()
         assert "claire/skills/claire/SKILL.md" in tf.getnames()
         assert "claire/skills/claire-extract/SKILL.md" not in tf.getnames()
         assert "claire/mcp_config.json.tmpl" not in tf.getnames()
-    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.0.14.zip", "r") as zf:
+    with zipfile.ZipFile(out_a / "releases" / "claire-claude-v0.0.15.zip", "r") as zf:
         assert "claire/.claude-plugin/plugin.json" in zf.namelist()
         assert "claire/skills/ingest/SKILL.md" in zf.namelist()
         assert "claire/skills/regenerate/SKILL.md" in zf.namelist()
@@ -355,14 +355,14 @@ def test_marketplace_cli_build_outputs_and_determinism(tmp_path: Path) -> None:
         assert "claire/skills/extract/SKILL.md" not in zf.namelist()
         assert "claire/agents/extractor.md" in zf.namelist()
         assert "claire/hooks/hooks.json" in zf.namelist()
-    with zipfile.ZipFile(out_a / "releases" / "claire-codex-v0.0.14.zip", "r") as zf:
+    with zipfile.ZipFile(out_a / "releases" / "claire-codex-v0.0.15.zip", "r") as zf:
         assert "claire/.codex-plugin/plugin.json" in zf.namelist()
         assert "claire/skills/claire/SKILL.md" in zf.namelist()
         assert "claire/agents/claire-extractor.md" in zf.namelist()
         assert "claire/agents/claire-extractor.toml" in zf.namelist()
         assert "claire/rules/AGENTS.md" in zf.namelist()
         assert "claire/README.md" in zf.namelist()
-    with tarfile.open(out_a / "releases" / "claire-codex-v0.0.14.tar.gz", "r:gz") as tf:
+    with tarfile.open(out_a / "releases" / "claire-codex-v0.0.15.tar.gz", "r:gz") as tf:
         assert "claire/.codex-plugin/plugin.json" in tf.getnames()
         assert "claire/skills/claire/SKILL.md" in tf.getnames()
         assert "claire/agents/claire-extractor.toml" in tf.getnames()
@@ -544,12 +544,12 @@ def test_adapter_contract_suggested_prompts_and_retired_skill_gates(tmp_path: Pa
 
     bad_rev_src = _copy_source_tree(tmp_path / "bad_rev")
     bad_market_toml = bad_rev_src / "marketplace.toml"
-    bad_market_toml.write_text(bad_market_toml.read_text(encoding="utf-8").replace('version = "0.0.14"', 'version = "0.6.0"'), encoding="utf-8")
+    bad_market_toml.write_text(bad_market_toml.read_text(encoding="utf-8").replace('version = "0.0.15"', 'version = "0.6.0"'), encoding="utf-8")
     with pytest.raises(builder.BuildValidationError, match=r"revision format 0\.0\.<n>"):
         builder.build_marketplace(bad_rev_src, mcp_tools_file=MCP_TOOLS_FILE)
 
     mismatch_rev_src = _copy_source_tree(tmp_path / "mismatch_rev")
     mismatch_client_toml = mismatch_rev_src / "clients" / "codex" / "client.toml"
-    mismatch_client_toml.write_text(mismatch_client_toml.read_text(encoding="utf-8").replace('version = "0.0.14"', 'version = "0.0.99"'), encoding="utf-8")
+    mismatch_client_toml.write_text(mismatch_client_toml.read_text(encoding="utf-8").replace('version = "0.0.15"', 'version = "0.0.99"'), encoding="utf-8")
     with pytest.raises(builder.BuildValidationError, match=r"must match marketplace\.toml version"):
         builder.build_marketplace(mismatch_rev_src, mcp_tools_file=MCP_TOOLS_FILE)

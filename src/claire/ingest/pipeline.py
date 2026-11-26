@@ -1968,33 +1968,12 @@ def ensure_document_detail(
             out_error.append("provider does not support render_detail")
         return False
 
-    eff = effort
-    if eff is None:
-        if doc.source_type in ("pdf", "odt"):
-            from ..extract.classifier import reconcile_pdf_metadata
-
-            settings = resolve_job_settings(settings, provider)
-            classification = (doc.meta or {}).get("paper_classification")
-            if classification and isinstance(classification, dict):
-                is_paper = classification.get("is_paper", False)
-            else:
-                try:
-                    res = reconcile_pdf_metadata(doc, settings, provider=provider)
-                except ProviderPolicyError as e:
-                    if out_error is not None:
-                        out_error.append(error_text(e))
-                    return False
-                is_paper = res.is_paper
-            if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
-                eff = settings.pdf_paper_effort or "high"
-            else:
-                eff = settings.pdf_default_effort or provider_effort(provider)
-        else:
-            slot_spec_fn = getattr(provider, "slot_spec", None)
-            spec = slot_spec_fn("render_detail") if callable(slot_spec_fn) else None
-            slot_eff = spec[2] if isinstance(spec, (tuple, list)) and len(spec) >= 3 else ""
-            eff = slot_eff or provider_effort(provider)
-    eff = _effective_provider_effort(provider, eff, slot="render_detail")
+    try:
+        eff = _body_effort(provider, doc, effort=effort, settings=settings)
+    except ProviderPolicyError as e:
+        if out_error is not None:
+            out_error.append(error_text(e))
+        return False
 
     try:
         text = _render_body(render, doc, template=PRIMARY_RENDITION_TEMPLATE, focus=focus_val, effort=eff)
@@ -2019,6 +1998,70 @@ def ensure_document_detail(
     if out_error is not None:
         out_error.append("empty detail output returned by model")
     return False
+
+
+def _body_effort(provider: Any, doc: Document, *, effort: str | None, settings: Any) -> str:
+    """The effort of a body run: the given effort, else the PDF rule (a paper above the threshold gets the paper effort), else the effort of the slot ``render_detail``. ``ProviderPolicyError`` passes to the caller."""
+    eff = effort
+    if eff is None:
+        if doc.source_type in ("pdf", "odt"):
+            from ..extract.classifier import reconcile_pdf_metadata
+
+            settings = resolve_job_settings(settings, provider)
+            classification = (doc.meta or {}).get("paper_classification")
+            if classification and isinstance(classification, dict):
+                is_paper = classification.get("is_paper", False)
+            else:
+                is_paper = reconcile_pdf_metadata(doc, settings, provider=provider).is_paper
+            if is_paper and len(doc.raw_text or "") >= settings.pdf_paper_threshold_chars:
+                eff = settings.pdf_paper_effort or "high"
+            else:
+                eff = settings.pdf_default_effort or provider_effort(provider)
+        else:
+            slot_spec_fn = getattr(provider, "slot_spec", None)
+            spec = slot_spec_fn("render_detail") if callable(slot_spec_fn) else None
+            slot_eff = spec[2] if isinstance(spec, (tuple, list)) and len(spec) >= 3 else ""
+            eff = slot_eff or provider_effort(provider)
+    return _effective_provider_effort(provider, eff, slot="render_detail")
+
+
+def render_additional_rendition(
+    conn: sqlite3.Connection,
+    provider: Provider,
+    doc: Document,
+    *,
+    template: str,
+    kb_id: int,
+    effort: str | None = None,
+    settings: Any = None,
+    out_error: list[str] | None = None,
+) -> bool:
+    """Make the rendition ``template`` (not ``standard``) of a stored document from its stored raw text, and store its body (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rules 1 and 2). It fetches nothing and costs one model call. A failure gives ``False`` and an error text; the document and its other renditions do not change."""
+    if template == PRIMARY_RENDITION_TEMPLATE:
+        raise ValueError("the 대표 정리본 uses ensure_document_detail")
+    valid, guard_err = validate_extractable_content(doc)
+    if not valid:
+        if out_error is not None:
+            out_error.append(f"insufficient_content: {guard_err}")
+        return False
+    render = getattr(provider, "render_detail", None)
+    if render is None:
+        if out_error is not None:
+            out_error.append("provider does not support render_detail")
+        return False
+    try:
+        eff = _body_effort(provider, doc, effort=effort, settings=settings)
+        text = _render_body(render, doc, template=template, focus=None, effort=eff)
+    except Exception as e:  # noqa: BLE001
+        if out_error is not None:
+            out_error.append(error_text(e))
+        return False
+    if not (text and text.strip()):
+        if out_error is not None:
+            out_error.append("empty detail output returned by model")
+        return False
+    renditions_store.store_additional(conn, doc.id, kb_id, template=template, detail=text.strip(), lineage=render_lineage(provider))
+    return True
 
 
 def render_lineage(provider: Any) -> dict[str, str]:

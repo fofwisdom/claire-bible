@@ -23,6 +23,7 @@ Use this skill whenever the user wants to save, ingest, upload, archive, extract
      - Stop and inform the user that the source was previously purged (`소각`), and ask whether they want to lift the tombstone and re-ingest it.
      - If confirmed, call `extract_stage(..., force=True)` to lift the tombstone automatically and delegate `document_id` to `{{EXTRACTOR_REF}}`.
    - When `duplicate: true` and `extraction_status == "pending"`, hand `document_id` directly to `{{EXTRACTOR_REF}}` without asking.
+6. **Renditions (정리본)**: Each extraction makes the standard rendition (기본). When the user asks for a concise (`간결`) or academic (`학술`) rendition too, pass `renditions=["concise"]`, `["academic"]`, or both to `extract_stage`; `{{EXTRACTOR_REF}}` then writes them from `rendition_prompts`. Do not add renditions the user did not ask for: each costs one more rendering pass.
 
 ## Four Ingest & Extraction Flows
 

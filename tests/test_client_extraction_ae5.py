@@ -1082,3 +1082,43 @@ def test_force_reingest_lifts_tombstones_refetches_in_place_and_purges_old_extra
         assert unstaged_note["ok"] is True and unstaged_note["extraction_status"] == "pending"
     finally:
         conn3.close()
+
+
+def test_additional_renditions_go_with_the_staged_task_and_its_submit(tmp_path: Path) -> None:
+    """Additional renditions of an agent client (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rule 1): the request goes into the staged task, ``extract_read`` gives one prompt for each, and the submit must have exactly these bodies."""
+    world = _setup_world(tmp_path)
+    conn = dbm.connect_existing(world.settings.db_file)
+    try:
+        staged = ce.stage_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, url_or_text="OpenAI developed ReasoningEngine for structured outputs. " * 5, title="Renditions", settings=world.settings)
+        doc_id = staged["document_id"]
+        with pytest.raises(ce.ClientExtractionError) as bad:
+            ce.request_client_renditions(conn, kb_id=world.alice_kb.id, document_id=doc_id, templates=["standard"])
+        assert bad.value.code == "invalid_renditions"
+        ce.request_client_renditions(conn, kb_id=world.alice_kb.id, document_id=doc_id, templates=["academic", "concise"])
+        conn.commit()
+        claim = ce.claim_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, client_id="antigravity")
+        read = ce.get_staged_source(conn, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, claim_token=claim["claim_token"], offset=0, limit=50)
+        assert list(read["rendition_prompts"]) == ["concise", "academic"]
+        assert read["rendition_prompts"]["concise"] == rendition_template("concise").build_instructions(images=None, merged=False, scale=1)
+    finally:
+        conn.close()
+
+    def submit(payload: dict) -> dict:
+        return ce.submit_client_extraction(world.settings.db_file, kb_id=world.alice_kb.id, account_id=world.alice.id, document_id=doc_id, claim_token=claim["claim_token"], expected_content_hash=claim["content_hash"], payload=payload, kb_settings=world.settings, root_settings=world.settings)
+
+    missing = submit(_valid_payload())
+    assert missing["ok"] is False and [e["code"] for e in missing["errors"]] == ["renditions_mismatch"]
+    bodies = {"concise": "= 간결\n\n== 핵심\n\n* OpenAI는 구조화 출력을 공개했다.\n", "academic": "= 학술\n\n== 개요\n\nOpenAI는 추론 파이프라인을 공개했다.\n"}
+    unsafe = submit({**_valid_payload(), "renditions": {**bodies, "academic": "<script>x</script>"}})
+    assert unsafe["ok"] is False and unsafe["errors"][0]["field"] == "renditions.academic"
+    done = submit({**_valid_payload(), "renditions": bodies})
+    assert done["ok"] is True and done["committed"] is True
+    post_conn = dbm.connect_existing(world.settings.db_file, readonly=True)
+    try:
+        listed = renditions_store.list_renditions(post_conn, doc_id, world.alice_kb.id)
+        assert [(r.template, r.model_lineage["provider"]) for r in listed] == [("standard", "agent_client"), ("concise", "agent_client"), ("academic", "agent_client")]
+        assert "핵심" in listed[1].detail
+        # The requests are done: a later re-extraction asks for no rendition.
+        assert ce.requested_client_renditions(json.loads(dbm.get_document_row(post_conn, doc_id, kb_id=world.alice_kb.id)["meta"])) == []
+    finally:
+        post_conn.close()

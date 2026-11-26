@@ -23,7 +23,7 @@ from ..extract.decision import attach_resolution_meta
 from ..extract.frame import format_entity_frame
 from ..extract.prompts import PROMPT_VERSION, build_extraction_prompt_bundle, clean_plain_summary, is_corrupted_summary, is_preface_summary, remove_leading_original_link, sanitize_rendered_detail
 from ..extract.provider import UnavailableProvider, get_provider
-from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE, rendition_template
+from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES, PRIMARY_RENDITION_TEMPLATE, rendition_template
 from ..extract.resolver import _call_provider_embed, is_type_compatible, passes_hard_invariants, resolve_or_create, sync_entity_space_embeddings
 from ..ingest.fetchers.base import FetchError, bound_fetch_settings
 from ..ingest.fetchers.textfile import MAX_STAGE_FILE_BYTES, fetch_file_bytes
@@ -148,6 +148,7 @@ class ClientExtractionPayload(BaseModel):
     focus: str | None = None
     lang: str | None = None
     model: str | None = Field(default=None, description="Exact processing LLM model identifier (for example 'gemini-3.8-flash' or 'claude-sonnet-4-6'). Never pass an OAuth client_id or 'agent_client'.")
+    renditions: dict[str, str] = Field(default_factory=dict, description="One AsciiDoc body for each template of `rendition_prompts` of extract_read, written with that prompt (keys: the template identifiers). Exactly the requested templates; empty when extract_read gives no `rendition_prompts`.")
 
 
 class _AtomicConnection(sqlite3.Connection):
@@ -248,6 +249,26 @@ def resolve_oauth_client_id(conn: sqlite3.Connection, *, account_id: int | None,
         if digest == credential_id:
             return str(row["client_id"])
     return None
+
+
+RENDITION_REQUESTS_META_KEY = "rendition_requests"
+
+
+def request_client_renditions(conn: sqlite3.Connection, *, kb_id: int, document_id: str, templates: list[str]) -> None:
+    """Record the additional rendition templates (``concise``, ``academic``) of a document that waits for an agent client (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rule 1). The client gets their prompts in ``extract_read`` and submits one body for each. The caller commits."""
+    if any(t not in ADDITIONAL_RENDITION_TEMPLATES for t in templates) or len(set(templates)) != len(templates):
+        raise ClientExtractionError(400, "invalid_renditions", f"renditions must be distinct values of {list(ADDITIONAL_RENDITION_TEMPLATES)}.")
+    row = dbm.get_document_row(conn, document_id, kb_id=kb_id)
+    if row is None or (row["extraction_status"] or "extracted") != "pending":
+        raise ClientExtractionError(409, "document_not_staged", "Additional renditions of the agent client go with a staged document.")
+    dbm.update_document_meta(conn, document_id, {RENDITION_REQUESTS_META_KEY: list(templates)}, kb_id=kb_id)
+
+
+def requested_client_renditions(meta: Any) -> list[str]:
+    """The additional rendition templates that the staged document asks for, in the template order."""
+    raw = meta.get(RENDITION_REQUESTS_META_KEY) if isinstance(meta, dict) else None
+    wanted = {str(t) for t in raw} if isinstance(raw, list) else set()
+    return [t for t in ADDITIONAL_RENDITION_TEMPLATES if t in wanted]
 
 
 def get_extraction_spec() -> dict[str, Any]:
@@ -861,6 +882,10 @@ def get_staged_source(
         meta_images = staged_meta.get("images") or []
         meta_focus = str(staged_meta.get("focus") or "").strip() or None
         is_merged = bool(staged_meta.get("extra_sources"))
+        wanted = requested_client_renditions(staged_meta)
+        if wanted:
+            # One prompt for each additional rendition; the submit has one body for each (Section 5.2 rule 5).
+            result["rendition_prompts"] = {t: rendition_template(t).build_instructions(images=meta_images if isinstance(meta_images, list) else None, merged=is_merged, scale=1) for t in wanted}
         if (isinstance(meta_images, list) and meta_images) or meta_focus or is_merged:
             result["render_detail_prompt"] = rendition_template(PRIMARY_RENDITION_TEMPLATE).build_instructions(
                 images=meta_images if isinstance(meta_images, list) else None,
@@ -1386,6 +1411,22 @@ def submit_client_extraction(
             raw_text=raw_text,
             raw_payload=payload,
         )
+        rendition_bodies: dict[str, str] = {}
+        if validated is not None:
+            try:
+                doc_meta = json.loads(doc_row["meta"] or "{}")
+            except ValueError:
+                doc_meta = {}
+            wanted = requested_client_renditions(doc_meta)
+            if sorted(validated.renditions) != sorted(wanted):
+                errors.append({"field": "renditions", "code": "renditions_mismatch", "message": f"renditions must have exactly the templates {wanted} of rendition_prompts."})
+            else:
+                for template in wanted:
+                    body_errors: list[dict[str, str]] = []
+                    cleaned_body, _ = _validate_asciidoc_detail(validated.renditions[template], body_errors)
+                    errors.extend({**e, "field": f"renditions.{template}"} for e in body_errors)
+                    if cleaned_body:
+                        rendition_bodies[template] = cleaned_body
         if errors or validated is None:
             return {
                 "ok": False,
@@ -1467,8 +1508,10 @@ def submit_client_extraction(
                 now=commit_ts,
             )
             raise race_err or ClientExtractionError(409, "claim_conflict", "Document claim state changed before commit.")
-        # The body is the 대표 정리본 of the template standard (Section 5.1 rule 4).
+        # The body is the 대표 정리본 of the template standard (Section 5.1 rule 4); the other bodies are the requested renditions.
         renditions_store.record_primary(atomic_conn, doc_id, int(kb_id), lineage={"provider": "agent_client", "model": cleaned_model or ""}, now=commit_ts)
+        for template, body in rendition_bodies.items():
+            renditions_store.store_additional(atomic_conn, doc_id, int(kb_id), template=template, detail=body, lineage={"provider": "agent_client", "model": cleaned_model or ""}, now=commit_ts)
 
         dbm.rollback_document_graph_contributions(atomic_conn, [doc_id], prune_orphans=True, kb_id=int(kb_id))
         atomic_conn.execute("DELETE FROM extractions WHERE document_id=? AND kb_id=?", (doc_id, int(kb_id)))
@@ -1628,6 +1671,9 @@ def submit_client_extraction(
         )
 
         meta_patch: dict[str, Any] = {"extraction_origin": "agent_client", "client_extraction": provenance}
+        if rendition_bodies:
+            # The requests are done; a later re-extraction does not ask for them again.
+            meta_patch[RENDITION_REQUESTS_META_KEY] = []
         if validated.focus and validated.focus.strip():
             meta_patch["focus"] = validated.focus.strip()
         if validated.lang and validated.lang.strip():

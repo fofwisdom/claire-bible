@@ -230,7 +230,7 @@ def test_permission_matrix_owner(test_environment):
     assert client.get(f"/kb/{ids.format_public_id(env.alice_sec.number)}/graph", headers=headers).status_code == 200
 
     # 2. Ingest writes only to the personal knowledge base (CT4, CT23): 200 there, 403 on a path that pins another one
-    res_def = client.post("/@alice/ingest", json={"payload": "Owner doc personal", "extraction_mode": "provider"}, headers=headers)
+    res_def = client.post("/@alice/ingest", json={"payload": "Owner doc personal", "extraction_mode": "provider", "renditions": []}, headers=headers)
     assert res_def.status_code == 200
     res_pub = client.post(f"/kb/{ids.format_public_id(env.alice_pub.number)}/ingest", json={"payload": "Owner doc public"}, headers=headers)
     assert res_pub.status_code == 403

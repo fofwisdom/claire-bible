@@ -135,7 +135,7 @@ def test_e2e_sealed_key_is_unsealed_on_the_next_visit(tmp_path: Path, gemini_cal
         assert _key_versions(data_dir) == [1]
         clear_volatile_user_seals()
         client.cookies.clear()
-        ingested = client.post("/ingest", json={"payload": "Document after the unseal.", "extraction_mode": "provider"}, headers={"Cookie": f"claire_session={session}", "Origin": PUBLIC_URL})
+        ingested = client.post("/ingest", json={"payload": "Document after the unseal.", "extraction_mode": "provider", "renditions": []}, headers={"Cookie": f"claire_session={session}", "Origin": PUBLIC_URL})
         assert ingested.status_code == 200, ingested.text
         assert gemini_calls and {key for key, _ in gemini_calls} == {PERSONAL_KEY}
 
@@ -180,7 +180,7 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         assert 'data-settings-form="provider-key"' in page.text and 'href="/admin/providers"' in page.text
 
         # 2. Without a personal key, a job of the administrator account uses the server provider (mock): no Gemini call.
-        first = call("POST", "/ingest", json={"payload": "Server provider document about Jerusalem.", "extraction_mode": "provider"})
+        first = call("POST", "/ingest", json={"payload": "Server provider document about Jerusalem.", "extraction_mode": "provider", "renditions": []})
         assert first.status_code == 200, first.text
         assert gemini_calls == []
 
@@ -195,7 +195,7 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         clear_volatile_user_seals()
 
         # 4. A job of the administrator account now uses only the personal key, and the ledger records its tokens.
-        second = call("POST", "/ingest", json={"payload": "Personal key document about Galilee.", "extraction_mode": "provider"})
+        second = call("POST", "/ingest", json={"payload": "Personal key document about Galilee.", "extraction_mode": "provider", "renditions": []})
         assert second.status_code == 200, second.text
         assert gemini_calls, "the job made no Gemini call"
         assert {key for key, _ in gemini_calls} == {PERSONAL_KEY}
@@ -213,7 +213,7 @@ def test_e2e_admin_personal_key_pays_for_admin_jobs(tmp_path: Path, gemini_calls
         # 5. After the deletion, the jobs use the server provider again.
         assert call("DELETE", "/api/me/provider-keys").json() == {"ok": True, "deleted": 1}
         before = len(gemini_calls)
-        third = call("POST", "/ingest", json={"payload": "Server provider document about Nazareth.", "extraction_mode": "provider"})
+        third = call("POST", "/ingest", json={"payload": "Server provider document about Nazareth.", "extraction_mode": "provider", "renditions": []})
         assert third.status_code == 200, third.text
         assert len(gemini_calls) == before
         assert SERVER_KEY not in {key for key, _ in gemini_calls}

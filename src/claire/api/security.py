@@ -987,6 +987,7 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/v1/kbs/{kb}/documents/{doc_id}/export"): _system("read", "read"),
     ("HEAD", "/api/v1/kbs/{kb}/documents/{doc_id}/export"): _system("read", "read"),
     ("PATCH", "/api/v1/kbs/{kb}/documents/{doc_id}"): _system("owner", "curate"),
+    ("POST", "/api/v1/kbs/{kb}/documents/{doc_id}/renditions"): _system("owner", "curate"),
     ("DELETE", "/api/v1/kbs/{kb}/documents/{doc_id}"): _system("owner", "remove"),
     ("POST", "/api/v1/kbs/{kb}/search"): _system("read", "read"),
     ("GET", "/api/v1/kbs/{kb}/graph"): _system("read", "read"),

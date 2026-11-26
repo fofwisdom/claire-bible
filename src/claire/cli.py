@@ -2230,6 +2230,7 @@ def cmd_ingest(args) -> int:
         extraction_mode=extraction_mode,
     )
     print(report.telegram_summary())
+    _cli_ingest_renditions(conn, provider, s, report, templates=list(dict.fromkeys(getattr(args, "renditions", []) or [])), kb_id=target_kb_id, extraction_mode=extraction_mode, effort=effort)
     # Campaign notices (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Section 8.7). CLI text is English.
     for notice, notice_line in zip(report.notices, report.notice_lines()):
         print(f"NOTICE: {notice_line}")
@@ -2254,6 +2255,37 @@ def cmd_ingest(args) -> int:
 
     conn.close()
     return 0 if report.error is None else 1
+
+
+def _cli_ingest_renditions(conn, provider, s, report, *, templates: list[str], kb_id: int, extraction_mode: str, effort: str | None) -> None:
+    """The additional renditions of ``claire ingest --rendition`` (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rule 1). CLI text is English."""
+    if not templates:
+        return
+    if not report.document_id or report.error:
+        print(f"RENDITIONS: not made, the ingest made no document: {', '.join(templates)}")
+        return
+    from .ingest import client_extraction as ce
+    from .ingest.pipeline import render_additional_rendition
+    from .store import document_renditions as renditions_store
+
+    if extraction_mode == "client":
+        try:
+            ce.request_client_renditions(conn, kb_id=kb_id, document_id=report.document_id, templates=templates)
+            conn.commit()
+            print(f"RENDITIONS: queued for the agent client: {', '.join(templates)}")
+        except ce.ClientExtractionError as exc:
+            print(f"RENDITIONS: not queued ({exc.code}): {exc.message}")
+        return
+    doc = dbm.get_document(conn, report.document_id, kb_id=kb_id)
+    have = {r.template for r in renditions_store.list_renditions(conn, report.document_id, kb_id)}
+    for template in templates:
+        if template in have:
+            print(f"RENDITION {template}: the document has it")
+            continue
+        errors: list[str] = []
+        ok = doc is not None and render_additional_rendition(conn, provider, doc, template=template, kb_id=kb_id, effort=effort, settings=s, out_error=errors)
+        conn.commit()
+        print(f"RENDITION {template}: made" if ok else f"RENDITION {template}: failed ({errors[0] if errors else 'no document'})")
 
 
 def cmd_reingest(args) -> int:
@@ -5874,6 +5906,8 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--format", choices=["adoc"], default=None,
                     help="detail render format (adoc only, RD23)")
     pi.add_argument("--extraction-mode", choices=["provider", "client"], default=None, help="provider: the server API extracts at once; client: the source waits in the queue for an agent client (default: provider when the account has an API, else client)")
+    pi.add_argument("--rendition", action="append", choices=["concise", "academic"], default=[], dest="renditions",
+                    help="also make this rendition besides the standard rendition (repeat the option for more; each costs one model call)")
     pi.add_argument("-t", "--theme", default=None, help="target theme ID, sequence number, or label (default: default knowledge base)")
     pi.set_defaults(func=cmd_ingest)
 

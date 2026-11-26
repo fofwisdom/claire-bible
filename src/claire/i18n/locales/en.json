@@ -4635,5 +4635,14 @@
   "console.support.pipeline.fixed.byok_model": "BYOK verification model",
   "console.support.pipeline.fixed.byok_model_value": "Fixed model used to verify personal API keys",
   "console.support.pipeline.fixed.pair_prelabel": "Pair review pre-label model",
-  "console.support.pipeline.fixed.pair_prelabel_value": "Fixed model for administrator pair review pre-labeling"
+  "console.support.pipeline.fixed.pair_prelabel_value": "Fixed model for administrator pair review pre-labeling",
+  "ws.ingest.renditions": "Renditions",
+  "ws.ingest.renditions_hint": "The standard rendition is always made. Each extra rendition costs one more model call.",
+  "ws.ingest.opt_renditions": "Extra renditions: {list}",
+  "rendition.template.standard.label": "Standard",
+  "rendition.template.standard.desc": "The primary rendition. No tables of the source: key numbers in sentences, representative formulas only.",
+  "rendition.template.concise.label": "Concise",
+  "rendition.template.concise.desc": "About one A4 page: key points, content, results and numbers, limits.",
+  "rendition.template.academic.label": "Academic",
+  "rendition.template.academic.desc": "Keeps all tables and formulas of the source."
 }

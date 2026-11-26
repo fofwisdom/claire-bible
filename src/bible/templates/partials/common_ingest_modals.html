@@ -23,6 +23,14 @@
         <div class="ingest-choice"><input id="ingextraction-client" type="radio" name="ingest-extraction" value="client"/><label for="ingextraction-client" data-i18n-title="ws.ingest.extraction_client_title" title="${t:ws.ingest.extraction_client_title}" data-i18n="ws.ingest.extraction_client">${t:ws.ingest.extraction_client}</label></div>
       </div>
     </fieldset>
+    <fieldset class="ingest-options" aria-describedby="ingest-renditions-hint">
+      <legend class="ingest-label"><span data-i18n="ws.ingest.renditions">${t:ws.ingest.renditions}</span> <span id="ingest-renditions-hint" class="ingest-help" data-i18n="ws.ingest.renditions_hint">${t:ws.ingest.renditions_hint}</span></legend>
+      <div id="ingest-renditions-grid" class="ingest-choice-grid">
+        <div class="ingest-choice"><input id="ingrendition-standard" type="checkbox" checked disabled/><label for="ingrendition-standard" data-i18n-title="rendition.template.standard.desc" title="${t:rendition.template.standard.desc}" data-i18n="rendition.template.standard.label">${t:rendition.template.standard.label}</label></div>
+        <div class="ingest-choice"><input id="ingrendition-concise" type="checkbox" name="ingest-rendition" value="concise"/><label for="ingrendition-concise" data-i18n-title="rendition.template.concise.desc" title="${t:rendition.template.concise.desc}" data-i18n="rendition.template.concise.label">${t:rendition.template.concise.label}</label></div>
+        <div class="ingest-choice"><input id="ingrendition-academic" type="checkbox" name="ingest-rendition" value="academic"/><label for="ingrendition-academic" data-i18n-title="rendition.template.academic.desc" title="${t:rendition.template.academic.desc}" data-i18n="rendition.template.academic.label">${t:rendition.template.academic.label}</label></div>
+      </div>
+    </fieldset>
     <fieldset class="ingest-options" data-api-only>
       <legend class="ingest-label" data-i18n="ws.ingest.amount">${t:ws.ingest.amount}</legend>
       <div class="ingest-choice-grid">

@@ -291,11 +291,23 @@ class DeleteDocumentResponse(SealedModel):
     report: dict[str, Any]
 
 
+RenditionTemplateId = Literal["concise", "academic"]
+
+
+class RenditionRunItem(SealedModel):
+    """The result of one additional rendition: ``made``, ``existing`` (the document had it), ``queued`` (the agent client writes it with the extraction), or ``failed``."""
+
+    template: RenditionTemplateId
+    state: Literal["made", "existing", "queued", "failed"]
+    error: str = ""
+
+
 class IngestRequest(InputModel):
     """Request body for `POST /api/v1/kbs/personal/ingest` and `/stream`."""
 
     payload: str = Field(min_length=1)
     extraction_mode: Literal["provider", "client"]
+    renditions: list[RenditionTemplateId] = Field(max_length=2, description="The additional renditions (정리본) besides the primary rendition 기본, which each ingest makes: `concise` (간결), `academic` (학술). Required; an empty list selects none.")
     full_content: bool = False
     effort: str | None = None
     expand_max: int | None = None
@@ -361,6 +373,20 @@ class IngestResponse(SealedModel):
     raw_chars: int = 0
     message: str | None = None
     kb_number: str | None = None
+    renditions: list[RenditionRunItem] = Field(default_factory=list)
+
+
+class AddRenditionRequest(InputModel):
+    """Request body for `POST /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."""
+
+    template: RenditionTemplateId
+
+
+class AddRenditionResponse(SealedModel):
+    """Response for `POST /api/v1/kbs/{kb}/documents/{doc_id}/renditions`."""
+
+    document_id: str
+    rendition: RenditionRunItem
 
 
 class SearchRequest(InputModel):

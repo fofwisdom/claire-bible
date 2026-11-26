@@ -18,6 +18,8 @@ from .graph import build_graph_handlers
 from .kbs import build_kb_handlers
 from .support import build_support_handlers
 from .schemas import (
+    AddRenditionRequest,
+    AddRenditionResponse,
     ContributionDetailResponse,
     ContributionListResponse,
     CreateContributionRequest,
@@ -377,6 +379,21 @@ V1_ROUTE_SPECS: tuple[V1RouteSpec, ...] = (
         response_model=UpdateDocumentResponse,
         params=(_KB_PARAM, _DOC_ID_PARAM),
         extra_statuses=(400, 403, 404, 422),
+    ),
+    V1RouteSpec(
+        method="POST",
+        path="/api/v1/kbs/{kb}/documents/{doc_id}/renditions",
+        handler_key="add_document_rendition",
+        operation_id="v1AddDocumentRendition",
+        tag="Documents & Ingest",
+        summary="Add a rendition (정리본) to a document",
+        description="Make one more rendition of a stored document from its stored raw text with the server API: `concise` (간결) or `academic` (학술). The primary rendition 기본 comes from the ingest. A rendition that the document has gives the state `existing`.",
+        access="owner",
+        capability="curate",
+        request_model=AddRenditionRequest,
+        response_model=AddRenditionResponse,
+        params=(_KB_PARAM, _DOC_ID_PARAM),
+        extra_statuses=(400, 403, 404, 409, 422, 429),
     ),
     V1RouteSpec(
         method="DELETE",

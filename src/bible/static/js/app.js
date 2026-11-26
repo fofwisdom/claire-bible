@@ -2383,6 +2383,7 @@ async function runIngest(){
   const payload=((ta||{}).value||'').trim();
   if(!payload){ alert(tr("ws.ingest.need_payload")); return; }
   const extractionMode=(window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.selectedExtractionMode === 'function') ? window.ClaireIngestDialogs.selectedExtractionMode('ingest-extraction') : '';
+  const renditions=(window.ClaireIngestDialogs && typeof window.ClaireIngestDialogs.selectedRenditions === 'function') ? window.ClaireIngestDialogs.selectedRenditions() : [];
   if(window.ClaireIngestDialogs) window.ClaireIngestDialogs.closeDialog('modal-ingest');
   const toClient=extractionMode==='client';
   const amountChoice=document.querySelector('input[name="ingest-amount"]:checked');
@@ -2395,6 +2396,7 @@ async function runIngest(){
   if(toClient) optionLabels.push(tr("ws.ingest.opt_client"));
   if(fullContent) optionLabels.push(tr("ws.ingest.opt_full"));
   if(effort) optionLabels.push(tr('ws.ingest.opt_effort', { effort: effort }));
+  if(renditions.length) optionLabels.push(tr('ws.ingest.opt_renditions', { list: renditions.map(function(t){ return tr('rendition.template.'+t+'.label'); }).join(', ') }));
   if(optionLabels.length){
     labelText += ' ('+optionLabels.join(' · ')+')';
   }
@@ -2433,7 +2435,7 @@ async function runIngest(){
     closeDrawer(false, false);
   }
   try{
-    const bodyObj = {payload:payload, full_content:fullContent, extraction_mode:extractionMode};
+    const bodyObj = {payload:payload, full_content:fullContent, extraction_mode:extractionMode, renditions:renditions};
     if(effort) bodyObj.effort=effort;
     const r=await fetch(apiUrl('ingest-stream'),{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(bodyObj)});

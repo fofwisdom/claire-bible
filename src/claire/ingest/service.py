@@ -29,7 +29,7 @@ from ..accounts.provider_policy import (
 from ..core.config import Settings
 from ..ontology.base import Document
 from ..extract.provider import UnavailableProvider, get_provider
-from ..core.secret_scrub import scrub_exception
+from ..core.secret_scrub import scrub_exception, scrub_text
 from ..store import auth_db as _auth_db
 from ..retrieval.query import SearchMode
 from ..store import db as dbm
@@ -1129,6 +1129,42 @@ class IngestService:
                     else:
                         out["failed"] += 1
                         out["errors"].append({"document_id": did, "error": err})
+            return out
+        finally:
+            conn.close()
+
+    @_service_job()
+    def add_renditions(self, document_id: str, templates: list[str], *, effort: str | None = None) -> list[dict[str, str]]:
+        """Make the renditions of ``templates`` that the document does not have, with the server API, from its stored raw text (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.3 rules 1 to 3). Each template is ``concise`` or ``academic``; the 대표 정리본 comes from the ingest.
+
+        One item for each template, in the given order: ``{"template", "state", "error"}``; ``state`` is ``made``, ``existing`` (the document had it), or ``failed``. ``LookupError`` for an unknown document; ``ValueError`` for a template outside the set and for a document that waits for an agent client.
+        """
+        from ..extract.rendition_templates import ADDITIONAL_RENDITION_TEMPLATES
+        from ..store import document_renditions as renditions_store
+        from .pipeline import render_additional_rendition
+
+        unknown = [t for t in templates if t not in ADDITIONAL_RENDITION_TEMPLATES]
+        if unknown or len(set(templates)) != len(templates):
+            raise ValueError(f"invalid rendition templates: {templates}")
+        conn = dbm.connect(self.s.db_file)
+        dbm.init_db(conn)
+        try:
+            row = dbm.get_document_row(conn, document_id, kb_id=self.kb_id)
+            doc = dbm.get_document(conn, document_id, kb_id=self.kb_id) if row is not None else None
+            if doc is None:
+                raise LookupError(document_id)
+            if (row["extraction_status"] or "extracted") == "pending":
+                raise ValueError("the document waits for an agent client")
+            have = {r.template for r in renditions_store.list_renditions(conn, document_id, self.kb_id)}
+            out: list[dict[str, str]] = []
+            for template in templates:
+                if template in have:
+                    out.append({"template": template, "state": "existing", "error": ""})
+                    continue
+                errors: list[str] = []
+                ok = render_additional_rendition(conn, self.provider, doc, template=template, kb_id=self.kb_id, effort=effort, settings=self.s, out_error=errors)
+                conn.commit()
+                out.append({"template": template, "state": "made" if ok else "failed", "error": "" if ok else scrub_text(errors[0] if errors else "model error")})
             return out
         finally:
             conn.close()

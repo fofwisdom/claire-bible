@@ -55,7 +55,7 @@ def test_e2e_ingest_limits_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyP
     ingest_resp1 = client.post(
         "/ingest",
         headers=headers,
-        json={"payload": str(sample_file1), "extraction_mode": "provider"},
+        json={"payload": str(sample_file1), "extraction_mode": "provider", "renditions": []},
     )
     assert ingest_resp1.status_code == 200
     doc_id1 = ingest_resp1.json()["document_id"]
@@ -96,7 +96,7 @@ def test_e2e_ingest_limits_lifecycle(tmp_path: Path, monkeypatch: pytest.MonkeyP
     ingest_resp2 = client.post(
         "/ingest",
         headers=headers,
-        json={"payload": str(sample_file2), "extraction_mode": "provider"},
+        json={"payload": str(sample_file2), "extraction_mode": "provider", "renditions": []},
     )
     assert ingest_resp2.status_code == 200
     doc_id2 = ingest_resp2.json()["document_id"]
