@@ -224,7 +224,7 @@ dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hi
   .sc-rendition-select { flex: 1 1 100%; }
 }
 /* A rendition of another server: a sandbox frame in the body area. The frame has an opaque origin and no script, so the page cannot read its height: it has a fixed height and its own scroll. */
-.sc-rendition-frame { display: block; width: 100%; height: min(78vh, 900px); min-height: 320px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.sc-rendition-frame { display: block; width: 100%; height: min(78vh, 900px); min-height: 320px; resize: vertical; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
 /* The scoped view transition of the body area respects the motion preference. */
 @media (prefers-reduced-motion: reduce) {
   #sc-rendition-body::view-transition-group(*), #sc-rendition-body::view-transition-old(*), #sc-rendition-body::view-transition-new(*) { animation: none !important; }

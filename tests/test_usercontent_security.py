@@ -31,9 +31,13 @@ from claire.api import security
 from claire.api.host_router import HostRoles
 from claire.api.usercontent import (
     DEFAULT_VIEWING_TOKEN_TTL,
+    create_public_render_token,
+    create_remote_token,
     create_usercontent_app,
     create_viewing_token,
     sanitize_usercontent_html,
+    verify_public_render_token,
+    verify_remote_token,
     verify_viewing_token,
 )
 from claire.store import db as dbm
@@ -580,3 +584,155 @@ async def test_e2e_full_lifecycle_rendering_journey(tmp_path: Path):
         headers=[("Origin", "null")],
     )
     assert revoked_status == 403
+
+
+def test_public_render_tokens_isolate_from_private_and_remote_tokens():
+    """Verify public render tokens bind kind/key/object_key and cannot cross-forge private or remote tokens."""
+    sec = SecretService(master_key=TEST_MASTER_KEY)
+    rkey = "0123456789abcdef"
+    okey = "fedcba9876543210"
+
+    rr_token = create_public_render_token("remote_rendition", rkey, secret_service=sec, now=1000.0)
+    op_token = create_public_render_token("opinion", rkey, okey, secret_service=sec, now=1000.0)
+
+    assert verify_public_render_token(rr_token, "remote_rendition", rkey, secret_service=sec, now=1200.0) is True
+    assert verify_public_render_token(rr_token, "remote_rendition", okey, secret_service=sec, now=1200.0) is False
+    assert verify_public_render_token(rr_token, "opinion", rkey, secret_service=sec, now=1200.0) is False
+    assert verify_public_render_token(rr_token, "remote_rendition", rkey, okey, secret_service=sec, now=1200.0) is False
+    assert verify_public_render_token(rr_token, "remote_rendition", rkey, secret_service=sec, now=5000.0) is False
+
+    assert verify_public_render_token(op_token, "opinion", rkey, okey, secret_service=sec, now=1200.0) is True
+    assert verify_public_render_token(op_token, "opinion", rkey, "", secret_service=sec, now=1200.0) is False
+    assert verify_public_render_token(op_token, "opinion", okey, okey, secret_service=sec, now=1200.0) is False
+    assert verify_public_render_token(op_token, "remote_rendition", rkey, okey, secret_service=sec, now=1200.0) is False
+
+    # Cross-domain token forgery checks against private viewing tokens and account remote tokens.
+    priv_token = create_viewing_token(account_id=1, kb_id=2, doc_id=3, visibility_epoch=1, secret_service=sec, now=1000.0)
+    rem_token = create_remote_token(account_id=1, item_id=42, secret_service=sec, now=1000.0)
+    assert verify_public_render_token(priv_token, "remote_rendition", rkey, secret_service=sec, now=1200.0) is False
+    assert verify_public_render_token(rem_token, "opinion", rkey, okey, secret_service=sec, now=1200.0) is False
+    assert verify_viewing_token(rr_token, account_id=1, kb_id=2, doc_id=3, visibility_epoch=1, secret_service=sec, now=1200.0) is False
+    assert verify_remote_token(op_token, account_id=1, item_id=42, secret_service=sec, now=1200.0) is False
+
+
+@pytest.mark.asyncio
+async def test_public_remote_rendition_and_opinion_routes_with_media_proxy(tmp_path: Path):
+    """Verify /render/remote-rendition/{key} and /render/opinion/{object_key}/{key} enforce tokens, blocks, and media proxy account_id=0."""
+    import hashlib
+    import time as _time
+
+    from claire.federation.media_proxy import verify_media_token
+    from claire.store import client_db
+    from claire.store import federation_opinions as opinions_store
+
+    db_path = tmp_path / "claire.db"
+    _init_db(db_path)
+    c_conn = client_db.connect_client_db(client_db.client_db_path(db_path))
+    try:
+        client_db.init_client_db(c_conn)
+    finally:
+        c_conn.close()
+    sec = SecretService(master_key=TEST_MASTER_KEY)
+
+    now = _time.time()
+    iri = "https://b.example/ap/objects/9002"
+    rkey = hashlib.sha256(iri.encode()).hexdigest()[:16]
+    expired_iri = "https://b.example/ap/objects/9003"
+    expired_key = hashlib.sha256(expired_iri.encode()).hexdigest()[:16]
+    blocked_iri = "https://blocked.example/ap/objects/9004"
+    blocked_key = hashlib.sha256(blocked_iri.encode()).hexdigest()[:16]
+    digest = hashlib.sha256(b"body").hexdigest()
+
+    conn = dbm.connect_existing(db_path)
+    try:
+        conn.execute("INSERT INTO federation_domain_blocks (domain, created_at, created_by, note) VALUES ('blocked.example', ?, 1, 'spam')", (now,))
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'b.example', ?, 'concise', 'concise-v1', NULL, 'https://b.example/ap/actors/1', '@bob@b.example', 'Bob', 'Paper', 'https://b.example/doc', '2027-01-15T08:05:20Z', ?, ?, ?, ?, 'body', ?, ?)",
+            (iri, "a" * 64, f"{iri}/body", digest, digest, '<p>Remote</p><img src="https://b.example/pic.png" alt="pic"><script>bad()</script>', now, now + 3600),
+        )
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'b.example', ?, 'concise', 'concise-v1', NULL, 'https://b.example/ap/actors/1', '@bob@b.example', 'Bob', 'Old', 'https://b.example/old', '2027-01-15T08:05:20Z', ?, ?, ?, '<p>Expired</p>', 'body', ?, ?)",
+            (expired_iri, "a" * 64, f"{expired_iri}/body", digest, digest, now - 7200, now - 10),
+        )
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'blocked.example', ?, 'concise', 'concise-v1', NULL, 'https://blocked.example/ap/actors/1', '@bad@blocked.example', 'Bad', 'Blocked', 'https://blocked.example/bad', '2027-01-15T08:05:20Z', ?, ?, ?, '<p>Blocked</p>', 'body', ?, ?)",
+            (blocked_iri, "a" * 64, f"{blocked_iri}/body", digest, digest, now, now + 3600),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    obj_key = opinions_store.opinion_key(iri)
+    op_iri = "https://c.example/notes/1"
+    op_key = opinions_store.opinion_key(op_iri)
+    hidden_iri = "https://c.example/notes/2"
+    hidden_key = opinions_store.opinion_key(hidden_iri)
+    blocked_op_iri = "https://blocked.example/notes/3"
+    blocked_op_key = opinions_store.opinion_key(blocked_op_iri)
+
+    c_conn = client_db.connect_client_existing(client_db.client_db_path(db_path))
+    try:
+        opinions_store.store_objects(
+            c_conn,
+            iri,
+            [
+                {"object_iri": op_iri, "url": op_iri, "type": "Note", "author": {"iri": "https://c.example/users/dora", "name": "Dora", "handle": "@dora@c.example"}, "name": None, "summary": None, "sensitive": False, "content_html": '<p>Opinion</p><img src="https://c.example/inline.png"><script>evil()</script>', "language": "en", "published_at": now - 10, "updated_at": None, "attachments": [{"url": "https://c.example/att.png", "media_type": "image/png", "name": "Chart"}], "context": None, "in_reply_to": iri, "quote": None},
+                {"object_iri": hidden_iri, "url": hidden_iri, "type": "Note", "author": {"iri": "https://c.example/users/dora", "name": "Dora", "handle": "@dora@c.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>Hidden</p>", "language": "en", "published_at": now - 5, "updated_at": None, "attachments": [], "context": None, "in_reply_to": iri, "quote": None},
+                {"object_iri": blocked_op_iri, "url": blocked_op_iri, "type": "Note", "author": {"iri": "https://blocked.example/users/bad", "name": "Bad", "handle": "@bad@blocked.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>Blocked opinion</p>", "language": "en", "published_at": now - 4, "updated_at": None, "attachments": [], "context": None, "in_reply_to": iri, "quote": None},
+            ],
+            quoting=set(),
+            delivered=set(),
+            now=now,
+        )
+        opinions_store.hide(c_conn, iri, hidden_iri, hidden_by=1, hidden=True, now=now)
+        c_conn.commit()
+    finally:
+        c_conn.close()
+
+    settings = _create_settings(tmp_path)
+    app = security.wrap_web_app(Starlette(), settings, secret_service=sec)
+
+    rr_tok = create_public_render_token("remote_rendition", rkey, secret_service=sec, now=now)
+    status, headers, body = await _call_asgi(app, f"/render/remote-rendition/{rkey}", host=UC_HOST, query=f"t={rr_tok}")
+    assert status == 200
+    body_text = body.decode("utf-8")
+    assert "Remote" in body_text and "<script" not in body_text
+    assert f"http://{MEDIA_HOST}/media/remote/" in body_text
+    assert headers.get("x-robots-tag") == "noindex, nofollow"
+    assert f"frame-ancestors {APP_ORIGIN}" in headers.get("content-security-policy", "")
+    assert f"img-src http://{MEDIA_HOST}" in headers.get("content-security-policy", "")
+    # Verify account_id=0 media token inside rendered HTML.
+    import re as _re
+
+    m = _re.search(r"/media/remote/([0-9a-f]{64})\?t=([^\"&]+)", body_text)
+    assert m is not None
+    assert verify_media_token(m.group(2), m.group(1), secret_service=sec, now=now) == 0
+
+    # Invalid, expired, blocked, or missing remote renditions return 404.
+    assert (await _call_asgi(app, f"/render/remote-rendition/{rkey}", host=UC_HOST))[0] == 404
+    assert (await _call_asgi(app, f"/render/remote-rendition/{rkey}", host=UC_HOST, query="t=1.bad"))[0] == 404
+    exp_rr_tok = create_public_render_token("remote_rendition", expired_key, secret_service=sec, now=now)
+    assert (await _call_asgi(app, f"/render/remote-rendition/{expired_key}", host=UC_HOST, query=f"t={exp_rr_tok}"))[0] == 404
+    blk_rr_tok = create_public_render_token("remote_rendition", blocked_key, secret_service=sec, now=now)
+    assert (await _call_asgi(app, f"/render/remote-rendition/{blocked_key}", host=UC_HOST, query=f"t={blk_rr_tok}"))[0] == 404
+
+    op_tok = create_public_render_token("opinion", op_key, obj_key, secret_service=sec, now=now)
+    op_status, op_headers, op_body = await _call_asgi(app, f"/render/opinion/{obj_key}/{op_key}", host=UC_HOST, query=f"t={op_tok}")
+    assert op_status == 200
+    op_text = op_body.decode("utf-8")
+    assert "Opinion" in op_text and "<script" not in op_text and "Chart" in op_text
+    assert f"http://{MEDIA_HOST}/media/remote/" in op_text
+    assert op_headers.get("x-robots-tag") == "noindex, nofollow"
+    assert f"frame-ancestors {APP_ORIGIN}" in op_headers.get("content-security-policy", "")
+    for m_op in _re.finditer(r"/media/remote/([0-9a-f]{64})\?t=([^\"&]+)", op_text):
+        assert verify_media_token(m_op.group(2), m_op.group(1), secret_service=sec, now=now) == 0
+
+    # Hidden, blocked, wrong object_key, and invalid token return 404.
+    assert (await _call_asgi(app, f"/render/opinion/{obj_key}/{op_key}", host=UC_HOST, query="t=1.bad"))[0] == 404
+    hid_tok = create_public_render_token("opinion", hidden_key, obj_key, secret_service=sec, now=now)
+    assert (await _call_asgi(app, f"/render/opinion/{obj_key}/{hidden_key}", host=UC_HOST, query=f"t={hid_tok}"))[0] == 404
+    blk_op_tok = create_public_render_token("opinion", blocked_op_key, obj_key, secret_service=sec, now=now)
+    assert (await _call_asgi(app, f"/render/opinion/{obj_key}/{blocked_op_key}", host=UC_HOST, query=f"t={blk_op_tok}"))[0] == 404

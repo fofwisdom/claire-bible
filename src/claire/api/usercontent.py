@@ -29,7 +29,7 @@ import time
 import urllib.parse
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import nh3
 from starlette.applications import Starlette
@@ -44,6 +44,7 @@ from ..store.secrets import SecretService, get_secret_service
 
 __all__ = [
     "DEFAULT_VIEWING_TOKEN_TTL",
+    "create_public_render_token",
     "create_usercontent_app",
     "create_remote_token",
     "create_viewing_token",
@@ -51,6 +52,7 @@ __all__ = [
     "remote_item_text",
     "sanitize_remote_html",
     "sanitize_usercontent_html",
+    "verify_public_render_token",
     "verify_remote_token",
     "verify_viewing_token",
 ]
@@ -160,6 +162,39 @@ def verify_remote_token(token: str, account_id: int, item_id: int, *, secret_ser
         return False
     key = (secret_service or get_secret_service()).derive_hmac_key("viewing_token")
     return hmac.compare_digest(signature, hmac.new(key, _remote_token_message(account_id, item_id, exp, kind), hashlib.sha256).hexdigest())
+
+
+_PUBLIC_RENDER_KINDS = frozenset({"remote_rendition", "opinion"})
+_SHORT_KEY_RE = re.compile(r"[0-9a-f]{16}")
+
+
+def _public_render_message(kind: str, key: str, object_key: str, exp: int) -> bytes:
+    return f"public:{kind}:{object_key}:{key}:{exp}".encode("utf-8")
+
+
+def create_public_render_token(kind: Literal["remote_rendition", "opinion"], key: str, object_key: str = "", expires_in: int = DEFAULT_VIEWING_TOKEN_TTL, *, secret_service: SecretService | None = None, now: float | None = None) -> str:
+    """Create a capability token for a public remote rendition or opinion frame."""
+    if kind not in _PUBLIC_RENDER_KINDS:
+        raise ValueError(f"unknown public render token kind: {kind!r}")
+    exp = int(now if now is not None else time.time()) + int(expires_in)
+    derived_key = (secret_service or get_secret_service()).derive_hmac_key("viewing_token")
+    signature = hmac.new(derived_key, _public_render_message(kind, key, object_key, exp), hashlib.sha256).hexdigest()
+    return f"{exp}.{signature}"
+
+
+def verify_public_render_token(token: str, kind: str, key: str, object_key: str = "", *, secret_service: SecretService | None = None, now: float | None = None) -> bool:
+    """Verify a public render token against its kind, keys, and expiration time."""
+    if kind not in _PUBLIC_RENDER_KINDS or not isinstance(token, str) or token.count(".") != 1:
+        return False
+    exp_text, signature = token.split(".")
+    if not (exp_text.isascii() and exp_text.isdigit() and len(exp_text) <= 12):
+        return False
+    exp = int(exp_text)
+    if int(now if now is not None else time.time()) > exp:
+        return False
+    derived_key = (secret_service or get_secret_service()).derive_hmac_key("viewing_token")
+    expected = hmac.new(derived_key, _public_render_message(kind, key, object_key, exp), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 
 def _proxy_image_tag(match: re.Match[str], media_url: MediaUrlFn) -> str:
@@ -349,6 +384,58 @@ def load_feed_item(db_path: Path | None, item_id: int) -> dict[str, Any] | None:
     if row is None:
         return None
     return {"account_id": int(row[0]), "content_html": absolute_urls(str(row[1] or row[2] or ""), row[3] or row[4] or row[5]), "attachments": [], "language": None}
+
+
+def load_public_remote_rendition(db_path: Path | None, key: str, *, now: float | None = None) -> dict[str, Any] | None:
+    """Read one non-expired, non-blocked remote rendition body from ``claire.db`` by its short key."""
+    from ..federation.knowledge import vocabulary
+    from ..store import federation as federation_store
+
+    if db_path is None or not db_path.exists() or not _SHORT_KEY_RE.fullmatch(key):
+        return None
+    when = time.time() if now is None else now
+    conn = dbm.connect_existing(db_path, readonly=True)
+    try:
+        rows = conn.execute("SELECT iri, domain, template, body_html FROM remote_renditions WHERE expires_at > ? AND body_html IS NOT NULL AND cached_body_hash = body_hash", (when,)).fetchall()
+        for iri, domain, template, body_html in rows:
+            if hashlib.sha256(str(iri).encode("utf-8")).hexdigest()[:16] != key:
+                continue
+            if str(template) not in vocabulary.TEMPLATES or federation_store.blocking_domain(conn, str(domain)) is not None:
+                return None
+            return {"body_html": str(body_html)}
+        return None
+    finally:
+        conn.close()
+
+
+def load_public_opinion(db_path: Path | None, object_key: str, key: str) -> dict[str, Any] | None:
+    """Read one non-hidden, non-blocked opinion from ``client.db`` by object and opinion short keys."""
+    from ..store import client_db
+    from ..store import federation as federation_store
+    from ..store import federation_opinions as opinions_store
+
+    if db_path is None or not db_path.exists() or not _SHORT_KEY_RE.fullmatch(object_key) or not _SHORT_KEY_RE.fullmatch(key):
+        return None
+    client_path = client_db.client_db_path(db_path)
+    if not client_path.exists():
+        return None
+    client = client_db.connect_client_existing(client_path, readonly=True)
+    conn = dbm.connect_existing(db_path, readonly=True)
+    try:
+        for obj_iri in opinions_store.object_iris(client):
+            if opinions_store.opinion_key(obj_iri) != object_key:
+                continue
+            for opinion in opinions_store.opinions_of(client, obj_iri):
+                if opinions_store.opinion_key(opinion.opinion_iri) != key:
+                    continue
+                hosts = [federation_store.iri_host(iri) for iri in (opinion.object_iri, opinion.opinion_iri, opinion.author_iri)]
+                if any(host is None or federation_store.blocking_domain(conn, host) is not None for host in hosts):
+                    return None
+                return {"content_html": opinion.content_html, "attachments": opinion.attachments, "language": opinion.language}
+        return None
+    finally:
+        conn.close()
+        client.close()
 
 
 class _CookielessMiddleware:
@@ -575,6 +662,35 @@ def create_usercontent_app(
             media_url = remote_media_urls(db_path, account_id=item["account_id"], content_html=item["content_html"], attachments=[], media_base=media_origin, secret_service=secret_service, now=now() if now is not None else None)
         return remote_item_response(content_html=item["content_html"], attachments=[], language=None, frame_ancestors=app_origin, media_url=media_url, media_source=media_origin)
 
+    async def render_remote_rendition_route(request: Any) -> Response:
+        """``GET /render/remote-rendition/{key}?t={token}``: render one public cached remote rendition in a sandbox frame."""
+        key = str(request.path_params.get("key", ""))
+        token = request.query_params.get("t", "")
+        cur_now = now() if now is not None else None
+        if not _SHORT_KEY_RE.fullmatch(key) or not verify_public_render_token(token, "remote_rendition", key, secret_service=secret_service, now=cur_now):
+            return PlainTextResponse("Not Found", status_code=404)
+        item = load_public_remote_rendition(db_path, key, now=cur_now)
+        if item is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        media_origin = roles.origin("media") if roles is not None and hasattr(roles, "origin") else None
+        media_url = remote_media_urls(db_path, account_id=0, content_html=item["body_html"], attachments=[], media_base=media_origin, secret_service=secret_service, now=cur_now) if media_origin is not None else None
+        return remote_item_response(content_html=item["body_html"], attachments=[], language="ko", frame_ancestors=app_origin, extra_headers={"x-robots-tag": "noindex, nofollow"}, media_url=media_url, media_source=media_origin)
+
+    async def render_opinion_route(request: Any) -> Response:
+        """``GET /render/opinion/{object_key}/{key}?t={token}``: render one public non-hidden opinion in a sandbox frame."""
+        object_key = str(request.path_params.get("object_key", ""))
+        key = str(request.path_params.get("key", ""))
+        token = request.query_params.get("t", "")
+        cur_now = now() if now is not None else None
+        if not _SHORT_KEY_RE.fullmatch(object_key) or not _SHORT_KEY_RE.fullmatch(key) or not verify_public_render_token(token, "opinion", key, object_key, secret_service=secret_service, now=cur_now):
+            return PlainTextResponse("Not Found", status_code=404)
+        item = load_public_opinion(db_path, object_key, key)
+        if item is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        media_origin = roles.origin("media") if roles is not None and hasattr(roles, "origin") else None
+        media_url = remote_media_urls(db_path, account_id=0, content_html=item["content_html"], attachments=item["attachments"], media_base=media_origin, secret_service=secret_service, now=cur_now) if media_origin is not None else None
+        return remote_item_response(content_html=item["content_html"], attachments=item["attachments"], language=item["language"], frame_ancestors=app_origin, extra_headers={"x-robots-tag": "noindex, nofollow"}, media_url=media_url, media_source=media_origin)
+
     async def presentation_route(request: Any) -> Response:
         doc_id_param = request.query_params.get("id", "").strip()
         doc_dict: dict[str, Any] | None = None
@@ -694,6 +810,8 @@ Reveal.initialize({{ hash: true, slideNumber: true }});
             Route("/render/doc/{id}", render_doc_route, methods=["GET", "HEAD"]),
             Route("/render/remote/{id:int}", render_remote_route, methods=["GET", "HEAD"]),
             Route("/render/feed/{id:int}", render_feed_route, methods=["GET", "HEAD"]),
+            Route("/render/remote-rendition/{key}", render_remote_rendition_route, methods=["GET", "HEAD"]),
+            Route("/render/opinion/{object_key}/{key}", render_opinion_route, methods=["GET", "HEAD"]),
             Route("/p/presentation", presentation_route, methods=["GET", "HEAD"]),
         ],
     )

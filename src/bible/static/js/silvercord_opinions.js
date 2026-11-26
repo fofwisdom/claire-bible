@@ -111,7 +111,7 @@
       var actions = make("div", "op-post-actions");
       // RD30: an opinion of an account of this server has the same controls as an opinion of another server.
       if (!opinion.hidden && state.data && state.data.actions) clientButtons(opinion).forEach(function (btn) { actions.appendChild(btn); });
-      if (opinion.frame_url && String(opinion.frame_url).charAt(0) === "/") actions.appendChild(frameButton(opinion));
+      if (opinion.frame_url && /^(\/|https?:\/\/)/i.test(String(opinion.frame_url))) actions.appendChild(frameButton(opinion));
       if (state.data && state.data.moderation && opinion.hideable) actions.appendChild(moderationButton(opinion));
       if (actions.childElementCount > 0) article.appendChild(actions);
       return article;
@@ -263,10 +263,11 @@
         body.summary = cw.value.trim();
         body.sensitive = true;
       }
-      var ready = target.kind === "object" ? Promise.resolve(null) : ensureItem(target.opinion);
+      var isRemoteObject = Boolean(state.data.actions && state.data.actions.remote_object);
+      var ready = (target.kind === "object" && !isRemoteObject) ? Promise.resolve(null) : ensureItem(target.kind === "object" ? { iri: state.data.object } : target.opinion);
       ready
         .then(function (item) {
-          if (target.kind === "object") body.in_reply_to_object = state.data.object;
+          if (target.kind === "object" && !isRemoteObject) body.in_reply_to_object = state.data.object;
           else if (target.kind === "quote") body.quote_of = item.item_id;
           else body.in_reply_to = item.item_id;
           return postJson(state.data.actions.notes_url, "POST", body);

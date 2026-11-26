@@ -713,7 +713,7 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     anon = _make_caller(test_client, s.public_url.rstrip("/"))
     sc = _extract_docdata(anon("GET", f"/silvercord/{token}").text)["silvercord"]
     remote_key = hashlib.sha256(iri.encode()).hexdigest()[:16]
-    assert sc["remote_renditions"] == [{"key": remote_key, "template": "concise", "version": "concise-v1", "updated": "2027-01-15T08:05:20Z", "account": "@bob@b.example", "domain": "b.example", "origin_url": "https://b.example/silvercord/tok/renditions/concise", "frame_url": f"/silvercord/{token}/renditions/remote/{remote_key}", "opinions_url": f"/silvercord/{token}/renditions/remote/{remote_key}/opinions", "plus": {"score": 0, "mine": False, "own": False}}]
+    assert sc["remote_renditions"] == [{"key": remote_key, "template": "concise", "version": "concise-v1", "updated": "2027-01-15T08:05:20Z", "account": "@bob@b.example", "domain": "b.example", "origin_url": "https://b.example/silvercord/tok/renditions/concise", "frame_url": f"/silvercord/{token}/renditions/remote/{remote_key}", "estimated_height": 360, "opinions_url": f"/silvercord/{token}/renditions/remote/{remote_key}/opinions", "plus": {"score": 0, "mine": False, "own": False}}]
     frame = anon("GET", sc["remote_renditions"][0]["frame_url"])
     assert frame.status_code == 200
     csp = frame.headers["content-security-policy"]
@@ -735,10 +735,34 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     finally:
         client.close()
     listed = anon("GET", sc["remote_renditions"][0]["opinions_url"]).json()["opinions"]
-    assert [(o["iri"], o["parent"], o["frame_url"]) for o in listed] == [("https://c.example/notes/1", iri, None)]
+    reply_key = opinions_store.opinion_key("https://c.example/notes/1")
+    assert [(o["iri"], o["parent"], o["frame_url"]) for o in listed] == [("https://c.example/notes/1", iri, f"/silvercord/{token}/renditions/remote/{remote_key}/opinions/{reply_key}")]
+    # App-origin fallback frame route for remote rendition opinion works and hides hidden opinions.
+    op_frame = anon("GET", listed[0]["frame_url"])
+    assert op_frame.status_code == 200 and "On the concise one" in op_frame.text
+    assert "frame-ancestors 'self'" in op_frame.headers["content-security-policy"]
+    assert op_frame.headers["x-frame-options"] == "SAMEORIGIN" and op_frame.headers["x-robots-tag"] == "noindex, nofollow"
+    # Signed-in owner actor gets two-way actions (including remote_object=True) and can like + reply.
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        bob_session = accounts_store.create_account_session(conn, account_id=env["bob_id"], scope="owner")
+        conn.commit()
+    finally:
+        conn.close()
+    bob = _make_caller(test_client, s.public_url.rstrip("/"), bob_session)
+    bob_op = bob("GET", sc["remote_renditions"][0]["opinions_url"]).json()
+    assert bob_op["actions"] == {"item_url": "/api/federation/opinions/item", "notes_url": "/api/federation/notes", "post": True, "liked": False, "states": {}, "remote_object": True}
+    item_res = bob("POST", bob_op["actions"]["item_url"], json={"object": iri, "opinion": iri})
+    assert item_res.status_code == 200
+    assert bob("POST", f"/api/federation/timeline/{item_res.json()['item_id']}/favourite").json()["favourited"] is True
+    assert bob("GET", sc["remote_renditions"][0]["opinions_url"]).json()["actions"]["liked"] is True
+    assert bob("POST", bob_op["actions"]["notes_url"], json={"content": "Bob on remote rendition", "in_reply_to": item_res.json()["item_id"]}).status_code == 201
+    local_replies = [o for o in anon("GET", sc["remote_renditions"][0]["opinions_url"]).json()["opinions"] if o["local"]]
+    assert [(o["parent"], o["text"]) for o in local_replies] == [(iri, [[{"text": "Bob on remote rendition"}]])]
     # A key that the cache does not have, and a document that the caller cannot read: the same 404.
     assert anon("GET", f"/silvercord/{token}/renditions/remote/{'0' * 16}").status_code == 404
     assert anon("GET", f"/silvercord/{token}/renditions/remote/{'0' * 16}/opinions").status_code == 404
+    assert anon("GET", f"/silvercord/{token}/renditions/remote/{remote_key}/opinions/{'0' * 16}").status_code == 404
     assert anon("GET", f"/silvercord/{token}/renditions/remote/not-a-key").status_code == 404
     conn = dbm.connect_existing(env["db_file"])
     try:
@@ -747,6 +771,7 @@ def test_the_page_lists_the_renditions_of_other_servers_and_the_frame_route_give
     finally:
         conn.close()
     assert anon("GET", sc["remote_renditions"][0]["frame_url"]).status_code == 404
+    assert anon("GET", listed[0]["frame_url"]).status_code == 404
     # A copy that leaves the cache loses its opinions at the next run.
     conn = dbm.connect_existing(env["db_file"])
     client = client_db.connect_client_existing(client_db.client_db_path(env["db_file"]))
@@ -884,3 +909,88 @@ def _public_of(env: dict, name: str) -> int:
         return int(conn.execute("SELECT public_id FROM accounts WHERE id=?", (env[f"{name}_id"],)).fetchone()[0])
     finally:
         conn.close()
+
+
+def test_silvercord_usercontent_origin_frame_urls_and_estimated_height(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When usercontent_fqdn is configured, remote renditions and opinions emit usercontent frame_urls and estimated_height."""
+    import hashlib
+    import time as _time
+
+    from claire.store import document_renditions as renditions_store
+    from claire.store import federation as federation_store
+    from claire.store import federation_opinions as opinions_store
+    from claire.ingest.source_key import source_key
+
+    monkeypatch.setenv("CLAIRE_SECRET_KEY", "0123456789abcdef0123456789abcdef" * 2)
+    s, env = _setup_network_env(tmp_path)
+    app_host = s.public_url.split("://", 1)[1].rstrip("/")
+    app_ip = app_host.split(":", 1)[0]
+    uc_host = f"{app_ip}:8767"
+    media_host = f"{app_ip}:8768"
+    s.usercontent_fqdn = uc_host
+    s.media_fqdn = media_host
+
+    key = source_key("https://arxiv.org/abs/2101.00001")
+    remote_iri = "https://b.example/ap/objects/9010"
+    long_body = "".join(f"<h2>Section {i}</h2><p>{'word ' * 120}</p>" for i in range(6)) + '<img src="https://b.example/img.png" alt="fig">'
+    digest = hashlib.sha256(b"long").hexdigest()
+
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        now = _time.time()
+        conn.execute("UPDATE documents SET source_key=?, source_id_version=1, detail='= 기본\n\n본문.' WHERE id='doc1'", (key,))
+        renditions_store.record_primary(conn, "doc1", 10, lineage={}, now=now - 3600)
+        obj, _task, _made = federation_store.publish_document(conn, account_id=env["alice_id"], kb_id=10, document_id="doc1", published_by_account_id=env["alice_id"], salt=accounts_store.AccountStore(conn).id_salt(), now=now - 3600)
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'b.example', ?, 'academic', 'academic-v1', 'https://b.example/ap/objects/9000', 'https://b.example/ap/actors/7001', '@bob@b.example', 'Bob', 'Same paper', 'https://b.example/silvercord/tok/renditions/academic', '2027-01-15T08:05:20Z', ?, ?, ?, ?, 'long', ?, ?)",
+            (remote_iri, key, f"{remote_iri}/body", digest, digest, long_body, now, now + 3600),
+        )
+        token = permalinks.ensure_document(conn, "doc1", 10)
+        conn.commit()
+    finally:
+        conn.close()
+
+    own_iri = f"{s.public_url.rstrip('/')}/ap/objects/{obj.public_id}"
+    client = client_db.connect_client_db(client_db.client_db_path(env["db_file"]))
+    try:
+        opinions_store.store_objects(client, own_iri, [{"object_iri": "https://remote.example/notes/own-1", "url": "https://remote.example/@a/1", "type": "Note", "author": {"iri": "https://remote.example/users/a", "name": "A", "handle": "@a@remote.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>Own opinion</p>", "language": "en", "published_at": now - 10, "updated_at": None, "attachments": [], "context": None, "in_reply_to": own_iri, "quote": None}], quoting=set(), delivered=set(), now=now)
+        opinions_store.store_objects(client, remote_iri, [{"object_iri": "https://remote.example/notes/rem-1", "url": "https://remote.example/@b/1", "type": "Note", "author": {"iri": "https://remote.example/users/b", "name": "B", "handle": "@b@remote.example"}, "name": None, "summary": None, "sensitive": False, "content_html": "<p>Remote opinion</p>", "language": "en", "published_at": now - 10, "updated_at": None, "attachments": [], "context": None, "in_reply_to": remote_iri, "quote": None}], quoting=set(), delivered=set(), now=now)
+        client.commit()
+    finally:
+        client.close()
+
+    app = create_app(s)
+    with TestClient(app, base_url=s.public_url, follow_redirects=False) as tc:
+        sc = _extract_docdata(tc.get(f"/silvercord/{token}").text)["silvercord"]
+        rr = sc["remote_renditions"][0]
+        assert rr["estimated_height"] == 900
+        assert rr["frame_url"].startswith(f"http://{uc_host}/render/remote-rendition/{rr['key']}?t=")
+
+        own_opinions = tc.get(f"/silvercord/{token}/opinions").json()["opinions"]
+        assert own_opinions[0]["frame_url"].startswith(f"http://{uc_host}/render/opinion/")
+
+        rem_opinions = tc.get(rr["opinions_url"]).json()
+        assert rem_opinions["opinions"][0]["frame_url"].startswith(f"http://{uc_host}/render/opinion/")
+
+        # Load both frame URLs against the usercontent host.
+        uc_client = TestClient(app, base_url=f"http://{uc_host}", follow_redirects=False)
+        rr_path = rr["frame_url"].split(uc_host, 1)[1]
+        rr_resp = uc_client.get(rr_path)
+        assert rr_resp.status_code == 200 and f"http://{media_host}/media/remote/" in rr_resp.text
+        assert f"frame-ancestors http://{app_host}" in rr_resp.headers["content-security-policy"]
+
+        op_path = rem_opinions["opinions"][0]["frame_url"].split(uc_host, 1)[1]
+        op_resp = uc_client.get(op_path)
+        assert op_resp.status_code == 200 and "Remote opinion" in op_resp.text
+        assert f"frame-ancestors http://{app_host}" in op_resp.headers["content-security-policy"]
+
+        # When rendition_of is set on remote_renditions, signed-in owner gets post=False.
+        conn = dbm.connect_existing(env["db_file"])
+        try:
+            alice_session = accounts_store.create_account_session(conn, account_id=env["alice_id"], scope="owner")
+            conn.commit()
+        finally:
+            conn.close()
+        alice_rem = tc.get(rr["opinions_url"], headers={"Cookie": f"claire_session={alice_session}"}).json()
+        assert alice_rem["actions"]["post"] is False and alice_rem["actions"]["remote_object"] is True

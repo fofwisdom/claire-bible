@@ -559,7 +559,9 @@ function bindRenditionBar(sc){
     setOpinionsSource(r.opinions_url);
     swapBody(()=>{
       const title = rtr('reader.rendition.remote_frame_title', { account: r.account||r.domain, label: renditionLabel(r.template) });
-      bodyEl.innerHTML = '<iframe class="sc-rendition-frame" sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="'+esc(title)+'" src="'+esc(r.frame_url)+'"></iframe>';
+      const est = Number(r.estimated_height);
+      const hStyle = (Number.isFinite(est) && est > 0) ? ' style="height:'+Math.max(360, Math.min(900, Math.round(est)))+'px"' : '';
+      bodyEl.innerHTML = '<iframe class="sc-rendition-frame"'+hStyle+' sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="'+esc(title)+'" src="'+esc(r.frame_url)+'"></iframe>';
       if(infoEl){
         const info = [renditionLabel(r.template), renditionVersion(r.version), r.account||'', String(r.updated||'').slice(0,10), r.domain].filter(Boolean).join(' · ');
         infoEl.innerHTML = esc(info) + ' · <a href="'+esc(r.origin_url)+'" target="_blank" rel="noopener noreferrer">'+esc(rtr('reader.rendition.open_origin'))+'</a>';

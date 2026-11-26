@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit
@@ -120,8 +121,8 @@ def _local_replies(client: sqlite3.Connection, conn: sqlite3.Connection, parents
     return out
 
 
-def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int | None, origin: str, actor_ids: set[int], now: float, moderator: bool = False, frame_base: str | None = None) -> dict[str, Any]:
-    """The JSON of the 의견 tab of one own object. ``conn`` is ``claire.db`` and ``client`` is ``client.db``. A ``moderator`` (the author of the object or a server admin, Section 5.11 D5) also gets the hidden opinions, each with ``hidden`` true, so that the page can show them again. With ``frame_base`` (the path of the opinions route of the page), each remote opinion has ``frame_url``: its formatted body and attachments in a frame (Section 5.11 D2)."""
+def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, object_iri: str, object_public_id: int | None, origin: str, actor_ids: set[int], now: float, moderator: bool = False, frame_base: str | None = None, frame_url_fn: Callable[[str], str] | None = None) -> dict[str, Any]:
+    """The JSON of the 의견 tab of one own object. ``conn`` is ``claire.db`` and ``client`` is ``client.db``. A ``moderator`` (the author of the object or a server admin, Section 5.11 D5) also gets the hidden opinions, each with ``hidden`` true, so that the page can show them again. With ``frame_url_fn`` or ``frame_base`` (the path of the opinions route of the page), each remote opinion has ``frame_url``: its formatted body and attachments in a frame (Section 5.11 D2)."""
     opinions: list[dict[str, Any]] = []
     for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=moderator):
         opinions.append({
@@ -131,7 +132,7 @@ def opinions_view(conn: sqlite3.Connection, client: sqlite3.Connection, *, objec
             "url": opinion.url or opinion.opinion_iri, "summary": opinion.summary, "sensitive": opinion.sensitive, "language": opinion.language,
             "published": opinion.published, "text": text_segments(opinion.content_html),
             "attachments": len(opinion.attachments),
-            "frame_url": None if frame_base is None else f"{frame_base}/{opinions_store.opinion_key(opinion.opinion_iri)}",
+            "frame_url": frame_url_fn(opinion.opinion_iri) if frame_url_fn is not None else (None if frame_base is None else f"{frame_base}/{opinions_store.opinion_key(opinion.opinion_iri)}"),
         })
     # Each opinion row, also a hidden one: a note of this server that is an opinion row (RD30) does not come back as a local reply.
     seen = {item["iri"] for item in opinions} | {opinion.opinion_iri for opinion in opinions_store.opinions_of(client, object_iri, include_hidden=True)}

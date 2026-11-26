@@ -6305,12 +6305,23 @@ def create_app(
                 row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
                 if row is None or not row[0]:
                     return []
+                from . import usercontent
                 from .accounts_routes import rendition_marks
 
+                uc_origin = runtime_cfg.host_roles.origin("usercontent") if runtime_cfg.host_roles is not None else None
+                sec_svc = getattr(s, "secret_service", None)
                 out: list[dict[str, Any]] = []
                 for r in remote_renditions.renditions_of(conn, str(row[0]), now=time.time()):
                     score, mine = rendition_marks.remote_score(conn, r, viewer_account if viewer_is_actor else None)
-                    out.append({"key": r.key, "template": r.template, "version": r.template_version, "updated": r.updated, "account": r.account_handle or r.account_name or r.domain, "domain": r.domain, "origin_url": r.url or r.iri, "frame_url": f"{permalinks.permalink_path(found.token)}/renditions/remote/{r.key}", "opinions_url": f"{permalinks.permalink_path(found.token)}/renditions/remote/{r.key}/opinions", "plus": {"score": score, "mine": mine, "own": False}})
+                    if uc_origin is not None:
+                        rtoken = usercontent.create_public_render_token("remote_rendition", r.key, secret_service=sec_svc)
+                        frame_url = f"{uc_origin}/render/remote-rendition/{r.key}?t={rtoken}"
+                    else:
+                        frame_url = f"{permalinks.permalink_path(found.token)}/renditions/remote/{r.key}"
+                    plain_len = len(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.body_html or "")).strip())
+                    heading_count = len(re.findall(r"<h[1-6]\b", r.body_html or "", re.IGNORECASE))
+                    estimated_height = max(360, min(900, 180 + int(plain_len * 0.35) + heading_count * 48))
+                    out.append({"key": r.key, "template": r.template, "version": r.template_version, "updated": r.updated, "account": r.account_handle or r.account_name or r.domain, "domain": r.domain, "origin_url": r.url or r.iri, "frame_url": frame_url, "estimated_height": estimated_height, "opinions_url": f"{permalinks.permalink_path(found.token)}/renditions/remote/{r.key}/opinions", "plus": {"score": score, "mine": mine, "own": False}})
                 return out
             finally:
                 conn.close()
@@ -6423,6 +6434,23 @@ def create_app(
             return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=True)
         return await _workspace_view(request, kb, token=found.token, kind="document", target=found.target, readable=False)
 
+    def _opinion_frame_url_fn(object_iri: str) -> Any:
+        from . import usercontent
+        from ..store import federation_opinions as opinions_store
+
+        uc_origin = runtime_cfg.host_roles.origin("usercontent") if runtime_cfg.host_roles is not None else None
+        if uc_origin is None:
+            return None
+        obj_key = opinions_store.opinion_key(object_iri)
+        sec_svc = getattr(s, "secret_service", None)
+
+        def _make(opinion_iri: str) -> str:
+            op_key = opinions_store.opinion_key(opinion_iri)
+            tok = usercontent.create_public_render_token("opinion", op_key, obj_key, secret_service=sec_svc)
+            return f"{uc_origin}/render/opinion/{obj_key}/{op_key}?t={tok}"
+
+        return _make
+
     async def permalink_opinions_route(request: Request) -> Response:
         """``GET /silvercord/{token}/opinions`` and ``GET /silvercord/{token}/renditions/{template}/opinions``: the opinions of the object of the page, with the refresh state of its fetch (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.8 and 5.11 B and D, phase E7a). A request starts a fetch when the conditions of Section 5.11 B2 hold; anonymous visitors too, because the conditions are of the object. The access rules are the ones of the document; a document that is not published gives ``{"published": false}`` (Section 5.11 D6)."""
         from ..federation import opinions as opinions_mod
@@ -6474,7 +6502,8 @@ def create_app(
                 actor_ids = {int(row[0]) for row in conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")}
                 # The author of the object and a server admin can hide an opinion (Section 5.11 D5).
                 moderator = viewer is not None and viewer.scope == "owner" and (viewer.account_id == author_account_id or viewer.server_role == "admin")
-                view = opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator, frame_base=request.url.path)
+                frame_url_fn = _opinion_frame_url_fn(object_iri)
+                view = opinions_mod.opinions_view(conn, client, object_iri=object_iri, object_public_id=public_id, origin=origin, actor_ids=actor_ids, now=time.time(), moderator=moderator, frame_base=None if frame_url_fn is not None else request.url.path, frame_url_fn=frame_url_fn)
                 # A signed-in account that is an actor gets the routes of its actions (Sections 5.6 rule 4 and 5.11 D4 and D9, phase E7d). Since RD30 each action uses the federation client: the like of the post is the favourite of the item of the object. Only a document object is a post with a like; the author does not like an own post.
                 view["actions"] = None
                 if viewer is not None and viewer.scope == "owner" and viewer.account_id is not None and viewer.account_id in actor_ids:
@@ -6544,9 +6573,10 @@ def create_app(
         return usercontent.remote_item_response(content_html=opinion.content_html, attachments=opinion.attachments, language=opinion.language, frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN", "x-robots-tag": "noindex, nofollow"})
 
     async def permalink_remote_opinions_route(request: Request) -> Response:
-        """``GET /silvercord/{token}/renditions/remote/{key}/opinions``: the opinions of a cached rendition of another Claire server, fetched from its origin (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 C2). A request asks for a fetch with the conditions of rule B2 (the sidecar walks from the object at its origin). The JSON has the form of the opinions route of the page, without the controls of this server: no hide, no actions, no frame, and no likes or boosts (the origin counts them)."""
+        """``GET /silvercord/{token}/renditions/remote/{key}/opinions``: the opinions of a cached rendition of another Claire server, fetched from its origin (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.11 C2). A request asks for a fetch with the conditions of rule B2 (the sidecar walks from the object at its origin)."""
         from ..federation import opinions as opinions_mod
         from ..store import federation_opinions as opinions_store
+        from .accounts_routes import opinion_actions
 
         token = str(request.path_params.get("token", ""))
         key = str(request.path_params.get("key", ""))
@@ -6569,6 +6599,7 @@ def create_app(
         if not is_member and _kb_decide(request, kb, "read") != "allow" and not found.link_access:
             return PlainTextResponse("Not Found", status_code=404)
         origin = s.public_url.rstrip("/") if getattr(s, "public_url", "") else _public_origin(request)
+        viewer = await resolve_optional_session_principal(runtime_cfg, request.scope)
 
         def _view() -> dict[str, Any] | None:
             conn = dbm.connect_existing(s.db_file)
@@ -6582,8 +6613,19 @@ def create_app(
                 if opinions_store.request_fetch(client, copy.iri, own=False, object_published=0.0, now=time.time()) is not None:
                     client.commit()
                 actor_ids = {int(r[0]) for r in conn.execute("SELECT id FROM accounts WHERE status='active' AND username IS NOT NULL")}
-                view = opinions_mod.opinions_view(conn, client, object_iri=copy.iri, object_public_id=None, origin=origin, actor_ids=actor_ids, now=time.time())
+                frame_url_fn = _opinion_frame_url_fn(copy.iri)
+                view = opinions_mod.opinions_view(conn, client, object_iri=copy.iri, object_public_id=None, origin=origin, actor_ids=actor_ids, now=time.time(), frame_base=None if frame_url_fn is not None else request.url.path, frame_url_fn=frame_url_fn)
                 view["actions"] = None
+                if viewer is not None and viewer.scope == "owner" and viewer.account_id is not None and viewer.account_id in actor_ids:
+                    states = opinion_actions.item_states(client, viewer.account_id, [copy.iri, *(o["iri"] for o in view["opinions"])])
+                    view["actions"] = {
+                        "item_url": opinion_actions.OPINION_ITEM_PATH,
+                        "notes_url": "/api/federation/notes",
+                        "post": copy.rendition_of is None,
+                        "liked": bool(states.get(copy.iri, {}).get("favourited")),
+                        "states": {iri: value for iri, value in states.items() if iri != copy.iri},
+                        "remote_object": True,
+                    }
                 view["origin_url"] = copy.url or copy.iri
                 return view
             finally:
@@ -6594,6 +6636,57 @@ def create_app(
         if view is None:
             return PlainTextResponse("Not Found", status_code=404)
         return JSONResponse(view, headers={"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "strict-origin-when-cross-origin", "Vary": "Cookie"})
+
+    async def permalink_remote_opinion_frame_route(request: Request) -> Response:
+        """``GET /silvercord/{token}/renditions/remote/{rkey}/opinions/{key}``: app-origin fallback frame for one opinion of a cached remote rendition."""
+        from . import usercontent
+        from ..store import federation_opinions as opinions_store
+
+        token = str(request.path_params.get("token", ""))
+        rkey = str(request.path_params.get("rkey", ""))
+        key = str(request.path_params.get("key", ""))
+        if not permalinks.plausible_token(token) or not re.fullmatch(r"[0-9a-f]{16}", rkey) or not re.fullmatch(r"[0-9a-f]{16}", key):
+            return PlainTextResponse("Not Found", status_code=404)
+        found, doc_meta, gone, pending = await asyncio.to_thread(_load_document_permalink, token, with_detail=False)
+        if found is None or found.kind != "document":
+            return PlainTextResponse("Not Found", status_code=404)
+        if found.alias is not None:
+            return RedirectResponse(f"{permalinks.permalink_path(found.token)}/renditions/remote/{rkey}/opinions/{key}", status_code=308)
+        if found.gone_at is not None or gone or doc_meta is None:
+            return PlainTextResponse("Gone", status_code=410)
+        try:
+            kb = theme_mgr.get_kb(int(found.kb_id or 0))
+        except KnowledgeBaseNotFound:
+            return PlainTextResponse("Not Found", status_code=404)
+        is_member = await _caller_is_member(request, kb)
+        if not is_member and (pending or bool(doc_meta.get("hidden"))):
+            return PlainTextResponse("Not Found", status_code=404)
+        if not is_member and _kb_decide(request, kb, "read") != "allow" and not found.link_access:
+            return PlainTextResponse("Not Found", status_code=404)
+
+        def _opinion() -> Any:
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            client = client_db.connect_client_existing(client_db.client_db_path(s.db_file), readonly=True)
+            try:
+                row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
+                copy = None if row is None or not row[0] else next((r for r in remote_renditions.renditions_of(conn, str(row[0]), now=time.time()) if r.key == rkey), None)
+                if copy is None:
+                    return None
+                opinion = next((o for o in opinions_store.opinions_of(client, copy.iri) if opinions_store.opinion_key(o.opinion_iri) == key), None)
+                if opinion is None:
+                    return None
+                hosts = [federation_store.iri_host(iri) for iri in (opinion.opinion_iri, opinion.author_iri)]
+                if any(host is None or federation_store.blocking_domain(conn, host) is not None for host in hosts):
+                    return None
+                return opinion
+            finally:
+                client.close()
+                conn.close()
+
+        opinion = await asyncio.to_thread(_opinion)
+        if opinion is None:
+            return PlainTextResponse("Not Found", status_code=404)
+        return usercontent.remote_item_response(content_html=opinion.content_html, attachments=opinion.attachments, language=opinion.language, frame_ancestors="'self'", extra_headers={"x-frame-options": "SAMEORIGIN", "x-robots-tag": "noindex, nofollow"})
 
     async def permalink_remote_rendition_route(request: Request) -> Response:
         """``GET /silvercord/{token}/renditions/remote/{key}``: the body of one rendition of another Claire server, as a page for the sandbox frame of the document page (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.5 and 5.8 rule 4, phase E5c). The access rules are the ones of the document; the page has no script and an opaque origin (``usercontent.remote_item_response``)."""
@@ -7621,6 +7714,7 @@ def create_app(
         Route("/silvercord/{token}/renditions/{template}", permalink_rendition_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/renditions/remote/{key}", permalink_remote_rendition_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/renditions/remote/{key}/opinions", permalink_remote_opinions_route, methods=["GET", "HEAD"]),
+        Route("/silvercord/{token}/renditions/remote/{rkey}/opinions/{key}", permalink_remote_opinion_frame_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/opinions", permalink_opinions_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/renditions/{template}/opinions", permalink_opinions_route, methods=["GET", "HEAD"]),
         Route("/silvercord/{token}/opinions/{key}", permalink_opinion_frame_route, methods=["GET", "HEAD"]),

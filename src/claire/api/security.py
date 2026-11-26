@@ -605,6 +605,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("HEAD", "/silvercord/{token}/renditions/{template}/opinions/{key}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/renditions/remote/{key}/opinions"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}/renditions/remote/{key}/opinions"): _system("public", "none"),
+    ("GET", "/silvercord/{token}/renditions/remote/{rkey}/opinions/{key}"): _system("public", "none"),
+    ("HEAD", "/silvercord/{token}/renditions/remote/{rkey}/opinions/{key}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/renditions/remote/{key}"): _system("public", "none"),
     ("HEAD", "/silvercord/{token}/renditions/remote/{key}"): _system("public", "none"),
     ("GET", "/silvercord/{token}/renditions/{template}"): _system("public", "none"),

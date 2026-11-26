@@ -9,6 +9,7 @@ The caller is an account with the scope ``owner``. Since RD30 an account of this
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import time
 from typing import Any
 
@@ -96,12 +97,37 @@ def routes(ctx: AccountsContext) -> list[Route]:
             parent_iri = parent_note.in_reply_to_iri
         return False
 
-    def _local_item(conn: Any, client: Any, *, object_iri: str, target: tuple[federation_store.FederationObject, federation_store.RenditionObject | None, accounts_store.Account], iri: str, visible_opinions: set[str], hidden_opinions: set[str]) -> dict[str, Any] | None:
+    def _parse_iso_timestamp(value: str | None) -> float | None:
+        if not value or not isinstance(value, str):
+            return None
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+
+    def _valid_remote_rendition(conn: Any, iri: str, *, now: float) -> dict[str, Any] | None:
+        """Return cached remote rendition metadata when non-expired, valid, and not on a blocked domain."""
+        from ...federation.knowledge import vocabulary
+
+        row = conn.execute("SELECT iri, domain, template, account_iri, account_handle, account_name, name, url, updated, body_html FROM remote_renditions WHERE iri=? AND expires_at>? AND body_html IS NOT NULL AND cached_body_hash=body_hash", (iri, now)).fetchone()
+        if row is None:
+            return None
+        r_iri, domain, template, account_iri, account_handle, account_name, name, url, updated, body_html = tuple(row)
+        if str(template) not in vocabulary.TEMPLATES or federation_store.blocking_domain(conn, str(domain)) is not None:
+            return None
+        return {"iri": str(r_iri), "account_iri": str(account_iri), "account_handle": account_handle, "account_name": account_name, "name": str(name), "url": url, "updated": updated, "body_html": str(body_html)}
+
+    def _local_item(conn: Any, client: Any, *, object_iri: str, target: tuple[federation_store.FederationObject, federation_store.RenditionObject | None, accounts_store.Account] | None, iri: str, visible_opinions: set[str], hidden_targets: set[str]) -> dict[str, Any] | None:
         """Build a timeline item only for the public target object or a non-deleted local note in its visible thread."""
         number = _number(iri)
         if number is None:
             return None
         if iri == object_iri:
+            if target is None:
+                return None
             from ..federation_routes import _published_object_content
 
             obj, rendition, author = target
@@ -117,7 +143,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
             if note is None or note.deleted_at is not None:
                 return None
             author = _actor(conn, note.account_id)
-            if author is None or not _note_in_thread(client, note, iri, visible_targets={object_iri, *visible_opinions}, hidden_targets=hidden_opinions):
+            if author is None or not _note_in_thread(client, note, iri, visible_targets={object_iri, *visible_opinions}, hidden_targets=hidden_targets):
                 return None
             item = notes_store.note_timeline_item(note, object_iri=iri, author={}, context_iri=None)
         item["author"] = {"iri": f"{origin}/ap/actors/{author.public_id}", "name": author.display_name or None, "handle": f"@{author.username}@{ctx.config.expected_authority}"}
@@ -129,12 +155,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
             return not_found()
         account_id = principal.account_id
         body = await read_json_body(request)
-        if not isinstance(body, dict) or set(body) != {"object", "opinion"} or not isinstance(body.get("opinion"), str) or len(body["opinion"]) > _MAX_IRI:
+        if not isinstance(body, dict) or set(body) != {"object", "opinion"} or not isinstance(body.get("object"), str) or len(body["object"]) > _MAX_IRI or not isinstance(body.get("opinion"), str) or len(body["opinion"]) > _MAX_IRI:
             return json_error(400, "invalid_request")
-        number = _number(body.get("object"))
-        if number is None:
-            return json_error(404, "opinion_not_found")
         object_iri, opinion_iri = str(body["object"]), str(body["opinion"])
+        number = _number(object_iri)
 
         def _execute() -> tuple[int, dict[str, Any]]:
             conn = open_db(ctx)
@@ -142,9 +166,23 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 if _actor(conn, account_id) is None:
                     return 409, {"error": "not_actor"}
-                target = _public_document_object(conn, number)
-                if target is None:
+                now = time.time()
+                target = None if number is None else _public_document_object(conn, number)
+                remote_copy = None if target is not None else _valid_remote_rendition(conn, object_iri, now=now)
+                if target is None and remote_copy is None:
                     return 404, {"error": "opinion_not_found"}
+                if remote_copy is not None and opinion_iri == object_iri:
+                    ts = _parse_iso_timestamp(remote_copy["updated"])
+                    item = {
+                        "object_iri": remote_copy["iri"], "url": remote_copy["url"] or remote_copy["iri"], "type": "Article",
+                        "author": {"iri": remote_copy["account_iri"], "name": remote_copy["account_name"], "handle": remote_copy["account_handle"]},
+                        "name": remote_copy["name"], "summary": None, "sensitive": False, "content_html": remote_copy["body_html"], "language": None,
+                        "attachments": [], "context": None, "in_reply_to": None, "quote": None, "published_at": ts, "updated_at": ts,
+                    }
+                    client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=None, in_timeline=False, now=now)
+                    row = client.execute("SELECT id, favourited, boosted FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (account_id, opinion_iri)).fetchone()
+                    client.commit()
+                    return 200, {"item_id": str(row[0]), "favourited": bool(row[1]), "boosted": bool(row[2])}
                 all_opinions = opinions_store.opinions_of(client, object_iri, include_hidden=True)
                 opinion = next((o for o in all_opinions if o.opinion_iri == opinion_iri), None)
                 if opinion is not None and opinion.hidden_at is not None:
@@ -153,10 +191,10 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     # RD30: a note of this server in the thread, or the post of the page, is an item as a post of another server.
                     visible_opinions = {o.opinion_iri for o in all_opinions if o.hidden_at is None}
                     hidden_opinions = {o.opinion_iri for o in all_opinions if o.hidden_at is not None}
-                    local = _local_item(conn, client, object_iri=object_iri, target=target, iri=opinion_iri, visible_opinions=visible_opinions, hidden_opinions=hidden_opinions)
+                    local = _local_item(conn, client, object_iri=object_iri, target=target, iri=opinion_iri, visible_opinions=visible_opinions, hidden_targets=hidden_opinions)
                     if local is None:
                         return 404, {"error": "opinion_not_found"}
-                    client_store.upsert_timeline_item(client, account_id=account_id, item=local, announced_by=None, in_timeline=False, now=time.time())
+                    client_store.upsert_timeline_item(client, account_id=account_id, item=local, announced_by=None, in_timeline=False, now=now)
                     row = client.execute("SELECT id, favourited, boosted FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (account_id, opinion_iri)).fetchone()
                     client.commit()
                     return 200, {"item_id": str(row[0]), "favourited": bool(row[1]), "boosted": bool(row[2])}
@@ -170,7 +208,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                     "attachments": opinion.attachments, "context": None, "in_reply_to": None if opinion.kind == "quote" else opinion.parent_iri,
                     "quote": object_iri if opinion.kind == "quote" else None, "published_at": opinion.published, "updated_at": opinion.updated,
                 }
-                client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=None, in_timeline=False, now=time.time())
+                client_store.upsert_timeline_item(client, account_id=account_id, item=item, announced_by=None, in_timeline=False, now=now)
                 row = client.execute("SELECT id, favourited, boosted FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (account_id, opinion.opinion_iri)).fetchone()
                 client.commit()
                 return 200, {"item_id": str(row[0]), "favourited": bool(row[1]), "boosted": bool(row[2])}

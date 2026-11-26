@@ -375,3 +375,102 @@ def test_opinions_item_access_control_and_note_id_collision_guard(internal, monk
         monkeypatch.setattr(ids, "timestamp_id", lambda *_args, **_kwargs: next(generated))
         note_res = http.post("/api/federation/notes", json={"content": "No collision"}, headers=headers)
         assert note_res.status_code == 201 and note_res.json()["note"]["id"] == "816412345678901277"
+
+
+def test_opinions_view_custom_frame_url_fn_and_remote_rendition_item_post(internal):  # noqa: F811
+    import hashlib
+    import time as _time
+    from types import SimpleNamespace
+    from starlette.testclient import TestClient
+    from claire.api.server import create_app
+    from claire.ingest.source_key import source_key
+    from claire.store import accounts as accounts_store
+
+    real_now = _time.time()
+    remote_iri = "https://b.example/ap/objects/8001"
+    expired_iri = "https://b.example/ap/objects/8002"
+    blocked_iri = "https://blocked.example/ap/objects/8003"
+    skey = source_key("https://arxiv.org/abs/2101.00001")
+    digest = hashlib.sha256(b"body").hexdigest()
+
+    conn = dbm.connect_existing(internal.settings.db_file)
+    try:
+        alice_session = accounts_store.create_account_session(conn, account_id=internal.alice, scope="owner")
+        conn.execute("INSERT INTO federation_domain_blocks (domain, created_at, created_by, note) VALUES ('blocked.example', ?, 1, 'spam') ON CONFLICT(domain) DO NOTHING", (NOW,))
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'b.example', ?, 'standard', 'standard-v1', NULL, 'https://b.example/ap/actors/1', '@bob@b.example', 'Bob', 'Remote Title', 'https://b.example/view/1', '2027-01-15T08:05:20Z', ?, ?, ?, '<p>Remote body</p>', 'body', ?, ?)",
+            (remote_iri, skey, f"{remote_iri}/body", digest, digest, real_now, real_now + 3600),
+        )
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'b.example', ?, 'standard', 'standard-v1', NULL, 'https://b.example/ap/actors/1', '@bob@b.example', 'Bob', 'Expired', NULL, NULL, ?, ?, ?, '<p>Old</p>', 'body', ?, ?)",
+            (expired_iri, skey, f"{expired_iri}/body", digest, digest, real_now - 7200, real_now - 10),
+        )
+        conn.execute(
+            "INSERT INTO remote_renditions (iri, domain, source_key, template, template_version, rendition_of, account_iri, account_handle, account_name, name, url, updated, body_iri, body_hash, cached_body_hash, body_html, body_source, fetched_at, expires_at) "
+            "VALUES (?, 'blocked.example', ?, 'standard', 'standard-v1', NULL, 'https://blocked.example/ap/actors/1', '@bad@blocked.example', 'Bad', 'Blocked', NULL, NULL, ?, ?, ?, '<p>Bad</p>', 'body', ?, ?)",
+            (blocked_iri, skey, f"{blocked_iri}/body", digest, digest, real_now, real_now + 3600),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    client = _client(internal)
+    try:
+        opinions_store.store_objects(
+            client,
+            remote_iri,
+            [
+                post(CAROL, in_reply_to=remote_iri),
+                post("https://blocked.example/notes/99", in_reply_to=remote_iri),
+                post(ERIN, in_reply_to=remote_iri),
+            ],
+            quoting=set(),
+            delivered=set(),
+            now=NOW,
+        )
+        opinions_store.hide(client, remote_iri, ERIN, hidden_by=internal.alice, hidden=True, now=NOW)
+        # Local reply chain under remote_iri: depth 1 and depth 16 allowed, depth 17 refused.
+        prev = remote_iri
+        for hop in range(1, 18):
+            nid = 7500 + hop
+            client.execute("INSERT INTO federation_notes (public_id, account_id, in_reply_to_iri, content_text, content_html, published_at, updated_at) VALUES (?, ?, ?, 'hop', '<p>hop</p>', ?, ?)", (nid, internal.alice, prev, NOW + hop, NOW + hop))
+            prev = f"{ORIGIN}/ap/objects/{nid}"
+        client.commit()
+        conn = dbm.connect_existing(internal.settings.db_file)
+        try:
+            view = opinions_mod.opinions_view(conn, client, object_iri=remote_iri, object_public_id=None, origin=ORIGIN, actor_ids={internal.alice}, now=NOW, frame_base="/ignored", frame_url_fn=lambda op_iri: f"https://uc.example/render/{opinions_store.opinion_key(op_iri)}")
+        finally:
+            conn.close()
+        carol_item = next(item for item in view["opinions"] if item["iri"] == CAROL)
+        assert carol_item["frame_url"] == f"https://uc.example/render/{opinions_store.opinion_key(CAROL)}"
+    finally:
+        client.close()
+
+    with TestClient(create_app(settings=internal.settings, service=SimpleNamespace(provider=SimpleNamespace(name="stub"))), base_url=ORIGIN, follow_redirects=False) as http:
+        headers = {"Cookie": f"claire_session={alice_session}", "Origin": ORIGIN}
+        # Remote rendition object itself -> TimelineObject Article with in_timeline=0 and ISO timestamp parsed.
+        self_res = http.post("/api/federation/opinions/item", json={"object": remote_iri, "opinion": remote_iri}, headers=headers)
+        assert self_res.status_code == 200
+        client = _client(internal)
+        try:
+            row = client.execute("SELECT object_type, name, url, in_timeline, published_at, updated_at FROM federation_timeline_items WHERE account_id=? AND object_iri=?", (internal.alice, remote_iri)).fetchone()
+            assert row is not None
+            assert (row[0], row[1], row[2], row[3]) == ("Article", "Remote Title", "https://b.example/view/1", 0)
+            assert isinstance(row[4], float) and isinstance(row[5], float) and row[4] == row[5]
+        finally:
+            client.close()
+
+        # Opinion of remote rendition, local reply up to depth 16 allowed.
+        assert http.post("/api/federation/opinions/item", json={"object": remote_iri, "opinion": CAROL}, headers=headers).status_code == 200
+        assert http.post("/api/federation/opinions/item", json={"object": remote_iri, "opinion": f"{ORIGIN}/ap/objects/7516"}, headers=headers).status_code == 200
+
+        # Depth 17, hidden opinion, expired remote rendition, blocked remote rendition -> 404.
+        assert http.post("/api/federation/opinions/item", json={"object": remote_iri, "opinion": f"{ORIGIN}/ap/objects/7517"}, headers=headers).status_code == 404
+        assert http.post("/api/federation/opinions/item", json={"object": remote_iri, "opinion": ERIN}, headers=headers).status_code == 404
+        assert http.post("/api/federation/opinions/item", json={"object": expired_iri, "opinion": expired_iri}, headers=headers).status_code == 404
+        assert http.post("/api/federation/opinions/item", json={"object": blocked_iri, "opinion": blocked_iri}, headers=headers).status_code == 404
+        # Blocked domain opinion -> 400 blocked_domain.
+        blk_op = http.post("/api/federation/opinions/item", json={"object": remote_iri, "opinion": "https://blocked.example/notes/99"}, headers=headers)
+        assert (blk_op.status_code, blk_op.json()["error"]) == (400, "blocked_domain")
