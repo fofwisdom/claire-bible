@@ -135,7 +135,7 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | Item | Design | Commit | Note |
 | :--- | :--- | :--- | :--- |
 | `Undo` of each +1 at an account purge | 5.12 rule 14 | `db88222b` | AD33. Two-server phase `unplus`. |
-| `Like` and `Announce` of a rendition object | 5.6 rule 2 | (this commit) | Stored with the number of the rendition object; its document object gives the account and the access rules. Test through the internal API only: no Claire function sends a `Like` of a remote rendition object, so the two-server test has no such phase. |
+| `Like` and `Announce` of a rendition object | 5.6 rule 2 | `4d9e8a26` | Stored with the number of the rendition object; its document object gives the account and the access rules. Test through the internal API only: no Claire function sends a `Like` of a remote rendition object, so the two-server test has no such phase. |
 
 ## 8. Open Items
 
