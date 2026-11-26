@@ -1,0 +1,2951 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="color-scheme" content="light dark"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Claire Bible — /about 공개 페이지 &amp; 상호작용 파이프라인 시각 프로토타입 (1안·2안·3안·4안)</title>
+<style>
+/* Claire Bible theme.css design tokens */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --bar-bg: #f6f8fa;
+  --border: #d0d7de;
+  --panel-bg: #f6f8fa;
+  --accent: #0969da;
+  --accent2: #1a7f37;
+  --chip-bg: #eaeef2;
+  --hover: #eef1f4;
+  --active: #ddf4ff;
+  --card-bg: #ffffff;
+  --sec-bg: #eaeef2;
+  --sec-fg: #24292f;
+  --warn: #9a6700;
+  --warn-bg: #fff8c5;
+  --danger: #cf222e;
+  --danger-bg: #ffebe9;
+  --remote: #8250df;
+  --remote-bg: #fbefff;
+  --proto: #7c3aed;
+  --proto-bg: #f5f3ff;
+  --ok: #1a7f37;
+  --ok-bg: #dafbe1;
+  --shadow: rgba(31, 35, 40, 0.14);
+}
+:root:has(> head > meta[name="color-scheme"][content="dark"]),
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --fg: #d7dbe0;
+  --muted: #8b949e;
+  --bar-bg: #161b22;
+  --border: #2a2f37;
+  --panel-bg: #10151c;
+  --accent: #58a6ff;
+  --accent2: #7ee787;
+  --chip-bg: #1f2937;
+  --hover: #161b22;
+  --active: #1f2937;
+  --card-bg: #161b22;
+  --sec-bg: #30363d;
+  --sec-fg: #d7dbe0;
+  --warn: #d29922;
+  --warn-bg: #332300;
+  --danger: #f85149;
+  --danger-bg: #38161a;
+  --remote: #c297ff;
+  --remote-bg: #2a193f;
+  --proto: #a78bfa;
+  --proto-bg: #241c3d;
+  --ok: #7ee787;
+  --ok-bg: #0d351d;
+  --shadow: rgba(1, 4, 9, 0.45);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116;
+    --fg: #d7dbe0;
+    --muted: #8b949e;
+    --bar-bg: #161b22;
+    --border: #2a2f37;
+    --panel-bg: #10151c;
+    --accent: #58a6ff;
+    --accent2: #7ee787;
+    --chip-bg: #1f2937;
+    --hover: #161b22;
+    --active: #1f2937;
+    --card-bg: #161b22;
+    --sec-bg: #30363d;
+    --sec-fg: #d7dbe0;
+    --warn: #d29922;
+    --warn-bg: #332300;
+    --danger: #f85149;
+    --danger-bg: #38161a;
+    --remote: #c297ff;
+    --remote-bg: #2a193f;
+    --proto: #a78bfa;
+    --proto-bg: #241c3d;
+    --ok: #7ee787;
+    --ok-bg: #0d351d;
+    --shadow: rgba(1, 4, 9, 0.45);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; min-height: 100%; background: var(--panel-bg); color: var(--fg); font: 14px/1.58 'Noto Sans KR', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; word-break: keep-all; overflow-wrap: break-word; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font-family: 'D2Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85em; }
+code { background: var(--chip-bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+[hidden="until-found"] { content-visibility: hidden; }
+.lineicon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap !important; border: 0 !important; }
+
+/* Prototype control bar (outside product UI) */
+.proto-bar { position: sticky; top: 0; z-index: 60; background: #1f2328; color: #f0f6fc; border-bottom: 1px solid #30363d; padding: 0.5rem 0.875rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.875rem; font-size: 0.78125rem; }
+.proto-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.proto-group-label { font-weight: 700; color: #8b949e; margin-right: 0.25rem; }
+.proto-bar button { background: #2d333b; border: 1px solid #444c56; color: #cdd9e5; border-radius: 6px; padding: 0.25rem 0.625rem; font-size: 0.75rem; cursor: pointer; min-block-size: 28px; display: inline-flex; align-items: center; gap: 0.3rem; }
+.proto-bar button:hover:not(:disabled) { background: #373e47; }
+.proto-bar button[aria-pressed="true"] { background: #0969da; border-color: #388bfd; color: #ffffff; font-weight: 700; }
+.proto-bar button:disabled { opacity: 0.45; cursor: not-allowed; }
+.proto-status { background: var(--bar-bg); border-bottom: 1px solid var(--border); padding: 0.375rem 0.875rem; font-size: 0.75rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 0.375rem 1rem; align-items: center; justify-content: space-between; }
+.proto-status strong { color: var(--fg); }
+
+/* Stage & Responsive Preview Frame */
+.stage { padding: 0.875rem; display: flex; justify-content: center; }
+.device { width: 100%; max-width: 1220px; min-height: 760px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 28px var(--shadow); overflow-x: clip; display: flex; flex-direction: column; }
+.device.is-mobile { max-width: 390px; border-radius: 22px; border-width: 2px; }
+
+/* Common pills and badges (solid for facts/rules, dashed for AI inference/shadow) */
+.pill { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 700; border: 1px solid var(--border); background: var(--panel-bg); color: var(--muted); white-space: nowrap; }
+.pill-ai { color: var(--accent); background: var(--active); border: 1px dashed var(--accent); }
+.pill-rule { color: var(--fg); background: var(--sec-bg); border: 1px solid var(--border); }
+.pill-client { color: var(--ok); background: var(--ok-bg); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); }
+.pill-shadow { color: var(--proto); background: var(--proto-bg); border: 1px dashed var(--proto); }
+.pill-warn { color: var(--warn); background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.pill-danger { color: var(--danger); background: var(--danger-bg); border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); }
+.pill-remote { color: var(--remote); background: var(--remote-bg); border: 1px solid color-mix(in srgb, var(--remote) 40%, transparent); }
+
+/* Public Site Navigation */
+.pub-nav { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; padding: 0.625rem 1.25rem; background: var(--bar-bg); border-bottom: 1px solid var(--border); }
+.pub-brand { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.9375rem; color: var(--fg); text-decoration: none; }
+.pub-nav-links { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; font-size: 0.8125rem; }
+.pub-nav-links a { padding: 0.25rem 0.45rem; border-radius: 6px; color: var(--muted); font-weight: 600; min-block-size: 28px; display: inline-flex; align-items: center; }
+.pub-nav-links a[aria-current="page"] { color: var(--accent); background: var(--active); }
+.pub-nav-end { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0.375rem 0.75rem; border-radius: 6px; border: 1px solid var(--border); background: var(--sec-bg); color: var(--sec-fg); font-size: 0.78125rem; font-weight: 600; cursor: pointer; min-block-size: 32px; text-decoration: none; }
+.btn:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); text-decoration: none; }
+.btn-pri { background: var(--accent); color: #ffffff; border-color: transparent; }
+.btn-pri:hover:not(:disabled) { filter: brightness(1.06); background: var(--accent); color: #ffffff; }
+.device.is-mobile .pub-nav { padding: 0.5rem 0.75rem; }
+
+/* Console Shell Frame (for /support/pipeline preview) */
+.con-head-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.625rem 1.25rem; background: var(--bar-bg); border-bottom: 1px solid var(--border); font-size: 0.8125rem; }
+.con-body { padding: 1.25rem; max-width: 1080px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 1rem; }
+.device.is-mobile .con-body { padding: 0.75rem; }
+.con-sec-head { padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.25rem; }
+.con-sec-head h1 { margin: 0; font-size: 1.1875rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.con-sec-head p { margin: 0; font-size: 0.8125rem; color: var(--muted); }
+.con-subcard { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.625rem; padding: 1rem 1.125rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.con-subcard h2 { margin: 0; font-size: 0.9375rem; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+
+/* Shared Public Page Layout */
+.pub-main { padding: 1.5rem 1.25rem 2.5rem; max-width: 1120px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 1.5rem; }
+.device.is-mobile .pub-main { padding: 1rem 0.75rem 2rem; gap: 1.125rem; }
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.625rem; padding: 1rem 1.125rem; min-width: 0; }
+.hero-title { margin: 0 0 0.4rem; font-size: clamp(1.3rem, 2.5vw, 1.75rem); line-height: 1.28; }
+.hero-lead { margin: 0 0 0.875rem; color: var(--muted); font-size: 0.90625rem; line-height: 1.6; max-width: 68ch; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 0.625rem; margin-top: 0.75rem; }
+.kpi { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--panel-bg); padding: 0.55rem 0.75rem; display: flex; flex-direction: column; gap: 0.125rem; }
+.kpi b { font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 0.71875rem; color: var(--muted); }
+.meta-strip { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--panel-bg); font-size: 0.78125rem; margin-top: 0.75rem; }
+.meta-strip-item { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--muted); }
+.meta-strip-item strong { color: var(--fg); }
+
+/* Accessible Tabs with Anchor Positioning + Border Fallback */
+.tablist-wrap { display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--border); }
+.tablist-scroll { position: relative; display: flex; align-items: stretch; gap: 0.25rem; overflow-x: auto; scrollbar-width: thin; scroll-snap-type: inline proximity; flex: 1; }
+.tab-btn { position: relative; flex: none; scroll-snap-align: start; display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.5rem 0.75rem; min-block-size: 40px; border: 0; background: transparent; color: var(--muted); font-size: 0.8125rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.tab-btn:hover { color: var(--fg); background: var(--hover); border-radius: 6px 6px 0 0; }
+.tab-btn[aria-selected="true"] { color: var(--accent); }
+.tab-btn[aria-selected="true"]::after { content: ""; position: absolute; inset: auto 0 0; border-block-end: 3px solid var(--accent); }
+@supports (position-anchor: --p1-ep-active) {
+  .tablist-scroll.has-anchor-bar::before { content: ""; position: absolute; position-anchor: --p1-ep-active; inset-block-start: calc(anchor(self-end) - 3px); inset-inline-start: anchor(self-start); inset-inline-end: anchor(self-end); border-block-end: 3px solid var(--accent); pointer-events: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .tablist-scroll.has-anchor-bar::before { transition: inset 0.18s ease; }
+  }
+  .tablist-scroll.has-anchor-bar .tab-btn[aria-selected="true"]::after { content: none; }
+}
+.tabpanel-inner { padding-top: 0.875rem; }
+
+/* Shared Interactive Pipeline Container (Size-Aware via Container Query) */
+.pipe-root { container-type: inline-size; display: flex; flex-direction: column; gap: 0.875rem; min-width: 0; }
+.pipe-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.625rem; padding: 0.625rem 0.75rem; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 0.5rem; }
+.pipe-ctrl-group { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
+.pipe-ctrl-label { font-size: 0.75rem; font-weight: 700; color: var(--muted); margin-right: 0.15rem; }
+.seg-btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.625rem; min-block-size: 30px; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); color: var(--fg); font-size: 0.75rem; font-weight: 600; cursor: pointer; }
+.seg-btn:hover:not(:disabled) { background: var(--hover); border-color: var(--accent); }
+.seg-btn[aria-pressed="true"] { background: var(--active); border-color: var(--accent); color: var(--accent); }
+.seg-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.pipe-banner { padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--panel-bg); font-size: 0.78125rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+
+/* Proposal 1: 4-Zone Interactive Node-Edge Canvas + Live Inspector */
+.p1-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; align-items: start; }
+@container (min-width: 54rem) {
+  .p1-workspace { grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 1fr); }
+}
+.p1-canvas { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--panel-bg); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.p1-zones { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; }
+@container (min-width: 40rem) {
+  .p1-zones { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.p1-zone { border: 1px dashed var(--border); border-radius: 0.5rem; background: var(--bg); padding: 0.625rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.p1-zone-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.75rem; font-weight: 700; color: var(--muted); }
+.p1-node-list { display: flex; flex-direction: column; gap: 0.45rem; }
+.p1-node { width: 100%; text-align: left; padding: 0.55rem 0.65rem; border-radius: 0.45rem; border: 1.5px solid var(--border); background: var(--card-bg); cursor: pointer; display: flex; flex-direction: column; gap: 0.25rem; min-block-size: 44px; position: relative; transition: border-color 0.12s ease, background-color 0.12s ease; }
+.p1-node[data-kind="ai"], .p1-node[data-kind="conditional"] { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.p1-node[data-kind="client"] { border-color: color-mix(in srgb, var(--ok) 60%, var(--border)); }
+.p1-node[data-kind="shadow"] { border-style: dashed; border-color: var(--proto); background: var(--proto-bg); }
+.p1-node[data-state="active"] { background: var(--card-bg); box-shadow: 0 1px 4px var(--shadow); }
+.p1-node[data-state="active"][data-kind="ai"] { background: color-mix(in srgb, var(--active) 48%, var(--card-bg)); border-color: var(--accent); }
+.p1-node[data-state="active"][data-kind="client"] { background: color-mix(in srgb, var(--ok-bg) 55%, var(--card-bg)); border-color: var(--ok); }
+.p1-node[data-state="skipped"] { opacity: 0.48; background: var(--panel-bg); }
+.p1-node[aria-current="step"] { outline: 2.5px solid var(--accent); outline-offset: 1px; background: var(--active); }
+.p1-node-top { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+.p1-node-title { font-size: 0.8125rem; font-weight: 700; color: var(--fg); display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.p1-step-num { display: inline-grid; place-items: center; min-width: 1.3rem; height: 1.3rem; border-radius: 999px; background: var(--accent); color: #ffffff; font-size: 0.6875rem; font-weight: 700; padding: 0 0.25rem; flex: none; }
+.p1-node[data-state="skipped"] .p1-step-num { background: var(--sec-bg); color: var(--muted); }
+.p1-node-sub { font-size: 0.725rem; color: var(--muted); }
+.p1-node-model { font-family: 'D2Coding', monospace; font-size: 0.7rem; color: var(--accent); overflow-wrap: anywhere; }
+.p1-node[data-kind="rule"] .p1-node-model { color: var(--muted); }
+.p1-node[data-kind="client"] .p1-node-model { color: var(--ok); }
+.p1-node[data-kind="shadow"] .p1-node-model { color: var(--proto); }
+
+.p1-inspector { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card-bg); padding: 0.875rem; display: flex; flex-direction: column; gap: 0.625rem; position: sticky; top: 3.75rem; }
+.p1-ins-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+.p1-ins-head h3 { margin: 0; font-size: 0.95rem; }
+.p1-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.35rem 0.75rem; font-size: 0.78125rem; margin: 0; }
+.p1-kv dt { color: var(--muted); font-weight: 700; }
+.p1-kv dd { margin: 0; overflow-wrap: anywhere; }
+.p1-details { border: 1px solid var(--border); border-radius: 6px; background: var(--panel-bg); padding: 0.45rem 0.65rem; font-size: 0.78125rem; }
+.p1-details summary { cursor: pointer; font-weight: 700; }
+.p1-details ol, .p1-details ul { margin: 0.4rem 0 0.1rem; padding-left: 1.2rem; display: grid; gap: 0.25rem; }
+
+.legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.75rem; font-size: 0.75rem; color: var(--muted); }
+
+/* Proposal 2: Scenario Workbench, Swimlane Diff & Gate Simulator */
+.p2-launcher { display: grid; grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr)); gap: 0.5rem; }
+.p2-ep-card { text-align: left; padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card-bg); cursor: pointer; display: flex; flex-direction: column; gap: 0.3rem; min-block-size: 44px; }
+.p2-ep-card:hover { background: var(--hover); border-color: var(--accent); }
+.p2-ep-card[aria-pressed="true"] { background: var(--active); border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.p2-ep-top { display: flex; align-items: center; justify-content: space-between; gap: 0.35rem; font-weight: 700; font-size: 0.8125rem; }
+.p2-ep-desc { font-size: 0.725rem; color: var(--muted); line-height: 1.45; }
+
+.p2-swimboard { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.625rem; }
+@container (min-width: 48rem) {
+  .p2-swimboard { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.p2-col { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--panel-bg); padding: 0.55rem; display: flex; flex-direction: column; gap: 0.45rem; }
+.p2-col-title { font-size: 0.75rem; font-weight: 700; color: var(--muted); padding-bottom: 0.25rem; border-bottom: 1px solid var(--border); }
+.p2-step-card { border: 1.5px solid var(--border); border-radius: 0.45rem; background: var(--card-bg); padding: 0.5rem 0.6rem; font-size: 0.75rem; }
+.p2-step-card[data-kind="ai"], .p2-step-card[data-kind="conditional"] { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.p2-step-card[data-kind="client"] { border-color: var(--ok); }
+.p2-step-card[data-kind="shadow"] { border-style: dashed; border-color: var(--proto); background: var(--proto-bg); }
+.p2-step-card[data-state="skipped"] { opacity: 0.5; background: var(--panel-bg); }
+.p2-step-card summary { cursor: pointer; font-weight: 700; list-style: none; display: flex; flex-direction: column; gap: 0.2rem; }
+.p2-step-card summary::-webkit-details-marker { display: none; }
+.p2-step-body { margin-top: 0.45rem; padding-top: 0.45rem; border-top: 1px dashed var(--border); color: var(--muted); display: flex; flex-direction: column; gap: 0.25rem; line-height: 1.48; }
+
+/* Comparison & Reference Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card-bg); }
+table { width: 100%; border-collapse: collapse; font-size: 0.78125rem; }
+th, td { border-bottom: 1px solid var(--border); padding: 0.5rem 0.625rem; text-align: left; vertical-align: top; }
+th { background: var(--panel-bg); color: var(--muted); font-weight: 700; font-size: 0.725rem; }
+tr:last-child td { border-bottom: 0; }
+.diff-row-change td { background: color-mix(in srgb, var(--warn-bg) 45%, transparent); }
+
+/* Simulator Grid */
+.sim-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; }
+@container (min-width: 48rem) {
+  .sim-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.sim-card { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card-bg); padding: 0.875rem; display: flex; flex-direction: column; gap: 0.625rem; }
+.sim-card h3 { margin: 0; font-size: 0.875rem; }
+.gate-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.gate-item { padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-bg); font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.gate-item[data-hit="true"] { border-color: var(--accent); background: var(--active); font-weight: 700; }
+.gate-item[data-hit="blocked"] { border-color: var(--danger); background: var(--danger-bg); font-weight: 700; }
+
+/* Bento & Reference Cards */
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; }
+.grid-3 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; }
+.grid-4 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+@media (min-width: 760px) {
+  .device:not(.is-mobile) .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .device:not(.is-mobile) .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .device:not(.is-mobile) .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1040px) {
+  .device:not(.is-mobile) .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.principle-card { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card-bg); padding: 0.875rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.principle-card[data-kind="rule"] { border-top: 3px solid var(--fg); }
+.principle-card[data-kind="ai"] { border-top: 3px dashed var(--accent); }
+.principle-card h3 { margin: 0; font-size: 0.875rem; display: flex; align-items: center; gap: 0.4rem; }
+.principle-card p { margin: 0; font-size: 0.78125rem; color: var(--muted); }
+.chip-cloud { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.ont-chip { padding: 0.2rem 0.55rem; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-bg); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; }
+
+.pub-footer { border-top: 1px solid var(--border); padding: 1.125rem 1.25rem; background: var(--bar-bg); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; font-size: 0.78125rem; color: var(--muted); }
+.pub-footer-links { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+
+/* Proposal 3: Hindsight-inspired 4-Column Live Spatial Architecture Deep Dive */
+.p3-section-head { border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
+.p3-section-head h2 { margin: 0 0 0.25rem; font-size: 1.15rem; display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
+.p3-section-head p { margin: 0; color: var(--muted); font-size: 0.84375rem; }
+.p3-wrap { display: flex; flex-direction: column; gap: 0.5rem; background: var(--bg); border-radius: 0.5rem; }
+.p3-wrap.p3-full { position: fixed; inset: 0; z-index: 90; background: var(--bg); padding: 1rem 1.25rem; overflow: auto; border-radius: 0; }
+.p3-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.375rem; }
+.p3-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; }
+.p3-tab { position: relative; border: 0; background: transparent; color: var(--muted); padding: 0.375rem 0.45rem 0.5rem; font-size: 0.8125rem; font-weight: 600; cursor: pointer; min-block-size: 32px; display: inline-flex; align-items: center; gap: 0.3rem; }
+.p3-tab:hover { color: var(--fg); }
+.p3-tab[aria-selected="true"] { color: var(--fg); }
+.p3-tab-prog { position: absolute; left: 0; right: 0; bottom: 0; height: 2.5px; background: var(--border); border-radius: 2px; overflow: hidden; opacity: 0; }
+.p3-tab[aria-selected="true"] .p3-tab-prog { opacity: 1; }
+.p3-tab-prog > span { display: block; width: 100%; height: 100%; background: var(--accent); transform-origin: left center; transform: scaleX(var(--p3-prog, 0.2)); transition: transform 0.2s ease; }
+.p3-grow { flex: 1; min-width: 0.5rem; }
+.p3-ctrls { display: inline-flex; align-items: center; gap: 0.3rem; }
+.p3-ctrl-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; min-width: 30px; min-height: 28px; padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); color: var(--fg); font-size: 0.75rem; font-weight: 700; cursor: pointer; font-variant-numeric: tabular-nums; }
+.p3-ctrl-btn:hover { background: var(--hover); border-color: var(--accent); }
+.p3-ctrl-btn[aria-pressed="true"] { background: var(--active); border-color: var(--accent); color: var(--accent); }
+.p3-view { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg); overflow-x: auto; overflow-y: hidden; padding: 0.5rem; }
+.p3-svg { display: block; width: 100%; min-width: 780px; height: auto; margin: 0 auto; user-select: none; }
+.p3-wrap.p3-full .p3-svg { max-width: 1320px; }
+.p3-grp { fill: var(--bg); stroke: var(--border); stroke-width: 1.4; }
+.p3-subgrp { fill: var(--panel-bg); stroke: var(--border); stroke-width: 1.1; }
+.p3-card { fill: var(--card-bg); stroke: var(--border); stroke-width: 1.3; }
+.p3-card-rule { stroke-dasharray: none; }
+.p3-card-ai { stroke-dasharray: 5 3; }
+.p3-cyl-body { fill: var(--card-bg); stroke: var(--border); stroke-width: 1.3; }
+.p3-cyl-top { fill: var(--panel-bg); stroke: var(--border); stroke-width: 1.3; }
+.p3-active > rect, .p3-active > path.p3-cyl-body, .p3-active > ellipse.p3-cyl-top { stroke: var(--accent); stroke-width: 2; filter: url(#p3-shadow); }
+.p3-active > rect { fill: color-mix(in srgb, var(--active) 45%, var(--card-bg)); }
+.p3-skipped { opacity: 0.42; }
+.p3-clickable { cursor: pointer; }
+.p3-clickable:focus-visible > rect, .p3-clickable:focus-visible > path.p3-cyl-body { outline: none; stroke: var(--accent); stroke-width: 2.5; }
+.p3-title { fill: var(--fg); font-size: 12px; font-weight: 700; }
+.p3-grp-title { fill: var(--fg); font-size: 12.5px; font-weight: 700; }
+.p3-sub { fill: var(--muted); font-size: 10.5px; }
+.p3-mono { fill: var(--accent); font-family: 'D2Coding', monospace; font-size: 10px; font-weight: 600; }
+.p3-edge { fill: none; stroke: var(--border); stroke-width: 1.4; }
+.p3-edge-active { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-dasharray: 7 4; animation: p3-flow 1.1s linear infinite; }
+.p3-edge-label { fill: var(--muted); font-size: 10px; font-weight: 600; }
+.p3-edge-label-active { fill: var(--accent); font-weight: 700; }
+.p3-pill-rect { fill: var(--chip-bg); stroke: var(--border); stroke-width: 0.8; }
+.p3-pill-rect.is-ai { fill: var(--active); stroke: var(--accent); }
+.p3-pill-rect.is-ok { fill: var(--ok-bg); stroke: var(--ok); }
+.p3-pill-rect.is-warn { fill: var(--warn-bg); stroke: var(--warn); }
+.p3-pill-rect.is-shadow { fill: var(--proto-bg); stroke: var(--proto); stroke-dasharray: 3 2; }
+.p3-pill-txt { fill: var(--fg); font-size: 9.5px; font-weight: 700; }
+@keyframes p3-flow { to { stroke-dashoffset: -22; } }
+.p3-foot { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; padding: 0.25rem 0.5rem; text-align: center; }
+.p3-scrub { display: inline-flex; align-items: center; gap: 0.65rem; font-size: 0.8125rem; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.p3-scrub button { border: 1px solid var(--border); background: var(--card-bg); color: var(--fg); border-radius: 6px; min-width: 30px; min-height: 28px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.p3-scrub button:hover:not(:disabled) { border-color: var(--accent); background: var(--hover); }
+.p3-scrub button:disabled { opacity: 0.4; cursor: not-allowed; }
+.p3-cap { margin: 0; font-size: 0.875rem; color: var(--fg); max-width: 68ch; line-height: 1.5; }
+.p3-node-detail { width: 100%; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-bg); padding: 0.45rem 0.75rem; font-size: 0.78125rem; display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; justify-content: space-between; align-items: center; text-align: left; }
+.proto-eval { margin: 0 1.25rem 1.25rem; border: 1px solid var(--border); border-left: 3px solid var(--proto); border-radius: 0.5rem; background: var(--panel-bg); padding: 0.75rem 1rem; font-size: 0.78125rem; }
+.proto-eval summary { cursor: pointer; font-weight: 700; color: var(--fg); }
+
+/* Proposal 4: Gemini Neon — Unified 5-Stage Optical Prism */
+.p4-theatre { position: relative; container-type: inline-size; border-radius: 0.75rem; border: 1px solid rgba(56, 182, 255, 0.34); background: radial-gradient(circle at 16% 0%, rgba(0, 245, 184, 0.14), transparent 44%), radial-gradient(circle at 86% 12%, rgba(56, 182, 255, 0.16), transparent 46%), radial-gradient(circle at 52% 100%, rgba(167, 139, 250, 0.12), transparent 52%), linear-gradient(180deg, #060b14 0%, #0b1424 100%); background-color: #060b14; color: #eef4ff; padding: 1.125rem; display: flex; flex-direction: column; gap: 1rem; box-shadow: 0 14px 36px rgba(2, 8, 23, 0.42); overflow: hidden; }
+.p4-theatre::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(56, 182, 255, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 170, 0.04) 1px, transparent 1px); background-size: 28px 28px; opacity: 0.75; }
+.p4-theatre > * { position: relative; z-index: 1; }
+.p4-theatre :focus-visible { outline: 2.5px solid #58d5ff; outline-offset: 3px; }
+.p4-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(148, 163, 184, 0.2); }
+.p4-brand { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
+.p4-emblem { width: 38px; height: 38px; flex: none; }
+.p4-title-wrap h3 { margin: 0; font-size: 1.02rem; color: #f8fbff; letter-spacing: -0.01em; }
+.p4-title-wrap p { margin: 0.15rem 0 0; font-size: 0.78125rem; color: #a7b8d4; }
+.p4-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+.p4-mode-group { display: inline-flex; padding: 0.2rem; border-radius: 999px; border: 1px solid rgba(56, 182, 255, 0.3); background: rgba(6, 11, 20, 0.78); gap: 0.2rem; }
+.p4-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.32rem; padding: 0.3rem 0.7rem; min-block-size: 32px; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.28); background: rgba(15, 23, 42, 0.85); color: #dce7fa; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: transform 150ms ease-out, box-shadow 150ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out; }
+.p4-btn:hover:not(:disabled) { border-color: #38b6ff; box-shadow: 0 0 12px rgba(56, 182, 255, 0.26); }
+.p4-btn:active:not(:disabled) { transform: scale(0.97); }
+.p4-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+.p4-mode-btn { border-color: transparent; background: transparent; }
+.p4-mode-btn[aria-pressed="true"] { background: linear-gradient(135deg, rgba(0, 255, 170, 0.2), rgba(56, 182, 255, 0.24)); border-color: #26ffaa; color: #ffffff; box-shadow: 0 0 14px rgba(38, 255, 170, 0.22); }
+.p4-spine-wrap { display: flex; flex-direction: column; gap: 0.5rem; }
+.p4-spine { display: flex; flex-direction: row; align-items: stretch; gap: 0.45rem; overflow-x: auto; scroll-snap-type: x proximity; padding: 0.25rem 0.1rem; scrollbar-width: thin; }
+@container (min-width: 52rem) {
+  .p4-spine { overflow-x: visible; gap: 0.35rem; }
+}
+.device.is-mobile .p4-spine { flex-direction: column; overflow-x: visible; }
+.p4-node { position: relative; flex: 1 0 10.75rem; scroll-snap-align: start; text-align: left; padding: 0.65rem 0.72rem; border-radius: 0.6rem; background: rgba(11, 18, 34, 0.86); color: #eef4ff; cursor: pointer; display: flex; flex-direction: column; gap: 0.28rem; min-block-size: 44px; transition: transform 160ms ease-out, box-shadow 160ms ease-out, border-color 160ms ease-out, background-color 160ms ease-out; }
+@container (min-width: 52rem) {
+  .p4-node { flex: 1 1 0; min-width: 0; }
+}
+.device.is-mobile .p4-node { flex: none; width: 100%; }
+.p4-node[data-kind="rule"] { border: 1.5px solid rgba(38, 255, 170, 0.5); }
+.p4-node[data-kind="ai"] { border: 1.5px dashed rgba(56, 182, 255, 0.62); }
+.p4-node:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(56, 182, 255, 0.22); }
+.p4-node:active { transform: scale(0.98); }
+.p4-node[aria-current="step"] { background: rgba(17, 29, 52, 0.96); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16), 0 0 22px rgba(38, 255, 170, 0.28), 0 0 28px rgba(56, 182, 255, 0.24); }
+.p4-node[data-kind="rule"][aria-current="step"] { border-color: #26ffaa; }
+.p4-node[data-kind="ai"][aria-current="step"] { border-color: #58d5ff; }
+.p4-node-num { display: inline-flex; align-items: center; justify-content: space-between; gap: 0.35rem; font-size: 0.6875rem; font-weight: 700; color: #9db0cc; }
+.p4-node-index { font-family: 'D2Coding', monospace; font-size: 0.72rem; padding: 0.08rem 0.42rem; border-radius: 999px; background: rgba(38, 255, 170, 0.14); color: #7bffcf; border: 1px solid rgba(38, 255, 170, 0.4); }
+.p4-node[data-kind="ai"] .p4-node-index { background: rgba(56, 182, 255, 0.14); color: #90d5ff; border-color: rgba(56, 182, 255, 0.45); }
+.p4-node-title { font-size: 0.8125rem; font-weight: 700; color: #f8fbff; line-height: 1.32; }
+.p4-node-tag { font-size: 0.7rem; color: #9db0cc; overflow-wrap: anywhere; }
+.p4-conduit { position: relative; flex: 0 0 22px; align-self: center; height: 2px; background: rgba(56, 182, 255, 0.25); overflow: hidden; border-radius: 2px; }
+.p4-conduit.is-lit { background: rgba(38, 255, 170, 0.52); }
+.p4-photon { position: absolute; inset-block: -1px; inset-inline-start: 0; width: 10px; height: 4px; border-radius: 999px; background: linear-gradient(90deg, transparent, #26ffaa, #58d5ff); opacity: 0.3; }
+@media (prefers-reduced-motion: no-preference) {
+  .p4-conduit.is-lit .p4-photon { opacity: 0.95; animation: p4-pulse 1.35s linear infinite; }
+  .p4-theatre.p4-paused .p4-conduit.is-lit .p4-photon { animation-play-state: paused; opacity: 0.35; }
+}
+@keyframes p4-pulse { from { transform: translateX(-10px); } to { transform: translateX(24px); } }
+.device.is-mobile .p4-conduit { width: 2px; height: 14px; flex: 0 0 14px; }
+.device.is-mobile .p4-photon { width: 4px; height: 8px; animation-name: none; }
+.p4-deck { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.875rem; align-items: start; }
+@container (min-width: 50rem) {
+  .p4-deck { grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); }
+}
+.p4-glass { border-radius: 0.65rem; border: 1px solid rgba(148, 163, 184, 0.24); background: rgba(13, 21, 38, 0.86); padding: 0.95rem 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.p4-glass-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.45rem; border-bottom: 1px solid rgba(148, 163, 184, 0.16); padding-bottom: 0.5rem; }
+.p4-glass-head h4 { margin: 0; font-size: 0.92rem; color: #f8fbff; display: inline-flex; align-items: center; gap: 0.4rem; }
+.p4-pill { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.14rem 0.55rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 700; border: 1px solid rgba(148, 163, 184, 0.34); background: rgba(15, 23, 42, 0.9); color: #cbd8ee; }
+.p4-pill-mint { border-color: rgba(38, 255, 170, 0.55); background: rgba(0, 245, 184, 0.12); color: #8dffda; }
+.p4-pill-azure { border-style: dashed; border-color: rgba(56, 182, 255, 0.62); background: rgba(56, 182, 255, 0.14); color: #a3dcff; }
+.p4-pill-iris { border-style: dashed; border-color: rgba(192, 132, 252, 0.72); background: rgba(167, 139, 250, 0.16); color: #e2cbff; }
+.p4-pill-quiet { border-color: rgba(148, 163, 184, 0.22); background: rgba(30, 41, 59, 0.65); color: #b5c6e0; }
+.p4-pill-warn { border-color: rgba(248, 113, 113, 0.6); background: rgba(127, 29, 29, 0.32); color: #fecaca; }
+.p4-specimen-box { border: 1px solid rgba(56, 182, 255, 0.25); border-radius: 0.5rem; background: rgba(6, 11, 20, 0.72); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.55rem; }
+.p4-nonce-frame { border: 1px dashed #26ffaa; border-radius: 0.5rem; background: rgba(0, 245, 184, 0.06); padding: 0.65rem 0.75rem; font-size: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; }
+.p4-nonce-frame code { background: rgba(15, 23, 42, 0.95); color: #7bffcf; border: 1px solid rgba(38, 255, 170, 0.3); }
+.p4-gate-bar { display: grid; gap: 0.35rem; }
+.p4-gate-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.42rem 0.62rem; border-radius: 0.42rem; border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(15, 23, 42, 0.72); font-size: 0.75rem; color: #c7d5ec; }
+.p4-gate-row[data-hit="true"] { border-color: #26ffaa; background: rgba(0, 245, 184, 0.14); color: #ffffff; font-weight: 700; box-shadow: 0 0 12px rgba(38, 255, 170, 0.16); }
+.p4-gate-row[data-hit="ai"] { border-color: #58d5ff; background: rgba(56, 182, 255, 0.16); color: #ffffff; font-weight: 700; box-shadow: 0 0 12px rgba(56, 182, 255, 0.18); }
+.p4-gate-row[data-hit="blocked"] { border-color: #f87171; background: rgba(248, 113, 113, 0.16); color: #fee2e2; font-weight: 700; }
+.p4-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.38rem 0.75rem; font-size: 0.78125rem; margin: 0; }
+.p4-kv dt { color: #93a8c8; font-weight: 700; }
+.p4-kv dd { margin: 0; color: #eef4ff; overflow-wrap: anywhere; }
+.p4-kv code { background: rgba(30, 41, 59, 0.9); color: #8be2ff; border: 1px solid rgba(56, 182, 255, 0.25); }
+.p4-legend { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.85rem; padding-top: 0.5rem; border-top: 1px solid rgba(148, 163, 184, 0.16); font-size: 0.75rem; color: #a7b8d4; }
+.p4-hero-neon { border-top: 3px solid transparent; border-image: linear-gradient(90deg, #00e690, #38b6ff, #a78bfa) 1; }
+/* Accessible Animated Disclosure Accordion (for /about & inside Proposal 4) */
+details.p4-acc { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card-bg); padding: 0.5rem 0.75rem; }
+.p4-theatre details.p4-acc { border-color: rgba(148, 163, 184, 0.26); background: rgba(8, 14, 26, 0.82); color: #eef4ff; }
+details.p4-acc > summary { list-style: none; cursor: pointer; font-weight: 700; font-size: 0.8125rem; display: flex; align-items: center; gap: 0.45rem; min-block-size: 32px; }
+details.p4-acc > summary::-webkit-details-marker { display: none; }
+details.p4-acc > summary .p4-chev { transition: rotate 0.2s ease; rotate: -90deg; flex: none; }
+details.p4-acc[open] > summary .p4-chev { rotate: 0deg; }
+details.p4-acc::details-content { interpolate-size: allow-keywords; overflow: clip; contain: layout; }
+details.p4-acc:not([open])::details-content { block-size: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  details.p4-acc::details-content { transition: block-size, content-visibility, display; transition-duration: 0.28s; transition-timing-function: ease-in-out; transition-behavior: allow-discrete; }
+}
+.p4-acc-body { padding-top: 0.55rem; margin-top: 0.45rem; border-top: 1px dashed rgba(148, 163, 184, 0.25); font-size: 0.78125rem; display: grid; gap: 0.4rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="proto-bar" role="toolbar" aria-label="프로토타입 제어 막대">
+  <div class="proto-group">
+    <span class="proto-group-label">시안 선택</span>
+    <button type="button" data-proposal="p1" aria-pressed="false">1안: 경로 추적기 · 상세 검사기</button>
+    <button type="button" data-proposal="p2" aria-pressed="false">2안: 시나리오 워크벤치 · 비교</button>
+    <button type="button" data-proposal="p3" aria-pressed="false">3안: Hindsight 참조 (4열 라이브 흐름)</button>
+    <button type="button" data-proposal="p4" aria-pressed="true">4안: Gemini Neon (통합 5단계)</button>
+  </div>
+  <div class="proto-group">
+    <span class="proto-group-label">호출 맥락</span>
+    <button type="button" data-viewer="public" aria-pressed="true">/about (인터넷 공개)</button>
+    <button type="button" data-viewer="member" aria-pressed="false">/support/pipeline (회원)</button>
+    <button type="button" data-viewer="admin" aria-pressed="false">/support/pipeline (관리자)</button>
+  </div>
+  <div class="proto-group">
+    <span class="proto-group-label">화면 폭</span>
+    <button type="button" data-viewport="desktop" aria-pressed="true">데스크톱</button>
+    <button type="button" data-viewport="mobile" aria-pressed="false">모바일 390px</button>
+  </div>
+  <div class="proto-group">
+    <span class="proto-group-label">테마</span>
+    <button type="button" id="theme-toggle" aria-pressed="false">어두운 테마</button>
+  </div>
+</div>
+
+<div class="proto-status" role="status" aria-live="polite" id="proto-status"></div>
+
+<div class="stage">
+  <div class="device" id="device-frame">
+    <div id="view-p1" hidden></div>
+    <div id="view-p2" hidden></div>
+    <div id="view-p3" hidden></div>
+    <div id="view-p4"></div>
+    <details class="proto-eval">
+      <summary>소유자 검토용: 1안 · 2안 · 3안 · 4안 시각 프로토타입 비교 요약</summary>
+      <div class="table-wrap" style="margin-top:0.5rem;"><table>
+        <thead><tr><th scope="col">시안</th><th scope="col">핵심 상호작용 방식</th><th scope="col">장점</th><th scope="col">고려할 점</th></tr></thead>
+        <tbody>
+          <tr><td><strong>1안: 경로 추적기 · 상세 검사기</strong></td><td>진입점 탭 + 서버 API/에이전트 토글 + 4구역 클릭형 노드 + 고정 상세 검사기 + 단계별 재생</td><td>모바일/좁은 화면에서도 글자가 겹치지 않고 각 단계의 입력·동작·실패 차단 규칙을 깊이 읽기 좋음</td><td>전체 4열 데이터 흐름의 연속적 동선 감각은 3안보다 정적임</td></tr>
+          <tr><td><strong>2안: 시나리오 워크벤치 · 비교</strong></td><td>진입점 카드 런처 + 분해 보드 + 경로 1:1 diff 표 + 5관문·자막 규칙 시뮬레이터</td><td>진입점 간 차이(diff)와 5관문·자막 우선순위 규칙을 직접 손으로 체험하며 이해하기 좋음</td><td>초기 방문자에게는 정보 밀도가 다소 높을 수 있음</td></tr>
+          <tr><td><strong>3안: Hindsight 참조 (4열 라이브 흐름)</strong></td><td>고정 4열 공간 SVG(입력 → 처리 엔진 → SQLite 실린더 → 비동기 워커) + 진행률 밑줄 탭 + 재생/배속/전체화면 + 클릭 점프</td><td>예시 데이터가 4열을 따라 실시간으로 변하는 모습을 보며 동기/비동기 경계와 저장 구조를 직관적으로 파악</td><td>좁은 모바일에서는 4열 SVG가 가로 스크롤되며 전체화면(확대) 버튼 활용이 중요</td></tr>
+          <tr><td><strong>4안: Gemini Neon (통합 5단계 광학 프리즘)</strong></td><td>진입점 선택지 제거 + <code>favicon.svg</code> 에메랄드·애저 네온 광학 캔버스 + 5단계 신호 레일 + <code>서버 API/에이전트</code> 단일 토글 + 표본 변형 &amp; 4단계 내장 5관문 게이지</td><td>진입점 구분으로 인한 선택 과부하를 없애고 문서 1편이 <code>raw_text</code>→추출/정리본→5관문→그래프로 변환되는 핵심 생애주기를 직관적으로 전달</td><td>특수 진입점(예: 텔레그램 복합 2배 예산, 3종 백그라운드 루프) 세부 규칙은 2차 아코디언에 접어 둠</td></tr>
+        </tbody>
+      </table></div>
+    </details>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ICONS = {
+    home: '<path d="M2.5 8 8 3l5.5 5M4 7v6h3v-3.5h2V13h3V7"/>',
+    doc: '<path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/>',
+    graph: '<circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="6" r="1.8"/><circle cx="7" cy="12" r="1.8"/><path d="M5.7 4.5 10.3 5.6M11 7.6 8.2 10.7M4.6 5.7 6.4 10.3"/>',
+    fork: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="11.5" cy="3.5" r="1.5"/><circle cx="8" cy="12.5" r="1.5"/><path d="M4.5 5v1.5a2 2 0 0 0 2 2h3a2 2 0 0 0 2-2V5M8 8.5V11"/>',
+    bot: '<path d="M3.5 6h9v6.5h-9zM8 6V3.5M6.2 9v.6M9.8 9v.6"/><circle cx="8" cy="3" r=".6"/>',
+    send: '<path d="m2 8 11.5-5.5L10 14 7.5 9.5zM7.5 9.5 13.5 2.5"/>',
+    rss: '<circle cx="4" cy="12" r="1.2"/><path d="M3 7.5A5.5 5.5 0 0 1 8.5 13M3 3.5A9.5 9.5 0 0 1 12.5 13"/>',
+    repeat: '<path d="M3 7V6a1.5 1.5 0 0 1 1.5-1.5H12M10 2.5l2 2-2 2M13 9v1a1.5 1.5 0 0 1-1.5 1.5H4M6 13.5l-2-2 2-2"/>',
+    restore: '<path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5M8 5.5V8l1.8 1.2"/>',
+    shield: '<path d="M8 2.5 13 4v4c0 2.8-2 4.6-5 5.5-3-.9-5-2.7-5-5.5V4z"/>',
+    bolt: '<path d="M9 2 4 9h3.5L7 14l5-7H8.5z"/>',
+    globe: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c-2 1.8-2 9.2 0 11M8 2.5c2 1.8 2 9.2 0 11"/>',
+    book: '<path d="M8 4.5C6.5 3.5 4.5 3.3 2.5 3.5V12c2-.2 4 0 5.5 1 1.5-1 3.5-1.2 5.5-1V3.5c-2-.2-4 0-5.5 1zM8 4.5V13"/>',
+    info: '<circle cx="8" cy="8" r="5.5"/><path d="M8 7.5V11M8 5h.01"/>',
+    lock: '<path d="M4 7.5h8v6H4zM5.5 7.5v-2a2.5 2.5 0 0 1 5 0v2"/>',
+    link: '<path d="M6.5 9.5a2.5 2.5 0 0 0 3.5 0l2.5-2.5A2.5 2.5 0 0 0 9 3.5l-1 1M9.5 6.5a2.5 2.5 0 0 0-3.5 0L3.5 9A2.5 2.5 0 0 0 7 12.5l1-1"/>',
+    external: '<path d="M9.5 2.5h4v4M13.5 2.5 7 9M6.5 4H3.5A1 1 0 0 0 2.5 5v7.5a1 1 0 0 0 1 1H11a1 1 0 0 0 1-1v-3"/>',
+    captions: '<path d="M2 4.5h12v7H2zM7 7a1.5 1.5 0 1 0 0 2M11.5 7a1.5 1.5 0 1 0 0 2"/>',
+    clock: '<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/>',
+    check: '<path d="M3.5 8.5 6.5 11.5 12.5 4.5"/>',
+    users: '<circle cx="6" cy="5.5" r="2.2"/><path d="M2 13c.5-2.3 2-3.5 4-3.5s3.5 1.2 4 3.5M10.5 3.6a2.2 2.2 0 0 1 0 3.9M11.8 9.8c1.2.5 1.9 1.6 2.2 3.2"/>',
+    eye: '<path d="M1.5 8c1.6-2.8 3.8-4.2 6.5-4.2s4.9 1.4 6.5 4.2c-1.6 2.8-3.8 4.2-6.5 4.2S3.1 10.8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
+    play: '<path d="M5 3.5v9l7-4.5z"/>',
+    pause: '<path d="M5 3.5v9M11 3.5v9"/>',
+    expand: '<path d="M3 6.5V3h3.5M13 6.5V3H9.5M3 9.5V13h3.5M13 9.5V13H9.5"/>',
+    close: '<path d="m4 4 8 8M12 4l-8 8"/>',
+    prev: '<path d="m10 3.5-4.5 4.5 4.5 4.5"/>',
+    next: '<path d="m6 3.5 4.5 4.5-4.5 4.5"/>',
+    spark: '<path d="M8 2v3.5M8 10.5V14M2 8h3.5M10.5 8H14M4 4l2.2 2.2M9.8 9.8 12 12M12 4 9.8 6.2M6.2 9.8 4 12"/>',
+    layers: '<path d="M8 2.5 13.5 5.5 8 8.5 2.5 5.5zM2.5 8.5 8 11.5l5.5-3M2.5 11.5 8 14.5l5.5-3"/>',
+    database: '<ellipse cx="8" cy="4.2" rx="4.8" ry="1.8"/><path d="M3.2 4.2v7.6c0 1 2.15 1.8 4.8 1.8s4.8-.8 4.8-1.8V4.2M3.2 8c0 1 2.15 1.8 4.8 1.8s4.8-.8 4.8-1.8"/>',
+    chevron: '<path d="m4.5 6 3.5 4 3.5-4"/>'
+  };
+
+  function icon(name) {
+    var body = ICONS[name] || ICONS.info;
+    return '<svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">' + body + '</svg>';
+  }
+
+  function esc(str) {
+    return String(str == null ? "" : str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /* ── Shared Grounded Domain Data (Single Source for Proposal 1 & Proposal 2) ── */
+  var VIEWER_PROFILES = {
+    public: {
+      id: "public",
+      label: "/about (인터넷 공개)",
+      privacyNotice: "비공개 계정·개인 키·관리자 Jev·내부 기록 차단됨",
+      sourceLabel: "공개 아키텍처 기준",
+      showJev: false,
+      showAdminRecords: false,
+      summaryRuns: null,
+      models: {
+        classify: "classify 슬롯 (PDF·ODT 논문 판별)",
+        extract_graph: "extract_graph 슬롯",
+        summarize: "summarize 슬롯 (extract_graph와 다를 때만 호출)",
+        render_detail: "render_detail 슬롯 (대표 정리본 standard)",
+        entity_judge: "entity_judge 슬롯 (Gate 4 경계 판정)",
+        relation_judge: "relation_judge 슬롯 (문서 간 관계)",
+        research: "research 슬롯 (검색 종합 · 자동 확장)",
+        embed: "embed 모델 (지식 베이스별 3072차원 고정)",
+        stt: "STT 고정 모델 (gemini-3.5-transcribe)",
+        vlm: "VLM 조건부 전사 모델",
+        client_llm: "외부 에이전트 자체 LLM (MCP OAuth 2.1)",
+        jev: ""
+      },
+      langOrder: "작업 계정의 선호 언어 순서 → en",
+      serverLangs: "ko → en",
+      autoMerge: "0.93",
+      borderline: "0.72"
+    },
+    member: {
+      id: "member",
+      label: "/support/pipeline (회원)",
+      privacyNotice: "내 계정 BYOK 모델 반영 · 타인 문서·Jev·/admin/* 격리됨",
+      sourceLabel: "내 API 키 (BYOK)",
+      showJev: false,
+      showAdminRecords: false,
+      summaryRuns: false,
+      models: {
+        classify: "gemini-3.8-flash-medium",
+        extract_graph: "gemini-3.8-flash-medium",
+        summarize: "gemini-3.8-flash-medium (동일 모델 — 건너뜀)",
+        render_detail: "gemini-3.8-flash-medium",
+        entity_judge: "gemini-3.8-flash-medium",
+        relation_judge: "gemini-3.8-flash-medium",
+        research: "gemini-3.8-flash-medium",
+        embed: "gemini-embedding-2 (3072차원)",
+        stt: "gemini-3.5-transcribe (켜짐)",
+        vlm: "꺼짐 (서버 환경 변수 제어)",
+        client_llm: "외부 에이전트 자체 LLM (MCP OAuth 2.1)",
+        jev: ""
+      },
+      langOrder: "ko → ja → en",
+      serverLangs: "ko → en",
+      autoMerge: "0.93",
+      borderline: "0.72"
+    },
+    admin: {
+      id: "admin",
+      label: "/support/pipeline (관리자)",
+      privacyNotice: "서버 프로바이더 + Jev 그림자 평가 + 최근 계보·대체 동작 표시",
+      sourceLabel: "서버 프로바이더 (Google AI Studio)",
+      showJev: true,
+      showAdminRecords: true,
+      summaryRuns: true,
+      models: {
+        classify: "gemini-3.1-flash-lite-low",
+        extract_graph: "gemini-3.8-flash-medium",
+        summarize: "gemini-3.1-flash-lite-low (모델 다름 — 별도 실행)",
+        render_detail: "gemini-3.8-flash-medium",
+        entity_judge: "gemini-3.8-flash-medium",
+        relation_judge: "gemini-3.8-flash-medium",
+        research: "gemini-3.8-flash-medium",
+        embed: "gemini-embedding-2 (3072차원)",
+        stt: "gemini-3.5-transcribe (켜짐)",
+        vlm: "gemini-3.1-flash-lite (꺼짐)",
+        client_llm: "외부 에이전트 자체 LLM (MCP OAuth 2.1)",
+        jev: "jev-latest · 켜짐 (그림자 기록 전용)"
+      },
+      langOrder: "ko → ja → en (서버 기본)",
+      serverLangs: "ko → ja → en",
+      autoMerge: "0.93",
+      borderline: "0.72"
+    }
+  };
+
+  var ENTRYPOINTS = [
+    {
+      id: "all",
+      title: "전체 흐름",
+      shortTitle: "전체 흐름",
+      icon: "fork",
+      modeSupport: "both",
+      defaultMode: "provider",
+      badgeText: "6개 진입점 통합",
+      desc: "모든 문서 작성 진입점이 공통 수집·정규화 계층을 공유하면서도 추출 경로(서버 API vs 에이전트 클라이언트)와 생략 단계가 어떻게 갈라지는지 한눈에 봅니다.",
+      entryDetail: "웹·API·CLI, 텔레그램 봇, MCP 에이전트, 피드·타임라인, 백그라운드 워커, 재처리·정리본 추가가 각각의 규칙으로 파이프라인에 진입합니다.",
+      subModes: null
+    },
+    {
+      id: "web_api_cli",
+      title: "웹 UI · REST API · CLI",
+      shortTitle: "웹·API·CLI",
+      icon: "doc",
+      modeSupport: "both",
+      defaultMode: "provider",
+      badgeText: "서버 API · 에이전트 선택",
+      desc: "Web UI 적재 대화상자, POST /ingest(또는 /api/v1/kbs/{kb}/ingest), claire ingest 명령으로 URL·파일·노트를 직접 넣을 때의 경로입니다.",
+      entryDetail: "Web UI는 추출 방법(extraction_mode)을 필수로 선택하며, CLI(--extraction-mode)는 생략 시 계정 기본 모드를 따릅니다. 추가 정리본(간결·학술) 선택도 함께 전달됩니다.",
+      subModes: null
+    },
+    {
+      id: "telegram",
+      title: "텔레그램 봇 (단일·복합)",
+      shortTitle: "텔레그램 봇",
+      icon: "send",
+      modeSupport: "both",
+      defaultMode: "provider",
+      badgeText: "단일 + 첨부·링크 복합",
+      desc: "텔레그램 DM/파일 캡션으로 전달한 입력입니다. 첨부 파일과 URL이 한 메시지에 있으면 복합 문서(compose_composite_document)로 묶어 2배 프롬프트 예산을 씁니다.",
+      entryDetail: "--force-provider / --agent-client 플래그와 --full, --effort 옵션을 해석합니다. 인제스트 초점은 봉인되어 구분자 뒤 텍스트는 무시합니다.",
+      subModes: null
+    },
+    {
+      id: "mcp_agent",
+      title: "MCP 에이전트 직접 적재",
+      shortTitle: "MCP 에이전트",
+      icon: "bot",
+      modeSupport: "client_only",
+      defaultMode: "client",
+      badgeText: "에이전트 전용 · API 차단",
+      desc: "Antigravity·Claude·Codex 등 OAuth 2.1 에이전트가 extract_stage로 개인 KB에만 스테이징하고 격리 서브에이전트로 추출해 extract_submit으로 커밋합니다.",
+      entryDetail: "에이전트 OAuth 토큰으로 서버 API 적재나 /reingest·/regenerate를 호출하면 403 agent_client_provider_refused로 거부됩니다. agent_source_staged 알림도 생략합니다.",
+      subModes: null
+    },
+    {
+      id: "feed_syndication",
+      title: "피드 · 연합 타임라인",
+      shortTitle: "피드·연합",
+      icon: "rss",
+      modeSupport: "both",
+      defaultMode: "provider",
+      badgeText: "RSS · ActivityPub",
+      desc: "/syndication에서 구독한 RSS/Atom/JSON Feed 항목이나 원격 ActivityPub 게시물을 내 지식 베이스로 적재하는 경로입니다.",
+      entryDetail: "POST /api/feeds/items/{id}/ingest와 원격 타임라인 적재 모두 동일한 추출 방법 선택(provider vs client)과 개인 KB 격리를 따릅니다.",
+      subModes: null
+    },
+    {
+      id: "background_loops",
+      title: "자동 백그라운드 워커",
+      shortTitle: "자동 워커",
+      icon: "clock",
+      modeSupport: "submode",
+      defaultMode: "provider",
+      badgeText: "확장 · 갱신 · 복구",
+      desc: "개인 지식 베이스(CT10)에서만 동작하는 3종 백그라운드 루프(expand-loop, refresh-loop, recover-loop)의 실행 경로입니다.",
+      entryDetail: "공유 지식 베이스는 소유 계정 과금 방지를 위해 워커가 돌지 않습니다. 각 워커는 용도에 따라 재귀 확장 금지, 동일 doc.id 갱신, 원 모드로 재시도합니다.",
+      subModes: [
+        { id: "expand", label: "expand-loop (링크 자동 확장)" },
+        { id: "refresh", label: "refresh-loop (문서 주기 갱신)" },
+        { id: "recover", label: "recover-loop (오류 지수 백오프 복구)" }
+      ],
+      defaultSubMode: "expand"
+    },
+    {
+      id: "reprocess_renditions",
+      title: "재적재 · 재생성 · 정리본 추가",
+      shortTitle: "재처리·정리본",
+      icon: "repeat",
+      modeSupport: "submode",
+      defaultMode: "provider",
+      badgeText: "재수집 유무 분기",
+      desc: "이미 있는 문서를 다시 가져오거나(재적재), 보관된 원문으로 다시 추출하거나(재생성), 간결·학술 정리본만 추가 생성하는 경로입니다.",
+      entryDetail: "웹/API의 재적재·재생성·정리본 추가는 서버 API 전용입니다. MCP 에이전트는 extract_stage(document_id, force=True)로 기존 문서를 다시 스테이징할 수 있습니다.",
+      subModes: [
+        { id: "reingest", label: "재적재 (원문 다시 수집 · 추출)" },
+        { id: "regenerate", label: "재생성 (원문 재사용 · 그래프 교체)" },
+        { id: "add_renditions", label: "정리본 추가 (render_detail만)" }
+      ],
+      defaultSubMode: "regenerate"
+    }
+  ];
+
+  var STAGES = [
+    {
+      id: "entry_source",
+      zone: 1,
+      zoneLabel: "① 진입 · 수집",
+      title: "진입점 인입 · raw_inbox 기록",
+      shortSub: "입력 파싱 · extraction_mode 결정",
+      kind: "rule",
+      modelKey: null,
+      input: "URL, PDF/ODT/DOCX/TXT, 자유 메모, 텔레그램 첨부+링크, 피드 항목, 기존 문서 ID",
+      process: "IngestService 또는 extract_stage가 입력을 raw_inbox에 먼저 기록하고 extraction_mode(provider vs client)를 확정합니다.",
+      output: "payload, inbox_id, 결정된 extraction_mode 및 effort 옵션",
+      failClosed: "에이전트 OAuth 토큰이 provider 모드나 재적재·재생성을 요청하면 403 agent_client_provider_used/refused로 즉시 차단합니다.",
+      extraType: null
+    },
+    {
+      id: "fetch_router",
+      zone: 1,
+      zoneLabel: "① 진입 · 수집",
+      title: "라우터 · 어댑터 · 사설망 가드",
+      shortSub: "플러그인 → 정적 → Scrapling → CDP",
+      kind: "rule",
+      modelKey: null,
+      input: "정규화된 URL 또는 업로드 파일 바이트",
+      process: "check_ip_safety로 사설망(SSRF)을 차단하고, 플러그인 어댑터(YouTube·X·HoYoLAB·VMware Explore·Naver Clip 등) → 정적 HTTP/PDFium → 일반 어댑터 → Scrapling → Chromium CDP 순으로 원문을 확보합니다.",
+      output: "Document(raw_text, meta, attachments, content_hash)",
+      failClosed: "빈 PDF, 복호화 불가, 또는 모든 웹 체인이 300자/가드를 못 넘기면 FetchError로 중단하고 raw_inbox에 오류를 남깁니다.",
+      extraType: "adapters"
+    },
+    {
+      id: "media_stt_vlm",
+      zone: 1,
+      zoneLabel: "① 진입 · 수집",
+      title: "조건부 자막 · STT · VLM 전사",
+      shortSub: "제작자 자막 → 자동 자막 → STT / 최후 VLM",
+      kind: "ai",
+      modelKey: "stt",
+      secondModelKey: "vlm",
+      input: "동영상 URL·오디오 파일 또는 텍스트가 빈약한 웹 이미지(최대 20장)",
+      process: "동영상은 계정 선호 언어 순으로 제작자 자막 → 자동 자막을 먼저 시도하고, 없을 때만 STT를 실행합니다. 웹은 스크랩이 모두 실패·빈약하고 이미지가 있을 때만 VLM으로 전사합니다.",
+      output: "자막·전사 텍스트 블록 및 transcript_source / vlm_model 메타",
+      failClosed: "선호 자막이 있는데 내려받기에 실패하면 STT로 대체하지 않고 FetchError로 멈춥니다. 에이전트 client 모드/스테이징에서는 서버 STT·VLM이 꺼집니다.",
+      extraType: "stt"
+    },
+    {
+      id: "paper_classify",
+      zone: 1,
+      zoneLabel: "① 진입 · 수집",
+      title: "PDF · ODT 논문 분류 (서지 보정)",
+      shortSub: "reconcile_pdf_metadata (중복 검사 전)",
+      kind: "ai",
+      modelKey: "classify",
+      input: "PDF 또는 ODT 앞부분 텍스트 및 원시 메타데이터",
+      process: "classify 슬롯이 논문 여부(is_paper)와 실제 저자·제목을 판별해 DTP 조판기 계정명이나 파일명 제목을 보정합니다.",
+      output: "meta.paper_classification, 보정된 title/author",
+      failClosed: "이 단계는 API 적재에서만 실행되며, 에이전트 스테이징(stage_raw)과 비-PDF/ODT 문서에서는 건너뜁니다.",
+      extraType: null
+    },
+    {
+      id: "dedup_guard",
+      zone: 2,
+      zoneLabel: "② 정규화 · 검증",
+      title: "중복 판별 · 내용 가드 · 툼스톤",
+      shortSub: "canonical URL · 해시 · MinHash · 가드",
+      kind: "rule",
+      modelKey: null,
+      input: "정규화된 Document(url, raw_text, content_hash)",
+      process: "purged_tombstones 확인, canonical URL(기존 문서 갱신), 콘텐츠 해시·MinHash 중복을 검사하고 validate_extractable_content로 저품질·차단 페이지를 걸러냅니다.",
+      output: "통과 시 documents 행 생성/갱신 (client 모드는 pending 격리)",
+      failClosed: "차단 페이지·빈 본문·자막 없는 무음 영상이면 insufficient_content로 즉시 거절합니다. force=True 재적재만 툼스톤을 해제합니다.",
+      extraType: null
+    },
+    {
+      id: "budget_effort",
+      zone: 2,
+      zoneLabel: "② 정규화 · 검증",
+      title: "텍스트 예산 · 추론 노력 결정",
+      shortSub: "원문/프롬프트 예산 · 표 면제 · 적응형 노력",
+      kind: "rule",
+      modelKey: null,
+      input: "source_type, raw_chars, paper_classification, full_content 플래그",
+      process: "표(table-exemption)를 보존한 채 source별 저장 예산과 프롬프트 예산(복합 적재 시 2배)을 계산하고, 15,000자 이상 논문 PDF는 pdf_paper_effort(high)를 고릅니다.",
+      output: "슬라이싱된 프롬프트 본문과 meta.applied_effort",
+      failClosed: "고정 노력 접미사 모델이나 명시적 --effort가 있으면 덮어쓰지 않고, 지원하지 않는 노력 값은 400 오류로 거부합니다.",
+      extraType: null
+    },
+    {
+      id: "agent_extract_submit",
+      zone: 3,
+      zoneLabel: "③ 추출 · 정리본 · 해소",
+      title: "에이전트 격리 추출 · 4계층 검증",
+      shortSub: "extract_claim → extract_read(nonce) → extract_submit",
+      kind: "client",
+      modelKey: "client_llm",
+      input: "pending 문서 (full_content=True, claim_token 임대, nonce 격리 블록)",
+      process: "외부 에이전트의 격리 서브에이전트(claire-extractor)가 <untrusted_source_document nonce=...>를 읽어 초록·대표 정리본(standard)·엔티티·관계를 생성하고, 서버가 스키마(extra=forbid)·AsciiDoc 규칙·근거 스팬·온톨로지 4계층과 임베딩 선계산을 검증합니다.",
+      output: "검증된 ExtractionPayload + 선계산된 전 엔티티 임베딩",
+      failClosed: "마크다운 혼입, 가짜 닫힘 태그, 낙관적 해시 불일치, 비허용 모델 문자열이면 DB 쓰기 전에 거부됩니다.",
+      extraType: "agent_layers"
+    },
+    {
+      id: "extract_graph",
+      zone: 3,
+      zoneLabel: "③ 추출 · 정리본 · 해소",
+      title: "구조화 추출 (초록 · 엔티티 · 관계)",
+      shortSub: "extract_graph 1회 호출 (한국어 문어체)",
+      kind: "ai",
+      modelKey: "extract_graph",
+      input: "예산 적용 원문 + 온톨로지 사양(11 엔티티 · 11 관계)",
+      process: "단일 LLM 호출로 한국어 초록(summary), 핵심 주장(key_claims), 엔티티(원어 이름/별칭/관찰), 문서 내 관계를 추출하고 raw extraction log를 남깁니다.",
+      output: "ExtractionResult (summary, key_claims, entities, relations)",
+      failClosed: "추출 호출 실패 시 적재를 중단하며, 재생성(regenerate)에서는 before_store 콜백 이전이므로 기존 그래프가 보존됩니다.",
+      extraType: null
+    },
+    {
+      id: "separate_summary",
+      zone: 3,
+      zoneLabel: "③ 추출 · 정리본 · 해소",
+      title: "조건부 별도 초록 재생성",
+      shortSub: "summarize 슬롯이 extract_graph와 다를 때만",
+      kind: "conditional",
+      modelKey: "summarize",
+      input: "원문 및 extract_graph의 초록",
+      process: "summarize 슬롯의 프로바이더·모델·노력 수준이 extract_graph와 다르면 별도 호출로 초록을 다시 만들고, 같으면 불필요한 호출을 우회합니다.",
+      output: "최종 documents.summary (초록)",
+      failClosed: "마크업이 섞이거나 서문형 문장인 경우 평가 판정(evaluate_summary_verdict)과 정제 규칙으로 걸러집니다.",
+      extraType: null
+    },
+    {
+      id: "detail_renditions",
+      zone: 3,
+      zoneLabel: "③ 추출 · 정리본 · 해소",
+      title: "상세 정리본 렌더링 (독립 병렬 분기)",
+      shortSub: "render_detail → standard / concise / academic",
+      kind: "ai",
+      modelKey: "render_detail",
+      input: "원문 + 템플릿 규칙(standard 기본 · 선택적 concise/academic)",
+      process: "대표 정리본(standard: 원문 표 미사용 · 대표 수식만)을 AsciiDoc으로 렌더링해 AOT HTML을 만들고, 요청 시 concise(간결) 또는 academic(학술) 정리본을 추가 생성합니다.",
+      output: "document_renditions, documents.detail, detail_html",
+      failClosed: "엔티티 해소의 입력으로 들어가지 않는 독립 분기이며, 대표 정리본 실패 시에도 그래프 저장은 중단되지 않습니다.",
+      extraType: "renditions"
+    },
+    {
+      id: "entity_resolve",
+      zone: 3,
+      zoneLabel: "③ 추출 · 정리본 · 해소",
+      title: "엔티티 해소 (5관문 · 하드 불변식)",
+      shortSub: "Gate 1(규칙) → Gate 2(불변식) → Gate 3/4/5",
+      kind: "ai",
+      modelKey: "entity_judge",
+      secondModelKey: "embed",
+      input: "추출된 엔티티 목록 + 기존 KB 엔티티 · 벡터 저장소",
+      process: "Gate 1(정규화·별칭·약어)에서 결정되면 임베딩 호출을 건너뜁니다. 미스 시 임베딩+FTS 후보를 찾고, Gate 2(버전 충돌·2글자 대문자·타입 호환)를 거쳐 Gate 3(≥0.93 자동 병합) 또는 Gate 4(0.72~0.93 LLM 판정, API 전용)로 병합/신규 생성합니다.",
+      output: "해소된 entity_id, relational_candidates, multihop_candidates",
+      failClosed: "에이전트 클라이언트 경로에서는 Gate 4 LLM 판정을 실행하지 않고 규칙+벡터 임계값만으로 결정합니다.",
+      extraType: "gates"
+    },
+    {
+      id: "jev_shadow",
+      zone: 3,
+      zoneLabel: "③ 추출 · 정리본 · 해소",
+      title: "Jev 그림자 평가 (관리자 · 비결정)",
+      shortSub: "판정 비개입 · 후보 JSON 스냅숏만 기록",
+      kind: "shadow",
+      modelKey: "jev",
+      adminOnly: true,
+      input: "엔티티 해소 후보의 이름·타입·별칭·관찰 스냅숏(벡터 제외)",
+      process: "실제 병합 판정과 무관하게 백그라운드 그림자 점수만 기록해 관리자(/laboratory/shadows, /support/pipeline) 평가 자료로 남깁니다.",
+      output: "doc.meta.model_lineage.jev 기록",
+      failClosed: "관리자 전용 관측 기능이며, 회원 화면이나 /about 공개 페이지, 에이전트 클라이언트 경로에는 노출/실행되지 않습니다.",
+      extraType: null
+    },
+    {
+      id: "decision_heatmap",
+      zone: 4,
+      zoneLabel: "④ 저장 · 연결 · 후속",
+      title: "판정 기록 · 히트맵 · 문서 내 관계",
+      shortSub: "resolution_log · 30후보 히트맵 · domain/range",
+      kind: "rule",
+      modelKey: null,
+      input: "해소 추적 결과(Decision Trace) + 추출된 문서 내 관계",
+      process: "가역 병합 롤백 페이로드와 최대 30개 후보의 히트맵을 저장하고, 양 끝 엔티티가 해소되었으며 자기 루프가 아닌 관계 중 온톨로지 도메인·범위(authored_by→Person|Org)를 통과한 엣지만 적재합니다.",
+      output: "documents.meta.resolution_log, heatmap_matrix, relations 엣지",
+      failClosed: "에이전트 클라이언트 경로는 히트맵·Jev 대신 _AtomicConnection 단일 트랜잭션으로 엔티티·관계를 원자 커밋합니다.",
+      extraType: null
+    },
+    {
+      id: "relation_judge",
+      zone: 4,
+      zoneLabel: "④ 저장 · 연결 · 후속",
+      title: "문서 간 횡단 관계 판정",
+      shortSub: "relation_judge (문서당 상한 내 병렬 판정)",
+      kind: "ai",
+      modelKey: "relation_judge",
+      input: "해소 단계에서 모은 relational_candidates 쌍",
+      process: "기존 엣지가 없는 후보 쌍을 점수순으로 추려 relation_judge 슬롯에 질의하고, 확정된 횡단 관계(단방향/역방향/양방향)를 그래프에 추가합니다.",
+      output: "cross_relations_added 및 교차 엣지",
+      failClosed: "API 적재에서 enable_relation_linking이 켜진 경우에만 실행되며, 에이전트 클라이언트 경로와 정리본 추가에서는 실행하지 않습니다.",
+      extraType: null
+    },
+    {
+      id: "atomic_lineage_commit",
+      zone: 4,
+      zoneLabel: "④ 저장 · 연결 · 후속",
+      title: "정본 저장 · 모델 계보 · FTS/벡터 색인",
+      shortSub: "SQLite claire.db · FTS5 · model_lineage",
+      kind: "rule",
+      modelKey: "embed",
+      input: "문서 본문, 정리본 HTML, 엔티티/관계, 단계별 실행 모델",
+      process: "단일 정본 SQLite(claire.db, kb_id 격리)에 문서와 FTS5 한국어 형태소 색인, 3072차원 임베딩, 단계별 model_lineage를 영속화합니다.",
+      output: "검색·그래프 UI·/silvercord/{token}·MCP 조회 가능한 정본 문서",
+      failClosed: "원문(raw_text)과 출처 메타는 절대 LLM 산출물로 덮어쓰지 않으며(A1), 텔레메트리는 정본 DB와 물리 분리합니다(A4).",
+      extraType: null
+    },
+    {
+      id: "post_watch_expand",
+      zone: 4,
+      zoneLabel: "④ 저장 · 연결 · 후속",
+      title: "후속 단계 (classify_watch · 자동 확장)",
+      shortSub: "신규 1차 적재만 · 깊이 1 제한 · auto_expand",
+      kind: "ai",
+      modelKey: "classify",
+      secondModelKey: "research",
+      input: "신규 1차 적재 완료 문서 (부분·재적재·자식 문서 제외)",
+      process: "classify 슬롯으로 주기 재확인(classify_watch) 대상 여부를 판단하고, auto_expand가 켜져 있으면 research 슬롯이 고른 링크를 expand-loop 대기열(깊이 1, expand_max=0)에 넣습니다.",
+      output: "watch 등록 및 expand_queue 대기 항목",
+      failClosed: "에이전트 클라이언트·재적재·재생성·정리본 추가·자식 확장에서는 실행되지 않으며, 공유 KB에서는 워커가 돌지 않습니다.",
+      extraType: null
+    }
+  ];
+
+  function resolveStageRun(stageId, entrypointId, mode, subMode, viewer) {
+    var st = STAGES.find(function (s) { return s.id === stageId; });
+    if (!st) return { state: "skipped", reason: "알 수 없는 단계" };
+    if (st.adminOnly && !viewer.showJev) return { hidden: true, state: "skipped", reason: "관리자 전용" };
+
+    if (entrypointId === "all") {
+      if (stageId === "agent_extract_submit" && mode === "provider") {
+        return { state: "active", order: "분기", note: "에이전트 경로 선택 시 사용" };
+      }
+      var allOrder = {
+        entry_source: "1", fetch_router: "2", media_stt_vlm: "3", paper_classify: "4",
+        dedup_guard: "5", budget_effort: "6", agent_extract_submit: "7*",
+        extract_graph: "7", separate_summary: "8", detail_renditions: "9",
+        entity_resolve: "10", jev_shadow: "10*", decision_heatmap: "11",
+        relation_judge: "12", atomic_lineage_commit: "13", post_watch_expand: "14"
+      };
+      return { state: "active", order: allOrder[stageId] || "•", note: "전체 파이프라인 구성 단계" };
+    }
+
+    var effectiveMode = mode;
+    if (entrypointId === "mcp_agent") effectiveMode = "client";
+    if (entrypointId === "reprocess_renditions") effectiveMode = "provider";
+
+    /* Specific sub-mode rules */
+    if (entrypointId === "reprocess_renditions" && subMode === "add_renditions") {
+      var addActive = { entry_source: "1", detail_renditions: "2", atomic_lineage_commit: "3" };
+      if (addActive[stageId]) return { state: "active", order: addActive[stageId], note: "보관된 raw_text에서 요청된 템플릿(concise/academic)만 렌더링" };
+      return { state: "skipped", note: "정리본 추가는 원문 재수집과 엔티티·관계 수정을 건너뜁니다." };
+    }
+
+    if (entrypointId === "reprocess_renditions" && subMode === "regenerate") {
+      var regenSkip = { fetch_router: "저장된 raw_text 재사용", media_stt_vlm: "저장된 자막/전사 재사용", paper_classify: "기존 분류 유지", dedup_guard: "기존 문서 ID 유지 (before_store 보호)", post_watch_expand: "재생성에서는 후속 확장/감시 미실행" };
+      if (regenSkip[stageId]) return { state: "skipped", note: regenSkip[stageId] };
+    }
+
+    if (entrypointId === "reprocess_renditions" && subMode === "reingest") {
+      if (stageId === "post_watch_expand") return { state: "skipped", note: "재적재는 신규 1차 적재가 아니므로 classify_watch/auto_expand를 실행하지 않습니다." };
+    }
+
+    if (entrypointId === "background_loops") {
+      if (subMode === "expand" && stageId === "post_watch_expand") {
+        return { state: "skipped", note: "expand-loop 자식 문서는 expand_max=0(깊이 1 고정)으로 재확장하지 않습니다." };
+      }
+      if (subMode === "recover") {
+        /* recover-loop uses stored extraction_mode */
+      }
+    }
+
+    /* Client vs Provider mode branches */
+    if (effectiveMode === "client") {
+      var clientSteps = {
+        entry_source: { order: "1", note: entrypointId === "mcp_agent" ? "extract_stage (알림 미발송 · 개인 KB 전용)" : "인입 후 client 모드 확정 (agent_source_staged 알림)" },
+        fetch_router: { order: "2", note: "원문 전체(full_content=True) 수집 및 정규화" },
+        dedup_guard: { order: "3", note: "중복 확인 후 pending 상태로 격리 저장" },
+        budget_effort: { order: "4", note: "full_content=True 원문 보존 (에이전트 청크 읽기 준비)" },
+        agent_extract_submit: { order: "5", note: "extract_claim → extract_read → 에이전트 LLM 추출 → 4계층 검증" },
+        entity_resolve: { order: "6", note: "규칙(Gate 1~2) + 선계산 벡터(Gate 3)만 실행 (Gate 4 LLM 판정 생략)" },
+        atomic_lineage_commit: { order: "7", note: "단일 _AtomicConnection 트랜잭션 커밋 (origin: agent_client)" }
+      };
+      if (clientSteps[stageId]) {
+        return { state: "active", order: clientSteps[stageId].order, note: clientSteps[stageId].note };
+      }
+      var clientSkipReasons = {
+        media_stt_vlm: "에이전트 스테이징(stage_raw)은 서버 STT·VLM을 꺼서 실행하지 않습니다.",
+        paper_classify: "에이전트 스테이징에서는 classify 슬롯을 호출하지 않습니다.",
+        extract_graph: "서버 extract_graph 대신 에이전트 자체 LLM이 일괄 추출합니다.",
+        separate_summary: "에이전트 추출 페이로드에 초록이 포함되므로 별도 summarize를 호출하지 않습니다.",
+        detail_renditions: "에이전트 추출 페이로드에 정리본(standard 등)이 함께 제출됩니다.",
+        jev_shadow: "에이전트 클라이언트 경로에서는 Jev 그림자 평가를 수행하지 않습니다.",
+        decision_heatmap: "에이전트 클라이언트 경로에서는 히트맵 행렬을 기록하지 않습니다.",
+        relation_judge: "에이전트 클라이언트 경로에서는 문서 간 relation_judge를 실행하지 않습니다.",
+        post_watch_expand: "에이전트 클라이언트 경로에서는 classify_watch와 자동 확장을 실행하지 않습니다."
+      };
+      return { state: "skipped", note: clientSkipReasons[stageId] || "에이전트 경로에서 생략" };
+    }
+
+    /* Server API (provider) mode */
+    if (stageId === "agent_extract_submit") {
+      return { state: "skipped", note: "서버 API 경로이므로 외부 에이전트 스테이징·제출을 쓰지 않습니다." };
+    }
+
+    var apiOrderMap = [
+      "entry_source", "fetch_router", "media_stt_vlm", "paper_classify",
+      "dedup_guard", "budget_effort", "extract_graph", "separate_summary",
+      "detail_renditions", "entity_resolve", "decision_heatmap",
+      "relation_judge", "atomic_lineage_commit", "post_watch_expand"
+    ];
+    var activeIds = apiOrderMap.filter(function (id) {
+      if (entrypointId === "reprocess_renditions" && subMode === "regenerate") {
+        if (["fetch_router", "media_stt_vlm", "paper_classify", "dedup_guard", "post_watch_expand"].indexOf(id) !== -1) return false;
+      }
+      if (entrypointId === "reprocess_renditions" && subMode === "reingest" && id === "post_watch_expand") return false;
+      if (entrypointId === "background_loops" && subMode === "expand" && id === "post_watch_expand") return false;
+      return true;
+    });
+
+    if (stageId === "jev_shadow") {
+      return { state: "active", order: "그림자", note: "관리자 전용 비결정 기록 (해소 후보 스냅숏)" };
+    }
+    var idx = activeIds.indexOf(stageId);
+    if (idx !== -1) {
+      var note = "서버 API 경로 실행";
+      if (entrypointId === "telegram" && stageId === "fetch_router") note = "단일 또는 첨부+링크 복합(compose_composite_document) 처리";
+      if (entrypointId === "telegram" && stageId === "budget_effort") note = "복합 적재 시 프롬프트 예산 2배 적용";
+      if (entrypointId === "background_loops" && subMode === "refresh" && stageId === "dedup_guard") note = "동일 doc.id로 갱신해 기존 엔티티 출처 연결 보존";
+      if (stageId === "separate_summary" && viewer.summaryRuns === false) note = "extract_graph와 동일 모델 — 별도 호출 우회";
+      return { state: "active", order: String(idx + 1), note: note };
+    }
+    return { state: "skipped", note: "이 하위 경로에서는 생략됩니다." };
+  }
+
+  var GATES = [
+    { id: 1, title: "Gate 1 · 규칙 일치 (임베딩 없음)", desc: "1a 정확 일치 · 1b 별칭 일치 · 1c 약어(3자 이상, 동일 타입). 통과 시 임베딩 API를 호출하지 않습니다.", apiOnly: false },
+    { id: 2, title: "Gate 2 · 하드 불변식 검사", desc: "버전 숫자 충돌(v1↔v2), 2글자 대문자(AI 등) 불일치, 비호환 타입이면 즉시 후보에서 제외합니다.", apiOnly: false },
+    { id: 3, title: "Gate 3 · 고신뢰 벡터 자동 병합 (≥ 0.93)", desc: "3072차원 코사인 유사도가 sim_tier_auto_merge(0.93) 이상이면 LLM 판정 없이 자동 병합합니다.", apiOnly: false },
+    { id: 4, title: "Gate 4 · 경계 구간 LLM 판정 (0.72 ~ 0.93)", desc: "최대 MAX_JUDGE(3)개 후보를 entity_judge로 판정합니다. 에이전트 클라이언트 경로에서는 실행하지 않습니다.", apiOnly: true },
+    { id: 5, title: "Gate 5 · 신규 생성 및 관계 후보 수집", desc: "미병합 시 새 엔티티와 벡터를 생성하고, 0.70 이상 후보는 relational_candidates에 남깁니다.", apiOnly: false }
+  ];
+
+  var ONTOLOGY = {
+    entities: ["Tool", "Framework", "Model", "Paper", "Article", "Repo", "Concept", "Person", "Org", "Event", "Note"],
+    relations: ["implements", "alternative_to", "competes_with", "authored_by", "cites", "part_of", "uses", "integrates_with", "improves", "derived_from", "related_to"]
+  };
+
+  var RENDITIONS = [
+    { id: "standard", label: "기본 (standard)", badge: "대표 정리본 · 매 적재 생성", tables: "원문 표 미사용", formulas: "대표 공식만 유지", scope: "표준 구조화 상세 정리" },
+    { id: "concise", label: "간결 (concise)", badge: "선택 추가 정리본", tables: "원문 표 미사용", formulas: "대표 공식만 유지", scope: "핵심 쟁점 · 고정 절 순서 · 짧은 범위" },
+    { id: "academic", label: "학술 (academic)", badge: "선택 추가 정리본", tables: "원문 표 전체 보존", formulas: "수식·유도 전체 보존", scope: "연구·논문 원형 원칙 전체 유지" }
+  ];
+
+  var ADAPTERS = [
+    { source: "일반 웹 (HTML)", path: "정적 HTTP → 일반 어댑터(Discourse 등) → Scrapling → Chromium CDP → VLM", note: "사설망 차단 · Content Guard 적용" },
+    { source: "PDF · ODT · DOCX", path: "PDFium (1순위) → pypdf 폴백 · ODT 우선 · DOCX 추출", note: "15,000자↑ 논문 PDF 적응형 high 노력" },
+    { source: "YouTube · 동영상", path: "제작자 자막 → 자동 자막(선호 언어순) → STT(gemini-3.5-transcribe)", note: "어댑터: claire.youtube, claire.naver_clip" },
+    { source: "X · HoYoLAB · 국가법령", path: "전용 적재 어댑터 플러그인 격리 실행", note: "claire.xcom, claire.hoyolab, claire.law_go_kr, claire.uttu" },
+    { source: "VMware Explore", path: "동영상 자막/STT + 발표 PDF(최대 3개) 복합 번들", note: "claire.vmware_explore (세션 미준비 Fail-Closed)" },
+    { source: "RSS/Atom/JSON · OPML", path: "피드 수집기 → 선택적 적재(서버 API 또는 에이전트)", note: "원격 ActivityPub 게시물 적재와 동일 파이프라인" }
+  ];
+
+  /* ── Shared App State ── */
+  var state = {
+    proposal: "p4",
+    viewer: "public",
+    viewport: "desktop",
+    theme: "light",
+    /* Proposal 1 state */
+    p1Entrypoint: "all",
+    p1Mode: "provider",
+    p1SubMode: "expand",
+    p1SelectedStage: "entry_source",
+    p1ConsoleTab: "flow",
+    p1RefTab: "ontology",
+    /* Proposal 2 state */
+    p2Entrypoint: "web_api_cli",
+    p2Mode: "provider",
+    p2SubMode: "expand",
+    p2WorkTab: "swim",
+    p2Filter: "all",
+    p2CompareA: "web_api_cli:provider",
+    p2CompareB: "mcp_agent:client",
+    p2ConsoleTab: "flow",
+    p2RenditionTab: "standard",
+    /* Gate Simulator state */
+    simScore: 0.84,
+    simExact: false,
+    simVersionConflict: false,
+    simClientMode: false,
+    /* STT Simulator state */
+    sttManualKo: false,
+    sttAutoKo: true,
+    sttAutoEn: true,
+    sttDownloadFail: false,
+    sttEnabled: true,
+    /* Proposal 3 (Hindsight Reference) state */
+    p3Scenario: "web_api_cli",
+    p3Step: 0,
+    p3Playing: !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches),
+    p3Speed: 1,
+    p3Fullscreen: false,
+    p3SelectedNode: "engine_extract",
+    p3ConsoleTab: "flow",
+    p3RefTab: "ontology",
+    /* Proposal 4 (Gemini Neon — Unified 5-Stage Optical Prism) state */
+    p4Stage: 0,
+    p4Mode: "provider",
+    p4MotionOn: !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches),
+    p4GateScore: 0.84,
+    p4GateExact: false,
+    p4GateVersionConflict: false,
+    p4RenditionPreview: "standard",
+    p4ConsoleTab: "flow"
+  };
+
+  var p3Timer = null;
+
+  function getActiveViewer() {
+    return VIEWER_PROFILES[state.viewer] || VIEWER_PROFILES.public;
+  }
+
+  function getEntrypoint(id) {
+    return ENTRYPOINTS.find(function (e) { return e.id === id; }) || ENTRYPOINTS[0];
+  }
+
+  function formatStageModel(stage, viewer, epId, mode) {
+    if (!stage.modelKey) return "규칙 기반 (AI 호출 없음)";
+    var effectiveMode = epId === "mcp_agent" ? "client" : (epId === "reprocess_renditions" ? "provider" : mode);
+    if (effectiveMode === "client" && stage.id !== "agent_extract_submit" && stage.id !== "entity_resolve" && stage.id !== "atomic_lineage_commit") {
+      return "에이전트 경로에서 호출 안 함";
+    }
+    var val = viewer.models[stage.modelKey] || "-";
+    if (stage.secondModelKey) {
+      val += " · " + (viewer.models[stage.secondModelKey] || "-");
+    }
+    return val;
+  }
+
+  function subHtmlDetails(stage, viewer) {
+    if (stage.extraType === "gates") {
+      return '<details class="p1-details" open><summary>엔티티 해소 5관문 (auto ≥ ' + esc(viewer.autoMerge) + ', borderline ' + esc(viewer.borderline) + ')</summary><ol>' +
+        GATES.map(function (g) {
+          var badge = g.apiOnly ? ' <span class="pill pill-ai">API 전용</span>' : '';
+          return '<li><strong>' + esc(g.title) + '</strong>' + badge + ' — ' + esc(g.desc) + '</li>';
+        }).join("") +
+        '</ol></details>';
+    }
+    if (stage.extraType === "stt") {
+      return '<details class="p1-details"><summary>동영상 자막 · STT 처리 순서 (' + esc(viewer.langOrder) + ')</summary><ol>' +
+        '<li>제작자(수동) 자막 — 선호 언어 순서대로 확인</li>' +
+        '<li>자동 생성 자막 — 선호 언어 순서대로 확인 (무음·음악 자막 제외)</li>' +
+        '<li>음성 전사(STT) — 사용 가능한 자막이 없고 전사가 켜졌을 때만 <code>gemini-3.5-transcribe</code> 실행</li>' +
+        '<li>모두 없음 — 제목·설명·챕터만 남기고 영상을 3일간 캐시에 보관</li>' +
+        '</ol></details>';
+    }
+    if (stage.extraType === "agent_layers") {
+      return '<details class="p1-details" open><summary>에이전트 추출 4계층 방어 (AED9)</summary><ol>' +
+        '<li>격리 서브에이전트(<code>claire-extractor</code>) + 난수 nonce 경계(<code>&lt;untrusted_source_document&gt;</code>)</li>' +
+        '<li>엄격 스키마(<code>ConfigDict(extra="forbid", strict=True)</code>) + 임대(<code>claim_token</code>) + 해시 잠금</li>' +
+        '<li>결정론적 검증: 초록 판정 · AsciiDoc 구분자 · 근거 스팬 · 온톨로지 규칙</li>' +
+        '<li>사전 임베딩 계산 후 단일 <code>_AtomicConnection</code> 트랜잭션 커밋</li>' +
+        '</ol></details>';
+    }
+    if (stage.extraType === "renditions") {
+      return '<details class="p1-details"><summary>정리본(Rendition) 템플릿 3종 정책</summary><ul>' +
+        RENDITIONS.map(function (r) {
+          return '<li><strong>' + esc(r.label) + '</strong>: ' + esc(r.tables) + ' · ' + esc(r.formulas) + '</li>';
+        }).join("") +
+        '</ul></details>';
+    }
+    if (stage.extraType === "adapters") {
+      return '<details class="p1-details"><summary>소스 유형별 수집 경로 (어댑터 플러그인)</summary><ul>' +
+        ADAPTERS.map(function (a) {
+          return '<li><strong>' + esc(a.source) + '</strong>: ' + esc(a.path) + '</li>';
+        }).join("") +
+        '</ul></details>';
+    }
+    return "";
+  }
+
+  function renderPublicChromeHeader() {
+    return '<nav class="pub-nav" aria-label="공개 페이지 탐색">' +
+      '<a class="pub-brand" href="#about-top">' + icon("book") + '<span>Claire Bible</span></a>' +
+      '<div class="pub-nav-links">' +
+      '<a href="#home">홈</a>' +
+      '<a href="#directory">디렉터리</a>' +
+      '<a href="#kb">공유 KB</a>' +
+      '<a href="#about" aria-current="page">소개 (/about)</a>' +
+      '<a href="#reference">API 문서</a>' +
+      '</div>' +
+      '<div class="pub-nav-end">' +
+      '<a class="btn" href="#login">' + icon("lock") + '<span>로그인</span></a>' +
+      '</div>' +
+      '</nav>';
+  }
+
+  function renderPublicFooter() {
+    return '<footer class="pub-footer">' +
+      '<div><strong>Claire Bible v0.1.0</strong> · MIT License · 운영 <code>claire.example</code> · 외부 공개 문서 · 원문 보존 &amp; 온톨로지 지식 그래프 엔진</div>' +
+      '<div class="pub-footer-links">' +
+      '<a href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer">' + icon("external") + ' GitHub 저장소</a>' +
+      '<a href="https://github.com/fofwisdom/claire-agents" target="_blank" rel="noopener noreferrer">' + icon("bot") + ' 에이전트 마켓플레이스</a>' +
+      '<a href="#ns">JSON-LD 어휘 (/ns)</a>' +
+      '<a href="#nodeinfo">NodeInfo 2.1</a>' +
+      '<a href="#robots">robots.txt</a>' +
+      '</div>' +
+      '</footer>';
+  }
+
+  function renderP4PublicFooter() {
+    return '<footer class="pub-footer">' +
+      '<div><strong>Claire Bible</strong> · <code>build 7a3f9c2</code> · 운영 <code>claire.example</code> · 개인·공유 지식 베이스 및 온톨로지 지식 그래프 엔진</div>' +
+      '<div class="pub-footer-links">' +
+      '<a href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer">' + icon("external") + ' GitHub 저장소</a>' +
+      '<a href="https://github.com/fofwisdom/claire-agents" target="_blank" rel="noopener noreferrer">' + icon("bot") + ' 에이전트 마켓플레이스</a>' +
+      '<a href="#ns">JSON-LD 어휘 (/ns)</a>' +
+      '<a href="#nodeinfo">NodeInfo 2.1</a>' +
+      '</div>' +
+      '</footer>';
+  }
+
+  function renderConsoleHeader(viewer) {
+    return '<div class="con-head-bar">' +
+      '<div style="display:flex;align-items:center;gap:0.5rem;">' + icon("book") + '<strong>Claire Bible 콘솔</strong> <span class="pill">' + (viewer.id === "admin" ? "관리자" : "회원") + '</span></div>' +
+      '<div style="color:var(--muted);">지원 &amp; 진단 · <code>/support/pipeline</code> (<code>' + esc(viewer.sourceLabel) + '</code>)</div>' +
+      '</div>';
+  }
+
+  function renderMediaAndFixedCards(viewer) {
+    var html = '<div class="con-subcard" id="pipeline-stt-order"><h2>' + icon("captions") + ' 동영상: 자막과 음성 전사 순서</h2>' +
+      '<p style="margin:0;color:var(--muted);font-size:0.78125rem;">동영상은 한 언어만 시도하지 않고 아래 순서에서 처음으로 쓸 수 있는 것을 씁니다.</p>' +
+      '<ol style="margin:0;padding-left:1.25rem;font-size:0.8125rem;display:grid;gap:0.25rem;">' +
+      '<li>제작자 자막: <code>' + esc(viewer.langOrder) + '</code></li>' +
+      '<li>자동 자막: <code>' + esc(viewer.langOrder) + '</code></li>' +
+      '<li>음성 전사(STT): <code>' + esc(viewer.models.stt) + '</code> (사용 가능한 자막이 없을 때만)</li>' +
+      '<li>모두 없음: 제목·설명·챕터만 남기고 영상을 3일간 캐시에 둡니다.</li>' +
+      '</ol></div>';
+
+    html += '<div class="con-subcard" id="pipeline-fixed"><h2>' + icon("lock") + ' 고정값 &amp; 규칙</h2>' +
+      '<div class="table-wrap"><table><thead><tr><th scope="col">항목</th><th scope="col">값</th></tr></thead><tbody>' +
+      '<tr><td>임베딩 입력</td><td>엔티티 프레임(이름·타입·별칭·관찰 최대 5개). 초록이나 상세 본문이 아닙니다.</td></tr>' +
+      '<tr><td>임베딩 차원</td><td><code>3072</code> · <code>RETRIEVAL_DOCUMENT</code> / <code>RETRIEVAL_QUERY</code></td></tr>' +
+      '<tr><td>음성 전사 모델</td><td><code>gemini-3.5-transcribe</code> (다른 프로바이더나 모델 없음)</td></tr>' +
+      '<tr><td>BYOK 키 검증 모델</td><td><code>gemini-3.1-flash-lite</code></td></tr>' +
+      (viewer.showAdminRecords ? '<tr><td>쌍 검토 사전 라벨 (관리자)</td><td><code>gemini-decision-1</code> · Jev 입력: 후보 JSON 스냅숏만 전송</td></tr>' : '') +
+      '</tbody></table></div></div>';
+
+    if (viewer.showAdminRecords) {
+      html += '<div class="con-subcard" id="pipeline-recent"><h2>' + icon("clock") + ' 최근 문서 모델 계보 (관리자 전용 예시)</h2>' +
+        '<div class="table-wrap"><table><thead><tr><th scope="col">문서</th><th scope="col">단계별 모델</th><th scope="col">Jev</th><th scope="col">대체 동작</th></tr></thead><tbody>' +
+        '<tr><td>예시 문서 A (example.com)</td><td><code>extract_graph: gemini-3.8-flash-medium</code><br><code>summarize: gemini-3.1-flash-lite-low</code></td><td>평가 4건 (recorded)</td><td>0</td></tr>' +
+        '</tbody></table></div></div>';
+    }
+    return html;
+  }
+
+  /* ── Render Proposal 1: Entrypoint Path-Tracer + Live Inspector ── */
+  function renderProposal1() {
+    var viewer = getActiveViewer();
+    var ep = getEntrypoint(state.p1Entrypoint);
+    var effectiveMode = ep.modeSupport === "client_only" ? "client" : (ep.modeSupport === "submode" && ep.id === "reprocess_renditions" ? "provider" : state.p1Mode);
+
+    var activeStages = STAGES.filter(function (st) {
+      var res = resolveStageRun(st.id, ep.id, effectiveMode, state.p1SubMode, viewer);
+      return !res.hidden && res.state === "active";
+    });
+    if (!activeStages.some(function (s) { return s.id === state.p1SelectedStage; }) && activeStages.length) {
+      state.p1SelectedStage = activeStages[0].id;
+    }
+
+    var pipelineHtml = '<div class="pipe-root" data-shared-pipeline="p1">' +
+      /* Entrypoint Tablist */
+      '<div class="tablist-wrap"><div class="tablist-scroll has-anchor-bar" focusgroup="tablist nomemory" aria-label="문서 작성 진입점 선택" data-tablist="p1-ep">' +
+      ENTRYPOINTS.map(function (item) {
+        var sel = item.id === ep.id;
+        return '<button type="button" class="tab-btn" id="p1-ep-' + item.id + '" data-p1-ep="' + item.id + '" aria-selected="' + sel + '" ' + (sel ? 'focusgroupstart ' : '') + 'style="' + (sel ? 'anchor-name:--p1-ep-active;' : '') + '">' +
+          icon(item.icon) + '<span>' + esc(item.shortTitle) + '</span></button>';
+      }).join("") +
+      '</div></div>';
+
+    /* Contextual Mode / SubMode Controls + Playthrough */
+    pipelineHtml += '<div class="pipe-controls">';
+    pipelineHtml += '<div class="pipe-ctrl-group"><span class="pipe-ctrl-label">추출 방식</span>';
+    if (ep.modeSupport === "client_only") {
+      pipelineHtml += '<span class="pill pill-client">에이전트 클라이언트 전용 (403 API 차단)</span>';
+    } else if (ep.id === "reprocess_renditions") {
+      pipelineHtml += '<span class="pill pill-ai">웹·API는 서버 API 전용</span> <span class="pill">MCP 재추출은 extract_stage(force=True)</span>';
+    } else {
+      pipelineHtml += '<button type="button" class="seg-btn" data-p1-mode="provider" aria-pressed="' + (effectiveMode === "provider") + '">' + icon("bolt") + ' 서버 API (provider)</button>' +
+        '<button type="button" class="seg-btn" data-p1-mode="client" aria-pressed="' + (effectiveMode === "client") + '">' + icon("bot") + ' 에이전트 클라이언트 (client)</button>';
+    }
+    pipelineHtml += '</div>';
+
+    if (ep.subModes) {
+      pipelineHtml += '<div class="pipe-ctrl-group"><span class="pipe-ctrl-label">하위 동작</span>' +
+        ep.subModes.map(function (sm) {
+          return '<button type="button" class="seg-btn" data-p1-sub="' + sm.id + '" aria-pressed="' + (state.p1SubMode === sm.id) + '">' + esc(sm.label) + '</button>';
+        }).join("") +
+        '</div>';
+    }
+
+    var curIdx = activeStages.findIndex(function (s) { return s.id === state.p1SelectedStage; });
+    pipelineHtml += '<div class="pipe-ctrl-group">' +
+      '<button type="button" class="seg-btn" data-p1-step="prev" ' + (curIdx <= 0 ? 'disabled' : '') + '>이전 단계</button>' +
+      '<span class="pill" style="font-variant-numeric:tabular-nums;">단계 ' + (curIdx >= 0 ? curIdx + 1 : 0) + ' / ' + activeStages.length + '</span>' +
+      '<button type="button" class="seg-btn" data-p1-step="next" ' + (curIdx < 0 || curIdx >= activeStages.length - 1 ? 'disabled' : '') + '>다음 단계</button>' +
+      '<button type="button" class="seg-btn" data-p1-reset>초기화</button>' +
+      '</div></div>';
+
+    /* Entrypoint Summary Banner */
+    pipelineHtml += '<div class="pipe-banner">' +
+      '<div><strong>' + esc(ep.title) + '</strong> — ' + esc(ep.desc) + ' <span style="color:var(--muted);">(' + esc(ep.entryDetail) + ')</span></div>' +
+      '<span class="pill">' + esc(viewer.sourceLabel) + '</span>' +
+      '</div>';
+
+    /* 4-Zone Canvas + Live Inspector */
+    pipelineHtml += '<div class="p1-workspace"><div class="p1-canvas"><div class="p1-zones">';
+    [1, 2, 3, 4].forEach(function (z) {
+      var zoneStages = STAGES.filter(function (s) {
+        if (s.zone !== z) return false;
+        var run = resolveStageRun(s.id, ep.id, effectiveMode, state.p1SubMode, viewer);
+        return !run.hidden;
+      });
+      var zLabel = zoneStages.length ? zoneStages[0].zoneLabel : "단계";
+      var activeCount = zoneStages.filter(function (s) {
+        return resolveStageRun(s.id, ep.id, effectiveMode, state.p1SubMode, viewer).state === "active";
+      }).length;
+      pipelineHtml += '<div class="p1-zone"><div class="p1-zone-head"><span>' + esc(zLabel) + '</span><span>활성 ' + activeCount + '/' + zoneStages.length + '</span></div><div class="p1-node-list">';
+      zoneStages.forEach(function (st) {
+        var run = resolveStageRun(st.id, ep.id, effectiveMode, state.p1SubMode, viewer);
+        var isCur = st.id === state.p1SelectedStage;
+        var modelLine = formatStageModel(st, viewer, ep.id, effectiveMode);
+        pipelineHtml += '<button type="button" class="p1-node" data-p1-stage="' + st.id + '" data-kind="' + st.kind + '" data-state="' + run.state + '"' + (isCur ? ' aria-current="step"' : '') + '>' +
+          '<div class="p1-node-top">' +
+          '<span class="p1-node-title"><span class="p1-step-num">' + esc(run.state === "active" ? run.order : "—") + '</span><span>' + esc(st.title) + '</span></span>' +
+          (run.state === "skipped" ? '<span class="pill">생략</span>' : (st.kind === "shadow" ? '<span class="pill pill-shadow">그림자</span>' : (st.kind === "client" ? '<span class="pill pill-client">에이전트</span>' : (st.kind === "rule" ? '<span class="pill pill-rule">규칙</span>' : '<span class="pill pill-ai">AI</span>')))) +
+          '</div>' +
+          '<div class="p1-node-sub">' + esc(st.shortSub) + '</div>' +
+          '<div class="p1-node-model">' + esc(modelLine) + '</div>' +
+          '</button>';
+      });
+      pipelineHtml += '</div></div>';
+    });
+    pipelineHtml += '</div></div>';
+
+    /* Live Inspector */
+    var selStage = STAGES.find(function (s) { return s.id === state.p1SelectedStage; }) || STAGES[0];
+    var selRun = resolveStageRun(selStage.id, ep.id, effectiveMode, state.p1SubMode, viewer);
+    var kindLabel = selStage.kind === "rule" ? "결정론적 규칙 (실선)" : (selStage.kind === "client" ? "에이전트 클라이언트" : (selStage.kind === "shadow" ? "그림자 평가 (관리자 전용)" : "AI 모델 추론 (점선)"));
+    pipelineHtml += '<aside class="p1-inspector" aria-label="선택된 처리 단계 상세">' +
+      '<div class="p1-ins-head">' +
+      '<div><div style="font-size:0.72rem;color:var(--muted);font-weight:700;">' + esc(selStage.zoneLabel) + '</div><h3>' + esc(selStage.title) + '</h3></div>' +
+      '<span class="pill ' + (selRun.state === "active" ? 'pill-client' : '') + '">' + (selRun.state === "active" ? '실행 단계 ' + esc(selRun.order) : '이 진입점에서 생략') + '</span>' +
+      '</div>' +
+      '<dl class="p1-kv">' +
+      '<dt>성격</dt><dd>' + esc(kindLabel) + '</dd>' +
+      '<dt>경로 상태</dt><dd>' + esc(selRun.note) + '</dd>' +
+      '<dt>적용 모델</dt><dd><code>' + esc(formatStageModel(selStage, viewer, ep.id, effectiveMode)) + '</code></dd>' +
+      '<dt>입력</dt><dd>' + esc(selStage.input) + '</dd>' +
+      '<dt>동작</dt><dd>' + esc(selStage.process) + '</dd>' +
+      '<dt>산출</dt><dd>' + esc(selStage.output) + '</dd>' +
+      '<dt>실패·격리</dt><dd>' + esc(selStage.failClosed) + '</dd>' +
+      '</dl>' +
+      subHtmlDetails(selStage, viewer) +
+      '</aside></div>';
+
+    /* Legend */
+    pipelineHtml += '<div class="legend-row">' +
+      '<span class="pill pill-rule">실선: 결정론적 규칙 · 원문 보존</span>' +
+      '<span class="pill pill-ai">점선: AI 모델 추론 · 조건부 분기</span>' +
+      '<span class="pill pill-client">에이전트 클라이언트 단계</span>' +
+      (viewer.showJev ? '<span class="pill pill-shadow">Jev 그림자 평가 (관리자 전용)</span>' : '') +
+      '<span class="pill">흐림 + 생략 배지: 선택 진입점에서 미실행</span>' +
+      '</div></div>';
+
+    /* Compose Full View for Public vs Console */
+    if (viewer.id === "public") {
+      var refTabsHtml = '<section class="card" aria-labelledby="p1-ref-title">' +
+        '<h2 id="p1-ref-title" style="margin:0 0 0.5rem;font-size:1.05rem;">온톨로지 · 정리본 템플릿 · 지원 소스 안내</h2>' +
+        '<div class="tablist-wrap"><div class="tablist-scroll" focusgroup="tablist nomemory" aria-label="지식 구조 안내">' +
+        '<button type="button" class="tab-btn" id="p1-ref-btn-ontology" data-p1-ref="ontology" aria-selected="' + (state.p1RefTab === "ontology") + '" ' + (state.p1RefTab === "ontology" ? 'focusgroupstart' : '') + '>온톨로지 (11+11)</button>' +
+        '<button type="button" class="tab-btn" id="p1-ref-btn-renditions" data-p1-ref="renditions" aria-selected="' + (state.p1RefTab === "renditions") + '" ' + (state.p1RefTab === "renditions" ? 'focusgroupstart' : '') + '>정리본 템플릿 (3종)</button>' +
+        '<button type="button" class="tab-btn" id="p1-ref-btn-sources" data-p1-ref="sources" aria-selected="' + (state.p1RefTab === "sources") + '" ' + (state.p1RefTab === "sources" ? 'focusgroupstart' : '') + '>지원 소스 · 어댑터</button>' +
+        '</div></div>' +
+        '<div role="tabpanel" aria-labelledby="p1-ref-btn-ontology" data-p1-ref-panel="ontology" ' + (state.p1RefTab === "ontology" ? 'tabindex="0"' : 'hidden="until-found"') + '><div class="tabpanel-inner">' +
+        '<p style="margin:0 0 0.5rem;font-size:0.8125rem;color:var(--muted);">닫힌 온톨로지 타입 11종과 관계 11종을 우선 사용하며, <code>authored_by</code>의 대상은 <code>Person</code> 또는 <code>Org</code>로 검증합니다.</p>' +
+        '<div class="grid-2">' +
+        '<div><strong style="font-size:0.78rem;">엔티티 타입 (11종)</strong><div class="chip-cloud" style="margin-top:0.35rem;">' + ONTOLOGY.entities.map(function (t) { return '<span class="ont-chip"><code>' + esc(t) + '</code></span>'; }).join("") + '</div></div>' +
+        '<div><strong style="font-size:0.78rem;">관계 타입 (11종)</strong><div class="chip-cloud" style="margin-top:0.35rem;">' + ONTOLOGY.relations.map(function (r) { return '<span class="ont-chip"><code>' + esc(r) + '</code></span>'; }).join("") + '</div></div>' +
+        '</div></div></div>' +
+        '<div role="tabpanel" aria-labelledby="p1-ref-btn-renditions" data-p1-ref-panel="renditions" ' + (state.p1RefTab === "renditions" ? 'tabindex="0"' : 'hidden="until-found"') + '><div class="tabpanel-inner">' +
+        '<div class="table-wrap"><table><thead><tr><th scope="col">템플릿</th><th scope="col">구분</th><th scope="col">원문 표</th><th scope="col">수식 정책</th><th scope="col">구성 범위</th></tr></thead><tbody>' +
+        RENDITIONS.map(function (r) {
+          return '<tr><td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.badge) + '</td><td>' + esc(r.tables) + '</td><td>' + esc(r.formulas) + '</td><td>' + esc(r.scope) + '</td></tr>';
+        }).join("") +
+        '</tbody></table></div></div></div>' +
+        '<div role="tabpanel" aria-labelledby="p1-ref-btn-sources" data-p1-ref-panel="sources" ' + (state.p1RefTab === "sources" ? 'tabindex="0"' : 'hidden="until-found"') + '><div class="tabpanel-inner">' +
+        '<div class="table-wrap"><table><thead><tr><th scope="col">입력 소스</th><th scope="col">수집 체인</th><th scope="col">정책 · 특이사항</th></tr></thead><tbody>' +
+        ADAPTERS.map(function (a) {
+          return '<tr><td><strong>' + esc(a.source) + '</strong></td><td>' + esc(a.path) + '</td><td>' + esc(a.note) + '</td></tr>';
+        }).join("") +
+        '</tbody></table></div></div></div>' +
+        '</section>';
+
+      return renderPublicChromeHeader() +
+        '<main class="pub-main">' +
+        '<section class="card" id="about-top">' +
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:0.75rem;align-items:flex-start;">' +
+        '<div><span class="pill pill-rule">공개 안내 · /about</span>' +
+        '<h1 class="hero-title" style="margin-top:0.4rem;">Claire Bible — 원문을 지키는 온톨로지 지식 베이스</h1>' +
+        '<p class="hero-lead">웹 문서, 논문 PDF, 동영상(자막·STT), 피드와 메모를 수집해 원문을 보존한 채 한국어 초록·AsciiDoc 정리본·엔티티·관계 지식을 축적하고, 개인·공유 지식 베이스 및 ActivityPub 연합으로 나누어 읽는 서버입니다.</p></div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.45rem;"><a class="btn btn-pri" href="#directory">' + icon("users") + ' 공개 디렉터리</a><a class="btn" href="#kb">' + icon("globe") + ' 공유 지식 베이스</a></div>' +
+        '</div>' +
+        '<div class="kpi-grid">' +
+        '<div class="kpi"><b>네트워크 모드</b><span>서버 운영 형태</span></div>' +
+        '<div class="kpi"><b>초대 전용</b><span>가입 정책 (NodeInfo)</span></div>' +
+        '<div class="kpi"><b>4명</b><span>공개 프로필 계정</span></div>' +
+        '<div class="kpi"><b>3개</b><span>공개 공유 지식 베이스</span></div>' +
+        '<div class="kpi"><b>5개</b><span>공개 지식 테마</span></div>' +
+        '<div class="kpi"><b>차단 활성</b><span>AI 학습 크롤러 (robots.txt)</span></div>' +
+        '</div>' +
+        '<div class="meta-strip">' +
+        '<span class="meta-strip-item">' + icon("users") + '<span>운영 · 지식 관리자: <strong>claire.example</strong></span></span>' +
+        '<span class="meta-strip-item">' + icon("info") + '<span>소프트웨어: <strong>Claire Bible v0.1.0</strong> (MIT License)</span></span>' +
+        '<span class="meta-strip-item">' + icon("link") + '<a href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer">fofwisdom/claire-bible</a></span>' +
+        '<span class="meta-strip-item">' + icon("bot") + '<a href="https://github.com/fofwisdom/claire-agents" target="_blank" rel="noopener noreferrer">fofwisdom/claire-agents</a></span>' +
+        '</div>' +
+        '</section>' +
+        '<section class="card" id="public-pipeline"><h2>' + icon("fork") + ' 문서 처리 흐름도 (진입점별 경로 추적)</h2>' +
+        '<p style="margin:0.25rem 0 0.75rem;color:var(--muted);font-size:0.8125rem;">문서를 만드는 6가지 진입점과 추출 방식(서버 API vs 에이전트 클라이언트)을 선택하고 각 노드를 눌러 입력·판정·실패 차단 규칙을 확인하세요. 콘솔의 <code>/support/pipeline</code>과 동일한 공통 흐름도 컴포넌트입니다.</p>' +
+        pipelineHtml +
+        '</section>' +
+        '<section class="grid-4" aria-label="설계 원칙">' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("lock") + ' A1. 원문과 출처 보존</h3><p>LLM이 만든 초록·정리본·엔티티는 원문(<code>raw_text</code>)과 출처 메타데이터를 절대 덮어쓰지 않습니다.</p></article>' +
+        '<article class="principle-card" data-kind="ai"><h3>' + icon("fork") + ' A2. 결정론과 추론 분리</h3><p>실선(규칙·검증·저장)과 점선(모델 추론)을 분리해 모델 출력에 라우팅이나 보안 검증이 휘둘리지 않습니다.</p></article>' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("shield") + ' C2. 숨은 폴백 금지</h3><p>운영 환경에서 모델·자격·자막이 실패하면 가짜 데이터나 다른 모델로 몰래 대체하지 않고 명시적으로 멈춥니다.</p></article>' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("bot") + ' AED9. 에이전트 4계층 격리</h3><p>난수 nonce 프레이밍, 격리 서브에이전트, <code>extra="forbid"</code> 스키마, 사전 임베딩 후 원자 커밋을 강제합니다.</p></article>' +
+        '</section>' +
+        refTabsHtml +
+        '<section class="card"><h2>' + icon("globe") + ' 공개 탐색 · 표준 인터페이스</h2>' +
+        '<p style="margin:0.25rem 0 0.65rem;color:var(--muted);font-size:0.8125rem;">비공개 계정 수, 비공개 지식 베이스, 연합 서버 목록(KD15)은 공개하지 않으며, 아래 표준 공개 엔드포인트만 연결합니다.</p>' +
+        '<div class="chip-cloud">' +
+        '<a class="btn" href="#directory">/directory (공개 디렉터리)</a>' +
+        '<a class="btn" href="#kb">/kb (공유 지식 베이스)</a>' +
+        '<a class="btn" href="#themes">/themes (테마 목록)</a>' +
+        '<a class="btn" href="#ns">/ns · /ns/v1 · /ns/v2 (JSON-LD)</a>' +
+        '<a class="btn" href="#nodeinfo">/.well-known/nodeinfo</a>' +
+        '<a class="btn" href="#mcp">/mcp (OAuth 2.1)</a>' +
+        '<a class="btn" href="#reference">/reference (OpenAPI 3.1)</a>' +
+        '<a class="btn" href="#robots">/robots.txt · /sitemap.xml</a>' +
+        '</div></section>' +
+        '</main>' + renderPublicFooter();
+    }
+
+    /* Member or Admin /support/pipeline console frame */
+    var conTabs = '<div class="tablist-wrap"><div class="tablist-scroll" focusgroup="tablist nomemory" aria-label="처리 흐름 섹션">' +
+      '<button type="button" class="tab-btn" data-p1-ctab="flow" aria-selected="' + (state.p1ConsoleTab === "flow") + '">처리 흐름</button>' +
+      '<button type="button" class="tab-btn" data-p1-ctab="media" aria-selected="' + (state.p1ConsoleTab === "media") + '">동영상·미디어 &amp; 고정값</button>' +
+      (viewer.showAdminRecords ? '<button type="button" class="tab-btn" data-p1-ctab="records" aria-selected="' + (state.p1ConsoleTab === "records") + '">실제 기록 &amp; 대체 동작</button>' : '') +
+      '</div></div>';
+
+    var tabBody = state.p1ConsoleTab === "flow"
+      ? '<div class="con-subcard" id="pipeline-graph"><h2>' + icon("fork") + ' 문서 처리 흐름도 (공통 컴포넌트)</h2><p style="margin:0;color:var(--muted);font-size:0.78125rem;">' + esc(viewer.sourceLabel) + ' 기준 실제 모델이 각 단계에 반영됩니다. 진입점별 실행·생략 여부를 클릭해 확인하세요.</p>' + pipelineHtml + '</div>'
+      : renderMediaAndFixedCards(viewer);
+
+    return renderConsoleHeader(viewer) +
+      '<div class="con-body">' +
+      '<header class="con-sec-head"><h1>' + icon("fork") + '<span>문서 처리 흐름</span> <span class="pill">' + (viewer.id === "admin" ? "관리자" : "회원") + '</span></h1><p>문서 작성 진입점별로 어떤 단계와 AI 모델이 실행되는지 확인합니다.</p></header>' +
+      conTabs + tabBody +
+      '</div>';
+  }
+
+  /* ── Render Proposal 2: Scenario Workbench, Swimlane Diff & Gate Simulator ── */
+  function renderProposal2() {
+    var viewer = getActiveViewer();
+    var ep = getEntrypoint(state.p2Entrypoint);
+    var effectiveMode = ep.modeSupport === "client_only" ? "client" : (ep.modeSupport === "submode" && ep.id === "reprocess_renditions" ? "provider" : state.p2Mode);
+
+    var launcherHtml = '<div class="p2-launcher">' +
+      ENTRYPOINTS.filter(function (e) { return e.id !== "all"; }).map(function (item) {
+        var isSel = item.id === ep.id;
+        var modeForCount = item.modeSupport === "client_only" ? "client" : (item.modeSupport === "submode" && item.id === "reprocess_renditions" ? "provider" : state.p2Mode);
+        var count = STAGES.filter(function (s) {
+          var r = resolveStageRun(s.id, item.id, modeForCount, item.defaultSubMode || "expand", viewer);
+          return !r.hidden && r.state === "active";
+        }).length;
+        return '<button type="button" class="p2-ep-card" data-p2-ep="' + item.id + '" aria-pressed="' + isSel + '">' +
+          '<div class="p2-ep-top"><span>' + icon(item.icon) + ' ' + esc(item.shortTitle) + '</span><span class="pill">' + count + '단계</span></div>' +
+          '<div class="p2-ep-desc">' + esc(item.badgeText) + '</div>' +
+          '</button>';
+      }).join("") +
+      '</div>';
+
+    var ctrlBar = '<div class="pipe-controls">' +
+      '<div class="pipe-ctrl-group"><span class="pipe-ctrl-label">선택 진입점: <strong>' + esc(ep.title) + '</strong></span></div>' +
+      '<div class="pipe-ctrl-group">';
+    if (ep.modeSupport === "client_only") {
+      ctrlBar += '<span class="pill pill-client">에이전트 클라이언트 전용</span>';
+    } else if (ep.id === "reprocess_renditions") {
+      ctrlBar += '<span class="pill pill-ai">웹/API 전용 (MCP는 force=True)</span>';
+    } else {
+      ctrlBar += '<button type="button" class="seg-btn" data-p2-mode="provider" aria-pressed="' + (effectiveMode === "provider") + '">서버 API</button>' +
+        '<button type="button" class="seg-btn" data-p2-mode="client" aria-pressed="' + (effectiveMode === "client") + '">에이전트 클라이언트</button>';
+    }
+    if (ep.subModes) {
+      ctrlBar += ep.subModes.map(function (sm) {
+        return '<button type="button" class="seg-btn" data-p2-sub="' + sm.id + '" aria-pressed="' + (state.p2SubMode === sm.id) + '">' + esc(sm.label) + '</button>';
+      }).join("");
+    }
+    ctrlBar += '</div></div>';
+
+    var workTabs = '<div class="tablist-wrap"><div class="tablist-scroll" focusgroup="tablist nomemory" aria-label="워크벤치 보기 모드">' +
+      '<button type="button" class="tab-btn" id="p2-wt-swim" data-p2-wtab="swim" aria-selected="' + (state.p2WorkTab === "swim") + '" ' + (state.p2WorkTab === "swim" ? 'focusgroupstart' : '') + '>' + icon("fork") + ' 단계별 분해 흐름</button>' +
+      '<button type="button" class="tab-btn" id="p2-wt-diff" data-p2-wtab="diff" aria-selected="' + (state.p2WorkTab === "diff") + '" ' + (state.p2WorkTab === "diff" ? 'focusgroupstart' : '') + '>' + icon("repeat") + ' 진입점 1:1 비교</button>' +
+      '<button type="button" class="tab-btn" id="p2-wt-sim" data-p2-wtab="sim" aria-selected="' + (state.p2WorkTab === "sim") + '" ' + (state.p2WorkTab === "sim" ? 'focusgroupstart' : '') + '>' + icon("play") + ' 관문 · 자막 규칙 체험</button>' +
+      '</div></div>';
+
+    var workPanelHtml = "";
+    if (state.p2WorkTab === "swim") {
+      var filterRow = '<div class="pipe-ctrl-group" style="margin-bottom:0.625rem;">' +
+        '<span class="pipe-ctrl-label">단계 필터</span>' +
+        '<button type="button" class="seg-btn" data-p2-filter="all" aria-pressed="' + (state.p2Filter === "all") + '">전체</button>' +
+        '<button type="button" class="seg-btn" data-p2-filter="ai" aria-pressed="' + (state.p2Filter === "ai") + '">AI 호출만</button>' +
+        '<button type="button" class="seg-btn" data-p2-filter="rule" aria-pressed="' + (state.p2Filter === "rule") + '">규칙·검증만</button>' +
+        '<button type="button" class="seg-btn" data-p2-filter="client" aria-pressed="' + (state.p2Filter === "client") + '">에이전트 단계</button>' +
+        '</div>';
+      var cols = '<div class="p2-swimboard">';
+      [1, 2, 3, 4].forEach(function (z) {
+        var zStages = STAGES.filter(function (s) {
+          if (s.zone !== z) return false;
+          var run = resolveStageRun(s.id, ep.id, effectiveMode, state.p2SubMode, viewer);
+          if (run.hidden) return false;
+          if (state.p2Filter === "ai") return s.kind === "ai" || s.kind === "conditional";
+          if (state.p2Filter === "rule") return s.kind === "rule";
+          if (state.p2Filter === "client") return s.kind === "client";
+          return true;
+        });
+        var zTitle = (STAGES.find(function (x) { return x.zone === z; }) || {}).zoneLabel || "";
+        cols += '<div class="p2-col"><div class="p2-col-title">' + esc(zTitle) + '</div>';
+        if (!zStages.length) {
+          cols += '<div style="font-size:0.75rem;color:var(--muted);padding:0.25rem;">해당 필터 단계 없음</div>';
+        }
+        zStages.forEach(function (st) {
+          var run = resolveStageRun(st.id, ep.id, effectiveMode, state.p2SubMode, viewer);
+          cols += '<details class="p2-step-card" data-kind="' + st.kind + '" data-state="' + run.state + '"' + (run.state === "active" ? " open" : "") + '>' +
+            '<summary>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.3rem;">' +
+            '<span>' + (run.state === "active" ? '<span class="p1-step-num" style="margin-right:0.25rem;">' + esc(run.order) + '</span>' : '') + esc(st.title) + '</span>' +
+            (run.state === "skipped" ? '<span class="pill">생략</span>' : '') +
+            '</div>' +
+            '<span class="p1-node-model">' + esc(formatStageModel(st, viewer, ep.id, effectiveMode)) + '</span>' +
+            '</summary>' +
+            '<div class="p2-step-body">' +
+            '<div><strong>경로 판정:</strong> ' + esc(run.note) + '</div>' +
+            '<div>' + esc(st.process) + '</div>' +
+            '<div><strong>실패 시:</strong> ' + esc(st.failClosed) + '</div>' +
+            '</div></details>';
+        });
+        cols += '</div>';
+      });
+      cols += '</div>';
+      workPanelHtml = filterRow + cols;
+    } else if (state.p2WorkTab === "diff") {
+      var compareOptions = [
+        { val: "web_api_cli:provider", label: "웹·API·CLI (서버 API)" },
+        { val: "web_api_cli:client", label: "웹·API·CLI (에이전트 대기)" },
+        { val: "telegram:provider", label: "텔레그램 봇 (단일·복합 API)" },
+        { val: "mcp_agent:client", label: "MCP 에이전트 직접 적재 (항상 client)" },
+        { val: "background_loops:provider:expand", label: "expand-loop (자동 확장 깊이 1)" },
+        { val: "reprocess_renditions:provider:regenerate", label: "재생성 (원문 재사용)" },
+        { val: "reprocess_renditions:provider:add_renditions", label: "정리본 추가 (render_detail만)" }
+      ];
+      function parseOpt(val) {
+        var parts = val.split(":");
+        return { ep: parts[0], mode: parts[1] || "provider", sub: parts[2] || "expand" };
+      }
+      var cA = parseOpt(state.p2CompareA);
+      var cB = parseOpt(state.p2CompareB);
+      workPanelHtml = '<div class="pipe-controls" style="margin-bottom:0.625rem;">' +
+        '<label style="font-size:0.78rem;font-weight:700;">경로 A <select id="p2-sel-a" style="margin-left:0.35rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);">' +
+        compareOptions.map(function (o) { return '<option value="' + o.val + '"' + (o.val === state.p2CompareA ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join("") +
+        '</select></label>' +
+        '<label style="font-size:0.78rem;font-weight:700;">경로 B <select id="p2-sel-b" style="margin-left:0.35rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:6px;background:var(--card-bg);">' +
+        compareOptions.map(function (o) { return '<option value="' + o.val + '"' + (o.val === state.p2CompareB ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join("") +
+        '</select></label>' +
+        '</div>' +
+        '<div class="table-wrap"><table><thead><tr><th scope="col">처리 단계</th><th scope="col">경로 A 결과</th><th scope="col">경로 B 결과</th></tr></thead><tbody>' +
+        STAGES.filter(function (s) { return !s.adminOnly || viewer.showJev; }).map(function (st) {
+          var rA = resolveStageRun(st.id, cA.ep, cA.mode, cA.sub, viewer);
+          var rB = resolveStageRun(st.id, cB.ep, cB.mode, cB.sub, viewer);
+          var changed = rA.state !== rB.state;
+          return '<tr class="' + (changed ? 'diff-row-change' : '') + '">' +
+            '<td><strong>' + esc(st.title) + '</strong><br><span style="color:var(--muted);font-size:0.72rem;">' + esc(st.zoneLabel) + '</span></td>' +
+            '<td><span class="pill ' + (rA.state === "active" ? 'pill-client' : '') + '">' + (rA.state === "active" ? '실행 ' + esc(rA.order) : '생략') + '</span><div style="margin-top:0.2rem;color:var(--muted);">' + esc(rA.note) + '</div></td>' +
+            '<td><span class="pill ' + (rB.state === "active" ? 'pill-client' : '') + '">' + (rB.state === "active" ? '실행 ' + esc(rB.order) : '생략') + '</span><div style="margin-top:0.2rem;color:var(--muted);">' + esc(rB.note) + '</div></td>' +
+            '</tr>';
+        }).join("") +
+        '</tbody></table></div>';
+    } else {
+      /* Mode C: Interactive Gate & STT Simulators */
+      var gateHit = 5;
+      var embedCalled = true;
+      var judgeCalled = false;
+      var simOutcome = "";
+      if (state.simExact) {
+        gateHit = 1;
+        embedCalled = false;
+        simOutcome = "Gate 1 통과(정규화·별칭·약어 일치) → 임베딩 API 및 LLM 판정을 모두 건너뛰고 즉시 병합합니다.";
+      } else if (state.simVersionConflict) {
+        gateHit = 2;
+        simOutcome = "Gate 2 하드 불변식 차단(버전 번호 불일치 등) → 후보가 제거되어 신규 생성으로 분리됩니다.";
+      } else if (state.simScore >= 0.93) {
+        gateHit = 3;
+        simOutcome = "Gate 3 고신뢰 벡터 병합(" + state.simScore.toFixed(2) + " ≥ 0.93) → LLM 판정 없이 자동 병합합니다.";
+      } else if (state.simScore >= 0.72) {
+        gateHit = 4;
+        if (state.simClientMode) {
+          simOutcome = "경계 구간(" + state.simScore.toFixed(2) + ")이지만 에이전트 클라이언트 경로에서는 Gate 4 LLM 판정을 실행하지 않으므로 Gate 5(신규 생성 + 관계 후보)로 진행합니다.";
+        } else {
+          judgeCalled = true;
+          simOutcome = "Gate 4 경계 구간(0.72 ≤ " + state.simScore.toFixed(2) + " < 0.93) → entity_judge(최대 3회)가 SAME/DIFFERENT를 판정합니다.";
+        }
+      } else {
+        gateHit = 5;
+        simOutcome = "Gate 5 신규 생성 (점수 " + state.simScore.toFixed(2) + (state.simScore >= 0.70 ? " ≥ 0.70: relational_candidates에 등록)" : " < 0.70: 새 엔티티 · 벡터 저장)");
+      }
+
+      var sttOutcome = "";
+      if (state.sttDownloadFail) {
+        sttOutcome = "FetchError 중단 (Fail-Closed, C2) — 선호 자막이 광고되었으나 내려받기에 모두 실패해 STT로 몰래 넘어가지 않고 오류로 멈춥니다.";
+      } else if (state.sttManualKo) {
+        sttOutcome = "제작자 자막(ko) 채택 — 자동 자막과 음성 전사(STT)를 실행하지 않습니다.";
+      } else if (state.sttAutoKo) {
+        sttOutcome = "자동 자막(ko) 채택 — 제작자 자막이 없어 다음 우선순위 자동 자막을 씁니다 (STT 미호출).";
+      } else if (state.sttAutoEn) {
+        sttOutcome = "자동 자막(en) 채택 — 선호 언어 목록(" + esc(viewer.langOrder) + ")의 마지막 순서 en에 일치합니다.";
+      } else if (state.sttEnabled) {
+        sttOutcome = "음성 전사(STT) 실행 — 사용 가능한 선호 자막이 없어 " + esc(viewer.models.stt) + "로 전사합니다.";
+      } else {
+        sttOutcome = "자막·전사 없음 — 제목·설명·챕터만 남기고 영상을 3일간 캐시합니다.";
+      }
+
+      workPanelHtml = '<div class="sim-grid">' +
+        '<div class="sim-card"><h3>' + icon("fork") + ' 엔티티 해소 5관문 시뮬레이터</h3>' +
+        '<div class="pipe-ctrl-group">' +
+        '<button type="button" class="seg-btn" data-sim-preset="exact">정확 일치</button>' +
+        '<button type="button" class="seg-btn" data-sim-preset="version">버전 충돌</button>' +
+        '<button type="button" class="seg-btn" data-sim-preset="auto">자동 병합 0.95</button>' +
+        '<button type="button" class="seg-btn" data-sim-preset="border">경계 0.84</button>' +
+        '<button type="button" class="seg-btn" data-sim-preset="new">신규 0.48</button>' +
+        '</div>' +
+        '<label style="font-size:0.78rem;font-weight:700;display:flex;flex-direction:column;gap:0.25rem;">벡터 코사인 유사도: <code>' + state.simScore.toFixed(2) + '</code>' +
+        '<input type="range" id="sim-score" min="0.40" max="1.00" step="0.01" value="' + state.simScore.toFixed(2) + '" style="accent-color:var(--accent);"/></label>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.75rem;font-size:0.78rem;">' +
+        '<label><input type="checkbox" id="sim-exact"' + (state.simExact ? ' checked' : '') + '/> Gate 1 이름/별칭/약어 일치</label>' +
+        '<label><input type="checkbox" id="sim-version"' + (state.simVersionConflict ? ' checked' : '') + '/> Gate 2 버전/타입 불변식 위반</label>' +
+        '<label><input type="checkbox" id="sim-client"' + (state.simClientMode ? ' checked' : '') + '/> 에이전트 클라이언트 경로</label>' +
+        '</div>' +
+        '<ul class="gate-list">' +
+        GATES.map(function (g) {
+          var hitAttr = "";
+          if (g.id === gateHit) hitAttr = g.id === 2 ? ' data-hit="blocked"' : ' data-hit="true"';
+          return '<li class="gate-item"' + hitAttr + '><span>' + esc(g.title) + '</span><span>' + (g.id === gateHit ? (g.id === 2 ? '차단됨' : '도달') : '대기') + '</span></li>';
+        }).join("") +
+        '</ul>' +
+        '<div class="pipe-banner" style="margin-top:auto;"><div>' + esc(simOutcome) + '<br><span style="color:var(--muted);">임베딩 호출: <strong>' + (embedCalled ? '예' : '아니오') + '</strong> · LLM 판정 호출: <strong>' + (judgeCalled ? '예' : '아니오') + '</strong></span></div></div>' +
+        '</div>' +
+        '<div class="sim-card"><h3>' + icon("captions") + ' 동영상 자막 → STT 결정 시뮬레이터</h3>' +
+        '<p style="margin:0;font-size:0.78rem;color:var(--muted);">선호 언어 순서: <code>' + esc(viewer.langOrder) + '</code></p>' +
+        '<div style="display:grid;gap:0.4rem;font-size:0.78rem;">' +
+        '<label><input type="checkbox" id="stt-mko"' + (state.sttManualKo ? ' checked' : '') + '/> 제작자 자막 (ko) 존재</label>' +
+        '<label><input type="checkbox" id="stt-ako"' + (state.sttAutoKo ? ' checked' : '') + '/> 자동 자막 (ko) 존재</label>' +
+        '<label><input type="checkbox" id="stt-aen"' + (state.sttAutoEn ? ' checked' : '') + '/> 자동 자막 (en) 존재</label>' +
+        '<label><input type="checkbox" id="stt-fail"' + (state.sttDownloadFail ? ' checked' : '') + '/> 선호 자막 내려받기 실패 발생</label>' +
+        '<label><input type="checkbox" id="stt-on"' + (state.sttEnabled ? ' checked' : '') + '/> 서버 STT 사용 켜짐</label>' +
+        '</div>' +
+        '<div class="pipe-banner" style="margin-top:auto;">' + esc(sttOutcome) + '</div>' +
+        '</div></div>';
+    }
+
+    var workbenchHtml = '<div class="pipe-root" data-shared-pipeline="p2">' + launcherHtml + ctrlBar + workTabs + '<div style="padding-top:0.25rem;">' + workPanelHtml + '</div></div>';
+
+    if (viewer.id === "public") {
+      var selRend = RENDITIONS.find(function (r) { return r.id === state.p2RenditionTab; }) || RENDITIONS[0];
+      return renderPublicChromeHeader() +
+        '<main class="pub-main">' +
+        '<section class="grid-2" id="about-top">' +
+        '<div class="card">' +
+        '<span class="pill pill-rule">공개 소개 · /about (2안: 워크벤치형)</span>' +
+        '<h1 class="hero-title" style="margin-top:0.4rem;">원문은 남기고, 지식은 연결합니다.</h1>' +
+        '<p class="hero-lead">Claire Bible은 다중 소스 원문을 절단·오염 없이 보관한 뒤, 규칙 기반 검증과 AI 구조화 추출을 분리해 개인 및 공유 지식 그래프로 엮는 서버입니다.</p>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">' +
+        '<a class="btn btn-pri" href="#p2-workbench">' + icon("fork") + ' 처리 흐름 살펴보기</a>' +
+        '<a class="btn" href="#directory">' + icon("users") + ' 공개 디렉터리</a>' +
+        '<a class="btn" href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer">' + icon("external") + ' GitHub</a>' +
+        '</div></div>' +
+        '<div class="card">' +
+        '<h2 style="margin:0 0 0.5rem;font-size:0.95rem;">서버 · 운영 · 공개 현황</h2>' +
+        '<dl class="p1-kv">' +
+        '<dt>사이트 · 운영자</dt><dd><strong>Claire Bible</strong> · 지식 관리자 <code>claire.example</code></dd>' +
+        '<dt>운영 모드</dt><dd>네트워크 모드 · 초대 전용 (NodeInfo <code>openRegistrations: false</code>)</dd>' +
+        '<dt>공개 지표</dt><dd>공개 계정 4 · 공개 공유 KB 3 · 공개 테마 5 (비공개·연합 서버 수 비공개)</dd>' +
+        '<dt>크롤러 정책</dt><dd>AI 학습 크롤러 차단 활성 (<code>/robots.txt</code>) · <code>/sitemap.xml</code> 제공</dd>' +
+        '<dt>소스 · 라이선스</dt><dd><code>v0.1.0</code> · MIT License · <a href="https://github.com/fofwisdom/claire-agents" target="_blank" rel="noopener noreferrer">에이전트 플러그인</a></dd>' +
+        '</dl></div></section>' +
+        '<section class="card" id="p2-workbench"><h2 style="margin:0 0 0.25rem;">' + icon("fork") + ' 문서 처리 흐름 워크벤치 · 진입점 비교 · 관문 체험</h2>' +
+        '<p style="margin:0 0 0.75rem;color:var(--muted);font-size:0.8125rem;">진입점 카드를 고르고 4단계 분해 흐름, 경로 1:1 비교, 엔티티 해소 5관문 시뮬레이터를 직접 조작해 보세요.</p>' +
+        workbenchHtml + '</section>' +
+        '<section class="grid-3">' +
+        '<div class="card"><h3 style="margin:0 0 0.4rem;">' + icon("shield") + ' 4대 핵심 원칙</h3><ul style="margin:0;padding-left:1.1rem;font-size:0.78rem;display:grid;gap:0.3rem;color:var(--muted);">' +
+        '<li><strong>A1</strong>: 원문(<code>raw_text</code>)과 출처 영구 보존</li>' +
+        '<li><strong>A2</strong>: 결정론 로직과 모델 추론 분리</li>' +
+        '<li><strong>C2</strong>: 숨은 폴백 금지 (실패 시 중단)</li>' +
+        '<li><strong>AED9</strong>: 에이전트 4계층 프롬프트 인젝션 방어</li></ul></div>' +
+        '<div class="card"><h3 style="margin:0 0 0.4rem;">' + icon("doc") + ' 정리본(Rendition) 템플릿 비교</h3>' +
+        '<div class="pipe-ctrl-group" style="margin-bottom:0.5rem;">' +
+        RENDITIONS.map(function (r) { return '<button type="button" class="seg-btn" data-p2-rend="' + r.id + '" aria-pressed="' + (r.id === selRend.id) + '">' + esc(r.label.split(" ")[0]) + '</button>'; }).join("") +
+        '</div>' +
+        '<dl class="p1-kv"><dt>구분</dt><dd>' + esc(selRend.badge) + '</dd><dt>표 정책</dt><dd>' + esc(selRend.tables) + '</dd><dt>수식 정책</dt><dd>' + esc(selRend.formulas) + '</dd><dt>범위</dt><dd>' + esc(selRend.scope) + '</dd></dl></div>' +
+        '<div class="card"><h3 style="margin:0 0 0.4rem;">' + icon("globe") + ' 표준 연동 · 공개 경로</h3>' +
+        '<div class="chip-cloud">' +
+        '<a class="ont-chip" href="#directory">/directory</a>' +
+        '<a class="ont-chip" href="#kb">/kb</a>' +
+        '<a class="ont-chip" href="#themes">/themes</a>' +
+        '<a class="ont-chip" href="#ns">/ns/v1 · v2</a>' +
+        '<a class="ont-chip" href="#nodeinfo">/.well-known/nodeinfo</a>' +
+        '<a class="ont-chip" href="#mcp">/mcp (OAuth 2.1)</a>' +
+        '<a class="ont-chip" href="#reference">/reference</a>' +
+        '</div></div></section>' +
+        '</main>' + renderPublicFooter();
+    }
+
+    var conTabs = '<div class="tablist-wrap"><div class="tablist-scroll" focusgroup="tablist nomemory" aria-label="처리 흐름 섹션">' +
+      '<button type="button" class="tab-btn" data-p2-ctab="flow" aria-selected="' + (state.p2ConsoleTab === "flow") + '">처리 흐름</button>' +
+      '<button type="button" class="tab-btn" data-p2-ctab="media" aria-selected="' + (state.p2ConsoleTab === "media") + '">동영상·미디어 &amp; 고정값</button>' +
+      (viewer.showAdminRecords ? '<button type="button" class="tab-btn" data-p2-ctab="records" aria-selected="' + (state.p2ConsoleTab === "records") + '">실제 기록 &amp; 대체 동작</button>' : '') +
+      '</div></div>';
+
+    var tabBody = state.p2ConsoleTab === "flow"
+      ? '<div class="con-subcard" id="pipeline-graph"><h2>' + icon("fork") + ' 문서 처리 흐름 워크벤치 (공통 컴포넌트)</h2>' + workbenchHtml + '</div>'
+      : renderMediaAndFixedCards(viewer);
+
+    return renderConsoleHeader(viewer) +
+      '<div class="con-body">' +
+      '<header class="con-sec-head"><h1>' + icon("fork") + '<span>문서 처리 흐름</span> <span class="pill">' + (viewer.id === "admin" ? "관리자" : "회원") + '</span></h1><p>진입점별 분기, 경로 1:1 비교, 엔티티 관문 규칙을 확인합니다.</p></header>' +
+      conTabs + tabBody +
+      '</div>';
+  }
+
+  /* ── Proposal 3: Hindsight-Inspired 4-Column Live Spatial Deep-Dive ── */
+  var P3_NODE_META = {
+    input_caller: { label: "진입점 · 입력 페이로드", stageId: "entry_source" },
+    engine_fetch: { label: "수집 · 전처리 (Fetcher · 자막/STT · 분류)", stageId: "fetch_router" },
+    engine_extract: { label: "추출 · 정리본 (서버 API vs 에이전트 4계층)", stageId: "extract_graph" },
+    engine_resolve: { label: "엔티티 해소 · 관계 판정 (Gate 1~5)", stageId: "entity_resolve" },
+    store_inbox: { label: "raw_inbox (상태 추적 · 실패 복구)", stageId: "entry_source" },
+    store_raw: { label: "raw_text (A1 원문 불변 보관)", stageId: "dedup_guard" },
+    store_vec: { label: "Embeddings (3072차원 코사인)", stageId: "entity_resolve" },
+    store_fts: { label: "FTS5 (kiwipiepy 한국어 형태소)", stageId: "atomic_lineage_commit" },
+    store_graph: { label: "Entity Graph (엔티티 · 관계 연결)", stageId: "decision_heatmap" },
+    store_entities: { label: "Entities (해소 · 병합 결과)", stageId: "entity_resolve" },
+    store_relations: { label: "Relations (문서 내 · 문서 간 엣지)", stageId: "relation_judge" },
+    store_renditions: { label: "document_renditions (기본 · 간결 · 학술)", stageId: "detail_renditions" },
+    store_silvercord: { label: "Silvercord · AP (/silvercord/{token})", stageId: "atomic_lineage_commit" },
+    worker_watch: { label: "classify_watch (주기 재확인)", stageId: "post_watch_expand" },
+    worker_expand: { label: "expand-loop (링크 확장 · 깊이 1)", stageId: "post_watch_expand" },
+    worker_refresh: { label: "refresh · recover-loop", stageId: "post_watch_expand" }
+  };
+
+  var P3_SCENARIOS = {
+    web_api_cli: {
+      label: "웹·API·CLI",
+      inputTitle: "POST /ingest · claire ingest",
+      inputLines: ["vLLM 논문 PDF (24,300자)", "mode: provider | 정리본: 기본+간결"],
+      steps: [
+        {
+          active: ["input_caller", "store_inbox"],
+          edges: ["e_in_fetch"],
+          caption: "1단계: Web UI·API·CLI가 입력과 extraction_mode(서버 API)를 raw_inbox에 먼저 기록하고 작업을 예약합니다.",
+          fetchState: "대기", extractState: "대기", resolveState: "대기",
+          inboxPill: "queued", rawPill: "대기", entityPills: [], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["engine_fetch", "store_raw"],
+          edges: ["e_in_fetch", "e_fetch_raw"],
+          caption: "2단계: 사설망 가드 후 PDFium 파서와 classify 슬롯(논문 판별)을 거쳐 원문과 서지를 raw_text에 불변 보관합니다(A1).",
+          fetchState: "PDFium 완료 · 논문", extractState: "대기", resolveState: "대기",
+          inboxPill: "fetched", rawPill: "24.3k자 보존", entityPills: [], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["engine_extract", "store_renditions"],
+          edges: ["e_raw_extract", "e_ext_rend"],
+          caption: "3단계: 논문 길이 기준 high 노력으로 extract_graph가 초록·엔티티·관계를 뽑고, 대표 정리본(기본)과 간결 정리본을 AOT HTML로 컴파일합니다.",
+          fetchState: "완료", extractState: "추출 + 정리본 2종", resolveState: "대기",
+          inboxPill: "extracted", rawPill: "A1 불변", entityPills: ["후보: vLLM", "후보: PagedAttention"], relPills: ["uses"], rendPill: "기본 · 간결 생성", graphActive: false
+        },
+        {
+          active: ["engine_resolve", "store_vec", "store_fts", "store_graph", "store_entities", "store_relations"],
+          edges: ["e_ext_res", "e_res_idx", "e_res_ent"],
+          caption: "4단계: Gate 1(규칙 일치) 미스 시 3072차원 임베딩+FTS5 검색 후 Gate 3(≥0.93) · Gate 4(LLM 판정)로 엔티티를 해소하고 문서를 연결합니다.",
+          fetchState: "완료", extractState: "완료", resolveState: "G1→G3/G4 · cross",
+          inboxPill: "done", rawPill: "A1 불변", entityPills: ["vLLM (G1 병합)", "PagedAttention (new)"], relPills: ["uses (verified)", "cross-doc +1"], rendPill: "기본 · 간결 생성", graphActive: true
+        },
+        {
+          active: ["store_silvercord", "worker_watch", "worker_expand"],
+          edges: ["e_rend_sc", "e_sc_work"],
+          caption: "5단계(동기 완료): /silvercord/{token}과 정본 색인이 준비되었습니다. 이후 classify_watch와 expand-loop(깊이 1)는 백그라운드 워커가 처리합니다.",
+          fetchState: "완료", extractState: "완료", resolveState: "완료",
+          inboxPill: "done", rawPill: "A1 불변", entityPills: ["vLLM (G1 병합)", "PagedAttention (new)"], relPills: ["uses (verified)", "cross-doc +1"], rendPill: "기본 · 간결 생성", graphActive: true
+        }
+      ]
+    },
+    telegram: {
+      label: "텔레그램 복합",
+      inputTitle: "Telegram DM (첨부 PDF + 링크)",
+      inputLines: ["발표 슬라이드.pdf + 영상 URL", "--full · 복합 병합(2× 예산)"],
+      steps: [
+        {
+          active: ["input_caller", "store_inbox", "engine_fetch"],
+          edges: ["e_in_fetch"],
+          caption: "1단계: 텔레그램 봇이 캡션 플래그(--full)와 URL을 파싱해 복합 적재(compose_composite_document)를 시작합니다.",
+          fetchState: "파일+URL 병합", extractState: "대기", resolveState: "대기",
+          inboxPill: "composite", rawPill: "수집 중", entityPills: [], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["engine_fetch", "store_raw"],
+          edges: ["e_in_fetch", "e_fetch_raw"],
+          caption: "2단계: 제작자 자막 → 자동 자막 → 없으면 STT(gemini-3.5-transcribe) 순으로 전사하고 첨부 PDF 텍스트를 뒤에 이어 raw_text에 보관합니다.",
+          fetchState: "자막 ko + PDF", extractState: "2× 프롬프트 예산", resolveState: "대기",
+          inboxPill: "fetched", rawPill: "자막+PDF 보존", entityPills: [], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["engine_extract", "engine_resolve", "store_entities", "store_renditions", "store_silvercord"],
+          edges: ["e_raw_extract", "e_ext_res", "e_res_ent", "e_ext_rend", "e_rend_sc"],
+          caption: "3단계: 통합 원문으로 구조화 추출·해소·대표 정리본을 한 번에 생성하고 /silvercord/{token}으로 열람할 수 있게 저장합니다.",
+          fetchState: "완료", extractState: "통합 1회 추출", resolveState: "G1~G5 완료",
+          inboxPill: "done", rawPill: "A1 불변", entityPills: ["발표 주제 (new)", "참고 논문 (G3)"], relPills: ["cites (verified)"], rendPill: "기본 완료", graphActive: true
+        },
+        {
+          active: ["worker_watch", "worker_expand"],
+          edges: ["e_sc_work"],
+          caption: "4단계(백그라운드): 신규 1차 적재이므로 classify_watch 및 auto_expand 대기열 판단이 비동기로 이어집니다.",
+          fetchState: "완료", extractState: "완료", resolveState: "완료",
+          inboxPill: "done", rawPill: "A1 불변", entityPills: ["발표 주제 (new)", "참고 논문 (G3)"], relPills: ["cites (verified)"], rendPill: "기본 완료", graphActive: true
+        }
+      ]
+    },
+    mcp_agent: {
+      label: "MCP 에이전트",
+      inputTitle: "MCP OAuth 2.1 (개인 KB 전용)",
+      inputLines: ["extract_stage(url or base64)", "client 전용 · 403 API 차단"],
+      steps: [
+        {
+          active: ["input_caller", "engine_fetch", "store_inbox", "store_raw"],
+          edges: ["e_in_fetch", "e_fetch_raw"],
+          caption: "1단계: stage_raw가 서버 STT·VLM·논문 분류를 끈 채 full_content=True 원문을 수집해 pending 상태로 격리 저장합니다(검색·연합 미노출).",
+          fetchState: "STT/VLM/분류 OFF", extractState: "대기 (pending)", resolveState: "대기",
+          inboxPill: "staged", rawPill: "pending 격리", entityPills: [], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["engine_extract"],
+          edges: ["e_raw_extract"],
+          caption: "2단계: 격리 서브에이전트(claire-extractor)가 claim_token 임대를 얻어 nonce 경계(<untrusted_source_document>)로 원문을 청크 읽기 후 자체 LLM으로 추출합니다.",
+          fetchState: "생략됨", extractState: "에이전트 LLM + nonce", resolveState: "대기",
+          inboxPill: "claimed", rawPill: "nonce 격리 읽기", entityPills: ["제출 초안"], relPills: [], rendPill: "AsciiDoc 초안", graphActive: false
+        },
+        {
+          active: ["engine_extract", "engine_resolve", "store_vec"],
+          edges: ["e_ext_res", "e_res_idx"],
+          caption: "3단계: extract_submit이 4계층 검증(스키마 extra=forbid · AsciiDoc · 근거 스팬 · 온톨로지) 후 DB 쓰기 전에 임베딩을 선계산합니다. Gate 4·Jev·히트맵·relation_judge는 생략합니다.",
+          fetchState: "생략됨", extractState: "4계층 검증 통과", resolveState: "G1~G3 (G4 생략)",
+          inboxPill: "verifying", rawPill: "해시 잠금 확인", entityPills: ["에이전트 엔티티 (G3)"], relPills: ["문서 내 관계만"], rendPill: "4계층 통과", graphActive: true
+        },
+        {
+          active: ["store_entities", "store_relations", "store_fts", "store_graph", "store_renditions", "store_silvercord"],
+          edges: ["e_res_ent", "e_ext_rend", "e_rend_sc"],
+          caption: "4단계(동기 커밋 완료): _AtomicConnection 단일 트랜잭션으로 origin=agent_client 커밋을 끝냅니다. classify_watch와 expand-loop는 돌지 않습니다.",
+          fetchState: "생략됨", extractState: "완료", resolveState: "규칙+벡터 완료",
+          inboxPill: "done", rawPill: "extracted", entityPills: ["origin: agent_client"], relPills: ["원자 커밋"], rendPill: "기본 완료", graphActive: true
+        }
+      ]
+    },
+    feed_syndication: {
+      label: "피드·연합",
+      inputTitle: "/syndication (RSS · ActivityPub)",
+      inputLines: ["구독 피드 또는 원격 Article", "mode: provider | client 선택"],
+      steps: [
+        {
+          active: ["input_caller", "store_inbox", "engine_fetch"],
+          edges: ["e_in_fetch"],
+          caption: "1단계: /syndication 피드·타임라인 항목에서 적재를 누르면 추출 방식(서버 API 또는 에이전트 대기)을 선택해 개인 KB로 보냅니다.",
+          fetchState: "피드 URL 확인", extractState: "대기", resolveState: "대기",
+          inboxPill: "queued", rawPill: "수집 중", entityPills: [], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["engine_fetch", "store_raw", "engine_extract"],
+          edges: ["e_fetch_raw", "e_raw_extract"],
+          caption: "2단계: 원격 본문·자막을 수집해 raw_text를 보존한 뒤, 선택한 경로(서버 API 또는 에이전트 스테이징)로 초록과 정리본을 만듭니다.",
+          fetchState: "어댑터/웹 완료", extractState: "선택 경로 실행", resolveState: "대기",
+          inboxPill: "extracted", rawPill: "A1 불변", entityPills: ["후보 추출"], relPills: ["uses"], rendPill: "기본 완료", graphActive: false
+        },
+        {
+          active: ["engine_resolve", "store_entities", "store_relations", "store_silvercord", "worker_watch"],
+          edges: ["e_ext_res", "e_res_ent", "e_rend_sc", "e_sc_work"],
+          caption: "3단계: 엔티티 해소·저장 후 필요 시 ActivityPub 발행(초록+실버코드 링크)으로 이어지고, 서버 API 경로에서는 후속 워커가 연결됩니다.",
+          fetchState: "완료", extractState: "완료", resolveState: "해소 완료",
+          inboxPill: "done", rawPill: "A1 불변", entityPills: ["피드 엔티티 (G1)"], relPills: ["related_to"], rendPill: "기본 완료", graphActive: true
+        }
+      ]
+    },
+    reprocess_renditions: {
+      label: "재생성·정리본",
+      inputTitle: "재적재 · 재생성 · 정리본 추가",
+      inputLines: ["기존 doc_id (웹/API는 API 전용)", "재생성: raw_text 재사용 | 정리본 추가"],
+      steps: [
+        {
+          active: ["input_caller", "store_raw"],
+          edges: ["e_raw_extract"],
+          caption: "1단계: 재생성(regenerate)과 정리본 추가(add_renditions)는 외부 수집과 자막/STT를 건너뛰고 이미 보관된 raw_text를 바로 읽습니다.",
+          fetchState: "건너뜀 (원문 재사용)", extractState: "대기", resolveState: "대기",
+          inboxPill: "reprocess", rawPill: "기존 raw_text", entityPills: ["기존 그래프 보존"], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["engine_extract", "store_renditions"],
+          edges: ["e_raw_extract", "e_ext_rend"],
+          caption: "2단계: 재생성은 extract_graph 성공 후 before_store 시점에만 기존 그래프를 교체하고, 정리본 추가는 render_detail만 호출해 간결/학술 정리본을 추가합니다.",
+          fetchState: "건너뜀", extractState: "before_store 보호", resolveState: "정리본 추가 시 생략",
+          inboxPill: "done", rawPill: "A1 불변", entityPills: ["그래프 유지/교체"], relPills: ["도메인 검증"], rendPill: "기본+학술 생성", graphActive: true
+        },
+        {
+          active: ["store_silvercord"],
+          edges: ["e_rend_sc"],
+          caption: "3단계(완료): 정리본이 document_renditions에 저장되어 /silvercord/{token}에서 전환할 수 있습니다. classify_watch와 자동 확장은 실행하지 않습니다.",
+          fetchState: "건너뜀", extractState: "완료", resolveState: "완료",
+          inboxPill: "done", rawPill: "A1 불변", entityPills: ["갱신 완료"], relPills: ["유지"], rendPill: "기본+학술 완료", graphActive: true
+        }
+      ]
+    },
+    background_loops: {
+      label: "자동 워커",
+      inputTitle: "개인 KB 전용 3종 루프 (CT10)",
+      inputLines: ["expand-loop · refresh · recover", "공유 KB에서는 미실행"],
+      steps: [
+        {
+          active: ["worker_expand", "input_caller"],
+          edges: ["e_sc_work", "e_in_fetch"],
+          caption: "1단계(expand-loop): research 슬롯이 고른 후속 링크를 깊이 1(expand_max=0)로 재귀 없이 적재합니다. same_subject_merge=shadow면 판정 기록만 남깁니다.",
+          fetchState: "자식 URL 수집", extractState: "대기", resolveState: "대기",
+          inboxPill: "expand:parent", rawPill: "깊이 1 제한", entityPills: [], relPills: [], rendPill: "대기", graphActive: false
+        },
+        {
+          active: ["worker_refresh", "engine_fetch", "engine_resolve", "store_entities"],
+          edges: ["e_in_fetch", "e_fetch_raw", "e_ext_res", "e_res_ent"],
+          caption: "2단계(refresh-loop): 오래된 문서를 동일한 doc.id로 다시 수집·추출해 기존 엔티티의 출처 연결(sources)을 잃지 않고 누적합니다.",
+          fetchState: "동일 doc.id 재수집", extractState: "재추출", resolveState: "출처 누적 병합",
+          inboxPill: "refresh", rawPill: "원문 갱신", entityPills: ["기존 엔티티 누적"], relPills: ["유지"], rendPill: "갱신 완료", graphActive: true
+        },
+        {
+          active: ["worker_refresh", "store_inbox"],
+          edges: ["e_in_fetch"],
+          caption: "3단계(recover-loop): 일시 실패한 raw_inbox 행을 저장된 원래 extraction_mode 그대로 지수 백오프 재시도합니다. client 대기(staged) 행은 건너뜁니다.",
+          fetchState: "백오프 재시도", extractState: "원 모드 유지", resolveState: "staged 건너뜀",
+          inboxPill: "recover 완료", rawPill: "보존", entityPills: ["복구 완료"], relPills: ["복구 완료"], rendPill: "복구 완료", graphActive: true
+        }
+      ]
+    }
+  };
+
+  function cylSvg(x, y, w, h, title, sub, isActive, nodeKey, extraPills) {
+    var rx = w / 2;
+    var ry = 10;
+    var bodyPath = "M " + x + " " + (y + ry) + " L " + x + " " + (y + h - ry) + " A " + rx + " " + ry + " 0 0 0 " + (x + w) + " " + (y + h - ry) + " L " + (x + w) + " " + (y + ry) + " Z";
+    var cls = "p3-clickable" + (isActive ? " p3-active" : "");
+    var out = '<g class="' + cls + '" role="button" tabindex="0" data-p3-jump-node="' + nodeKey + '" aria-label="' + esc(title) + '">';
+    out += '<path class="p3-cyl-body" d="' + bodyPath + '"/>';
+    out += '<ellipse class="p3-cyl-top" cx="' + (x + rx) + '" cy="' + (y + ry) + '" rx="' + rx + '" ry="' + ry + '"/>';
+    out += '<text class="p3-title" x="' + (x + 12) + '" y="' + (y + ry + 18) + '">' + esc(title) + '</text>';
+    if (sub) {
+      out += '<text class="p3-sub" x="' + (x + 12) + '" y="' + (y + ry + 33) + '">' + esc(sub) + '</text>';
+    }
+    if (extraPills && extraPills.length) {
+      var py = y + ry + 43;
+      extraPills.slice(0, 2).forEach(function (txt, idx) {
+        var tone = idx === 0 ? "is-ai" : "is-ok";
+        out += '<rect class="p3-pill-rect ' + tone + '" x="' + (x + 10) + '" y="' + py + '" width="' + (w - 20) + '" height="17" rx="4"/>';
+        out += '<text class="p3-pill-txt" x="' + (x + 16) + '" y="' + (py + 12) + '">' + esc(txt) + '</text>';
+        py += 20;
+      });
+    }
+    out += '</g>';
+    return out;
+  }
+
+  function boxSvg(x, y, w, h, title, sub, mono, isActive, isAi, nodeKey, pillText, pillTone) {
+    var cls = "p3-clickable" + (isActive ? " p3-active" : "");
+    var rectCls = "p3-card " + (isAi ? "p3-card-ai" : "p3-card-rule");
+    var out = '<g class="' + cls + '" role="button" tabindex="0" data-p3-jump-node="' + nodeKey + '" aria-label="' + esc(title) + '">';
+    out += '<rect class="' + rectCls + '" x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="9"/>';
+    out += '<text class="p3-title" x="' + (x + 12) + '" y="' + (y + 21) + '">' + esc(title) + '</text>';
+    if (sub) out += '<text class="p3-sub" x="' + (x + 12) + '" y="' + (y + 37) + '">' + esc(sub) + '</text>';
+    if (mono) out += '<text class="p3-mono" x="' + (x + 12) + '" y="' + (y + 53) + '">' + esc(mono) + '</text>';
+    if (pillText) {
+      var pw = Math.min(w - 24, Math.max(66, pillText.length * 7.5 + 16));
+      out += '<rect class="p3-pill-rect ' + (pillTone || "is-ai") + '" x="' + (x + 12) + '" y="' + (y + h - 24) + '" width="' + pw + '" height="17" rx="8"/>';
+      out += '<text class="p3-pill-txt" x="' + (x + 19) + '" y="' + (y + h - 12) + '">' + esc(pillText) + '</text>';
+    }
+    out += '</g>';
+    return out;
+  }
+
+  function renderProposal3() {
+    var viewer = getActiveViewer();
+    var sc = P3_SCENARIOS[state.p3Scenario] || P3_SCENARIOS.web_api_cli;
+    if (state.p3Step >= sc.steps.length) state.p3Step = 0;
+    if (state.p3Step < 0) state.p3Step = 0;
+    var stepObj = sc.steps[state.p3Step];
+    var isActive = function (id) { return stepObj.active.indexOf(id) !== -1; };
+    var isEdgeActive = function (id) { return stepObj.edges.indexOf(id) !== -1; };
+
+    var extractModelLabel = state.p3Scenario === "mcp_agent" ? viewer.models.client_llm : viewer.models.extract_graph;
+    var resolveModelLabel = state.p3Scenario === "mcp_agent" ? "규칙 + " + viewer.models.embed : viewer.models.entity_judge;
+    var fetchModelLabel = state.p3Scenario === "mcp_agent" || state.p3Scenario === "reprocess_renditions" ? "STT/VLM/분류 OFF" : viewer.models.stt;
+
+    var svg = '<svg class="p3-svg" viewBox="-12 -12 1184 684" role="img" aria-labelledby="p3-svg-title p3-svg-desc">' +
+      '<title id="p3-svg-title">Claire Bible 4열 아키텍처 처리 흐름도</title>' +
+      '<desc id="p3-svg-desc">진입점 입력에서 Claire 처리 엔진, SQLite 정본 저장소, 비동기 워커로 흐르는 단계별 상태 시뮬레이션입니다.</desc>' +
+      '<defs>' +
+      '<filter id="p3-shadow" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#0969da" flood-opacity="0.18"/></filter>' +
+      '<marker id="p3-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="var(--muted)"/></marker>' +
+      '<marker id="p3-arr-on" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="var(--accent)"/></marker>' +
+      '</defs>';
+
+    /* Column containers */
+    svg += '<rect class="p3-grp" x="235" y="16" width="280" height="632" rx="14"/>' +
+      '<text class="p3-grp-title" x="252" y="39">Claire 처리 엔진</text>' +
+      '<text class="p3-sub" x="368" y="39">실선=규칙 · 점선=AI</text>';
+
+    svg += '<rect class="p3-grp" x="545" y="16" width="365" height="632" rx="14"/>' +
+      '<text class="p3-grp-title" x="562" y="39">SQLite 정본 (claire.db · kb_id 격리)</text>';
+
+    svg += '<rect class="p3-subgrp" x="560" y="54" width="335" height="126" rx="10"/>' +
+      '<text class="p3-sub" x="572" y="72" style="font-weight:700;">원문 보관 (A1 불변)</text>';
+
+    svg += '<rect class="p3-subgrp" x="560" y="192" width="335" height="312" rx="10"/>' +
+      '<text class="p3-sub" x="572" y="210" style="font-weight:700;">지식 · 색인 (Indexes &amp; Graph)</text>';
+
+    svg += '<rect class="p3-subgrp" x="560" y="516" width="335" height="118" rx="10"/>' +
+      '<text class="p3-sub" x="572" y="534" style="font-weight:700;">정리본 · 발행 (Renditions &amp; Silvercord)</text>';
+
+    svg += '<rect class="p3-grp" x="940" y="16" width="212" height="632" rx="14"/>' +
+      '<text class="p3-grp-title" x="957" y="39">비동기 워커 (개인 KB)</text>';
+
+    /* Edges (drawn under active cards) */
+    function edge(id, d, label, lx, ly) {
+      var on = isEdgeActive(id);
+      return '<path class="' + (on ? "p3-edge-active" : "p3-edge") + '" d="' + d + '" marker-end="url(#' + (on ? "p3-arr-on" : "p3-arr") + ')"/>' +
+        (label ? '<text class="p3-edge-label' + (on ? " p3-edge-label-active" : "") + '" x="' + lx + '" y="' + ly + '">' + esc(label) + '</text>' : '');
+    }
+    svg += edge("e_in_fetch", "M 205 268 C 220 268, 224 126, 250 126", "진입", 209, 190);
+    svg += edge("e_fetch_raw", "M 500 126 L 732 126", "원문 저장", 514, 118);
+    svg += edge("e_raw_extract", "M 732 162 C 620 198, 520 268, 500 318", "원문 입력", 506, 232);
+    svg += edge("e_ext_rend", "M 500 374 C 526 438, 534 575, 574 584", "정리본", 508, 506);
+    svg += edge("e_ext_res", "M 375 398 L 375 438", "후보", 382, 422);
+    svg += edge("e_res_idx", "M 500 500 L 574 282", "벡터/FTS", 512, 396);
+    svg += edge("e_res_ent", "M 500 520 L 732 346", "병합·엣지", 666, 425);
+    svg += edge("e_rend_sc", "M 720 584 L 740 584", "발행", 722, 574);
+    svg += edge("e_sc_work", "M 885 584 C 920 584, 922 150, 956 150", "비동기", 904, 355);
+
+    /* Column 1: Caller / Input */
+    svg += '<g class="p3-clickable' + (isActive("input_caller") ? " p3-active" : "") + '" role="button" tabindex="0" data-p3-jump-node="input_caller" aria-label="진입점 입력">' +
+      '<rect class="p3-card p3-card-rule" x="12" y="196" width="193" height="150" rx="12"/>' +
+      '<text class="p3-title" x="24" y="220">' + esc(sc.inputTitle) + '</text>' +
+      '<text class="p3-sub" x="24" y="242">' + esc(sc.inputLines[0]) + '</text>' +
+      '<text class="p3-sub" x="24" y="260">' + esc(sc.inputLines[1]) + '</text>' +
+      '<rect class="p3-pill-rect is-ai" x="24" y="280" width="168" height="22" rx="6"/>' +
+      '<text class="p3-pill-txt" x="32" y="294">진입점: ' + esc(sc.label) + '</text>' +
+      '<text class="p3-sub" x="24" y="328">클릭하여 관련 단계로 이동</text>' +
+      '</g>';
+
+    /* Column 2: Processing Engine */
+    svg += boxSvg(252, 56, 248, 134, "1. 수집 · 전처리 · 논문 분류", fetchModelLabel, stepObj.fetchState, isActive("engine_fetch"), true, "engine_fetch", stepObj.fetchState, "is-ai");
+    svg += boxSvg(252, 212, 248, 186, "2. 추출 · 초록 · 정리본", extractModelLabel, "extract_graph · render_detail", isActive("engine_extract"), state.p3Scenario !== "mcp_agent", "engine_extract", stepObj.extractState, state.p3Scenario === "mcp_agent" ? "is-ok" : "is-ai");
+    svg += boxSvg(252, 438, 248, 184, "3. 엔티티 해소 · 횡단 관계", resolveModelLabel, "Gate 1~5 · relation_judge", isActive("engine_resolve"), true, "engine_resolve", stepObj.resolveState, "is-ai");
+
+    if (viewer.showJev) {
+      svg += '<rect class="p3-pill-rect is-shadow" x="264" y="538" width="224" height="24" rx="6"/>' +
+        '<text class="p3-pill-txt" x="272" y="554">' + esc(viewer.models.jev) + '</text>';
+    }
+
+    /* Column 3: SQLite Canonical Store Cylinders */
+    svg += cylSvg(575, 82, 142, 86, "raw_inbox", "상태 · 복구 기록", isActive("store_inbox"), "store_inbox", [stepObj.inboxPill]);
+    svg += cylSvg(734, 82, 146, 86, "raw_text", "A1 원문 보존", isActive("store_raw"), "store_raw", [stepObj.rawPill]);
+
+    svg += cylSvg(575, 222, 142, 80, "Embeddings", "3072d 코사인", isActive("store_vec"), "store_vec", []);
+    svg += cylSvg(575, 310, 142, 80, "FTS5", "kiwipiepy 형태소", isActive("store_fts"), "store_fts", []);
+
+    /* Mini Entity Graph node inside Indexes */
+    svg += '<g class="p3-clickable' + (isActive("store_graph") ? " p3-active" : "") + '" role="button" tabindex="0" data-p3-jump-node="store_graph" aria-label="지식 그래프">' +
+      '<rect class="p3-card p3-card-rule" x="575" y="398" width="142" height="94" rx="8"/>' +
+      '<text class="p3-title" x="586" y="417">Entity Graph</text>' +
+      '<line x1="646" y1="436" x2="608" y2="468" stroke="' + (stepObj.graphActive ? 'var(--accent)' : 'var(--border)') + '" stroke-width="1.5"/>' +
+      '<line x1="646" y1="436" x2="684" y2="468" stroke="' + (stepObj.graphActive ? 'var(--accent)' : 'var(--border)') + '" stroke-width="1.5"/>' +
+      '<circle cx="646" cy="436" r="5" fill="' + (stepObj.graphActive ? 'var(--accent)' : 'var(--muted)') + '"/>' +
+      '<circle cx="608" cy="468" r="4" fill="' + (stepObj.graphActive ? 'var(--ok)' : 'var(--muted)') + '"/>' +
+      '<circle cx="684" cy="468" r="4" fill="' + (stepObj.graphActive ? 'var(--ok)' : 'var(--muted)') + '"/>' +
+      '<text class="p3-sub" x="633" y="452" style="font-size:9px;">uses</text>' +
+      '<text class="p3-sub" x="588" y="484" style="font-size:9px;">vLLM · PagedAttn</text>' +
+      '</g>';
+
+    svg += cylSvg(734, 222, 146, 128, "Entities", "해소 결과 (G1~G5)", isActive("store_entities"), "store_entities", stepObj.entityPills);
+    svg += cylSvg(734, 360, 146, 132, "Relations", "문서 내 · 문서 간", isActive("store_relations"), "store_relations", stepObj.relPills);
+
+    svg += cylSvg(575, 544, 145, 78, "Renditions", "기본 · 간결 · 학술", isActive("store_renditions"), "store_renditions", [stepObj.rendPill]);
+    svg += cylSvg(740, 544, 140, 78, "Silvercord · AP", "/silvercord/{tok}", isActive("store_silvercord"), "store_silvercord", []);
+
+    /* Column 4: Background Workers */
+    svg += boxSvg(956, 66, 180, 144, "classify_watch", "신규 1차 적재 시만", "주기 재확인 등록", isActive("worker_watch"), true, "worker_watch", isActive("worker_watch") ? "비동기 실행" : "대기", "is-warn");
+    svg += boxSvg(956, 232, 180, 166, "expand-loop", "auto_expand 켜짐 시", "깊이 1 고정 (expand_max=0)", isActive("worker_expand"), true, "worker_expand", isActive("worker_expand") ? "링크 확장 큐" : "대기", "is-warn");
+    svg += boxSvg(956, 420, 180, 190, "refresh · recover", "동일 doc.id · 백오프", "staged 행은 건너뜀", isActive("worker_refresh"), false, "worker_refresh", isActive("worker_refresh") ? "갱신/복구" : "대기", "is-ok");
+
+    svg += '</svg>';
+
+    var nodeMeta = P3_NODE_META[state.p3SelectedNode] || P3_NODE_META.engine_extract;
+    var nodeStage = STAGES.find(function (s) { return s.id === nodeMeta.stageId; }) || STAGES[0];
+    var progressRatio = ((state.p3Step + 1) / sc.steps.length).toFixed(3);
+
+    var diagramHtml = '<div class="p3-wrap' + (state.p3Fullscreen ? ' p3-full' : '') + '" id="p3-diagram-wrap">' +
+      '<div class="p3-bar">' +
+      '<div class="p3-tabs" focusgroup="tablist nomemory" aria-label="아키텍처 시나리오 선택">' +
+      Object.keys(P3_SCENARIOS).map(function (key) {
+        var item = P3_SCENARIOS[key];
+        var sel = key === state.p3Scenario;
+        return '<button type="button" class="p3-tab" data-p3-scen="' + key + '" aria-selected="' + sel + '" ' + (sel ? 'focusgroupstart ' : '') + 'style="--p3-prog:' + (sel ? progressRatio : 0) + ';">' +
+          '<span>' + esc(item.label) + '</span>' +
+          '<i class="p3-tab-prog" aria-hidden="true"><span></span></i>' +
+          '</button>';
+      }).join("") +
+      '</div>' +
+      '<div class="p3-grow"></div>' +
+      '<div class="p3-ctrls">' +
+      '<button type="button" class="p3-ctrl-btn" id="p3-play-btn" aria-pressed="' + state.p3Playing + '" title="' + (state.p3Playing ? '일시 정지' : '자동 재생') + '" aria-label="' + (state.p3Playing ? '일시 정지' : '자동 재생') + '">' + icon(state.p3Playing ? "pause" : "play") + '</button>' +
+      '<button type="button" class="p3-ctrl-btn" id="p3-speed-btn" title="재생 속도 전환">' + state.p3Speed + '×</button>' +
+      '<button type="button" class="p3-ctrl-btn" id="p3-full-btn" aria-pressed="' + state.p3Fullscreen + '" title="' + (state.p3Fullscreen ? '전체 화면 닫기 (Esc)' : '전체 화면') + '" aria-label="' + (state.p3Fullscreen ? '전체 화면 닫기' : '전체 화면') + '">' + icon(state.p3Fullscreen ? "close" : "expand") + '</button>' +
+      '</div>' +
+      '</div>' +
+      '<div class="p3-view" tabindex="0" aria-label="4열 아키텍처 다이어그램 영역">' + svg + '</div>' +
+      '<div class="p3-foot">' +
+      '<div class="p3-scrub">' +
+      '<button type="button" data-p3-step="prev" ' + (state.p3Step <= 0 ? 'disabled' : '') + ' aria-label="이전 단계">' + icon("prev") + '</button>' +
+      '<span>' + (state.p3Step + 1) + ' / ' + sc.steps.length + '</span>' +
+      '<button type="button" data-p3-step="next" ' + (state.p3Step >= sc.steps.length - 1 ? 'disabled' : '') + ' aria-label="다음 단계">' + icon("next") + '</button>' +
+      '</div>' +
+      '<p class="p3-cap" role="status" aria-live="polite">' + esc(stepObj.caption) + '</p>' +
+      '<div class="p3-node-detail">' +
+      '<div><strong>선택 요소:</strong> ' + esc(nodeMeta.label) + ' — <span style="color:var(--muted);">' + esc(nodeStage.failClosed) + '</span></div>' +
+      '<span class="pill">' + esc(viewer.sourceLabel) + ' · <code>' + esc(formatStageModel(nodeStage, viewer, state.p3Scenario, state.p3Scenario === "mcp_agent" ? "client" : "provider")) + '</code></span>' +
+      '</div>' +
+      '</div></div>';
+
+    if (viewer.id === "public") {
+      return renderPublicChromeHeader() +
+        '<main class="pub-main">' +
+        '<section id="about-top" style="padding:0.25rem 0;">' +
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:0.75rem;border-bottom:1px solid var(--border);padding-bottom:0.875rem;">' +
+        '<div><span class="pill pill-rule">Claire Bible · /about (3안: Hindsight 참조)</span>' +
+        '<h1 class="hero-title" style="margin-top:0.35rem;">Claire Bible — 아키텍처와 지식 파이프라인</h1>' +
+        '<p class="hero-lead" style="margin-bottom:0;">원문을 보존하고 결정론적 검증과 모델 추론을 분리해 개인·공유 지식 그래프를 구축하는 서버입니다. 운영: <strong>claire.example</strong> · <code>v0.1.0</code> (MIT) · 네트워크 모드(초대 전용) · 공개 계정 4 · 공개 테마 5 · AI 크롤러 차단 활성</p></div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;"><a class="btn btn-pri" href="#directory">' + icon("users") + ' 공개 디렉터리</a><a class="btn" href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer">' + icon("external") + ' GitHub</a></div>' +
+        '</div></section>' +
+        '<section aria-labelledby="p3-arch-h2">' +
+        '<div class="p3-section-head"><h2 id="p3-arch-h2">' + icon("fork") + ' 아키텍처 딥다이브 (공통 처리 흐름도)</h2>' +
+        '<p>진입점 탭을 전환하거나 재생(▶) · 단계 이동(‹ ›) · 블록 클릭으로 원문이 정본 SQLite와 비동기 워커까지 흘러가는 과정을 살펴보세요.</p></div>' +
+        diagramHtml +
+        '</section>' +
+        '<section class="grid-4" aria-label="설계 원칙">' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("lock") + ' A1. 원문 보존</h3><p>LLM 산출물이 원문(<code>raw_text</code>)과 출처를 대체하지 않습니다.</p></article>' +
+        '<article class="principle-card" data-kind="ai"><h3>' + icon("fork") + ' A2. 결정론 · 추론 분리</h3><p>실선(규칙)과 점선(AI)을 분리해 검증 무결성을 지킵니다.</p></article>' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("shield") + ' C2. 숨은 폴백 없음</h3><p>운영 환경에서 실패 시 mock으로 채우지 않고 멈춥니다.</p></article>' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("bot") + ' AED9. 4계층 격리</h3><p>nonce 프레이밍, 격리 서브에이전트, 엄격 스키마, 원자 커밋.</p></article>' +
+        '</section>' +
+        '<section class="card">' +
+        '<div class="tablist-wrap"><div class="tablist-scroll" focusgroup="tablist nomemory" aria-label="세부 참조">' +
+        '<button type="button" class="tab-btn" id="p3-ref-ont" data-p3-ref="ontology" aria-selected="' + (state.p3RefTab === "ontology") + '">온톨로지 (11+11)</button>' +
+        '<button type="button" class="tab-btn" id="p3-ref-rend" data-p3-ref="renditions" aria-selected="' + (state.p3RefTab === "renditions") + '">정리본 템플릿 (3종)</button>' +
+        '<button type="button" class="tab-btn" id="p3-ref-pub" data-p3-ref="public" aria-selected="' + (state.p3RefTab === "public") + '">공개 표준 · 탐색 경로</button>' +
+        '</div></div>' +
+        '<div role="tabpanel" aria-labelledby="p3-ref-ont" data-p3-ref-panel="ontology" ' + (state.p3RefTab === "ontology" ? 'tabindex="0"' : 'hidden="until-found"') + '><div class="tabpanel-inner"><div class="chip-cloud">' +
+        ONTOLOGY.entities.map(function (t) { return '<span class="ont-chip"><code>' + esc(t) + '</code></span>'; }).join("") +
+        ONTOLOGY.relations.map(function (r) { return '<span class="ont-chip"><code>' + esc(r) + '</code></span>'; }).join("") +
+        '</div></div></div>' +
+        '<div role="tabpanel" aria-labelledby="p3-ref-rend" data-p3-ref-panel="renditions" ' + (state.p3RefTab === "renditions" ? 'tabindex="0"' : 'hidden="until-found"') + '><div class="tabpanel-inner"><div class="table-wrap"><table><thead><tr><th scope="col">템플릿</th><th scope="col">원문 표</th><th scope="col">수식 정책</th><th scope="col">설명</th></tr></thead><tbody>' +
+        RENDITIONS.map(function (r) { return '<tr><td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.tables) + '</td><td>' + esc(r.formulas) + '</td><td>' + esc(r.scope) + '</td></tr>'; }).join("") +
+        '</tbody></table></div></div></div>' +
+        '<div role="tabpanel" aria-labelledby="p3-ref-pub" data-p3-ref-panel="public" ' + (state.p3RefTab === "public" ? 'tabindex="0"' : 'hidden="until-found"') + '><div class="tabpanel-inner"><div class="chip-cloud">' +
+        '<a class="btn" href="#directory">/directory</a><a class="btn" href="#kb">/kb</a><a class="btn" href="#themes">/themes</a><a class="btn" href="#ns">/ns/v1 · v2</a><a class="btn" href="#nodeinfo">/.well-known/nodeinfo</a><a class="btn" href="#mcp">/mcp</a><a class="btn" href="#reference">/reference</a><a class="btn" href="#robots">/robots.txt · /sitemap.xml</a>' +
+        '</div></div></div></section>' +
+        '</main>' + renderPublicFooter();
+    }
+
+    var conTabs = '<div class="tablist-wrap"><div class="tablist-scroll" focusgroup="tablist nomemory" aria-label="처리 흐름 섹션">' +
+      '<button type="button" class="tab-btn" data-p3-ctab="flow" aria-selected="' + (state.p3ConsoleTab === "flow") + '">처리 흐름</button>' +
+      '<button type="button" class="tab-btn" data-p3-ctab="media" aria-selected="' + (state.p3ConsoleTab === "media") + '">동영상·미디어 &amp; 고정값</button>' +
+      (viewer.showAdminRecords ? '<button type="button" class="tab-btn" data-p3-ctab="records" aria-selected="' + (state.p3ConsoleTab === "records") + '">실제 기록 &amp; 대체 동작</button>' : '') +
+      '</div></div>';
+
+    var tabBody = state.p3ConsoleTab === "flow"
+      ? '<div class="con-subcard" id="pipeline-graph"><h2>' + icon("fork") + ' 아키텍처 딥다이브 (공통 컴포넌트)</h2>' + diagramHtml + '</div>'
+      : renderMediaAndFixedCards(viewer);
+
+    return renderConsoleHeader(viewer) +
+      '<div class="con-body">' +
+      '<header class="con-sec-head"><h1>' + icon("fork") + '<span>문서 처리 흐름</span> <span class="pill">' + (viewer.id === "admin" ? "관리자" : "회원") + '</span></h1><p>Hindsight형 4열 공간 흐름도로 진입점별 실행·생략과 실제 적용 모델을 확인합니다.</p></header>' +
+      conTabs + tabBody +
+      '</div>';
+  }
+
+  function syncP3Timer() {
+    if (p3Timer) {
+      clearInterval(p3Timer);
+      p3Timer = null;
+    }
+    var shouldRun = state.proposal === "p3" && state.p3Playing && (state.viewer === "public" || state.p3ConsoleTab === "flow");
+    if (!shouldRun) return;
+    var intervalMs = state.p3Speed === 2 ? 1500 : 3000;
+    p3Timer = setInterval(function () {
+      var sc = P3_SCENARIOS[state.p3Scenario] || P3_SCENARIOS.web_api_cli;
+      state.p3Step = (state.p3Step + 1) % sc.steps.length;
+      render();
+    }, intervalMs);
+  }
+
+  /* ── Proposal 4: Gemini Neon — Unified 5-Stage Optical Prism ── */
+  var P4_BEATS = [
+    {
+      id: "ingest_seal",
+      num: "01",
+      shortTitle: "수집 · 원문 봉인",
+      title: "01. 수집 · 전처리 · 원문 봉인 (A1)",
+      kind: "rule",
+      kindLabel: "결정론적 규칙 (실선)",
+      pillText: "원문 불변 · raw_text",
+      input: "URL, PDF/ODT/DOCX/TXT, 자유 메모, 첨부+링크 복합 입력",
+      apiAction: "어디서 들어오든 사설망(SSRF) 차단 후 PDFium → 일반 어댑터 → Scrapling → CDP 순으로 본문을 얻습니다. 영상은 제작자 자막 → 자동 자막 → STT(gemini-3.5-transcribe) 우선순위이며, PDF/ODT는 classify 슬롯으로 서지를 보정해 raw_text에 불변 보관합니다.",
+      clientAction: "stage_raw(full_content=True)가 서버 STT·VLM·논문 분류를 끈 채 원문 전체와 SHA-256 해시를 수집해 pending 상태로 격리 저장합니다(검색·연합 미노출, agent_source_staged 알림 생략).",
+      output: "raw_inbox 상태 행 · 불변 raw_text · content_hash",
+      failClosed: "사설망 IP, 빈 PDF, 선호 자막 내려받기 실패, 300자 미만 차단 페이지는 오류로 기록하고 수집을 중단합니다.",
+      accSummary: "세부 참조: 입력 경로 통합 원칙 · 동영상 자막→STT 우선순위",
+      accBody: "<div><strong>입력 경로는 달라도 관문은 하나:</strong> 웹 UI, REST API, CLI, 텔레그램 봇(단일·첨부+링크 복합 2배 예산), 피드·연합(/syndication), MCP 스테이징이 모두 동일한 사설망 가드와 raw_text 불변 관문을 통과합니다.</div><div><strong>동영상 4단계 우선순위:</strong> (1) 제작자 자막 → (2) 자동 생성 자막 → (3) 자막 없을 때만 <code>gemini-3.5-transcribe</code> → (4) 모두 없으면 제목·설명·챕터만 남기고 3일간 캐시합니다.</div>"
+    },
+    {
+      id: "guard_budget",
+      num: "02",
+      shortTitle: "정규화 · 가드 · 예산",
+      title: "02. 중복 판별 · 내용 가드 · 예산 결정",
+      kind: "rule",
+      kindLabel: "결정론적 규칙 (실선)",
+      pillText: "가드 통과 · 노력 고정",
+      input: "정규화된 URL, raw_text, content_hash, paper_classification",
+      apiAction: "툼스톤(purged_tombstones), canonical URL(기존 문서 갱신), 해시·MinHash 중복과 저품질 가드(validate_extractable_content)를 통과한 뒤, 마크다운/AsciiDoc 표(table-exemption)를 훼손하지 않고 예산과 논문 PDF 적응형 노력(high)을 계산합니다.",
+      clientAction: "중복·가드 확인 후 full_content=True 원문 전체를 자르지 않고 보존하며, 이후 에이전트가 claim_token 임대와 nonce 청크 읽기를 시작할 수 있게 잠금 해시를 준비합니다.",
+      output: "통과한 문서 레코드 · 표 보존 프롬프트 예산 · applied_effort",
+      failClosed: "툼스톤 차단(force=True만 해제), 저품질·차단 페이지(insufficient_content), 미지원 --effort 값(400)은 추출 전에 즉시 거절됩니다.",
+      accSummary: "세부 참조: 원문 표 보존과 적응형 추론 노력 규칙",
+      accBody: "<div><strong>표 면제 규칙:</strong> 원문 길이가 예산을 초과할 때도 마크다운·AsciiDoc 표 블록을 우선 보존해 구조화 정보 손실을 막습니다.</div><div><strong>논문 적응형 노력:</strong> 15,000자 이상 논문 PDF는 <code>high</code> 추론 노력을 선택하되, 고정 노력 접미사가 붙은 모델이나 명시적 <code>--effort</code> 지정은 덮어쓰지 않습니다.</div>"
+    },
+    {
+      id: "extract_rendition",
+      num: "03",
+      shortTitle: "추출 · 정리본",
+      title: "03. 구조화 추출 · AsciiDoc 정리본 렌더링",
+      kind: "ai",
+      kindLabel: "AI 추론 / 에이전트 경계 (점선)",
+      pillText: "초록 + 3종 정리본 / AED9",
+      input: "예산 적용 원문 + 닫힌 온톨로지(11 엔티티 · 11 관계) + 템플릿 규칙",
+      apiAction: "extract_graph가 단일 호출로 계정·서버 선호 언어 순서에 맞춘 초록·핵심 주장·엔티티·관계를 추출합니다(summarize 슬롯이 다를 때만 초록을 재정제). 독립 병렬 분기인 render_detail이 대표 정리본(standard)과 선택적 concise·academic 정리본을 AOT HTML로 컴파일합니다.",
+      clientAction: "격리 서브에이전트(claire-extractor)가 <untrusted_source_document nonce=...> 경계로 청크 읽기 후 자체 LLM으로 초록·정리본·엔티티·관계를 생성하고, extract_submit이 스키마(extra=forbid)·AsciiDoc·근거 스팬·온톨로지 4계층 검증을 통과한 뒤 임베딩을 선계산합니다.",
+      output: "초록(summary) · 엔티티/관계 후보 · document_renditions (AOT HTML)",
+      failClosed: "에이전트 경로에서 마크다운 혼입, 가짜 닫힘 태그, 해시 불일치, 비허용 모델 문자열이면 DB 쓰기 전에 거부됩니다. 정리본 렌더링 실패는 그래프 저장을 막지 않습니다.",
+      accSummary: "세부 참조: 정리본(Rendition) 3종 정책 · AED9 4계층 방어",
+      accBody: "<div><strong>정리본 3종:</strong> <code>standard</code>(기본 · 원문 표 미사용 · 대표 수식만), <code>concise</code>(핵심 쟁점 · 고정 절 순서 · 짧은 범위), <code>academic</code>(원문 표 · 수식 유도 전체 보존).</div><div><strong>에이전트 격리(AED9):</strong> (1) 셸/쓰기 도구 없는 서브에이전트, (2) 난수 nonce 경계, (3) 엄격 스키마 4계층 검증, (4) 선계산 임베딩 후 단일 트랜잭션 커밋.</div>"
+    },
+    {
+      id: "resolve_gates",
+      num: "04",
+      shortTitle: "엔티티 5관문 해소",
+      title: "04. 엔티티 해소 5관문 · 하드 불변식 · 관계 검증",
+      kind: "ai",
+      kindLabel: "규칙 + 벡터 + 조건부 판정",
+      pillText: "Gate 1~5 · 0.93 / 0.72",
+      input: "후보 엔티티 프레임(이름·타입·별칭·관찰 최대 5개) + KB 엔티티/벡터",
+      apiAction: "Gate 1(정규화·별칭·3자↑ 약어) 적중 시 임베딩을 건너뜁니다. 미스 시 3072d 코사인+FTS5로 후보를 찾고, Gate 2(버전 v1↔v2·2글자 대문자·타입) 불변식 검사 후 Gate 3(≥0.93 자동 병합) 또는 Gate 4(0.72~0.93 entity_judge 최대 3회)를 거쳐 횡단 관계(relation_judge)와 히트맵을 기록합니다.",
+      clientAction: "extract_submit은 DB 쓰기 전에 선계산한 3072d 임베딩으로 Gate 1(규칙), Gate 2(하드 불변식), Gate 3(≥0.93 자동 병합), Gate 5(신규 생성)까지만 실행합니다. Gate 4 LLM 판정, 히트맵, 횡단 relation_judge, Jev 그림자 평가는 실행하지 않습니다.",
+      output: "병합 또는 신규 entity_id · 검증된 relations 엣지 · resolution_log",
+      failClosed: "자기 루프 관계(A→A)와 도메인/범위 불일치(예: authored_by → Person|Org 외) 엣지는 적재 전에 차단됩니다. 서버/에이전트 모두 0.72~0.93 미만 저신뢰 병합을 허용하지 않습니다.",
+      accSummary: "세부 참조: 엔티티 해소 5관문 임계값 · 온톨로지 도메인 검증",
+      accBody: "<div><strong>고정 임계값:</strong> <code>sim_tier_auto_merge = 0.93</code>, <code>sim_tier_borderline = 0.72</code>, <code>MAX_JUDGE = 3</code>, <code>relational_candidates ≥ 0.70</code>.</div><div><strong>임베딩 입력 범위:</strong> 초록·상세 본문이 아닌 엔티티 프레임(이름·타입·별칭·관찰 최대 5개)만 3072차원 <code>RETRIEVAL_DOCUMENT</code> 벡터로 저장합니다.</div>"
+    },
+    {
+      id: "commit_follow",
+      num: "05",
+      shortTitle: "정본 커밋 · 발행 · 후속",
+      title: "05. SQLite 정본 커밋 · Silvercord 발행 · 비동기 후속",
+      kind: "rule",
+      kindLabel: "원자 트랜잭션 + 격리 후속",
+      pillText: "claire.db · Silvercord",
+      input: "문서 본문, 정리본 HTML, 해소된 엔티티/관계, 단계별 model_lineage",
+      apiAction: "정본 SQLite(claire.db, kb_id 격리)에 FTS5 전문 검색 색인(언어별 형태소 지원)·3072d 벡터·model_lineage를 저장하고 /silvercord/{token} 열람 경로를 엽니다. 신규 1차 적재이고 개인 KB(CT10)면 백그라운드 classify_watch·expand-loop(깊이 1, expand_max=0)가 이어집니다.",
+      clientAction: "_AtomicConnection 단일 트랜잭션으로 origin=agent_client 상태를 동기 커밋하고 /silvercord/{token}과 정본 색인을 즉시 완성합니다. classify_watch와 expand-loop 자동 확장은 실행하지 않습니다.",
+      output: "검색·그래프 UI·/silvercord/{token}·MCP·ActivityPub 발행 가능 정본",
+      failClosed: "원문(raw_text)과 출처 메타는 영구 불변(A1)이며 텔레메트리는 정본 DB와 물리 분리(A4)됩니다. 공유 KB는 소유 계정 과금 방지를 위해 expand·refresh·recover 루프가 돌지 않습니다(CT10).",
+      accSummary: "세부 참조: 개인 KB 3종 루프(CT10) · 재처리 안전장치(before_store)",
+      accBody: "<div><strong>개인 KB 전용 3종 워커:</strong> <code>expand-loop</code>(깊이 1 고정), <code>refresh-loop</code>(동일 <code>doc.id</code>로 갱신해 엔티티 출처 보존), <code>recover-loop</code>(원래 <code>extraction_mode</code> 유지 · <code>staged</code> 건너뜀).</div><div><strong>재생성 보호:</strong> 기존 문서를 다시 추출(regenerate)할 때는 <code>extract_graph</code>가 성공해 <code>before_store</code>가 호출되기 전까지 기존 그래프를 삭제하지 않습니다.</div>"
+    }
+  ];
+
+  function renderArcaneEmblem() {
+    return '<svg class="p4-emblem" viewBox="0 0 64 64" aria-hidden="true" focusable="false">' +
+      '<defs><radialGradient id="p4-flare" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ffffff"/><stop offset="45%" stop-color="#58d5ff" stop-opacity="0.7"/><stop offset="100%" stop-color="#0080ff" stop-opacity="0"/></radialGradient></defs>' +
+      '<circle cx="32" cy="32" r="28" fill="rgba(0,245,184,0.08)" stroke="#00ffaa" stroke-width="1.4" stroke-opacity="0.72"/>' +
+      '<ellipse cx="32" cy="32" rx="28" ry="11" fill="none" stroke="#26ffaa" stroke-opacity="0.4" stroke-width="1.1"/>' +
+      '<ellipse cx="32" cy="32" rx="11" ry="28" fill="none" stroke="#38b6ff" stroke-opacity="0.4" stroke-width="1.1"/>' +
+      '<polygon points="32,12 49,42 15,42" fill="none" stroke="#26ffaa" stroke-width="1.35" stroke-opacity="0.88"/>' +
+      '<polygon points="32,52 49,22 15,22" fill="none" stroke="#a6ffe0" stroke-width="1.1" stroke-opacity="0.72"/>' +
+      '<circle cx="32" cy="32" r="11" fill="url(#p4-flare)"/>' +
+      '<circle cx="32" cy="32" r="3.4" fill="#ffffff"/>' +
+      '</svg>';
+  }
+
+  function p4Chevron() {
+    return '<svg class="lineicon p4-chev" viewBox="0 0 16 16" aria-hidden="true" focusable="false">' + ICONS.chevron + '</svg>';
+  }
+
+  function renderProposal4() {
+    var viewer = getActiveViewer();
+    var idx = Math.max(0, Math.min(P4_BEATS.length - 1, state.p4Stage));
+    var beat = P4_BEATS[idx];
+    var isClient = state.p4Mode === "client";
+
+    /* Beat-aware applied model readout scoped strictly to viewer role */
+    var stageModelText = "";
+    if (beat.id === "ingest_seal") {
+      stageModelText = isClient ? "서버 STT · VLM · 분류 OFF (stage_raw)" : "자막 우선 → " + viewer.models.stt + " / " + viewer.models.classify;
+    } else if (beat.id === "guard_budget") {
+      stageModelText = "규칙 기반 (AI 호출 없음 · 해시 · 가드 · 예산)";
+    } else if (beat.id === "extract_rendition") {
+      stageModelText = isClient ? viewer.models.client_llm + " + " + viewer.models.embed : viewer.models.extract_graph + " · " + viewer.models.render_detail + " · " + viewer.models.summarize;
+    } else if (beat.id === "resolve_gates") {
+      stageModelText = isClient ? "규칙(G1~G2) + 선계산 " + viewer.models.embed + " (Gate 4 생략)" : viewer.models.embed + " + " + viewer.models.entity_judge + " + " + viewer.models.relation_judge;
+    } else {
+      stageModelText = isClient ? "원자 커밋 완료 (비동기 워커 생략)" : "claire.db FTS5 · 후속: " + viewer.models.classify + " · " + viewer.models.research;
+    }
+
+    /* Left Pane Specimen Metamorphosis */
+    var specimenHtml = "";
+    if (beat.id === "ingest_seal") {
+      specimenHtml = '<div class="p4-specimen-box">' +
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.4rem;">' +
+        '<strong style="font-size:0.84rem;color:#f8fbff;">입력 표본: vLLM 논문 PDF (24,300자)</strong>' +
+        '<span class="p4-pill p4-pill-mint">A1 원문 불변</span></div>' +
+        '<div style="font-size:0.74rem;color:#a7b8d4;">어디서 들어오든 동일한 수집·사설망 가드 관문을 거칩니다 (단순 참고 출처):</div>' +
+        '<div class="chip-cloud">' +
+        '<span class="p4-pill p4-pill-quiet">웹 UI · REST API · CLI</span>' +
+        '<span class="p4-pill p4-pill-quiet">텔레그램 DM (단일·복합)</span>' +
+        '<span class="p4-pill p4-pill-quiet">피드 · ActivityPub</span>' +
+        '<span class="p4-pill p4-pill-quiet">MCP (OAuth 2.1)</span>' +
+        '</div>' +
+        '<div style="display:grid;gap:0.3rem;padding-top:0.35rem;border-top:1px dashed rgba(148,163,184,0.2);font-size:0.75rem;">' +
+        '<div><code>source_url</code> 정규화 + <code>check_ip_safety</code> 사설망 차단 통과</div>' +
+        '<div><code>sha256</code> 원문 지문 고정 → ' + (isClient ? '<span class="p4-pill p4-pill-mint">full_content=True · pending 격리</span>' : '<span class="p4-pill p4-pill-azure">PDFium 추출 · 논문 분류 완료</span>') + '</div>' +
+        '</div></div>';
+    } else if (beat.id === "guard_budget") {
+      specimenHtml = '<div class="p4-specimen-box">' +
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.4rem;">' +
+        '<strong style="font-size:0.84rem;color:#f8fbff;">정규화 · 가드 판정 결과</strong>' +
+        '<span class="p4-pill p4-pill-mint">결정론적 통과</span></div>' +
+        '<div class="p4-gate-bar">' +
+        '<div class="p4-gate-row" data-hit="true"><span>1. purged_tombstones / canonical URL 검사</span><span>통과 (신규)</span></div>' +
+        '<div class="p4-gate-row" data-hit="true"><span>2. SHA-256 · MinHash 유사 중복 검사</span><span>중복 0건</span></div>' +
+        '<div class="p4-gate-row" data-hit="true"><span>3. validate_extractable_content</span><span>24.3k자 PASS</span></div>' +
+        '<div class="p4-gate-row" data-hit="' + (isClient ? 'true' : 'ai') + '"><span>4. 표 면제 예산 · 추론 노력 결정</span><span>' + (isClient ? '원문 전체 보존' : '표 보존 · effort: high') + '</span></div>' +
+        '</div></div>';
+    } else if (beat.id === "extract_rendition") {
+      if (isClient) {
+        specimenHtml = '<div class="p4-specimen-box">' +
+          '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.4rem;">' +
+          '<strong style="font-size:0.84rem;color:#f8fbff;">에이전트 클라이언트 격리 추출 · 4계층 검증 (AED9)</strong>' +
+          '<span class="p4-pill p4-pill-mint">extract_submit 검증</span></div>' +
+          '<div class="p4-nonce-frame">' +
+          '<code>&lt;untrusted_source_document nonce="7f3a9c..." sha256="..."&gt;</code>' +
+          '<div style="color:#d6e4f8;">격리 서브에이전트(<code>claire-extractor</code>)가 셸·쓰기 도구 없이 청크 읽기 후 초록·정리본·엔티티·관계를 생성합니다.</div>' +
+          '<code>&lt;/untrusted_source_document&gt;</code>' +
+          '</div>' +
+          '<div class="chip-cloud">' +
+          '<span class="p4-pill p4-pill-mint">1. extra="forbid" 스키마</span>' +
+          '<span class="p4-pill p4-pill-mint">2. AsciiDoc 규칙 검사</span>' +
+          '<span class="p4-pill p4-pill-mint">3. 근거 스팬 대조</span>' +
+          '<span class="p4-pill p4-pill-mint">4. 온톨로지 · 임베딩 선계산</span>' +
+          '</div></div>';
+      } else {
+        var rKey = state.p4RenditionPreview || "standard";
+        var rInfo = RENDITIONS.find(function (r) { return r.id === rKey; }) || RENDITIONS[0];
+        var rText = rKey === "academic"
+          ? "= PagedAttention과 vLLM: 원문 표 · 수식 유도 포함\n\n해석: 메모리 단편화율과 KV 블록 테이블 수식 유도를 생략 없이 보존하고 원문 성능 표 전체를 AsciiDoc으로 유지합니다."
+          : (rKey === "concise"
+            ? "= vLLM 핵심 쟁점 (간결 정리본)\n\n== 1. 핵심 문제\n연속 KV 캐시 예약으로 60% 이상 내부 단편화가 발생합니다.\n== 2. 해법\n비연속 물리 블록 매핑으로 처리량을 높입니다."
+            : "= vLLM: PagedAttention 기반 LLM 서빙 엔진 (대표 정리본)\n\n== 구조와 동작\n가상 메모리 페이징을 KV 캐시에 적용합니다. 대표 공식 1종만 남기고 원문 표 대신 구조화 해설로 정리합니다.");
+        specimenHtml = '<div class="p4-specimen-box">' +
+          '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.4rem;">' +
+          '<strong style="font-size:0.84rem;color:#f8fbff;">초록 추출 + 정리본 미리보기 (선호 언어: ' + esc(viewer.serverLangs) + ')</strong>' +
+          '<span class="p4-pill p4-pill-azure">독립 병렬 AOT HTML</span></div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:0.35rem;">' +
+          RENDITIONS.map(function (r) {
+            return '<button type="button" class="p4-btn p4-mode-btn" data-p4-rend="' + r.id + '" aria-pressed="' + (r.id === rKey) + '">' + esc(r.label.split(" ")[0]) + '</button>';
+          }).join("") +
+          '</div>' +
+          '<pre style="margin:0;padding:0.6rem;border-radius:0.42rem;background:rgba(15,23,42,0.92);border:1px solid rgba(56,182,255,0.22);color:#d7e7ff;white-space:pre-wrap;font-size:0.73rem;">' + esc(rText) + '</pre>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:0.35rem;">' +
+          '<span class="p4-pill p4-pill-quiet">' + esc(rInfo.tables) + '</span>' +
+          '<span class="p4-pill p4-pill-quiet">' + esc(rInfo.formulas) + '</span>' +
+          '</div></div>';
+      }
+    } else if (beat.id === "resolve_gates") {
+      var gHit = 5;
+      var gDesc = "";
+      if (state.p4GateExact) {
+        gHit = 1;
+        gDesc = "Gate 1 통과: 정규화/별칭/약어 일치로 임베딩과 LLM 판정 없이 즉시 병합합니다.";
+      } else if (state.p4GateVersionConflict) {
+        gHit = 2;
+        gDesc = "Gate 2 차단: 버전 번호 충돌(예: v1 ↔ v2)로 후보에서 제거되어 신규 엔티티로 분리됩니다.";
+      } else if (state.p4GateScore >= 0.93) {
+        gHit = 3;
+        gDesc = "Gate 3 통과(" + state.p4GateScore.toFixed(2) + " ≥ 0.93): 고신뢰 3072d 코사인 유사도로 자동 병합합니다.";
+      } else if (state.p4GateScore >= 0.72) {
+        gHit = isClient ? 5 : 4;
+        gDesc = isClient
+          ? "경계 구간(" + state.p4GateScore.toFixed(2) + ")이지만 에이전트 클라이언트 모드에서는 Gate 4 LLM 판정을 생략하므로 Gate 5 신규 생성(+관계 후보)으로 진행합니다."
+          : "Gate 4 발동(0.72 ≤ " + state.p4GateScore.toFixed(2) + " < 0.93): entity_judge(최대 3회)가 SAME/DIFFERENT를 판정합니다.";
+      } else {
+        gHit = 5;
+        gDesc = "Gate 5 신규 생성(" + state.p4GateScore.toFixed(2) + (state.p4GateScore >= 0.70 ? " ≥ 0.70: 관계 후보 등록)" : " < 0.70: 새 엔티티 저장)");
+      }
+      specimenHtml = '<div class="p4-specimen-box">' +
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.4rem;">' +
+        '<strong style="font-size:0.84rem;color:#f8fbff;">엔티티 해소 5관문 광학 게이지</strong>' +
+        '<span class="p4-pill ' + (isClient ? 'p4-pill-mint' : 'p4-pill-azure') + '">' + (isClient ? 'G1~G3 + G5 (G4 생략)' : 'G1~G5 전체 경로') + '</span></div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.3rem;">' +
+        '<button type="button" class="p4-btn" data-p4-gate-preset="exact">규칙 일치</button>' +
+        '<button type="button" class="p4-btn" data-p4-gate-preset="conflict">버전 충돌</button>' +
+        '<button type="button" class="p4-btn" data-p4-gate-preset="auto">0.95 자동</button>' +
+        '<button type="button" class="p4-btn" data-p4-gate-preset="border">0.84 경계</button>' +
+        '<button type="button" class="p4-btn" data-p4-gate-preset="new">0.52 신규</button>' +
+        '</div>' +
+        '<label style="font-size:0.75rem;color:#cbd8ee;display:flex;flex-direction:column;gap:0.2rem;">코사인 유사도 점수: <strong style="color:#7bffcf;">' + state.p4GateScore.toFixed(2) + '</strong>' +
+        '<input type="range" id="p4-gate-score" min="0.40" max="1.00" step="0.01" value="' + state.p4GateScore.toFixed(2) + '" style="accent-color:#26ffaa;"/></label>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:0.75rem;font-size:0.74rem;color:#cbd8ee;">' +
+        '<label><input type="checkbox" id="p4-gate-exact"' + (state.p4GateExact ? ' checked' : '') + '/> Gate 1 이름/별칭 일치</label>' +
+        '<label><input type="checkbox" id="p4-gate-conflict"' + (state.p4GateVersionConflict ? ' checked' : '') + '/> Gate 2 버전/타입 충돌</label>' +
+        '</div>' +
+        '<div class="p4-gate-bar">' +
+        GATES.map(function (g) {
+          var hitState = "";
+          if (g.id === gHit) hitState = g.id === 2 ? "blocked" : ((g.id === 4) ? "ai" : "true");
+          var badge = g.id === 4 && isClient ? "이 모드 생략" : (g.id === gHit ? (g.id === 2 ? "차단" : "통과") : "대기");
+          return '<div class="p4-gate-row"' + (hitState ? ' data-hit="' + hitState + '"' : '') + '>' +
+            '<span>' + esc(g.title) + '</span><span>' + esc(badge) + '</span></div>';
+        }).join("") +
+        '</div>' +
+        '<div style="font-size:0.75rem;color:#d6e4f8;padding:0.45rem 0.55rem;border-radius:0.4rem;background:rgba(15,23,42,0.85);border:1px solid rgba(56,182,255,0.22);">' + esc(gDesc) + '</div>' +
+        (viewer.showJev && !isClient ? '<div><span class="p4-pill p4-pill-iris">' + icon("eye") + ' 관리자 관측: ' + esc(viewer.models.jev) + '</span></div>' : '') +
+        '</div>';
+    } else {
+      var constSvg = '<svg viewBox="0 0 360 124" style="width:100%;height:auto;display:block;" role="img" aria-labelledby="p4-const-title p4-const-desc">' +
+        '<title id="p4-const-title">저장된 지식 그래프 별자리 예시</title>' +
+        '<desc id="p4-const-desc">vLLM, PagedAttention, FlashAttention 엔티티와 uses, cites 관계가 정본 그래프에 저장된 모습입니다.</desc>' +
+        '<line x1="72" y1="62" x2="180" y2="34" stroke="#26ffaa" stroke-width="2"/>' +
+        '<line x1="180" y1="34" x2="292" y2="74" stroke="#38b6ff" stroke-width="1.8" stroke-dasharray="5 3"/>' +
+        '<text x="114" y="38" fill="#8dffda" font-size="10" font-weight="700">uses</text>' +
+        '<text x="234" y="45" fill="#90d5ff" font-size="10" font-weight="700">cites</text>' +
+        '<circle cx="72" cy="62" r="14" fill="rgba(0,245,184,0.18)" stroke="#26ffaa" stroke-width="1.8"/>' +
+        '<text x="72" y="66" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="700">vLLM</text>' +
+        '<circle cx="180" cy="34" r="15" fill="rgba(56,182,255,0.2)" stroke="#58d5ff" stroke-width="1.8"/>' +
+        '<text x="180" y="38" text-anchor="middle" fill="#ffffff" font-size="9.5" font-weight="700">PagedAttn</text>' +
+        '<circle cx="292" cy="74" r="14" fill="rgba(167,139,250,0.2)" stroke="#c084fc" stroke-width="1.6"/>' +
+        '<text x="292" y="78" text-anchor="middle" fill="#ffffff" font-size="9.5" font-weight="700">FlashAttn</text>' +
+        '<rect x="18" y="92" width="324" height="22" rx="6" fill="rgba(15,23,42,0.86)" stroke="rgba(148,163,184,0.28)"/>' +
+        '<text x="30" y="106" fill="#cbd8ee" font-size="10">claire.db · FTS5 전문 색인 · 3072d 임베딩 · /silvercord/{token}</text>' +
+        '</svg>';
+      specimenHtml = '<div class="p4-specimen-box">' +
+        '<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:0.4rem;">' +
+        '<strong style="font-size:0.84rem;color:#f8fbff;">정본 저장 · 지식 별자리 · 후속 루프</strong>' +
+        '<span class="p4-pill p4-pill-mint">/silvercord/{token}</span></div>' +
+        constSvg +
+        '<div class="chip-cloud">' +
+        (isClient
+          ? '<span class="p4-pill p4-pill-mint">단일 _AtomicConnection 커밋</span><span class="p4-pill p4-pill-quiet">origin: agent_client</span><span class="p4-pill p4-pill-quiet">classify_watch · 자동확장 미실행</span>'
+          : '<span class="p4-pill p4-pill-mint">claire.db · FTS5 · 3072d</span><span class="p4-pill p4-pill-azure">classify_watch (개인 KB · 신규만)</span><span class="p4-pill p4-pill-azure">expand-loop 깊이 1</span>') +
+        '</div></div>';
+    }
+
+    var spineHtml = '<div class="p4-spine" role="list" aria-label="문서 처리 5단계 신호 레일">' +
+      P4_BEATS.map(function (b, i) {
+        var isCur = i === idx;
+        var isLit = i <= idx;
+        var edge = i > 0 ? '<div class="p4-conduit' + (isLit ? ' is-lit' : '') + '" aria-hidden="true"><span class="p4-photon"></span></div>' : '';
+        return edge + '<button type="button" class="p4-node" data-p4-stage="' + i + '" data-kind="' + b.kind + '"' + (isCur ? ' aria-current="step"' : '') + '>' +
+          '<div class="p4-node-num"><span class="p4-node-index">' + esc(b.num) + '</span><span>' + (b.kind === "rule" ? "실선 규칙" : "점선 AI") + '</span></div>' +
+          '<div class="p4-node-title">' + esc(b.shortTitle) + '</div>' +
+          '<div class="p4-node-tag">' + esc(b.pillText) + '</div>' +
+          '</button>';
+      }).join("") +
+      '</div>';
+
+    var sharedTheatreHtml = '<section class="p4-theatre' + (state.p4MotionOn ? '' : ' p4-paused') + '" aria-label="문서 처리 5단계 광학 흐름도">' +
+      '<div class="p4-head">' +
+      '<div class="p4-brand">' + renderArcaneEmblem() +
+      '<div class="p4-title-wrap"><h3>문서 한 편이 지식이 되는 5단계</h3>' +
+      '<p>어디서 들어오든 수집·검증을 거쳐 추출 방식(서버 API vs 에이전트)에 따라 3~5단계만 다르게 동작합니다.</p></div></div>' +
+      '<div class="p4-controls">' +
+      '<div class="p4-mode-group" role="group" aria-label="추출 방식 전환">' +
+      '<button type="button" class="p4-btn p4-mode-btn" data-p4-mode="provider" aria-pressed="' + (!isClient) + '">' + icon("bolt") + ' 서버 API</button>' +
+      '<button type="button" class="p4-btn p4-mode-btn" data-p4-mode="client" aria-pressed="' + (isClient) + '">' + icon("bot") + ' 에이전트 클라이언트</button>' +
+      '</div>' +
+      '<button type="button" class="p4-btn" id="p4-motion-btn">' + icon(state.p4MotionOn ? "pause" : "play") + '<span>' + (state.p4MotionOn ? '흐름 정지' : '흐름 재생') + '</span></button>' +
+      '<button type="button" class="p4-btn" data-p4-step="prev" ' + (idx <= 0 ? 'disabled' : '') + ' aria-label="이전 단계">' + icon("prev") + ' 이전</button>' +
+      '<span class="p4-pill p4-pill-quiet" style="font-variant-numeric:tabular-nums;">' + (idx + 1) + ' / ' + P4_BEATS.length + '</span>' +
+      '<button type="button" class="p4-btn" data-p4-step="next" ' + (idx >= P4_BEATS.length - 1 ? 'disabled' : '') + ' aria-label="다음 단계">다음 ' + icon("next") + '</button>' +
+      '</div></div>' +
+      '<div class="p4-spine-wrap">' + spineHtml + '</div>' +
+      '<div class="p4-deck">' +
+      '<div class="p4-glass"><div class="p4-glass-head"><h4>' + icon("spark") + ' 지금 이 단계의 문서 상태</h4><span class="p4-pill ' + (isClient ? 'p4-pill-mint' : 'p4-pill-azure') + '">' + (isClient ? '에이전트 클라이언트 경로' : '서버 API 경로') + '</span></div>' + specimenHtml + '</div>' +
+      '<div class="p4-glass"><div class="p4-glass-head"><h4>' + icon("layers") + ' ' + esc(beat.title) + '</h4><span class="p4-pill ' + (beat.kind === "rule" ? 'p4-pill-mint' : 'p4-pill-azure') + '">' + esc(beat.kindLabel) + '</span></div>' +
+      '<dl class="p4-kv">' +
+      '<dt>맥락 · 모델</dt><dd><code>' + esc(stageModelText) + '</code> <span class="p4-pill p4-pill-quiet">' + esc(viewer.sourceLabel) + '</span></dd>' +
+      '<dt>입력</dt><dd>' + esc(beat.input) + '</dd>' +
+      '<dt>핵심 동작</dt><dd>' + esc(isClient ? beat.clientAction : beat.apiAction) + '</dd>' +
+      '<dt>산출물</dt><dd>' + esc(beat.output) + '</dd>' +
+      '<dt>실패 차단</dt><dd>' + esc(beat.failClosed) + '</dd>' +
+      '</dl>' +
+      '<details class="p4-acc"><summary>' + p4Chevron() + '<span>' + esc(beat.accSummary) + '</span></summary><div class="p4-acc-body">' + beat.accBody + '</div></details>' +
+      '</div></div>' +
+      '<div class="p4-legend">' +
+      '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;"><span class="p4-pill p4-pill-mint">실선(민트): 결정론적 규칙 · 검증 경계</span><span class="p4-pill p4-pill-azure">점선(애저): AI 추론 · 조건부 분기</span>' +
+      (viewer.showJev ? '<span class="p4-pill p4-pill-iris">점선(바이올렛): Jev 그림자 관측(관리자)</span>' : '') + '</div>' +
+      '<span><code>/about</code> · <code>/support/pipeline</code> 공통 컴포넌트</span>' +
+      '</div></section>';
+
+    if (viewer.id === "public") {
+      return renderPublicChromeHeader() +
+        '<main class="pub-main">' +
+        '<section class="card p4-hero-neon" id="about-top">' +
+        '<div style="display:flex;align-items:flex-start;gap:0.75rem;min-width:0;">' +
+        renderArcaneEmblem() +
+        '<div><span class="pill pill-rule">공개 안내 · /about (4안: Gemini Neon)</span>' +
+        '<h1 class="hero-title" style="margin-top:0.35rem;">Claire Bible — 개인·공유 지식 베이스 및 온톨로지 지식 그래프 엔진</h1>' +
+        '<p class="hero-lead" style="margin-bottom:0;">웹 문서·논문 PDF·동영상·피드와 메모를 수집해 선호 언어 기반 초록·AsciiDoc 정리본·엔티티와 관계 그래프로 구조화하고, 하이브리드 검색·공유 지식 베이스·ActivityPub 연합으로 탐색하고 나누는 서버입니다.</p></div>' +
+        '</div>' +
+        '<div class="kpi-grid">' +
+        '<div class="kpi"><b>네트워크 · 초대 전용</b><span>가입 정책 · NodeInfo</span></div>' +
+        '<div class="kpi"><b>4명 · 3개 · 5개</b><span>공개 프로필 · 공유 KB · 테마</span></div>' +
+        '<div class="kpi"><b>' + esc(viewer.serverLangs) + '</b><span>서버 선호 언어 · i18n</span></div>' +
+        '<div class="kpi"><b>AI 학습 크롤러 차단</b><span>외부 수집 보호 정책</span></div>' +
+        '</div>' +
+        '<div class="meta-strip">' +
+        '<span class="meta-strip-item">' + icon("users") + '<span>운영 · 지식 관리자: <strong>claire.example</strong></span></span>' +
+        '<span class="meta-strip-item">' + icon("info") + '<a href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer"><code>build 7a3f9c2</code></a></span>' +
+        '<span class="meta-strip-item">' + icon("link") + '<a href="https://github.com/fofwisdom/claire-bible" target="_blank" rel="noopener noreferrer">fofwisdom/claire-bible</a></span>' +
+        '<span class="meta-strip-item">' + icon("bot") + '<a href="https://github.com/fofwisdom/claire-agents" target="_blank" rel="noopener noreferrer">fofwisdom/claire-agents</a></span>' +
+        '</div></section>' +
+        sharedTheatreHtml +
+        '<section class="grid-4" aria-label="설계 철학">' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("graph") + ' 온톨로지 기반 지식 연결</h3><p>닫힌 온톨로지(11종 엔티티·11종 관계)와 5관문 엔티티 해소로 서로 다른 출처의 지식을 하나의 연결된 그래프로 축적합니다.</p></article>' +
+        '<article class="principle-card" data-kind="ai"><h3>' + icon("fork") + ' 결정론적 경계와 AI 추론의 분리</h3><p>민트 실선(중복·가드·온톨로지 검증·저장)과 애저 점선(추출·정리본·경계 판정)을 명확히 나눠 지식 일관성을 지킵니다.</p></article>' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("globe") + ' 개인 소유와 선택적 공유 · 연합</h3><p>개인 지식 베이스를 독립적으로 소유하면서 공유 지식 베이스 기여·검토와 ActivityPub 연합으로 원하는 지식만 선택해 나눕니다.</p></article>' +
+        '<article class="principle-card" data-kind="rule"><h3>' + icon("shield") + ' 열린 에이전트 연동과 격리 보안</h3><p>서버 AI 프로바이더와 외부 AI 에이전트(MCP OAuth 2.1)를 함께 지원하며 난수 nonce 경계와 엄격 스키마 검증으로 신뢰 경계를 보호합니다.</p></article>' +
+        '</section>' +
+        '<section class="card" aria-labelledby="p4-ref-h2" style="display:flex;flex-direction:column;gap:0.55rem;">' +
+        '<h2 id="p4-ref-h2" style="margin:0;font-size:1.02rem;">온톨로지 · 정리본 · 지원 소스 · 표준 인터페이스</h2>' +
+        '<details class="p4-acc" open><summary>' + p4Chevron() + '<span>닫힌 온톨로지 (엔티티 11종 · 관계 11종)</span></summary><div class="p4-acc-body">' +
+        '<div class="chip-cloud">' + ONTOLOGY.entities.map(function (t) { return '<span class="ont-chip"><code>' + esc(t) + '</code></span>'; }).join("") +
+        ONTOLOGY.relations.map(function (r) { return '<span class="ont-chip"><code>' + esc(r) + '</code></span>'; }).join("") + '</div>' +
+        '</div></details>' +
+        '<details class="p4-acc"><summary>' + p4Chevron() + '<span>정리본(Rendition) 템플릿 3종 정책</span></summary><div class="p4-acc-body">' +
+        '<div class="table-wrap"><table><thead><tr><th scope="col">템플릿</th><th scope="col">구분</th><th scope="col">원문 표</th><th scope="col">수식 정책</th></tr></thead><tbody>' +
+        RENDITIONS.map(function (r) { return '<tr><td><strong>' + esc(r.label) + '</strong></td><td>' + esc(r.badge) + '</td><td>' + esc(r.tables) + '</td><td>' + esc(r.formulas) + '</td></tr>'; }).join("") +
+        '</tbody></table></div></div></details>' +
+        '<details class="p4-acc"><summary>' + p4Chevron() + '<span>지원 입력 소스 · 수집 어댑터 경로</span></summary><div class="p4-acc-body">' +
+        '<div class="table-wrap"><table><thead><tr><th scope="col">입력 소스</th><th scope="col">수집 체인</th><th scope="col">정책</th></tr></thead><tbody>' +
+        ADAPTERS.map(function (a) { return '<tr><td><strong>' + esc(a.source) + '</strong></td><td>' + esc(a.path) + '</td><td>' + esc(a.note) + '</td></tr>'; }).join("") +
+        '</tbody></table></div></div></details>' +
+        '<details class="p4-acc"><summary>' + p4Chevron() + '<span>표준 인터페이스 · 연동 경로 (KD15 비공개 격리 준수)</span></summary><div class="p4-acc-body">' +
+        '<div style="color:var(--muted);">비공개 계정 수·비공개 KB·연합 서버 목록은 노출하지 않습니다.</div>' +
+        '<div class="chip-cloud"><a class="btn" href="#themes">/themes</a><a class="btn" href="#ns">/ns · /ns/v1 · /ns/v2</a><a class="btn" href="#nodeinfo">/.well-known/nodeinfo</a><a class="btn" href="#mcp">/mcp</a><a class="btn" href="#reference">/reference</a><a class="btn" href="#sitemap">/sitemap.xml</a></div>' +
+        '</div></details>' +
+        '</section></main>' + renderP4PublicFooter();
+    }
+
+    var conTabs = '<div class="tablist-wrap"><div class="tablist-scroll" focusgroup="tablist nomemory" aria-label="처리 흐름 섹션">' +
+      '<button type="button" class="tab-btn" data-p4-ctab="flow" aria-selected="' + (state.p4ConsoleTab === "flow") + '">처리 흐름</button>' +
+      '<button type="button" class="tab-btn" data-p4-ctab="media" aria-selected="' + (state.p4ConsoleTab === "media") + '">동영상·미디어 &amp; 고정값</button>' +
+      (viewer.showAdminRecords ? '<button type="button" class="tab-btn" data-p4-ctab="records" aria-selected="' + (state.p4ConsoleTab === "records") + '">실제 기록 &amp; 대체 동작</button>' : '') +
+      '</div></div>';
+
+    var tabBody = state.p4ConsoleTab === "flow"
+      ? '<div class="con-subcard" id="pipeline-graph"><h2>' + icon("fork") + ' 문서 처리 흐름 (Gemini Neon 공통 컴포넌트)</h2><p style="margin:0;color:var(--muted);font-size:0.78125rem;">' + esc(viewer.sourceLabel) + ' 기준 실제 모델이 각 단계에 반영됩니다.</p>' + sharedTheatreHtml + '</div>'
+      : renderMediaAndFixedCards(viewer);
+
+    return renderConsoleHeader(viewer) +
+      '<div class="con-body">' +
+      '<header class="con-sec-head"><h1>' + icon("fork") + '<span>문서 처리 흐름</span> <span class="pill">' + (viewer.id === "admin" ? "관리자" : "회원") + '</span></h1><p>진입점 선택지 없이 통합 5단계 프리즘과 추출 방식(서버 API vs 에이전트)을 중심으로 확인합니다.</p></header>' +
+      conTabs + tabBody +
+      '</div>';
+  }
+
+  function updateStatusBar() {
+    var v = getActiveViewer();
+    var pLabel = state.proposal === "p1"
+      ? "1안 (경로 추적기 · 상세 검사기)"
+      : (state.proposal === "p2"
+        ? "2안 (시나리오 워크벤치 · 비교 · 시뮬레이터)"
+        : (state.proposal === "p3" ? "3안 (Hindsight 참조 · 4열 라이브 시뮬레이션)" : "4안 (Gemini Neon · 진입점 통합 5단계 프리즘)"));
+    var vpLabel = state.viewport === "mobile" ? "모바일 390px" : "데스크톱";
+    document.getElementById("proto-status").innerHTML =
+      '<span>활성 시안: <strong>' + esc(pLabel) + '</strong> · 맥락: <strong>' + esc(v.label) + '</strong> · 폭: <strong>' + esc(vpLabel) + '</strong></span>' +
+      '<span>격리 경계: <code>' + esc(v.privacyNotice) + '</code></span>';
+  }
+
+  function render() {
+    var p1El = document.getElementById("view-p1");
+    var p2El = document.getElementById("view-p2");
+    var p3El = document.getElementById("view-p3");
+    var p4El = document.getElementById("view-p4");
+    var frame = document.getElementById("device-frame");
+    frame.classList.toggle("is-mobile", state.viewport === "mobile");
+
+    p1El.hidden = state.proposal !== "p1";
+    p2El.hidden = state.proposal !== "p2";
+    p3El.hidden = state.proposal !== "p3";
+    p4El.hidden = state.proposal !== "p4";
+    if (state.proposal === "p1") p1El.innerHTML = renderProposal1();
+    else if (state.proposal === "p2") p2El.innerHTML = renderProposal2();
+    else if (state.proposal === "p3") p3El.innerHTML = renderProposal3();
+    else p4El.innerHTML = renderProposal4();
+
+    updateStatusBar();
+    syncP3Timer();
+  }
+
+  /* ── Event Delegation & Keyboard Navigation ── */
+  document.addEventListener("click", function (ev) {
+    var jumpNode = ev.target.closest("[data-p3-jump-node]");
+    if (jumpNode) {
+      var nodeId = jumpNode.getAttribute("data-p3-jump-node");
+      state.p3SelectedNode = nodeId;
+      state.p3Playing = false;
+      var sc = P3_SCENARIOS[state.p3Scenario] || P3_SCENARIOS.web_api_cli;
+      var hitStep = sc.steps.findIndex(function (st) { return st.active.indexOf(nodeId) !== -1; });
+      if (hitStep !== -1) state.p3Step = hitStep;
+      render();
+      return;
+    }
+
+    var t = ev.target.closest("button");
+    if (!t) return;
+
+    if (t.dataset.proposal && !t.disabled) {
+      state.proposal = t.dataset.proposal;
+      document.querySelectorAll("[data-proposal]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.proposal === state.proposal)); });
+      render();
+      return;
+    }
+    if (t.dataset.viewer) {
+      state.viewer = t.dataset.viewer;
+      document.querySelectorAll("[data-viewer]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.viewer === state.viewer)); });
+      render();
+      return;
+    }
+    if (t.dataset.viewport) {
+      state.viewport = t.dataset.viewport;
+      document.querySelectorAll("[data-viewport]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.viewport === state.viewport)); });
+      render();
+      return;
+    }
+    if (t.id === "theme-toggle") {
+      state.theme = state.theme === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", state.theme);
+      var meta = document.querySelector('meta[name="color-scheme"]');
+      if (meta) meta.content = state.theme;
+      t.setAttribute("aria-pressed", String(state.theme === "dark"));
+      t.textContent = state.theme === "dark" ? "밝은 테마" : "어두운 테마";
+      return;
+    }
+
+    /* Proposal 1 actions */
+    if (t.dataset.p1Ep) {
+      state.p1Entrypoint = t.dataset.p1Ep;
+      var ep = getEntrypoint(state.p1Entrypoint);
+      if (ep.defaultSubMode) state.p1SubMode = ep.defaultSubMode;
+      render();
+      var newTab = document.getElementById("p1-ep-" + state.p1Entrypoint);
+      if (newTab) {
+        newTab.focus();
+        newTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+      return;
+    }
+    if (t.dataset.p1Mode) { state.p1Mode = t.dataset.p1Mode; render(); return; }
+    if (t.dataset.p1Sub) { state.p1SubMode = t.dataset.p1Sub; render(); return; }
+    if (t.dataset.p1Stage) { state.p1SelectedStage = t.dataset.p1Stage; render(); return; }
+    if (t.hasAttribute("data-p1-reset")) { state.p1Entrypoint = "all"; state.p1Mode = "provider"; state.p1SelectedStage = "entry_source"; render(); return; }
+    if (t.dataset.p1Step) {
+      var viewer = getActiveViewer();
+      var epCur = getEntrypoint(state.p1Entrypoint);
+      var effMode = epCur.modeSupport === "client_only" ? "client" : (epCur.modeSupport === "submode" && epCur.id === "reprocess_renditions" ? "provider" : state.p1Mode);
+      var active = STAGES.filter(function (s) {
+        var r = resolveStageRun(s.id, epCur.id, effMode, state.p1SubMode, viewer);
+        return !r.hidden && r.state === "active";
+      });
+      var idx = active.findIndex(function (s) { return s.id === state.p1SelectedStage; });
+      var nextIdx = t.dataset.p1Step === "next" ? idx + 1 : idx - 1;
+      if (nextIdx >= 0 && nextIdx < active.length) {
+        state.p1SelectedStage = active[nextIdx].id;
+        render();
+      }
+      return;
+    }
+    if (t.dataset.p1Ref) { state.p1RefTab = t.dataset.p1Ref; render(); return; }
+    if (t.dataset.p1Ctab) { state.p1ConsoleTab = t.dataset.p1Ctab; render(); return; }
+
+    /* Proposal 2 actions */
+    if (t.dataset.p2Ep) {
+      state.p2Entrypoint = t.dataset.p2Ep;
+      var ep2 = getEntrypoint(state.p2Entrypoint);
+      if (ep2.defaultSubMode) state.p2SubMode = ep2.defaultSubMode;
+      render();
+      return;
+    }
+    if (t.dataset.p2Mode) { state.p2Mode = t.dataset.p2Mode; render(); return; }
+    if (t.dataset.p2Sub) { state.p2SubMode = t.dataset.p2Sub; render(); return; }
+    if (t.dataset.p2Wtab) { state.p2WorkTab = t.dataset.p2Wtab; render(); return; }
+    if (t.dataset.p2Filter) { state.p2Filter = t.dataset.p2Filter; render(); return; }
+    if (t.dataset.p2Ctab) { state.p2ConsoleTab = t.dataset.p2Ctab; render(); return; }
+    if (t.dataset.p2Rend) { state.p2RenditionTab = t.dataset.p2Rend; render(); return; }
+    if (t.dataset.simPreset) {
+      var p = t.dataset.simPreset;
+      state.simExact = p === "exact";
+      state.simVersionConflict = p === "version";
+      if (p === "auto") state.simScore = 0.95;
+      else if (p === "border") state.simScore = 0.84;
+      else if (p === "new") state.simScore = 0.48;
+      else if (p === "version") state.simScore = 0.88;
+      render();
+      return;
+    }
+
+    /* Proposal 3 actions */
+    if (t.dataset.p3Scen) { state.p3Scenario = t.dataset.p3Scen; state.p3Step = 0; render(); return; }
+    if (t.id === "p3-play-btn") { state.p3Playing = !state.p3Playing; render(); return; }
+    if (t.id === "p3-speed-btn") { state.p3Speed = state.p3Speed === 1 ? 2 : 1; render(); return; }
+    if (t.id === "p3-full-btn") { state.p3Fullscreen = !state.p3Fullscreen; render(); return; }
+    if (t.dataset.p3Step) {
+      var sc3 = P3_SCENARIOS[state.p3Scenario] || P3_SCENARIOS.web_api_cli;
+      state.p3Playing = false;
+      state.p3Step = t.dataset.p3Step === "next" ? Math.min(sc3.steps.length - 1, state.p3Step + 1) : Math.max(0, state.p3Step - 1);
+      render();
+      return;
+    }
+    if (t.dataset.p3Ctab) { state.p3ConsoleTab = t.dataset.p3Ctab; render(); return; }
+    if (t.dataset.p3Ref) { state.p3RefTab = t.dataset.p3Ref; render(); return; }
+
+    /* Proposal 4 actions */
+    if (t.dataset.p4Stage !== undefined) { state.p4Stage = parseInt(t.dataset.p4Stage, 10) || 0; render(); return; }
+    if (t.dataset.p4Mode) { state.p4Mode = t.dataset.p4Mode; render(); return; }
+    if (t.id === "p4-motion-btn") { state.p4MotionOn = !state.p4MotionOn; render(); return; }
+    if (t.dataset.p4Rend) { state.p4RenditionPreview = t.dataset.p4Rend; render(); return; }
+    if (t.dataset.p4Ctab) { state.p4ConsoleTab = t.dataset.p4Ctab; render(); return; }
+    if (t.dataset.p4Step) {
+      state.p4Stage = t.dataset.p4Step === "next" ? Math.min(P4_BEATS.length - 1, state.p4Stage + 1) : Math.max(0, state.p4Stage - 1);
+      render();
+      return;
+    }
+    if (t.dataset.p4GatePreset) {
+      var gp = t.dataset.p4GatePreset;
+      state.p4GateExact = gp === "exact";
+      state.p4GateVersionConflict = gp === "conflict";
+      if (gp === "auto") state.p4GateScore = 0.95;
+      else if (gp === "border") state.p4GateScore = 0.84;
+      else if (gp === "new") state.p4GateScore = 0.52;
+      else if (gp === "conflict") state.p4GateScore = 0.88;
+      render();
+      return;
+    }
+  });
+
+  document.addEventListener("change", function (ev) {
+    var el = ev.target;
+    if (!el || !el.id) return;
+    if (el.id === "p2-sel-a") { state.p2CompareA = el.value; render(); }
+    else if (el.id === "p2-sel-b") { state.p2CompareB = el.value; render(); }
+    else if (el.id === "sim-exact") { state.simExact = el.checked; render(); }
+    else if (el.id === "sim-version") { state.simVersionConflict = el.checked; render(); }
+    else if (el.id === "sim-client") { state.simClientMode = el.checked; render(); }
+    else if (el.id === "stt-mko") { state.sttManualKo = el.checked; render(); }
+    else if (el.id === "stt-ako") { state.sttAutoKo = el.checked; render(); }
+    else if (el.id === "stt-aen") { state.sttAutoEn = el.checked; render(); }
+    else if (el.id === "stt-fail") { state.sttDownloadFail = el.checked; render(); }
+    else if (el.id === "stt-on") { state.sttEnabled = el.checked; render(); }
+    else if (el.id === "p4-gate-exact") { state.p4GateExact = el.checked; render(); }
+    else if (el.id === "p4-gate-conflict") { state.p4GateVersionConflict = el.checked; render(); }
+  });
+
+  document.addEventListener("input", function (ev) {
+    if (ev.target && ev.target.id === "sim-score") {
+      state.simScore = parseFloat(ev.target.value);
+      render();
+      var slider = document.getElementById("sim-score");
+      if (slider) slider.focus();
+    } else if (ev.target && ev.target.id === "p4-gate-score") {
+      state.p4GateScore = parseFloat(ev.target.value);
+      render();
+      var p4Slider = document.getElementById("p4-gate-score");
+      if (p4Slider) p4Slider.focus();
+    }
+  });
+
+  /* Find-in-page support for hidden="until-found" panels */
+  document.addEventListener("beforematch", function (ev) {
+    var panel = ev.target && ev.target.closest ? ev.target.closest("[data-p1-ref-panel]") : null;
+    if (panel) {
+      state.p1RefTab = panel.dataset.p1RefPanel;
+      render();
+      return;
+    }
+    var p3Panel = ev.target && ev.target.closest ? ev.target.closest("[data-p3-ref-panel]") : null;
+    if (p3Panel) {
+      state.p3RefTab = p3Panel.dataset.p3RefPanel;
+      render();
+    }
+  });
+
+  /* Escape closes Proposal 3 fullscreen; Enter/Space activates SVG nodes; Arrow keys move tabs & P4 beats */
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && state.proposal === "p3" && state.p3Fullscreen) {
+      state.p3Fullscreen = false;
+      render();
+      return;
+    }
+    var svgNode = ev.target && ev.target.closest ? ev.target.closest("[data-p3-jump-node]") : null;
+    if (svgNode && (ev.key === "Enter" || ev.key === " ")) {
+      ev.preventDefault();
+      svgNode.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      return;
+    }
+    var p4Node = ev.target && ev.target.closest ? ev.target.closest(".p4-node") : null;
+    if (p4Node) {
+      if (ev.key === "ArrowRight" || ev.key === "ArrowDown" || ev.key === "ArrowLeft" || ev.key === "ArrowUp" || ev.key === "Home" || ev.key === "End") {
+        ev.preventDefault();
+        var cur = parseInt(p4Node.dataset.p4Stage, 10) || 0;
+        var nxt = cur;
+        if (ev.key === "ArrowRight" || ev.key === "ArrowDown") nxt = Math.min(P4_BEATS.length - 1, cur + 1);
+        else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") nxt = Math.max(0, cur - 1);
+        else if (ev.key === "Home") nxt = 0;
+        else if (ev.key === "End") nxt = P4_BEATS.length - 1;
+        state.p4Stage = nxt;
+        render();
+        var nextBtn = document.querySelector('.p4-node[data-p4-stage="' + nxt + '"]');
+        if (nextBtn) nextBtn.focus();
+        return;
+      }
+    }
+    var btn = ev.target && ev.target.closest ? ev.target.closest(".tab-btn, .p3-tab") : null;
+    if (!btn) return;
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight" && ev.key !== "Home" && ev.key !== "End") return;
+    var list = btn.closest('[focusgroup*="tablist"]');
+    if (!list) return;
+    var tabs = Array.prototype.slice.call(list.querySelectorAll(".tab-btn, .p3-tab"));
+    var i = tabs.indexOf(btn);
+    if (i === -1) return;
+    var next = i;
+    if (ev.key === "ArrowRight") next = (i + 1) % tabs.length;
+    else if (ev.key === "ArrowLeft") next = (i - 1 + tabs.length) % tabs.length;
+    else if (ev.key === "Home") next = 0;
+    else if (ev.key === "End") next = tabs.length - 1;
+    ev.preventDefault();
+    tabs[next].click();
+    tabs[next].focus();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
