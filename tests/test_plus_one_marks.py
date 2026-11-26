@@ -104,6 +104,14 @@ def test_e2e_an_account_gives_a_plus_one_to_a_rendition_of_this_server_and_takes
     assert (limited.status_code, limited.json()) == (429, {"error": "rate_limited"})
 
 
+def test_the_list_of_published_documents_has_the_plus_one_score_of_each_rendition(tmp_path: Path) -> None:
+    """Section 5.12 rule 13: the author sees the scores in the list of the published documents (``/syndication`` stage 3)."""
+    s, env, tokens, callers = _world(tmp_path)
+    assert _mark(callers["bob"], tokens["doc1"], "concise", True).status_code == 200
+    [item] = callers["alice"]("GET", "/api/federation/objects").json()["items"]
+    assert (item["document_id"], item["plus_ones"]) == ("doc1", [{"template": "standard", "score": 0}, {"template": "concise", "score": 1}])
+
+
 def test_e2e_a_plus_one_for_a_rendition_of_another_server_goes_to_its_account(tmp_path: Path) -> None:
     s, env, tokens, callers = _world(tmp_path)
     token = tokens["doc1"]

@@ -136,13 +136,13 @@ Each entry: what the code does, which design text it changes (if one), why, wher
 | :--- | :--- | :--- | :--- |
 | `Undo` of each +1 at an account purge | 5.12 rule 14 | `db88222b` | AD33. Two-server phase `unplus`. |
 | `Like` and `Announce` of a rendition object | 5.6 rule 2 | `4d9e8a26` | Stored with the number of the rendition object; its document object gives the account and the access rules. Test through the internal API only: no Claire function sends a `Like` of a remote rendition object, so the two-server test has no such phase. |
+| +1 scores in the published list of `/syndication` | 5.12 rule 13 | (this commit) | `plus_ones` of `GET /api/federation/objects`; the knowledge base view shows "+1" with each rendition that has a score, else "+1 0". Tests: `tests/test_plus_one_marks.py`, `e2e/federation_compose.spec.js`. |
 
 ## 8. Open Items
 
 | Item | Design | State | Note |
 | :--- | :--- | :--- | :--- |
 | `attributionDomains` | 5.7 citation rule 4 (E2b) | waits | Fedify 2.4.6 has no property. |
-| +1 counts in the published list of `/syndication` | 5.12 rule 13 | not done | |
 | Opinion fetch from the view of a published object in `/syndication` | 5.11 B1 | not done | |
 | Opinions of a remote rendition | 5.11 C2 | no trigger | The store and the sidecar can do it (`own` false). |
 | Notification to the author for a like or a reply from an account of this server | — | not done | Remote likes and replies notify; local ones do not. |

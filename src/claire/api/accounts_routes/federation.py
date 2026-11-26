@@ -50,12 +50,14 @@ from ...core import ids
 from ...federation.knowledge import actors as kf_actors
 from ...federation.knowledge import remote_documents, remote_kbs
 from ...accounts import federation_readiness
+from ...extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
 from ...store import accounts as accounts_store
 from ...store import auth_db
 from ...store import db as dbm
 from ...store import federation as federation_store
 from ...store import federation_client as federation_client_store
 from ...store import federation_quotes as federation_quotes_store
+from ...store import plus_ones as plus_ones_store
 from ...store import feeds as feeds_store
 from .. import federation_routes
 from .. import usercontent
@@ -827,6 +829,8 @@ def routes(ctx: AccountsContext) -> list[Route]:
             try:
                 total = federation_store.count_objects(conn, account_id)
                 rows = federation_store.list_objects(conn, account_id, limit=query.limit, max_id=query.max_id, min_id=query.min_id, since_id=query.since_id)
+                # The +1 score of each rendition of each document (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 13): the document object is the 대표 정리본; the rendition objects follow in the template order.
+                plus = {row.public_id: [{"template": PRIMARY_RENDITION_TEMPLATE, "score": plus_ones_store.counts(conn, row.public_id)["score"]}] + [{"template": r.template, "score": plus_ones_store.counts(conn, r.public_id)["score"]} for r in federation_store.rendition_objects_of(conn, row.public_id)] for row in rows}
             finally:
                 conn.close()
             # The counters of the reactions of remote actors (Section 6.6 rules 3 and 4, FP4-8).
@@ -839,7 +843,7 @@ def routes(ctx: AccountsContext) -> list[Route]:
                 client.close()
             return {
                 "total": total,
-                "items": [{"id": str(row.public_id), "kb_id": row.kb_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id]} for row in rows],
+                "items": [{"id": str(row.public_id), "kb_id": row.kb_id, "document_id": row.document_id, "published_at": row.published_at, "updated_at": row.updated_at, "likes": reactions[row.public_id]["like"], "announces": reactions[row.public_id]["announce"], "quotes": quotes[row.public_id], "plus_ones": plus[row.public_id]} for row in rows],
                 "next_max_id": str(rows[-1].public_id) if len(rows) == query.limit else None,
             }
 

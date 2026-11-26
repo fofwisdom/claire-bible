@@ -1328,7 +1328,7 @@ This unit adds no route. It changes these answers:
 | Method | Path | Change |
 | :--- | :--- | :--- |
 | `GET` | `/api/federation/timeline` | The filter `mention=1` now has items. `counts` has `private_messages`: the number of non-public messages that the account got (Section 22.5). |
-| `GET` | `/api/federation/objects` | Each item has `likes` and `announces`: the counters of the published document. |
+| `GET` | `/api/federation/objects` | Each item has `likes` and `announces`: the counters of the published document. Since 2026-11-26 also `plus_ones`: `[{"template", "score"}]` for the 대표 정리본 (the document object) and each rendition object, in the template order (design Section 5.12 rule 13); the knowledge base view of `/syndication` shows "+1" and each rendition with a score. |
 | `POST` | `/internal/federation/v1/timeline-events` | Request: `actor_type` (`Person`, `Group`, `Service`, `Application`, `Organization`, or null), `mentioned` (actor IRIs of this server, 16 at most), `in_reply_to` (the reply target of the object, also when `object` is null). Response: the reason `rate_limited`, and `notices` (a list of `actor_public_id`, `content`, `language`). |
 | `POST` | `/internal/federation/v1/inbox-events` | `Like`, `Announce`, and `Undo` of them for an object path of this server get a decision (Section 22.4). New reason: `no_object`. No shape of the request changed. |
 

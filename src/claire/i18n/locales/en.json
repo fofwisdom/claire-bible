@@ -536,6 +536,7 @@
   "synd.kb.filter.published": "Published",
   "federation.auto_reply.text": "This is an automatic notice. This account cannot receive non-public messages. Please send a public mention.",
   "synd.kb.reactions": "♥ {likes} · boosts {boosts}",
+  "synd.kb.plus_ones": "+1 {list}",
   "synd.palette.stage_collect": "Go to stage 1 · Interaction",
   "synd.palette.stage_ingest": "Go to stage 2 · Ingestion",
   "synd.palette.stage_publish": "Go to stage 3 · Publication",

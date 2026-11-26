@@ -283,10 +283,12 @@ test.describe('compose controls of the federation client (FP4-9)', () => {
     const row = page.locator('#headlines-container [data-row-id]').first();
     await expect(row).toBeVisible();
     const key = await page.evaluate(() => { const theme = window.ClaireSyndication.curTheme(); return { kb_id: theme.id, document_id: document.querySelector('#headlines-container [data-row-id]').getAttribute('data-row-id') }; });
-    published.items = [Object.assign({ id: '950', published_at: NOW, updated_at: NOW, likes: 0, announces: 0, quotes: 2 }, key)];
+    published.items = [Object.assign({ id: '950', published_at: NOW, updated_at: NOW, likes: 0, announces: 0, quotes: 2, plus_ones: [{ template: 'standard', score: 0 }, { template: 'concise', score: 3 }] }, key)];
     await page.goto('/syndication?stage=ingest', { waitUntil: 'domcontentloaded' });
     const publishedRow = page.locator(`#headlines-container [data-row-id="${key.document_id}"]`);
     await expect(publishedRow.locator('[data-reactions]')).toContainText('인용 2');
+    // The +1 score of each rendition with a score (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 13).
+    await expect(publishedRow.locator('[data-reactions]')).toContainText('+1 간결 3');
     await publishedRow.click({ button: 'right' });
     await expect(page.locator('#pop-doc-context')).toBeVisible();
     await expect(page.locator('#menu-doc-quote-policy, #modal-quote-policy')).toHaveCount(0);

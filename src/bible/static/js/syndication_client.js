@@ -165,7 +165,10 @@
       if (!result.ok || !Array.isArray(result.data.items)) break;
       result.data.items.forEach((item) => {
         keys.add(`${item.kb_id}:${item.document_id}`);
-        reactions[`${item.kb_id}:${item.document_id}`] = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })}`;
+        // The +1 score of each rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.12 rule 13): the renditions with a score, else the total 0.
+        const marked = (Array.isArray(item.plus_ones) ? item.plus_ones : []).filter((r) => Number(r.score) > 0);
+        const plus = marked.length ? tr("synd.kb.plus_ones", { list: marked.map((r) => `${tr(`rendition.template.${r.template}.label`)} ${Number(r.score)}`).join(", ") }) : tr("synd.kb.plus_ones", { list: "0" });
+        reactions[`${item.kb_id}:${item.document_id}`] = `${tr("synd.kb.reactions", { likes: item.likes || 0, boosts: item.announces || 0 })} · ${tr("synd.quote.count", { count: item.quotes || 0 })} · ${plus}`;
         objects[`${item.kb_id}:${item.document_id}`] = { id: item.id };
       });
       maxId = result.data.next_max_id;
