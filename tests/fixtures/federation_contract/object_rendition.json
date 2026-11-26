@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/objects/816412345678901260"
+  },
+  "status": 200,
+  "response": {
+    "public_id": "816412345678901260",
+    "actor_public_id": "116412345678901234",
+    "type": "Article",
+    "name": "Published Title",
+    "content": "<p>Published Title</p><p><a href=\"https://claire.example.com/silvercord/sharetkn23456abc/renditions/concise\" rel=\"noopener noreferrer\">https://claire.example.com/silvercord/sharetkn23456abc/renditions/concise</a></p>",
+    "url": "https://claire.example.com/silvercord/sharetkn23456abc/renditions/concise",
+    "published_at": 1800000330.0,
+    "updated_at": 1800000330.0,
+    "likes": 0,
+    "shares": 0,
+    "rendition_of": "816412345678901234",
+    "template": "concise",
+    "template_version": "concise-v1",
+    "body_hash": "951be77a73e556ffefb79b99645cbeb0ea593117426ccc06a2fe0f765c158ed6",
+    "source_key": "c29fa68b67e1bf5c1e79f6a5129d9df583f0a5179b256ef98d1eb7e18be3f2e3",
+    "source_id_version": 1
+  }
+}

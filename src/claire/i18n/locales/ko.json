@@ -4652,5 +4652,6 @@
   "reader.rendition.add_cost": "정리본 하나에 모델 호출이 한 번 듭니다. 저장된 원문으로 만듭니다.",
   "reader.rendition.adding": "{label} 정리본을 만드는 중…",
   "reader.rendition.add_failed": "정리본을 만들지 못했습니다: {error}",
-  "reader.rendition.version_pre_template": "템플릿 이전 본문"
+  "reader.rendition.version_pre_template": "템플릿 이전 본문",
+  "reader.rendition.group_same_server": "같은 출처 · 이 서버"
 }

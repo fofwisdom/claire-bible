@@ -14,13 +14,21 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import BaseRoute, Route
 
+import hashlib
+
+import nh3
+
 from ..core import ids
+from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
 from ..federation import object_collections
+from ..federation.knowledge import access as knowledge_access
+from ..store import db as dbm
+from ..store import document_renditions as renditions_store
 from ..store import federation as federation_store
 from ..store import federation_client as client_store
 from ..store import federation_notes as notes_store
 from .federation_quote_routes import quoted_object
-from .federation_routes import _error, _json, _not_found, _remote_host, _Sealed
+from .federation_routes import _error, _json, _not_found, _remote_host, _Sealed, rendition_body_text
 
 __all__ = ["ObjectCollectionResponse", "collection_internal_routes", "known_replies"]
 
@@ -77,6 +85,14 @@ def collection_internal_routes(*, origin: Callable[[], str], open_store: Callabl
             if target is None:
                 return _not_found()
             iri = f"{origin()}/ap/objects/{public_id}/{name}"
+            if name == "renditions":
+                # Only a document object has the collection of its renditions (phase E4b).
+                obj = federation_store.get_object(store.conn, public_id)
+                if obj is None:
+                    return _not_found()
+                base = f"{origin()}/ap/objects/"
+                items = [f"{base}{public_id}"] + [f"{base}{r.public_id}" for r in federation_store.rendition_objects_of(store.conn, public_id)]
+                return _json(ObjectCollectionResponse(document=object_collections.renditions_collection(iri, items)))
             if name != "replies":
                 counts = client_store.count_object_reactions(client, [public_id])[public_id]
                 return _json(ObjectCollectionResponse(document=object_collections.count_collection(iri, counts["like" if name == "likes" else "announce"])))
@@ -89,4 +105,41 @@ def collection_internal_routes(*, origin: Callable[[], str], open_store: Callabl
         document = object_collections.replies_page(iri, own, others, int(cursor or "0"))
         return _not_found() if document is None else _json(ObjectCollectionResponse(document=document))
 
-    return [Route("/objects/{public_id}/collections/{name}", object_collection, methods=["GET"])]
+    def rendition_body(request: Request) -> Response:
+        """``GET /objects/{public_id}/body?signer=...``: the body of a rendition for the server actor of another Claire server (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5, KS1). ``signer`` is the actor whose HTTP signature the sidecar verified; each refusal is the same 404."""
+        try:
+            public_id = ids.parse_public_id(request.path_params["public_id"])
+        except ValueError:
+            return _not_found()
+        query = request.query_params
+        signer = query.get("signer")
+        if set(query) - {"signer"} or (signer is not None and not 0 < len(signer) <= 2048):
+            return _error(400, "invalid_request")
+        canonical = origin()
+        store = open_store()
+        client = open_client()
+        try:
+            decision = knowledge_access.collection_access(store.conn, signer=signer, origin=canonical)
+            if not decision.allowed:
+                return _not_found()
+            if quoted_object(store.conn, client, public_id, actor_ids=actor_account_ids(store)) is None:
+                return _not_found()
+            owning = federation_store.owning_object(store.conn, public_id)
+            if owning is None:
+                return _not_found()
+            obj, rendition_object = owning
+            template = PRIMARY_RENDITION_TEMPLATE if rendition_object is None else rendition_object.template
+            rendition = renditions_store.get_rendition(store.conn, obj.document_id, obj.kb_id, template)
+            document = dbm.get_document_row(store.conn, obj.document_id, kb_id=obj.kb_id)
+            source = rendition_body_text(document, rendition)
+            if not source:
+                return _not_found()
+            compiled = (document["detail_html"] if rendition is None or rendition.primary else rendition.detail_html) or ""
+        finally:
+            client.close()
+            store.conn.close()
+        iri = f"{canonical}/ap/objects/{public_id}"
+        body = object_collections.rendition_body_document(f"{iri}/body", iri, html=nh3.clean(compiled), source=source, body_hash=hashlib.sha256(source.encode("utf-8")).hexdigest())
+        return _json(ObjectCollectionResponse(document=body))
+
+    return [Route("/objects/{public_id}/collections/{name}", object_collection, methods=["GET"]), Route("/objects/{public_id}/body", rendition_body, methods=["GET"])]

@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/objects/816412345678901260/body?signer=https%3A%2F%2Fremote.example%2Fap%2Factors%2Fserver"
+  },
+  "status": 200,
+  "response": {
+    "document": {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://w3id.org/claire-bible/ns/v2"
+      ],
+      "id": "https://claire.example.com/ap/objects/816412345678901260/body",
+      "type": "claire:RenditionBody",
+      "claire:rendition": "https://claire.example.com/ap/objects/816412345678901260",
+      "mediaType": "text/html",
+      "content": "<h2>핵심</h2><ul><li>Hello.</li></ul>",
+      "source": {
+        "mediaType": "text/asciidoc",
+        "content": "= 간결\n\n== 핵심\n\n* Hello."
+      },
+      "claire:bodyHash": "951be77a73e556ffefb79b99645cbeb0ea593117426ccc06a2fe0f765c158ed6"
+    }
+  }
+}

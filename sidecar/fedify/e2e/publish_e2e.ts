@@ -86,6 +86,18 @@ Deno.test("a published document of a real Claire arrives at a test inbox with a 
     assert.deepEqual(await replies.json(), { "@context": "https://www.w3.org/ns/activitystreams", id: `${objectUrl}/replies`, type: "Collection", totalItems: 0, first: { type: "CollectionPage", partOf: `${objectUrl}/replies`, items: [] } });
     assert.deepEqual(await (await get(`${objectUrl}/likes`)).json(), { "@context": "https://www.w3.org/ns/activitystreams", id: `${objectUrl}/likes`, type: "Collection", totalItems: 0 });
     assert.equal((await get(`${goneUrl}/replies`)).status, 404);
+    // The renditions (phase E4b, contract 1.20): the object at its ID names the collection of its renditions, the collection has the document object first and the rendition object of "concise", and the rendition object names its document. A delivery has no claire: field.
+    assert.equal(document["claire:renditions"], `${objectUrl}/renditions`);
+    assert.ok(!("claire:renditions" in (create.body.object as Record<string, unknown>)));
+    const renditions = await (await get(`${objectUrl}/renditions`)).json();
+    assert.equal(renditions.type, "OrderedCollection");
+    assert.equal(renditions.orderedItems.length, 2);
+    assert.equal(renditions.orderedItems[0], objectUrl);
+    const rendition = await (await get(renditions.orderedItems[1])).json();
+    assert.deepEqual([rendition.type, rendition["claire:renditionOf"], rendition["claire:template"], rendition["claire:templateVersion"]], ["Article", objectUrl, "concise", "concise-v1"]);
+    assert.ok(String(rendition.url).endsWith("/renditions/concise"));
+    // The body needs the signature of the server actor of another Claire server.
+    assert.equal((await get(`${renditions.orderedItems[1]}/body`)).status, 404);
     const gone = await get(goneUrl);
     assert.equal(gone.status, 410);
     assert.deepEqual([(await gone.json()).type], ["Tombstone"]);

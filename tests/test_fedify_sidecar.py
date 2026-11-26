@@ -476,6 +476,8 @@ def test_e2e_published_document_arrives_at_a_test_inbox(tmp_path):
         for doc_id, title in (("doc-1", "First Post"), ("doc-2", "Second Post")):
             # The body has Markdown marks and a script; RD21 keeps both out of the object.
             conn.execute("INSERT INTO documents (id, kb_id, title, detail, detail_format, detail_html, hidden, fetched_at) VALUES (?, 31, ?, ?, 'md', ?, 0, 1)", (doc_id, title, "Hello **world**\n\n<script>alert(1)</script>", "<p>Hello <strong>world</strong></p><script>alert(1)</script>"))
+        # The first document has a rendition "concise": its publication makes the rendition object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md phase E4b).
+        conn.execute("INSERT INTO document_renditions (document_id, kb_id, template, template_version, detail, detail_html, model_lineage, created_at, updated_at) VALUES ('doc-1', 31, 'concise', 'concise-v1', '= Short\n\nA short body.', '<p>A short body.</p>', '{}', 1, 1)")
         federation_store.add_domain_block(conn, "blocked.example", created_by=1, now=time.time())
         for host in ("remote.example", "blocked.example"):
             federation_store.upsert_follower(conn, account_id=alice, actor_iri=f"https://{host}/users/bob", inbox_iri=f"https://{host}/users/bob/inbox", shared_inbox_iri=f"https://{host}/inbox", salt=store.id_salt(), now=time.time())

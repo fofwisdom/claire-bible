@@ -12,6 +12,7 @@ Request and response models are sealed (``extra="forbid"``, ``strict=True``). Th
 from __future__ import annotations
 
 import importlib.metadata
+import hashlib
 import json
 import logging
 import os
@@ -37,6 +38,8 @@ from ..store import auth_db
 from ..store import permalinks
 from ..core import ids
 from ..store import db as dbm
+from ..store import document_renditions as renditions_store
+from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
 from ..federation import media_proxy
 from ..store import client_db
 from ..store import federation as federation_store
@@ -81,7 +84,7 @@ __all__ = [
 ]
 
 # ``major.minor``. Claire refuses a sidecar that has a different major version.
-CONTRACT_VERSION = "1.19"
+CONTRACT_VERSION = "1.20"
 SOFTWARE_NAME = "claire-bible"
 HEARTBEAT_FILE = Path("run") / "federation_heartbeat.json"
 SERVER_ACTOR_ID = "server"
@@ -517,6 +520,13 @@ class ObjectRecord(_Sealed):
     # Contract 1.19 (phase E6): the numbers of ``Like`` and ``Announce`` that the object got. The sidecar writes them as ``totalItems`` of ``likes`` and ``shares``.
     likes: int = Field(ge=0)
     shares: int = Field(ge=0)
+    # Contract 1.20 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5, phase E4b). A document object is also its 대표 정리본; a rendition object has ``rendition_of``, the number of its document object. ``template`` and ``template_version`` are ``None`` for a body without a rendition row; ``body_hash`` is the SHA-256 of the AsciiDoc body; the source key is ``None`` for a document without a source identifier.
+    rendition_of: str | None
+    template: Literal["standard", "concise", "academic"] | None
+    template_version: str | None
+    body_hash: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    source_key: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    source_id_version: int | None = Field(ge=1)
 
 
 class OutboxItem(_Sealed):
@@ -657,6 +667,13 @@ def read_heartbeat(data_dir: Path | str) -> dict[str, Any] | None:
 
 
 ARTICLE_SUMMARY_MAX_CHARS = 500
+
+
+def rendition_body_text(document: Any, rendition: Any) -> str:
+    """The AsciiDoc body of a rendition: ``documents.detail`` for the 대표 정리본, else the body of its row. Empty when there is none."""
+    if rendition is None or rendition.primary:
+        return str(document["detail"] or "").strip()
+    return str(rendition.detail or "").strip()
 
 
 def _published_object_content(summary: str | None, title: str, share_url: str | None) -> str:
@@ -1470,35 +1487,48 @@ def federation_internal_routes(settings: Any, *, now: Callable[[], float] = time
             tombstone = federation_store.get_tombstone(conn, public_id)
             if tombstone is not None and tombstone.kind == "object":
                 return JSONResponse({"error": "gone", "gone_at": tombstone.gone_at}, status_code=410, headers=_NO_STORE)
-            obj = federation_store.get_object(conn, public_id)
-            if obj is None:
+            owning = federation_store.owning_object(conn, public_id)
+            if owning is None:
                 return _not_found()
+            obj, rendition_object = owning
             account = store.get(obj.account_id)
-            # The object is public while its account is an actor, its theme is public, and its document is not hidden (decision GD8).
+            # The object is public while its account is an actor, its theme is public, and its document is not hidden (decision GD8). A rendition object is public with its document object.
             theme = conn.execute("SELECT is_public FROM knowledge_bases WHERE id=?", (obj.kb_id,)).fetchone()
             document = dbm.get_document_row(conn, obj.document_id, kb_id=obj.kb_id)
             if not _is_actor(account) or theme is None or not theme["is_public"] or document is None or document["hidden"]:
                 return _not_found()
-            # The ``url`` of the object and the link of its content are the permalink of the document (PERMALINK_UNIFICATION_DESIGN.md U11).
+            template = PRIMARY_RENDITION_TEMPLATE if rendition_object is None else rendition_object.template
+            rendition = renditions_store.get_rendition(conn, obj.document_id, obj.kb_id, template)
+            if rendition_object is not None and rendition is None:
+                return _not_found()
+            # The ``url`` of the object and the link of its content are the permalink of the document (PERMALINK_UNIFICATION_DESIGN.md U11); a rendition object has the sub-path of its rendition (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.8).
             address_token = permalinks.token_of(conn, "document", obj.document_id)
-            share_url = None if address_token is None else permalinks.permalink_url(origin, address_token)
+            share_url = None if address_token is None else permalinks.permalink_url(origin, address_token) + ("" if rendition_object is None else f"/renditions/{template}")
             html = _published_object_content(dbm.latest_extraction_summary(conn, obj.document_id, kb_id=obj.kb_id), document["title"] or "", share_url)
+            body = rendition_body_text(document, rendition)
             client = _client()
             try:
-                reactions = client_store.count_object_reactions(client, [obj.public_id])[obj.public_id]
+                reactions = client_store.count_object_reactions(client, [public_id])[public_id]
             finally:
                 client.close()
+            source_key = document["source_key"] if "source_key" in document.keys() else None
             record = ObjectRecord(
-                public_id=str(obj.public_id),
+                public_id=str(public_id),
                 actor_public_id=str(account.public_id),
                 type="Article",
                 name=document["title"] or "",
                 content=nh3.clean(html),
                 url=share_url,
-                published_at=obj.published_at,
-                updated_at=obj.updated_at,
+                published_at=obj.published_at if rendition_object is None else rendition_object.created_at,
+                updated_at=obj.updated_at if rendition_object is None else rendition_object.updated_at,
                 likes=reactions["like"],
                 shares=reactions["announce"],
+                rendition_of=None if rendition_object is None else str(obj.public_id),
+                template=None if rendition is None else rendition.template,
+                template_version=None if rendition is None else rendition.template_version,
+                body_hash=None if not body else hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                source_key=source_key,
+                source_id_version=document["source_id_version"] if source_key else None,
             )
         finally:
             store.conn.close()

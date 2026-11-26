@@ -14,6 +14,12 @@
     "published_at": 1800000310.0,
     "updated_at": 1800000320.0,
     "likes": 0,
-    "shares": 0
+    "shares": 0,
+    "rendition_of": null,
+    "template": null,
+    "template_version": null,
+    "body_hash": "4a4d703f889a040d277b01a4629323e55241a3dfe3ad4c972f70401e705a97c3",
+    "source_key": null,
+    "source_id_version": null
   }
 }

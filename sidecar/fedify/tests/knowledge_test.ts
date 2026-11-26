@@ -255,6 +255,39 @@ Deno.test("a GET that a server actor signed gets the collection document of Clai
   }
 });
 
+// --- Renditions (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5, phase E4b) ---
+
+Deno.test("the body of a rendition goes to a request that a server actor signed, and the object path has the claire: fields of renditions", async () => {
+  const { fake, sidecar, signed, restore } = setup();
+  try {
+    const body = await signed("GET", "/ap/objects/816412345678901260/body", { actor: "https://remote.example/ap/actors/server" });
+    assert.equal(body.status, 200);
+    assert.equal(body.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(await body.json(), (fixture("object_body").response as { document: unknown }).document);
+    // No signature: Claire gets no signer, and the answer is the 404 of each refusal. A query key has no answer.
+    const unsigned = await sidecar.handle(new Request(`${ORIGIN}/ap/objects/816412345678901260/body`, { headers: { accept: AS2 } }));
+    assert.deepEqual([unsigned.status, await unsigned.text()], [404, "Not Found"]);
+    assert.equal(fake.calls.at(-1), `GET ${fixture("object_body_unsigned").request.path}`);
+    assert.equal((await signed("GET", "/ap/objects/816412345678901260/body?x=1", { actor: "https://remote.example/ap/actors/server" })).status, 404);
+
+    // The rendition object at its ID: the Article with the claire: fields and the context of version 2.
+    const rendition = await sidecar.handle(new Request(`${ORIGIN}/ap/objects/816412345678901260`, { headers: { accept: AS2 } }));
+    assert.equal(rendition.status, 200);
+    const article = await rendition.json();
+    const record = fixture("object_rendition").response as Record<string, unknown>;
+    assert.ok((article["@context"] as unknown[]).includes("https://w3id.org/claire-bible/ns/v2"));
+    assert.deepEqual([article.type, article.url, article["claire:renditionOf"], article["claire:template"], article["claire:templateVersion"], article["claire:body"], article["claire:bodyHash"], article["claire:sourceKey"], article["claire:sourceIdVersion"]], ["Article", record.url, `${ORIGIN}/ap/objects/816412345678901234`, "concise", "concise-v1", `${ORIGIN}/ap/objects/816412345678901260/body`, record.body_hash, record.source_key, 1]);
+    assert.ok(!("claire:renditions" in article));
+    // The document object has the collection of its renditions; a document without a rendition row has no template and no source key.
+    const primary = await (await sidecar.handle(new Request(`${ORIGIN}/ap/objects/816412345678901234`, { headers: { accept: AS2 } }))).json();
+    assert.deepEqual([primary["claire:renditions"], primary["claire:body"], "claire:template" in primary, "claire:sourceKey" in primary], [`${ORIGIN}/ap/objects/816412345678901234/renditions`, `${ORIGIN}/ap/objects/816412345678901234/body`, false, false]);
+    const collection = await sidecar.handle(new Request(`${ORIGIN}/ap/objects/816412345678901234/renditions`, { headers: { accept: AS2 } }));
+    assert.deepEqual(await collection.json(), (fixture("object_collection_renditions").response as { document: unknown }).document);
+  } finally {
+    restore();
+  }
+});
+
 // --- Reads of another server ---
 
 function remoteServer(documents: Map<string, unknown>, items: unknown[], pageSize = 1) {

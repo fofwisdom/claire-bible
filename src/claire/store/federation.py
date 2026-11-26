@@ -25,11 +25,13 @@ from urllib.parse import urlsplit
 from ..core import ids
 
 __all__ = [
+    "DOCUMENT_QUOTE_POLICY",
     "DomainBlock",
     "FederationObject",
     "Follower",
     "OutboxKind",
     "OutboxTask",
+    "RenditionObject",
     "Tombstone",
     "TombstoneKind",
     "ack_outbox_task",
@@ -40,24 +42,27 @@ __all__ = [
     "count_followers",
     "count_objects",
     "count_pending_tasks",
+    "domain_blocks_etag",
+    "get_follower",
     "get_object",
     "get_object_for_document",
     "get_outbox_task",
-    "lease_outbox_tasks",
-    "list_objects",
-    "publish_document",
-    "retract_object",
-    "DOCUMENT_QUOTE_POLICY",
-    "domain_blocks_etag",
-    "get_follower",
+    "get_rendition_object",
     "get_tombstone",
     "iri_host",
+    "lease_outbox_tasks",
     "list_domain_blocks",
     "list_followers",
+    "list_objects",
     "normalize_domain",
+    "owning_object",
+    "publish_document",
     "remove_domain_block",
     "remove_follower",
     "remove_followers_of_actor",
+    "rendition_objects_of",
+    "retract_object",
+    "sync_rendition_objects",
     "update_follower_inboxes",
     "upsert_follower",
 ]
@@ -317,6 +322,21 @@ class FederationObject:
 
 
 @dataclass(frozen=True, slots=True)
+class RenditionObject:
+    """The object of a rendition that is not the 대표 정리본 (``claire.db`` version 52). ``parent_public_id`` is the document object."""
+
+    public_id: int
+    parent_public_id: int
+    template: str
+    created_at: float
+    updated_at: float
+
+
+_RENDITION_OBJECTS_TABLE = "federation_rendition_objects"
+_RENDITION_OBJECT_COLUMNS = "public_id, parent_public_id, template, created_at, updated_at"
+
+
+@dataclass(frozen=True, slots=True)
 class OutboxTask:
     id: int
     account_id: int
@@ -342,6 +362,77 @@ def _task(row: sqlite3.Row | tuple) -> OutboxTask:
 def get_object(conn: sqlite3.Connection, public_id: int) -> FederationObject | None:
     row = conn.execute(f"SELECT {_OBJECT_COLUMNS} FROM {_OBJECTS_TABLE} WHERE public_id=?", (public_id,)).fetchone()
     return None if row is None else _object(row)
+
+
+def _rendition_object(row: sqlite3.Row | tuple) -> RenditionObject:
+    public_id, parent, template, created_at, updated_at = tuple(row)
+    return RenditionObject(int(public_id), int(parent), str(template), float(created_at), float(updated_at))
+
+
+def get_rendition_object(conn: sqlite3.Connection, public_id: int) -> RenditionObject | None:
+    """The rendition object with this number, or ``None``."""
+    row = conn.execute(f"SELECT {_RENDITION_OBJECT_COLUMNS} FROM {_RENDITION_OBJECTS_TABLE} WHERE public_id=?", (public_id,)).fetchone()
+    return None if row is None else _rendition_object(row)
+
+
+def rendition_objects_of(conn: sqlite3.Connection, parent_public_id: int) -> list[RenditionObject]:
+    """The rendition objects of a document object in the template order."""
+    from ..extract.rendition_templates import RENDITION_TEMPLATE_IDS
+
+    order = {template: index for index, template in enumerate(RENDITION_TEMPLATE_IDS)}
+    rows = conn.execute(f"SELECT {_RENDITION_OBJECT_COLUMNS} FROM {_RENDITION_OBJECTS_TABLE} WHERE parent_public_id=?", (parent_public_id,)).fetchall()
+    return sorted((_rendition_object(row) for row in rows), key=lambda r: order.get(r.template, len(order)))
+
+
+def owning_object(conn: sqlite3.Connection, public_id: int) -> tuple[FederationObject, RenditionObject | None] | None:
+    """The document object of a number of an own published object: (the document object, ``None``) for a document object, (its document object, the rendition object) for a rendition object, else ``None``."""
+    obj = get_object(conn, public_id)
+    if obj is not None:
+        return obj, None
+    rendition = get_rendition_object(conn, public_id)
+    if rendition is None:
+        return None
+    parent = get_object(conn, rendition.parent_public_id)
+    return None if parent is None else (parent, rendition)
+
+
+def _id_salt(conn: sqlite3.Connection) -> bytes:
+    row = conn.execute("SELECT value FROM server_settings WHERE key='id_salt'").fetchone()
+    if row is None or not row[0]:
+        raise RuntimeError("server_settings.id_salt is missing")
+    return bytes.fromhex(str(row[0]))
+
+
+def _number_taken(conn: sqlite3.Connection, number: int) -> bool:
+    return conn.execute(f"SELECT 1 FROM {_OBJECTS_TABLE} WHERE public_id=? UNION ALL SELECT 1 FROM federation_tombstones WHERE public_id=?", (number, number)).fetchone() is not None
+
+
+def sync_rendition_objects(conn: sqlite3.Connection, *, kb_id: int, document_id: str, now: float) -> None:
+    """Make the rendition objects of a published document match its renditions (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5): a new rendition gets an object, a changed rendition changes ``updated_at``, and an object without its rendition gets a tombstone. A document that is not published has no rendition objects. No activity goes to followers (Section 5.4 rule 2: pull first). The caller commits."""
+    obj = get_object_for_document(conn, kb_id=kb_id, document_id=document_id)
+    if obj is None:
+        return
+    from ..extract.rendition_templates import PRIMARY_RENDITION_TEMPLATE
+    from . import document_renditions as renditions_store
+
+    renditions = {r.template: r for r in renditions_store.list_renditions(conn, document_id, kb_id) if r.template != PRIMARY_RENDITION_TEMPLATE}
+    existing = {r.template: r for r in rendition_objects_of(conn, obj.public_id)}
+    for template, rendition_object in existing.items():
+        rendition = renditions.get(template)
+        if rendition is None:
+            add_tombstone(conn, rendition_object.public_id, "object", gone_at=now)
+            conn.execute(f"DELETE FROM {_RENDITION_OBJECTS_TABLE} WHERE public_id=?", (rendition_object.public_id,))
+        elif rendition.updated_at > rendition_object.updated_at:
+            conn.execute(f"UPDATE {_RENDITION_OBJECTS_TABLE} SET updated_at=? WHERE public_id=?", (rendition.updated_at, rendition_object.public_id))
+    for template, rendition in renditions.items():
+        if template in existing:
+            continue
+
+        def _insert(public_id: int, template: str = template, at: float = max(now, rendition.updated_at)) -> None:
+            conn.execute(f"INSERT INTO {_RENDITION_OBJECTS_TABLE} (public_id, parent_public_id, template, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (public_id, obj.public_id, template, at, at))
+
+        # The objects of the documents and the renditions share one number space (``/ap/objects/{public_id}``), and a number with a tombstone is not used again.
+        ids.insert_with_timestamp_id(conn, table=_RENDITION_OBJECTS_TABLE, column="public_id", salt=_id_salt(conn), insert=_insert, now_ms=lambda: int(now * 1000), is_taken=lambda number: _number_taken(conn, number))
 
 
 def get_object_for_document(conn: sqlite3.Connection, *, kb_id: int, document_id: str) -> FederationObject | None:
@@ -382,6 +473,7 @@ def publish_document(conn: sqlite3.Connection, *, account_id: int, kb_id: int, d
         made = get_object(conn, public_id)
         assert made is not None
         _store_content_digest(conn, made)
+        sync_rendition_objects(conn, kb_id=kb_id, document_id=document_id, now=now)
         return made, add_outbox_task(conn, account_id=account_id, kind="create", object_public_id=public_id, now=now), True
     if existing.account_id != account_id:
         raise ValueError("the object is of a different account")
@@ -389,6 +481,7 @@ def publish_document(conn: sqlite3.Connection, *, account_id: int, kb_id: int, d
     updated = get_object(conn, existing.public_id)
     assert updated is not None
     _store_content_digest(conn, updated)
+    sync_rendition_objects(conn, kb_id=kb_id, document_id=document_id, now=now)
     return updated, add_outbox_task(conn, account_id=account_id, kind="update", object_public_id=existing.public_id, now=now), False
 
 
@@ -424,7 +517,13 @@ def sync_object_content(conn: sqlite3.Connection, *, kb_id: int, document_id: st
 
 
 def retract_object(conn: sqlite3.Connection, obj: FederationObject, *, now: float) -> OutboxTask:
-    """Delete one published object: write its tombstone, delete its row, and make a ``delete`` task. The caller commits: the three changes must be in one transaction."""
+    """Delete one published object: write its tombstone, delete its row, and make a ``delete`` task. The caller commits: the three changes must be in one transaction.
+
+    The rendition objects of the document get their tombstones too. No ``Delete`` of a rendition object goes to followers, because no ``Create`` went to them (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.4 rule 2); the delete list of the body readers comes with phase E5.
+    """
+    for rendition_object in rendition_objects_of(conn, obj.public_id):
+        add_tombstone(conn, rendition_object.public_id, "object", gone_at=now)
+        conn.execute(f"DELETE FROM {_RENDITION_OBJECTS_TABLE} WHERE public_id=?", (rendition_object.public_id,))
     add_tombstone(conn, obj.public_id, "object", gone_at=now)
     conn.execute(f"DELETE FROM {_OBJECTS_TABLE} WHERE public_id=?", (obj.public_id,))
     return add_outbox_task(conn, account_id=obj.account_id, kind="delete", object_public_id=obj.public_id, now=now)

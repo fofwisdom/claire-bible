@@ -4652,5 +4652,6 @@
   "reader.rendition.add_cost": "Each rendition costs one model call. It is made from the stored source text.",
   "reader.rendition.adding": "Making the {label} rendition…",
   "reader.rendition.add_failed": "The rendition was not made: {error}",
-  "reader.rendition.version_pre_template": "body made before the templates"
+  "reader.rendition.version_pre_template": "body made before the templates",
+  "reader.rendition.group_same_server": "Same source · this server"
 }

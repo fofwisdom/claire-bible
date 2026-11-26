@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/internal/federation/v1/objects/816412345678901234/collections/renditions"
+  },
+  "status": 200,
+  "response": {
+    "document": {
+      "@context": [
+        "https://www.w3.org/ns/activitystreams",
+        "https://w3id.org/claire-bible/ns/v2"
+      ],
+      "id": "https://claire.example.com/ap/objects/816412345678901234/renditions",
+      "type": "OrderedCollection",
+      "totalItems": 2,
+      "orderedItems": [
+        "https://claire.example.com/ap/objects/816412345678901234",
+        "https://claire.example.com/ap/objects/816412345678901260"
+      ]
+    }
+  }
+}

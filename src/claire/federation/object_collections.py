@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["AS2_CONTEXT", "COLLECTION_NAMES", "REPLIES_FIRST_PAGE_SIZE", "REPLIES_PAGE_SIZE", "count_collection", "replies_collection", "replies_page"]
+__all__ = ["AS2_CONTEXT", "COLLECTION_NAMES", "REPLIES_FIRST_PAGE_SIZE", "REPLIES_PAGE_SIZE", "count_collection", "rendition_body_document", "renditions_collection", "replies_collection", "replies_page"]
 
 AS2_CONTEXT = "https://www.w3.org/ns/activitystreams"
-COLLECTION_NAMES: tuple[str, ...] = ("replies", "likes", "shares")
+COLLECTION_NAMES: tuple[str, ...] = ("replies", "likes", "shares", "renditions")
 REPLIES_FIRST_PAGE_SIZE = 5
 REPLIES_PAGE_SIZE = 20
 
@@ -51,3 +51,17 @@ def replies_page(iri: str, self_replies: list[str], other_replies: list[str], cu
     if cursor + REPLIES_PAGE_SIZE < len(later):
         page["next"] = _page_iri(iri, cursor + REPLIES_PAGE_SIZE)
     return page
+
+
+def renditions_collection(iri: str, items: list[str]) -> dict[str, Any]:
+    """The collection ``claire:renditions`` of a document object (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5): the published rendition objects, the document object (the 대표 정리본) first, then the template order. No pages: a document has at most three renditions."""
+    from .knowledge.vocabulary import WIRE_CONTEXT_V2
+
+    return {"@context": list(WIRE_CONTEXT_V2), "id": iri, "type": "OrderedCollection", "totalItems": len(items), "orderedItems": list(items)}
+
+
+def rendition_body_document(iri: str, rendition_iri: str, *, html: str, source: str, body_hash: str) -> dict[str, Any]:
+    """The body representation of a rendition (Section 5.5): the compiled body (``content``, cleaned by the caller) and the AsciiDoc text (``source``)."""
+    from .knowledge.vocabulary import BODY_HASH, RENDITION, RENDITION_BODY, WIRE_CONTEXT_V2
+
+    return {"@context": list(WIRE_CONTEXT_V2), "id": iri, "type": RENDITION_BODY, RENDITION: rendition_iri, "mediaType": "text/html", "content": html, "source": {"mediaType": "text/asciidoc", "content": source}, BODY_HASH: body_hash}

@@ -69,14 +69,26 @@ def store_additional(conn: sqlite3.Connection, document_id: str, kb_id: int, *, 
     body = remove_leading_original_link(detail).strip()
     if not body:
         raise ValueError("empty rendition body")
-    _upsert(conn, document_id, kb_id, chosen.id, chosen.version, body, get_document_renderer().render_to_html(body, format="adoc"), lineage, time.time() if now is None else now)
+    at = time.time() if now is None else now
+    _upsert(conn, document_id, kb_id, chosen.id, chosen.version, body, get_document_renderer().render_to_html(body, format="adoc"), lineage, at)
+    _sync_objects(conn, document_id, kb_id, at)
+
+
+def _sync_objects(conn: sqlite3.Connection, document_id: str, kb_id: int, now: float) -> None:
+    """A published document gets, changes, or loses the object of a rendition with its rendition (phase E4b)."""
+    from . import federation as federation_store
+
+    federation_store.sync_rendition_objects(conn, kb_id=kb_id, document_id=document_id, now=now)
 
 
 def delete_additional(conn: sqlite3.Connection, document_id: str, kb_id: int, template: str) -> bool:
     """Delete one rendition that is not the 대표 정리본. True when a row was deleted."""
     if template == PRIMARY_RENDITION_TEMPLATE:
         raise ValueError("the 대표 정리본 is not deleted alone")
-    return conn.execute("DELETE FROM document_renditions WHERE document_id=? AND kb_id=? AND template=?", (document_id, int(kb_id), template)).rowcount > 0
+    deleted = conn.execute("DELETE FROM document_renditions WHERE document_id=? AND kb_id=? AND template=?", (document_id, int(kb_id), template)).rowcount > 0
+    if deleted:
+        _sync_objects(conn, document_id, kb_id, time.time())
+    return deleted
 
 
 def list_renditions(conn: sqlite3.Connection, document_id: str, kb_id: int) -> list[Rendition]:

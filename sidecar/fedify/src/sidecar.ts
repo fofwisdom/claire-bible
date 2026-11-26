@@ -41,7 +41,8 @@ import { buildNote, handOffInteraction, knownMentions } from "./notes.ts";
 // Quotes (contract 1.7, unit FP4-9Q).
 import { QuoteAuthorization } from "@fedify/fedify/vocab";
 import { buildQuoteAuthorization, quoteEventOf, quoteInteractionPolicy } from "./quotes.ts";
-import { OBJECT_COLLECTION_PATH, type ObjectCollectionName, objectCollections } from "./object_collections.ts";
+import { OBJECT_COLLECTION_PATH, type ObjectCollectionName, objectCollections, RENDITION_BODY_PATH } from "./object_collections.ts";
+import { renditionFields, withRenditionFields } from "./renditions.ts";
 
 // The USERNAME of the server actor. Claire reserves this word, so no account can have it.
 export const SERVER_ACTOR_USERNAME = "claire";
@@ -282,6 +283,8 @@ export class Sidecar {
     if (collection !== undefined) return await this.#knowledgeCollection(clean, config, collection);
     const objectCollection = inbox ? null : OBJECT_COLLECTION_PATH.exec(path);
     if (objectCollection !== null) return await this.#objectCollection(clean, objectCollection[1], objectCollection[2] as ObjectCollectionName);
+    const renditionBody = inbox ? null : RENDITION_BODY_PATH.exec(path);
+    if (renditionBody !== null) return await this.#renditionBody(clean, config, renditionBody[1]);
     const kbActor = inbox ? null : KB_ACTOR_PATH.exec(path);
     if (kbActor !== null) return await this.#knowledgeBaseActor(clean, config, kbActor);
     if (inbox && body !== null) {
@@ -613,6 +616,21 @@ export class Sidecar {
       if (result.decision !== "processed" && result.decision !== "duplicate") console.warn(`knowledge activity ${result.decision}: ${result.reason}`);
       return new Response(null, { status: 202 });
     } catch (error) {
+      console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
+      return text(503, "Service Unavailable", { "retry-after": "5" });
+    }
+  }
+
+  // The body of a rendition (contract 1.20, phase E4b): the sidecar verifies the HTTP signature, and Claire answers only the server actor of another Claire server (KS1). Each refusal is the same 404.
+  async #renditionBody(request: Request, config: ServerConfig, publicId: string): Promise<Response> {
+    if (new URL(request.url).searchParams.size > 0) return notFound();
+    const signer = await this.#requestSigner(request, config);
+    try {
+      const document = await this.#api.renditionBody(publicId, signer ?? undefined);
+      if (document === null) return notFound();
+      return new Response(request.method === "HEAD" ? null : JSON.stringify(document), { status: 200, headers: { "content-type": "application/activity+json", "cache-control": "private, no-store", vary: "Accept, Signature" } });
+    } catch (error) {
+      if (error instanceof InternalApiError && error.status === 400) return notFound();
       console.error(`internal federation API is not available: ${(error as Error).name}: ${(error as Error).message}`);
       return text(503, "Service Unavailable", { "retry-after": "5" });
     }
@@ -1291,7 +1309,9 @@ export class Sidecar {
         this.#gone.set(`/ap/objects/${values.id}`, result.gone_at);
         return null;
       }
-      return this.#article(ctx, result.record);
+      // The object path has the claire: fields of renditions (contract 1.20); a delivery has none (renditions.ts).
+      const id = ctx.getObjectUri(ASObject, { id: result.record.public_id });
+      return await withRenditionFields(this.#article(ctx, result.record), renditionFields(id, result.record, (publicId) => ctx.getObjectUri(ASObject, { id: publicId })), { contextLoader: ctx.contextLoader });
     });
 
     // The authorization of an approved quote request (FEP-044f, unit FP4-9Q). It does not embed the quoting object. A revoked authorization gets 410 (the wrapper in #respond, as for /ap/objects/).

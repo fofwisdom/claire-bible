@@ -477,3 +477,12 @@ Basis: phase E4a of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/
 - **[code]** `SCHEMA_VERSION` is 51. `_migrate_v51_document_source_keys` (`src/claire/store/db.py`) runs at each start and adds `documents.source_key` (SHA-256 of the source identifier, 64 lowercase hexadecimal characters) and `documents.source_id_version` (the version of the rules, now 1), with the index `idx_documents_source_key`.
 - **[code]** When the step adds the columns, it computes the key of each document from its address (`ingest.source_key.source_key_of`: a DOI, then arXiv, then the normalized web address). A document without an `http` or `https` address and a copy of a remote document (`source_type` `remote`) get no key. Later starts change nothing; `insert_document` writes the key of each new document, and a copy of a document (`contributions.copy_document`) copies it.
 - **[test]** `tests/test_source_key.py`.
+
+## v52 (rendition objects)
+
+Basis: phase E4b of [`DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md`](../design/DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md) Section 5.5 (2026-11-26).
+
+- **[code]** `SCHEMA_VERSION` is 52. `_migrate_v52_rendition_objects` (`src/claire/store/db.py`) runs at each start and makes `federation_rendition_objects`: `public_id` (the number of the object), `parent_public_id` (the document object, `ON DELETE CASCADE`), `template`, `created_at`, `updated_at`, `UNIQUE (parent_public_id, template)`.
+- **[code] [decision]** A separate table and not rows of `federation_objects`: that table has `UNIQUE (kb_id, document_id)`, and SQLite changes a constraint only with a copy of the table. The number space of the objects is one (`/ap/objects/{public_id}`).
+- **[code]** When the step makes the table, each published document gets the objects of its renditions (`federation.sync_rendition_objects`). Later, the publication and each change of a rendition keep the rows ([FEDERATION.md](FEDERATION.md) §4.6).
+- **[test]** `tests/test_federation_rendition_objects.py`.

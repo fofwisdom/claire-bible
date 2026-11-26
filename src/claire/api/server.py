@@ -6149,6 +6149,9 @@ def create_app(
             "hidden_shared_docs_count": hidden_shared_docs_count,
         }
 
+    # The documents of the picker group "같은 출처 · 이 서버" (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.10 rule 10): the newest publications first.
+    SAME_SOURCE_DOCUMENTS_MAX = 30
+
     async def permalink_route(request: Request) -> Response:
         """``GET /silvercord/{token}``: the one address of a document, a note, or an entity (PERMALINK_UNIFICATION_DESIGN.md Section 6)."""
         return await _document_permalink_page(request, rendition=None)
@@ -6220,8 +6223,35 @@ def create_app(
             finally:
                 conn.close()
 
+        def _same_source() -> list[dict[str, Any]]:
+            # The published renditions of other documents of this server with the same source key (Section 5.4 rule 1, the picker group "같은 출처 · 이 서버"). An unpublished rendition of another account is never in the set (RD10 rule 2).
+            conn = dbm.connect_existing(s.db_file, readonly=True)
+            try:
+                row = conn.execute("SELECT source_key FROM documents WHERE id=? AND kb_id=?", (found.target, kb.id)).fetchone()
+                if row is None or not row[0]:
+                    return []
+                others = conn.execute(
+                    "SELECT d.id, d.kb_id, a.username, a.display_name FROM documents d JOIN federation_objects o ON o.kb_id = d.kb_id AND o.document_id = d.id "
+                    "JOIN knowledge_bases k ON k.id = d.kb_id JOIN accounts a ON a.id = o.account_id "
+                    "WHERE d.source_key=? AND NOT (d.id=? AND d.kb_id=?) AND COALESCE(d.hidden, 0)=0 AND k.is_public=1 AND a.status='active' AND a.username IS NOT NULL "
+                    "ORDER BY o.published_at DESC LIMIT ?",
+                    (row[0], found.target, kb.id, SAME_SOURCE_DOCUMENTS_MAX),
+                ).fetchall()
+                items: list[dict[str, Any]] = []
+                for document_id, document_kb, username, display_name in others:
+                    token = permalinks.token_of(conn, "document", str(document_id))
+                    if token is None:
+                        continue
+                    base = permalinks.permalink_path(token)
+                    for r in renditions_store.list_renditions(conn, str(document_id), int(document_kb)):
+                        items.append({"template": r.template, "version": r.template_version, "updated_at": r.updated_at, "primary": r.primary, "url": base + ("" if r.primary else f"/renditions/{r.template}"), "account": str(display_name or f"@{username}")})
+                return items
+            finally:
+                conn.close()
+
         # The renditions are parts of the document: each reader of the page sees them (Section 5.8 rule 1).
         renditions = await asyncio.to_thread(_renditions)
+        same_source = await asyncio.to_thread(_same_source) if renditions else []
         selected = next((r for r in renditions if r.template == rendition), None) if rendition is not None else None
         if rendition is not None and selected is None:
             return PlainTextResponse("Not Found", status_code=404)
@@ -6253,6 +6283,8 @@ def create_app(
             "add_rendition_url": (f"/api/v1/kbs/{ids.format_public_id(kb.number)}/documents/{found.target}/renditions" if (is_member and kb.is_personal and viewer_principal is not None and viewer_principal.scope == "owner" and viewer_principal.account_id == kb.account_id) else None),
             "missing_renditions": [t for t in ADDITIONAL_RENDITION_TEMPLATES if t not in {r.template for r in renditions}] if renditions else [],
             "rendition_account": owner_name or (f"@{owner_username}" if owner_username else ""),
+            # Template order, then the newest first for the same template (Section 5.10 rule 10).
+            "same_source_renditions": sorted(same_source, key=lambda r: (RENDITION_TEMPLATE_IDS.index(r["template"]), -float(r["updated_at"]))),
         }
         if selected is not None:
             doc_for_page["detail"] = selected.detail or ""

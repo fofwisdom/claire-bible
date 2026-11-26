@@ -124,6 +124,7 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
         "add_rendition_url": None,
         "missing_renditions": [],
         "rendition_account": "Alice In Wonderland",
+        "same_source_renditions": [],
     }
     assert f'<link rel="alternate" type="application/activity+json" href="{origin}/ap/objects/50123"/>' in r_anon.text
     # Citation tags (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.7, phase E2): the preferred address, the account as the author, the time of the publication, and the actor of the account for the byline of a link preview.
@@ -219,6 +220,7 @@ def test_silvercord_html_headers_and_docdata_across_callers(tmp_path: Path) -> N
             "add_rendition_url": None,
             "missing_renditions": [],
             "rendition_account": "",
+            "same_source_renditions": [],
         }
 
 
@@ -563,3 +565,40 @@ def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> 
     finally:
         conn.close()
     assert anon("GET", f"/silvercord/{token}/renditions/concise").status_code == 404
+
+
+def test_the_picker_has_the_published_renditions_of_other_documents_with_the_same_source(tmp_path: Path) -> None:
+    """The picker group "같은 출처 · 이 서버" (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Sections 5.4 rule 1 and 5.10 rule 10, phase E4b): the published renditions of the documents of other accounts of this server with the same source key. An unpublished document is not in the group."""
+    import time as _time
+
+    from claire.core import ids as _ids
+    from claire.ingest.source_key import source_key
+    from claire.store import document_renditions as renditions_store
+    from claire.store import federation as federation_store
+
+    s, env = _setup_network_env(tmp_path)
+    key = source_key("https://arxiv.org/abs/2101.00001")
+    conn = dbm.connect_existing(env["db_file"])
+    try:
+        now = _time.time()
+        conn.execute("INSERT INTO knowledge_bases (id, seq, number, label, account_id, is_personal, is_public, created_at, updated_at) VALUES (12, 12, ?, 'Bob Public', ?, 1, 1, ?, ?)", (_ids.timestamp_id("knowledge_bases", salt=b"x", unix_ms=int(now * 1000) + 99), env["bob_id"], now, now))
+        for doc_id, kb_id in (("doc1", 10), ("bob-published", 12), ("bob-unpublished", 12)):
+            if doc_id != "doc1":
+                conn.execute("INSERT INTO documents (id, kb_id, url, title, raw_text, hidden) VALUES (?, ?, 'https://arxiv.org/abs/2101.00001', 'Same paper', 'Text', 0)", (doc_id, kb_id))
+            conn.execute("UPDATE documents SET source_key=?, source_id_version=1, detail='= 기본\n\n본문.' WHERE id=?", (key, doc_id))
+            renditions_store.record_primary(conn, doc_id, kb_id, lineage={}, now=1800000000.0)
+            permalinks.ensure_document(conn, doc_id, kb_id)
+        renditions_store.store_additional(conn, "bob-published", 12, template="academic", detail="= 학술\n\n본문.", lineage={}, now=1800000100.0)
+        conn.commit()
+        salt = accounts_store.AccountStore(conn).id_salt()
+        federation_store.publish_document(conn, account_id=env["bob_id"], kb_id=12, document_id="bob-published", published_by_account_id=env["bob_id"], salt=salt, now=now)
+        conn.commit()
+        token = permalinks.token_of(conn, "document", "doc1")
+        bob_token = permalinks.token_of(conn, "document", "bob-published")
+    finally:
+        conn.close()
+    test_client = TestClient(create_app(s), base_url=s.public_url, follow_redirects=False)
+    anon = _make_caller(test_client, s.public_url.rstrip("/"))
+    sc = _extract_docdata(anon("GET", f"/silvercord/{token}").text)["silvercord"]
+    assert [(r["template"], r["url"], r["primary"]) for r in sc["same_source_renditions"]] == [("standard", f"/silvercord/{bob_token}", True), ("academic", f"/silvercord/{bob_token}/renditions/academic", False)]
+    assert all(r["account"] for r in sc["same_source_renditions"])

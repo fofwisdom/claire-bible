@@ -46,6 +46,8 @@ FP49_FIXTURES = ["note", "note_gone", "interaction_tasks", "interaction_task_ack
 FP49Q_FIXTURES = ["quote_tasks", "quote_note", "quote_authorization", "quote_authorization_gone", "quote_event_request", "quote_event_nobody", "quote_event_accept"]
 # Contract 1.19 (phase E6): the collections of an own object. ``tests/test_federation_object_collections.py`` tests them.
 E6_FIXTURES = ["object_collection_replies", "object_collection_replies_page", "object_collection_likes", "object_collection_not_found"]
+# Contract 1.20 (phase E4b): the rendition objects. ``tests/test_federation_rendition_objects.py`` tests them.
+E4B_FIXTURES = ["object_rendition", "object_collection_renditions", "object_body", "object_body_unsigned"]
 OBJECT_ID = 816412345678901234
 SECOND_OBJECT_ID = 816412345678901235
 GONE_OBJECT_ID = 816412345678901239
@@ -277,7 +279,7 @@ def test_thread_fetch_agrees_with_fixtures(internal):
 
 
 def test_fixture_files_all_have_a_test(internal):
-    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "server_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES, *E6_FIXTURES}
+    covered = {"config", "heartbeat", "heartbeat_version_mismatch", "actor_by_username", "actor_by_username_not_found", "actor", "actor_not_found", "actor_keys", "actor_keys_not_found", "server_actor_keys", *FP2_FIXTURES, *FP3_FIXTURES, *FP4_FIXTURES, *FP46_FIXTURES, *FP49_FIXTURES, *FP49Q_FIXTURES, *E6_FIXTURES, *E4B_FIXTURES}
     assert {p.stem for p in FIXTURES.glob("*.json")} == covered
     for path in FIXTURES.glob("*.json"):
         assert set(json.loads(path.read_text())) == {"request", "status", "response"}
@@ -762,7 +764,7 @@ def test_object_content_is_sanitized_and_a_document_without_compiled_html_is_ren
     assert (second["name"], second["url"]) == ("Second", None)
     # RD21: the object has the summary (here the title, because the document has no extraction) and the share link, never the body. The second document has no share, so it has no link.
     assert second["content"] == "<p>Second</p>" and "body" not in second["content"]
-    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at", "likes", "shares"}
+    assert set(second) == {"public_id", "actor_public_id", "type", "name", "content", "url", "published_at", "updated_at", "likes", "shares", "rendition_of", "template", "template_version", "body_hash", "source_key", "source_id_version"}
 
 
 @pytest.mark.parametrize(

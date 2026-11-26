@@ -21,7 +21,7 @@ from typing import Any
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
 
-SCHEMA_VERSION = 51
+SCHEMA_VERSION = 52
 SCHEMA_LINEAGE = "claire-bible/common"
 PAIR_REVIEW_BACKFILL_KEY = "pair_review_backfill_v38"
 RETIRED_SCHEMA_VERSIONS = frozenset({12})
@@ -907,6 +907,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     _migrate_v49_document_quotes_always_permitted(conn)
     _migrate_v50_document_renditions(conn)
     _migrate_v51_document_source_keys(conn)
+    _migrate_v52_rendition_objects(conn)
     _migrate_v33_knowledge_federation_limits(conn)
     _migrate_judged_counts(conn)
     _purge_markdown_bodies(conn)
@@ -2284,6 +2285,33 @@ def _migrate_v23_object_content_digest(conn: sqlite3.Connection) -> None:
     """v23 (FEDERATION_REMOTE_READING_DESIGN.md Section 5.5 rule 5): ``federation_objects.content_digest`` is the digest of the summary and the share link that the followers got last. NULL for an object from before this version: the first comparison stores the digest and sends nothing (rule 7). Idempotent (A3)."""
     if _table_exists(conn, "federation_objects") and "content_digest" not in {row[1] for row in conn.execute("PRAGMA table_info(federation_objects)")}:
         conn.execute("ALTER TABLE federation_objects ADD COLUMN content_digest TEXT")
+
+
+def _migrate_v52_rendition_objects(conn: sqlite3.Connection) -> None:
+    """v52 (DOCUMENT_RENDITIONS_AND_PUBLICATION_DESIGN.md Section 5.5, phase E4b): the ActivityPub objects of the renditions of a published document that are not the 대표 정리본. The document object is the 대표 정리본. A rendition object has its own number in the number space of the objects (``/ap/objects/{public_id}``) and goes away with its document object. Idempotent; it runs at each start.
+
+    A separate table, not ``federation_objects``: that table has one row for each document (``UNIQUE (kb_id, document_id)``), and SQLite changes a constraint only with a copy of the table. When the step makes the table, each published document gets the objects of its renditions.
+    """
+    if not _table_exists(conn, "federation_objects"):
+        return
+    created = not _table_exists(conn, "federation_rendition_objects")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS federation_rendition_objects (
+            public_id INTEGER PRIMARY KEY,
+            parent_public_id INTEGER NOT NULL REFERENCES federation_objects(public_id) ON DELETE CASCADE,
+            template TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE (parent_public_id, template)
+        )
+        """
+    )
+    if created and _table_exists(conn, "document_renditions") and _table_exists(conn, "server_settings"):
+        from . import federation as federation_store
+
+        for kb_id, document_id in conn.execute("SELECT kb_id, document_id FROM federation_objects ORDER BY public_id").fetchall():
+            federation_store.sync_rendition_objects(conn, kb_id=int(kb_id), document_id=str(document_id), now=time.time())
 
 
 def _migrate_v51_document_source_keys(conn: sqlite3.Connection) -> None:

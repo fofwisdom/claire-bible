@@ -179,6 +179,8 @@ dialog.sc-sheet-dialog::backdrop { background: rgba(0, 0, 0, 0.45); overflow: hi
 .sc-rendition-select selectedcontent .ro-meta { display: none; }
 .sc-rendition-select .ro-badge { font-size: 11px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 999px; padding: 0 6px; }
 .sc-rendition-select .ro-meta, .sc-rendition-add .ro-meta { font-size: 11.5px; color: var(--muted); }
+.sc-rendition-select .ro-account { font-size: 12px; }
+.sc-rendition-select selectedcontent .ro-account { display: none; }
 .sc-rendition-add { border: 1px solid var(--border); border-radius: 8px; background: var(--card-bg); color: var(--fg); padding: 10px; max-width: min(92vw, 360px); }
 .sc-rendition-add-list { display: grid; gap: 6px; }
 .sc-rendition-add-list .sc-btn { justify-content: flex-start; white-space: normal; text-align: start; min-height: 44px; }

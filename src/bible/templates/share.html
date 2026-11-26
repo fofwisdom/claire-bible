@@ -367,7 +367,20 @@ function renditionSectionHead(sc){
       + (r.primary ? ' <span class="ro-badge">'+esc(rtr('reader.rendition.primary'))+'<span class="sr-only">.</span></span>' : '')
       + ' <span class="ro-meta">'+esc(renditionDate(r.updated_at))+'</span></option>';
   });
-  x += '</optgroup></select>';
+  x += '</optgroup>';
+  const same = Array.isArray(sc.same_source_renditions) ? sc.same_source_renditions : [];
+  if(same.length){
+    // The published renditions of other documents of this server with the same source: the account is a part of the text of each option.
+    x += '<optgroup label="'+esc(rtr('reader.rendition.group_same_server'))+'">';
+    same.forEach(r=>{
+      x += '<option value="'+esc(r.url)+'" data-template="'+esc(r.template)+'" data-group="same-server"><span class="ro-title">'+esc(renditionLabel(r.template))+'<span class="sr-only">.</span></span>'
+        + ' <span class="ro-account">'+esc(r.account||'')+'<span class="sr-only">.</span></span>'
+        + (r.primary ? ' <span class="ro-badge">'+esc(rtr('reader.rendition.primary'))+'<span class="sr-only">.</span></span>' : '')
+        + ' <span class="ro-meta">'+esc(renditionDate(r.updated_at))+'</span></option>';
+    });
+    x += '</optgroup>';
+  }
+  x += '</select>';
   if(sc.add_rendition_url && (sc.missing_renditions||[]).length){
     x += '<button type="button" class="sc-btn" id="sc-rendition-add-btn" popovertarget="sc-rendition-add"><span data-icon="plus"></span> '+esc(rtr('reader.rendition.add'))+'</button>';
     x += '<div id="sc-rendition-add" class="sc-rendition-add" popover><p class="sc-rendition-cost">'+esc(rtr('reader.rendition.add_cost'))+'</p><div class="sc-rendition-add-list">';
