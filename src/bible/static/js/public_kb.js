@@ -20,6 +20,7 @@
   function loginHref() { return "/login?next=" + encodeURIComponent(window.location.pathname + window.location.search); }
 
   function publicNavHtml(current) {
+    if (document.querySelector("header.appbar .pub-appbar-nav")) return "";
     var links = [
       { id: "home", href: "/", label: t("kb.pub.nav_home") },
       { id: "themes", href: "/themes", label: t("kb.pub.nav_themes") },
@@ -57,6 +58,7 @@
 
   // The root page of network mode has the themes from the server (design Section 8.4). This part adds the links to the collections.
   function renderHomeShowcase(host) {
+    if (document.getElementById("home-observatory") || document.querySelector(".pub-appbar-nav")) return;
     host.innerHTML = publicNavHtml("home");
   }
 
@@ -86,11 +88,11 @@
     var recent = [];
     try { recent = (source && JSON.parse(source.textContent).recent) || []; } catch (e) { recent = []; }
     if (!recent.length) { host.innerHTML = ""; return; }
-    host.innerHTML = '<section class="about-card home-section-card" aria-labelledby="home-recent-h2">' +
-      '<div class="home-section-head"><h2 id="home-recent-h2">' + ui().icon("globe") + " <span>" + esc(t("kb.pub.recent_title")) + "</span></h2></div>" +
-      '<article class="account-card home-list-card"><ul class="themes-list">' + recent.map(function (it) {
+    host.innerHTML = '<section class="obs-recent-section" aria-labelledby="home-recent-h2">' +
+      '<div class="obs-section-head"><h2 id="home-recent-h2">' + ui().icon("globe") + "<span>" + esc(t("kb.pub.recent_title")) + "</span></h2></div>" +
+      '<ul class="obs-recent-list">' + recent.map(function (it) {
         return '<li data-federation-recent="' + esc(it.kind) + '">' + recentItemHtml(it) + "</li>";
-      }).join("") + "</ul></article></section>";
+      }).join("") + "</ul></section>";
     ui().enhance(host);
   }
 
@@ -110,6 +112,7 @@
       var h = publicNavHtml("themes");
       h += '<div class="claire-page-head"><div><h1>' + ui().icon("folder") + " " + esc(t("kb.pub.themes_title")) + '</h1><p class="claire-page-sub">' + esc(t("kb.pub.themes_subtitle")) + "</p></div>";
       h += '<div class="claire-actions">' + knowledgeTypeChips("pub-themes-knowledge-type", knowledgeTypeFilter);
+      h += '<a class="claire-btn sec" href="/kb">' + esc(t("kb.pub.all_kbs_link")) + "</a>";
       if (bs.is_authenticated) h += '<button type="button" class="claire-btn pri" id="pub-th-create-kb">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button>";
       h += "</div></div>";
       if (loadError) h += '<div class="claire-note warn"><span>' + esc(ui().errorText(loadError)) + "</span></div>";

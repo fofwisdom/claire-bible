@@ -34,9 +34,9 @@ test('single mode: the admin makes the profile public on the account page, and /
   await expect(page.locator('.account-card .account-handle')).toHaveText('@e2eadmin');
   await expect(page.locator('.account-card a.account-name')).toHaveAttribute('href', '/@e2eadmin/');
 
-  // The public menu of the collection pages links to /directory, and the link opens the directory in single mode too.
+  // The public appbar links to /directory, and the link opens the directory in single mode too.
   await page.goto('/themes', { waitUntil: 'domcontentloaded' });
-  const link = page.locator('.claire-pubnav a[href="/directory"]');
+  const link = page.locator('header.appbar .pub-appbar-nav a[href="/directory"]');
   await expect(link).toHaveCount(1);
   await link.click();
   await expect(page).toHaveURL(/\/directory$/);

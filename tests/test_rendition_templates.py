@@ -25,10 +25,13 @@ CASES = [(None, False, 1), (IMAGES, False, 1), (None, True, 2), (IMAGES, True, 2
 
 def test_the_set_has_the_three_owner_templates_with_versions() -> None:
     assert RENDITION_TEMPLATE_IDS == ("standard", "concise", "academic")
+    assert [rendition_template(template_id).version for template_id in RENDITION_TEMPLATE_IDS] == ["standard-v2", "concise-v2", "academic-v2"]
+    assert "abbreviations" in FIXED_RULES
     for template_id in RENDITION_TEMPLATE_IDS:
         template = rendition_template(template_id)
         assert template.id == template_id
         assert template.version.startswith(f"{template_id}-v")
+        assert "정식 명칭(이하 약어)" in template.build_instructions(images=None, merged=False, scale=1)
 
 
 def test_an_unknown_identifier_has_no_default() -> None:

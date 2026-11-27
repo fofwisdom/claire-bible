@@ -4,8 +4,8 @@ A rendition template is a fixed instruction set for the body prompt of a renditi
 
 Structure (owner question, 2026-11-25: "기본 원칙을 공통으로 수용하고 템플릿으로서의 각 특성을 적용"):
 
-- ``CORE_RULES`` (공통 원칙): the 14 rules of the current body prompt, in their order, word for word. The test checks that a template without changes builds the current prompt ``prompts.render_detail_instructions_adoc`` exactly.
-- ``FIXED_RULES``: the core rules that no template replaces (AsciiDoc only, written style, quote rules, emphasis, names, no invented text, truncated sections, no author line). A template can only add lines to them.
+- ``CORE_RULES`` (공통 원칙): the 15 rules of the current body prompt, in their order, word for word. The test checks that a template without changes builds the current prompt ``prompts.render_detail_instructions_adoc`` exactly.
+- ``FIXED_RULES``: the core rules that no template replaces (AsciiDoc only, written style, quote rules, emphasis, names, abbreviations, no invented text, truncated sections, no author line). A template can only add lines to them.
 - ``TRAITS`` (특성): rule texts that more than one template uses instead of a core rule (no tables of the source, representative formulas only).
 - Each template has its scope sentence and its changes: replaced slots, added lines, omitted slots, inserted rules. The rules get their numbers when the template builds its instructions.
 
@@ -28,7 +28,7 @@ from .prompts import images_block_adoc
 
 RULES_HEADER = '작성 규칙(AsciiDoc 실용 가이드라인 및 단일 포맷 순수성 준수):\n'
 
-SLOT_ORDER: tuple[str, ...] = ('asciidoc', 'style', 'structure', 'quotes', 'code', 'notes', 'tables', 'emphasis', 'names', 'formulas', 'anchors', 'faithful', 'truncation', 'author_line')
+SLOT_ORDER: tuple[str, ...] = ('asciidoc', 'style', 'structure', 'quotes', 'code', 'notes', 'tables', 'emphasis', 'names', 'abbreviations', 'formulas', 'anchors', 'faithful', 'truncation', 'author_line')
 
 # 공통 원칙: the rules of the current body prompt, word for word. "<<FIRST_SECTION>>" is the first section after the title.
 CORE_RULES: Mapping[str, str] = MappingProxyType({
@@ -41,6 +41,7 @@ CORE_RULES: Mapping[str, str] = MappingProxyType({
     'tables': '비교와 정리(테이블 보존): 성능 수치, 벤치마크, 스펙 비교, 옵션 등은 `|===` 테이블로 깔끔히 정돈하라. 원문의 테이블 데이터 및 수치를 임의로 생략하거나 문장으로 축약하지 말고 온전히 보존하라. 단, 테이블 내에 들어있는 미디어(이미지·아이콘·뱃지 등)는 표의 가독성과 서식 유지를 위해 제거·생략을 허용한다.',
     'emphasis': '가독성 및 강조: 중요한 용어는 `*굵게*` 표시하고, 정말 빼놓으면 안 되는 한두 구절만 `#형광#`(#으로 감쌈)으로 강조하라.',
     'names': '고유명사·제품/도구/모델명·조직명·기술 용어는 원문 형태 그대로 유지하라(음차/번역 금지: 예 "arXiv", "LLM agent").',
+    'abbreviations': "약어 표기: 약어를 처음 표기할 때는 '정식 명칭(이하 약어)' 형식으로 작성하라. 이후 다시 언급할 때부터는 해당 약어만 사용한다.",
     'formulas': '수식 및 공식 보존: 수학, 통계, 암호학, 알고리즘 공식 및 기호는 원문을 온전히 보존하라. 문장 내에 등장하는 개별 그리스 문자(예: \\lambda, \\omega, \\alpha)나 수학 기호(\\in, \\ge, \\sum)라도 반드시 인라인 수식 `stem:[공식]`(예: `stem:[E = mc^2]`, `stem:[\\lambda_o]`) 또는 `$ \\lambda_o $`로 감싸라. 블록 수식은 `[latexmath]\\n++++\\n수식\\n++++` 또는 `$$ 수식 $$`을 사용하여 기호나 공식을 정확하게 보존하라.',
     'anchors': '상호 참조 및 앵커: 긴 문서의 주요 섹션에는 `[#섹션ID]` 앵커를 부여하고, 필요시 `<<섹션ID, 제목>>` 상호 참조를 활용하라.',
     'faithful': '[★ 원문 엄격 비례 및 환각/추측 절대 금지]\n    - 원문에 직접적으로 언급되지 않은 사실, 가상의 기술 스택/방법론, 임의의 수치나 결과, 근거 없는 배경 맥락은 절대 지어내지 마라.\n    - 원문 내용이 짧거나 제한적인 경우 억지로 분량을 부풀리지 말고 실제 기술된 사실에 엄격히 비례하여 충실하게 서술하라.',
@@ -48,7 +49,7 @@ CORE_RULES: Mapping[str, str] = MappingProxyType({
     'author_line': '[★ 중요: 문서 레벨 서지 정보 및 저자 라인 표기 절대 금지]\n   - 문서 제목(`= 제목`) 바로 아래 행에 저자, 발표자, 소속 기관, 발행처, 유튜브 채널명 등의 부제/저자 라인을 일체 작성하지 마라.\n   - `= 제목` 직후에는 곧바로 <<FIRST_SECTION>>으로 시작하라.\n   - 저자·소속 정보는 온톨로지 지식 그래프의 영역이며 문서 본문에 기재하지 않는다.',
 })
 
-FIXED_RULES: frozenset[str] = frozenset({"asciidoc", "style", "quotes", "emphasis", "names", "faithful", "truncation", "author_line"})
+FIXED_RULES: frozenset[str] = frozenset({"asciidoc", "style", "quotes", "emphasis", "names", "abbreviations", "faithful", "truncation", "author_line"})
 
 DEFAULT_FIRST_SECTION = '목차/문서 속성(`:toc:`) 또는 본문 섹션(`== 개요`)'
 
@@ -162,13 +163,13 @@ class RenditionTemplate:
 RENDITION_TEMPLATES: dict[str, RenditionTemplate] = {
     "standard": RenditionTemplate(
         id="standard",
-        version="standard-v1",
+        version="standard-v2",
         intro=_standard_intro,
         replace={"tables": TRAITS["no_source_tables"], "formulas": TRAITS["representative_formulas"]},
     ),
     "concise": RenditionTemplate(
         id="concise",
-        version="concise-v1",
+        version="concise-v2",
         intro=_concise_intro,
         replace={
             "structure": '간결 구성: 아래 순서의 섹션으로 구성하라. 원문에 해당 내용이 없는 섹션은 만들지 마라. 하위 섹션은 `=== `까지만 쓴다. 단락은 빈 줄로 구분한다.\n   - `== 핵심`: 원문의 결론과 가장 중요한 주장 3~5개를 `* ` 불릿으로 쓴다. 불릿 하나는 한 문장이다.\n   - `== 내용`: 핵심 주장을 뒷받침하는 근거·방법·작동 원리를 짧은 문단 또는 `* ` 불릿으로 쓴다.\n   - `== 결과와 수치`: 실험 결과, 벤치마크, 비교 수치가 원문에 있을 때만 쓴다.\n   - `== 한계`: 원문이 스스로 밝힌 한계·전제·미해결 문제가 있을 때만 쓴다.',
@@ -186,7 +187,7 @@ RENDITION_TEMPLATES: dict[str, RenditionTemplate] = {
         first_section="본문 섹션(`== 핵심`)",
         image_hint="\n[간결 정리본의 그림 규칙] 아래 후보 중 내용 이해에 꼭 필요한 그림을 최대 두 개까지만 넣는다.\n",
     ),
-    "academic": RenditionTemplate(id="academic", version="academic-v1", intro=_standard_intro),
+    "academic": RenditionTemplate(id="academic", version="academic-v2", intro=_standard_intro),
 }
 
 RENDITION_TEMPLATE_IDS: tuple[str, ...] = tuple(RENDITION_TEMPLATES)

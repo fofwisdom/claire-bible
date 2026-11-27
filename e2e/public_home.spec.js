@@ -1,4 +1,4 @@
-// Network-mode root / page sharing /about UI and look-and-feel on an isolated server instance.
+// Network-mode root / Calm Federated Observatory, 4-item appbar, peer hovercards, and unified navigation on an isolated server instance.
 const { execFileSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
@@ -10,7 +10,7 @@ const { expectNoRawKeys, watchErrors } = require('./support/console_pages');
 test.use({ serviceWorkers: 'block' });
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const HOME_RAW_KEY = /(?:^|[\s"'(>:])((?:about|home_root|directory|themes|kb\.pub|pipeline\.neon|lang\.name)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*)/;
+const HOME_RAW_KEY = /(?:^|[\s"'(>:])((?:about|home_obs|home_root|directory|themes|kb\.pub|pipeline\.neon|lang\.name)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*)/;
 
 let serverProc = null;
 let tmpDir = null;
@@ -94,7 +94,7 @@ async function expectNoHomeRawKeys(page) {
   await expectNoRawKeys(page);
   const text = await page.evaluate(() => document.body.innerText || '');
   const found = HOME_RAW_KEY.exec(text);
-  expect(found ? found[1] : null, 'raw home/about i18n key').toBeNull();
+  expect(found ? found[1] : null, 'raw home/observatory i18n key').toBeNull();
 }
 
 async function expectZeroOverflow(page, label) {
@@ -115,7 +115,8 @@ test.beforeAll(async () => {
     'import time',
     'from pathlib import Path',
     'import claire_bible.bootstrap',
-    'from claire.store import accounts as accounts_store, db as dbm, themes as themes_store',
+    'from claire.federation.knowledge import known_servers',
+    'from claire.store import accounts as accounts_store, db as dbm, federation as federation_store, kb_collab, themes as themes_store',
     'claire_bible.bootstrap.configure()',
     `db_file = Path(${JSON.stringify(dbPath)})`,
     'conn = dbm.connect(db_file)',
@@ -131,6 +132,15 @@ test.beforeAll(async () => {
     '    themes_store.add_theme_member(conn, theme_id=1, kb_id=10, source="computed", now=now)',
     '    conn.execute("INSERT INTO documents (id, kb_id, url, title, raw_text, hidden, extraction_status) VALUES (\'doc-pub-1\', 10, \'https://example.com/p1\', \'Public Extracted Doc\', \'text\', 0, \'extracted\')")',
     '    conn.execute("INSERT INTO entities (id, kb_id, type, name, norm_name, provisional, created_at, updated_at) VALUES (\'ent-pub-1\', 10, \'Concept\', \'Public Concept\', \'public concept\', 0, ?, ?)", (now, now))',
+    '    known_servers.ensure_schema(conn)',
+    '    known_servers.note_server(conn, domain="peer-a.example", source="admin", now=now, added_by=1)',
+    '    known_servers.record_read(conn, "peer-a.example", server_actor_iri="https://peer-a.example/ap/server", software_name="claire-bible", software_version="9.9.9-secret-ver", shared_kb_count=2, now=now)',
+    '    cur = conn.execute("INSERT INTO kf_remote_knowledge_bases (iri, domain, url, label, description, knowledge_type, document_count, entity_count, relation_count, signature, payload, first_seen_at, seen_at, changed_at) VALUES (\'https://peer-a.example/ap/kb/501\', \'peer-a.example\', \'https://peer-a.example/kb/501/\', \'Peer A Atlas\', \'Remote atlas\', \'real\', 12, 40, 15, NULL, \'{}\', ?, ?, ?)", (now, now, now))',
+    '    themes_store.set_computed_remote_member(conn, theme_id=1, remote_kb_id=int(cur.lastrowid), score=0.92)',
+    '    kb_collab.add_contribution(conn, kb_id=10, document_id="doc-pub-1", origin="curation", contributor_account_id=None, curator_account_id=1, state="visible", approved_at=now, approved_by_account_id=1, remote={"source_kb_iri": "https://peer-a.example/ap/kb/501", "source_iri": "https://peer-a.example/doc/1", "root_iri": "https://peer-a.example/doc/1", "credit_iri": None}, now=now)',
+    '    known_servers.note_server(conn, domain="blocked-peer.example", source="admin", now=now, added_by=1)',
+    '    known_servers.record_read(conn, "blocked-peer.example", server_actor_iri="https://blocked-peer.example/ap/server", software_name="claire-bible", software_version="8.8.8-blocked-ver", shared_kb_count=4, now=now)',
+    '    federation_store.add_domain_block(conn, "blocked-peer.example", created_by=1, note="blocked", now=now)',
     '    token = accounts_store.create_account_session(conn, account_id=1, scope="owner")',
     '    conn.commit()',
     '    print(token)',
@@ -168,7 +178,7 @@ test.afterAll(async () => {
   }
 });
 
-test('network-mode / renders shared /about look-and-feel anonymously across viewports and themes', async ({ browser }) => {
+test('network-mode / renders Calm Federated Observatory, peer hovercard, 4-item appbar, and unified navigation', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: isolatedBaseUrl, serviceWorkers: 'block', locale: 'ko-KR' });
   const page = await context.newPage();
   const errors = watchErrors(page);
@@ -177,24 +187,42 @@ test('network-mode / renders shared /about look-and-feel anonymously across view
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    const navLinks = page.locator('header.appbar .pub-appbar-nav a');
+    await expect(navLinks).toHaveCount(4);
     await expect(page.locator('header.appbar .pub-appbar-nav a[href="/"][aria-current="page"]')).toBeVisible();
+    await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"]')).toBeVisible();
+    await expect(page.locator('header.appbar .pub-appbar-nav a[href="/directory"]')).toBeVisible();
+    await expect(page.locator('header.appbar .pub-appbar-nav a[href="/about"]')).toBeVisible();
+    await expect(page.locator('header.appbar a[href="/kb"]')).toHaveCount(0);
     await expect(page.locator('header.appbar a[href="/reference"]')).toHaveCount(0);
+    await expect(page.locator('.claire-pubnav:visible')).toHaveCount(0);
 
-    await expect(page.locator('#home-top.about-card.p4-hero-neon')).toBeVisible();
-    await expect(page.locator('#home-top .p4-emblem')).toBeVisible();
-    await expect(page.locator('#home-top .about-kpi')).toHaveCount(4);
-    await expect(page.locator('#home-top')).toContainText('build 7a3f9c2');
-    await expect(page.locator('#home-top .about-meta-strip')).toContainText('지식 관리자');
-    await expect(page.locator('#home-top .about-meta-strip')).toContainText('Curator Ada');
+    await expect(page.locator('#home-observatory')).toBeVisible();
+    await expect(page.locator('#home-observatory .obs-flow-grid')).toBeVisible();
+    await expect(page.locator('#home-observatory .obs-reflux')).toBeVisible();
+    await expect(page.locator('.p4-theatre')).toHaveCount(0);
+    await expect(page.locator('.p4-hero-neon')).toHaveCount(0);
 
-    await expect(page.locator('#public-home-showcase .claire-pubnav')).toBeVisible();
+    const peerNode = page.locator('#home-observatory a[data-obs-peer="peer-a.example"]');
+    await expect(peerNode).toBeVisible();
+    await expect(page.locator('body')).not.toContainText('blocked-peer.example');
+    await expect(page.locator('body')).not.toContainText('9.9.9-secret-ver');
     await expect(page.locator('#home-themes')).toContainText('AI Architecture');
     await expect(page.locator('#home-themes')).toContainText('Public Shared KB');
-    await expect(page.locator('#home-accounts')).toContainText('Curator Ada');
-    await expect(page.locator('#home-accounts')).toContainText('@curator_ada');
+    await expect(page.locator('#home-directory-link a[href="/directory"]')).toBeVisible();
+
+    // Hover and focus reveal the declarative #obs-hc-peer-0 hovercard.
+    const hovercard = page.locator('#obs-hc-peer-0');
+    await peerNode.hover();
+    await expect(hovercard).toBeVisible();
+    await expect(hovercard).toContainText('peer-a.example');
+    await expect(hovercard).toContainText('Peer A Atlas');
+    await page.keyboard.press('Escape');
+    await peerNode.focus();
+    await expect(hovercard).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await expect(page.locator('footer.about-footer a[href="/reference"]')).toContainText('API 문서');
-    await expect(page.locator('footer.about-footer')).not.toContainText('지식 관리자');
     await expectNoHomeRawKeys(page);
     await expectZeroOverflow(page, 'desktop light');
 
@@ -210,12 +238,26 @@ test('network-mode / renders shared /about look-and-feel anonymously across view
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await expectZeroOverflow(page, 'mobile light');
 
-    // Navigation between / and /about
+    // Navigation: / -> /themes -> /directory -> /about -> /
     await page.setViewportSize({ width: 1360, height: 900 });
+    await page.locator('header.appbar .pub-appbar-nav a[href="/themes"]').click();
+    await expect(page).toHaveURL(/\/themes$/);
+    await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
+    await expect(page.locator('.claire-pubnav:visible')).toHaveCount(0);
+
+    await page.locator('header.appbar .pub-appbar-nav a[href="/directory"]').click();
+    await expect(page).toHaveURL(/\/directory$/);
+    await expect(page.locator('header.appbar .pub-appbar-nav a[href="/directory"][aria-current="page"]')).toBeVisible();
+    await expect(page.locator('.account-card')).toContainText('Curator Ada');
+
     await page.locator('header.appbar .pub-appbar-nav a[href="/about"]').click();
     await expect(page).toHaveURL(/\/about$/);
+    await expect(page.locator('header.appbar .pub-appbar-nav a[href="/about"][aria-current="page"]')).toBeVisible();
+    await expect(page.locator('#about-top')).toBeVisible();
+
     await page.locator('header.appbar .pub-appbar-nav a[href="/"]').click();
     await expect(page).toHaveURL(/\/$/);
+    await expect(page.locator('#home-observatory')).toBeVisible();
 
     expect(errors).toEqual([]);
   } finally {
@@ -232,7 +274,7 @@ test('network-mode / renders workspace CTA and authenticated appbar controls whe
     await page.setViewportSize({ width: 1360, height: 900 });
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    const workspaceCta = page.locator('.home-hero-actions a[href="/@curator_ada/"]');
+    const workspaceCta = page.locator('.obs-ws-cta[href="/@curator_ada/"]');
     await expect(workspaceCta).toBeVisible();
     await expect(workspaceCta).toContainText('내 작업 공간');
     await expect(page.locator('#homelinkbtn')).toHaveAttribute('href', '/@curator_ada/');

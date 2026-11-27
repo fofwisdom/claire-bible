@@ -65,12 +65,12 @@ def _caller_context(request: Request, ctx: AccountsContext) -> dict[str, Any]:
 
 
 def public_appbar_html(request: Request, ctx: AccountsContext, *, active: str = "") -> str:
-    """Build the shared public application bar with top-level navigation links (Home, Directory, Shared KBs, About)."""
+    """Build the shared public application bar with top-level navigation links (Home, Themes, Directory, About)."""
     caller = _caller_context(request, ctx)
     nav_items = (
         ("home", "/", "kb.pub.nav_home"),
+        ("themes", "/themes", "kb.pub.nav_themes"),
         ("directory", "/directory", "kb.pub.nav_accounts"),
-        ("kb", "/kb", "kb.pub.nav_kbs"),
         ("about", "/about", "nav.about"),
     )
     brand_extra_html = (
@@ -126,7 +126,7 @@ def render_public_kb_page(
         "mode": caller["mode"],
     }
     bootstrap_json = json.dumps(bootstrap, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    active_nav = "kb" if view in ("kb_list", "kb_detail") else ""
+    active_nav = "themes" if view in ("themes_list", "theme_detail", "kb_list", "kb_detail") else ""
     appbar_html = public_appbar_html(request, ctx, active=active_nav)
     return render_template(
         "public_kb.html",

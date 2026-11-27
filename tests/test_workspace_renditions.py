@@ -55,7 +55,7 @@ def test_get_document_returns_renditions_and_strips_add_permissions(workspace_en
     assert len(owner_body["renditions"]) == 1
     primary = owner_body["renditions"][0]
     assert primary["template"] == "standard"
-    assert primary["template_version"] == "standard-v1"
+    assert primary["template_version"] == "standard-v2"
     assert primary["is_primary"] is True
     assert primary["detail"] == owner_body["detail"]
     assert primary["detail_format"] == owner_body["detail_format"]
@@ -134,8 +134,8 @@ def test_get_document_preserves_pre_template_version_and_template_order(workspac
     body = doc_resp.json()
     assert [(r["template"], r["template_version"], r["is_primary"]) for r in body["renditions"]] == [
         ("standard", PRE_TEMPLATE_VERSION, True),
-        ("concise", "concise-v1", False),
-        ("academic", "academic-v1", False),
+        ("concise", "concise-v2", False),
+        ("academic", "academic-v2", False),
     ]
     assert body["can_add_renditions"] is True
     assert body["missing_renditions"] == []
@@ -180,7 +180,7 @@ def test_workspace_e2e_add_concise_rendition_flow(workspace_env) -> None:
     assert std_entry["is_primary"] is True
     assert std_entry["detail_html"] == primary_html_before
     assert concise_entry["is_primary"] is False
-    assert concise_entry["template_version"] == "concise-v1"
+    assert concise_entry["template_version"] == "concise-v2"
     assert concise_entry["detail"].startswith("[mock-detail-adoc] [template: concise]")
     assert concise_entry["detail_format"] == "adoc"
     assert concise_entry["detail_html"]

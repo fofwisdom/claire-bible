@@ -202,8 +202,8 @@ The texts are in `src/claire/extract/rendition_templates.py` (owner decisions O2
 
 | Part | Content | Rule |
 | :--- | :--- | :--- |
-| Core rules (공통 원칙) | The 14 rules of the current prompt, word for word, in their order: AsciiDoc only, written style, structure, quotes, code, notes, tables, emphasis, names, formulas, anchors, no invented text, truncated sections, no author line. | One copy. A template without changes builds the current prompt exactly (test). |
-| Fixed rules | AsciiDoc only, written style, quotes, emphasis, names, no invented text, truncated sections, no author line. | No template replaces or omits them; a template can add lines (for example 간결: "`[quote]` 한 곳 이내"). The module refuses another change at load time (test). |
+| Core rules (공통 원칙) | The 15 rules of the body prompt, in order: AsciiDoc only, written style, structure, quotes, code, notes, tables, emphasis, names, abbreviations (`'정식 명칭(이하 약어)'`), formulas, anchors, no invented text, truncated sections, no author line. | One copy. A template without changes builds the prompt with all core rules (test). |
+| Fixed rules | AsciiDoc only, written style, quotes, emphasis, names, abbreviations, no invented text, truncated sections, no author line. | No template replaces or omits them; a template can add lines (for example 간결: "`[quote]` 한 곳 이내"). The module refuses another change at load time (test). |
 | Traits (특성) | Rule texts that more than one template uses: no tables of the source; representative formulas only. | One copy for each trait. |
 | Changes of a template | Its scope sentence and length; replaced rules; added lines; omitted rules; inserted rules; the first section after the title; a line for the figures. | The rules get their numbers when the template builds its instructions. |
 
@@ -215,9 +215,9 @@ The texts are in `src/claire/extract/rendition_templates.py` (owner decisions O2
 
 | Identifier | Korean name | Version | Text |
 | :--- | :--- | :--- | :--- |
-| `standard` | 기본 | `standard-v1` | A copy of the current prompt with two changes (O17): rule 7 "원문 테이블 미사용" (no `\|===` table; the key numbers of a source table go into sentences or bullets, with units and conditions, not rounded); rule 10 "수식은 대표 공식만" (only the formulas that define the main result or method, usually 1 to 3, as block formulas; derivations and other symbols in words). The other rules stay. Not "상세": the body itself is 상세 (O14). |
-| `concise` | 간결 | `concise-v1` | A copy of the current prompt, written again for a short body: about one A4 page (merged: `scale` to `2 × scale` pages); the section order `== 핵심` (3 to 5 one-sentence claims), `== 내용`, `== 결과와 수치`, `== 한계`, each only when the source has it; less background, repetition, and examples; numbers, conditions, definitions, and names stay exactly; at most one `[quote]`, one note block, two figures; no tables of the source: the key numbers of a result table go into `== 결과와 수치` as sentences or bullets, with units and conditions (O18); representative formulas only (O20); no text that the source does not have, also to fill space. The fixed rules stay (see Structure). |
-| `academic` | 학술 | `academic-v1` | An exact copy of the current prompt, with all tables and all formulas (O17: it stays). The owner changes it later. |
+| `standard` | 기본 | `standard-v2` | A copy of the current prompt with two changes (O17): rule 7 "원문 테이블 미사용" (no `\|===` table; the key numbers of a source table go into sentences or bullets, with units and conditions, not rounded); rule 11 "수식은 대표 공식만" (only the formulas that define the main result or method, usually 1 to 3, as block formulas; derivations and other symbols in words). The other core rules (including abbreviations at `v2`) stay. Not "상세": the body itself is 상세 (O14). |
+| `concise` | 간결 | `concise-v2` | A copy of the current prompt, written again for a short body: about one A4 page (merged: `scale` to `2 × scale` pages); the section order `== 핵심` (3 to 5 one-sentence claims), `== 내용`, `== 결과와 수치`, `== 한계`, each only when the source has it; less background, repetition, and examples; numbers, conditions, definitions, and names stay exactly; at most one `[quote]`, one note block, two figures; no tables of the source: the key numbers of a result table go into `== 결과와 수치` as sentences or bullets, with units and conditions (O18); representative formulas only (O20); no text that the source does not have, also to fill space. The fixed rules stay (see Structure; updated to `v2` with the abbreviation rule). |
+| `academic` | 학술 | `academic-v2` | All core rules, with all tables and all formulas (O17: it stays; updated to `v2` with the abbreviation rule). The owner changes it later. |
 
 Rules:
 

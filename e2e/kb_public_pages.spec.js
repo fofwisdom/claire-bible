@@ -102,7 +102,8 @@ test('/kb: the shared knowledge bases with type, state, join policy, and role; t
   await page.goto('/kb', { waitUntil: 'domcontentloaded' });
   const root = page.locator('#public-kb-root');
   await expect(root.locator('h1')).toContainText('공유 지식 베이스');
-  await expect(root.locator('.claire-pubnav a[aria-current="page"]')).toHaveText('공유 지식 베이스');
+  await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
+  await expect(root.locator('.claire-pubnav')).toHaveCount(0);
   const rows = root.locator('tbody tr');
   await expect(rows).toHaveCount(2);
   // The first row: the link to the page of the knowledge base, the type, the join policy, the role, and the counts.
@@ -176,8 +177,11 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   await expect(docs.nth(3).locator('.claire-tag.warn')).toHaveText('숨김');
   await expectNoRawKeys(page);
 
-  // The themes: the active ones only, with the count of the knowledge bases of other servers.
+  // The themes: the active ones only, with the count of the knowledge bases of other servers and the link to /kb.
   await page.goto('/themes', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
+  await expect(root.locator('.claire-pubnav')).toHaveCount(0);
+  await expect(root.locator('.claire-actions a[href="/kb"]')).toBeVisible();
   const cards = root.locator('article.claire-card');
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0).locator('h2 a[href="/themes/202/"]')).toHaveText('Dragons · Elves');

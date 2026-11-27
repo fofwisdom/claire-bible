@@ -1,6 +1,6 @@
 # Public Site: Robots, Sitemap, Page Metadata, and Analytics Tags
 
-Basis: commit d15ae8e0 (2026-11-16) · Readers: agents and operators that change what crawlers and analytics see · Design principles: [`PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md`](../design/PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md) · Settings: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) §2.12.1 · Theme boundary: [`THEMES.md`](THEMES.md)
+Basis: 2026-11-27 · Readers: agents and operators that change what visitors, crawlers, and analytics see · Design principles: [`PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md`](../design/PUBLIC_SITE_CRAWLING_AND_INDEXING_DESIGN.md), [`PUBLIC_ROOT_DIRECTORY_KB_DESIGN.md`](../design/PUBLIC_ROOT_DIRECTORY_KB_DESIGN.md) · Settings: [`ENVIRONMENT_VARIABLES.md`](ENVIRONMENT_VARIABLES.md) §2.12.1 · Theme boundary: [`THEMES.md`](THEMES.md)
 
 This document tells what the code does now for anonymous visitors and crawlers: `/robots.txt`, `/sitemap.xml`, the metadata of the shared document page, and the Google Analytics 4 (GA4) tags. Evidence tags follow [`PRINCIPLES.md`](../PRINCIPLES.md) F1: [code], [measured], [decision], [unverified].
 
@@ -10,11 +10,16 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 
 | File | Role | Main symbols |
 | :--- | :--- | :--- |
-| `src/claire/api/server.py` | Robots, sitemap, directory/profile nav injection, network-mode root page | `robots_txt_route`, `sitemap_xml_route`, `_sitemap_cache`, `public_directory_route` |
-| `src/claire/api/routes/public_about.py` | Public `/about` page route, shared hero/KPI/footer context, KD15 snapshot | `build_public_about_routes`, `build_public_hero_context`, `_collect_public_snapshot` |
+| `src/claire/api/server.py` | Robots, sitemap, directory/profile nav injection, network-mode root page, unified directory | `robots_txt_route`, `sitemap_xml_route`, `_sitemap_cache`, `public_directory_route` |
+| `src/claire/api/routes/public_observatory.py` | Calm Federated Observatory snapshot builder and HTML renderers for `/` | `build_federation_observatory_snapshot`, `render_observatory_stage_html`, `render_observatory_themes_html` |
+| `src/bible/static/css/public_observatory.css` | Styles for `/`, unified `/directory`, and shared public light/dark pages | `.obs-stage`, `.obs-flow-grid`, `.obs-reflux`, `.obs-hovercard`, `.obs-directory-main` |
+| `src/bible/static/js/public_observatory.js` | Hovercard ARIA/fallback wiring and responsive Bezier conduit drawing | `wireHovercards`, `drawObservatoryCurves` |
+| `src/claire/api/routes/public_about.py` | Public `/about` page route, shared footer context, KD15 snapshot | `build_public_about_routes`, `build_public_hero_context`, `_collect_public_snapshot` |
 | `src/claire/api/templates/public_about.html` | Public `/about` HTML template | `#about-top`, `#pipeline-graph`, `#about-sources` |
-| `src/claire/api/templates/public_home.html` | Public network-mode root `/` HTML template sharing `/about` UI/look-and-feel | `#home-top`, `#public-home-showcase`, `#home-themes`, `#public-home-recent`, `#home-accounts` |
-| `src/claire/api/public_kb_routes.py` | Public appbar with `/about` nav and KB pages | `public_appbar_html`, `render_public_kb_page`, `directory_head_markup` |
+| `src/claire/api/templates/public_home.html` | Public network-mode root `/` HTML template | `#home-main`, `#public-home-showcase`, `#home-observatory`, `#home-themes`, `#public-home-recent`, `#home-directory-link` |
+| `src/claire/api/templates/public_directory.html` | Unified public `/directory` HTML template | `#directory-main`, `.obs-page-head`, `.obs-directory-grid`, `.about-footer` |
+| `src/claire/api/templates/public_kb.html` | Public `/themes*` and `/kb*` HTML template | `#public-kb-root` |
+| `src/claire/api/public_kb_routes.py` | Shared 4-item public appbar and KB/theme page renderer | `public_appbar_html`, `render_public_kb_page`, `directory_head_markup` |
 | `src/claire/api/accounts_routes/pipeline.py` | Shared Gemini Neon pipeline serializer and mount | `build_pipeline_view_data`, `render_pipeline_mount_html`, `resolve_primary_language_info` |
 | `src/claire/accounts/username_policy.py` | Username reservation policy (`"about"` reserved) | `RESERVED_USERNAMES` |
 | `src/claire/api/security.py` | Route rules, CSP header | `ROUTE_POLICY`, `_build_content_security_policy`, `SafeAccessLogMiddleware` |
@@ -25,7 +30,7 @@ This document tells what the code does now for anonymous visitors and crawlers: 
 | `src/claire/api/namespace.py` | GA ID of the theme that the path pins | `NamespaceResolverMiddleware` |
 | `src/claire/core/config.py` | Settings | `robots_policy`, `block_ai_crawlers`, `sitemap_enabled`, `sitemap_cache_ttl`, `site_name`, `site_description`, `ga_measurement_id`, `anonymous_readonly` |
 
-Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/test_google_analytics.py`, `tests/test_theme_fqdn.py`, `tests/test_public_about.py`, `tests/test_public_home.py`, `e2e/public_about.spec.js`, `e2e/public_home.spec.js`.
+Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/test_google_analytics.py`, `tests/test_theme_fqdn.py`, `tests/test_public_about.py`, `tests/test_public_home.py`, `tests/test_public_directory.py`, `e2e/public_about.spec.js`, `e2e/public_home.spec.js`, `e2e/public_directory.spec.js`, `e2e/kb_public_pages.spec.js`.
 
 ---
 
@@ -144,26 +149,37 @@ Tests: `tests/test_crawling_and_sitemap.py`, `e2e/test_crawling_e2e.py`, `tests/
 
 ---
 
-## 7. Public `/about` Page and Public Header Navigation
+## 7. Public `/`, `/themes`, `/directory`, and `/about` Pages and Navigation
 
-Design: [`ABOUT_PAGE_AND_INTERACTIVE_PIPELINE_DESIGN.md`](../design/ABOUT_PAGE_AND_INTERACTIVE_PIPELINE_DESIGN.md) (`Q1`–`Q7`).
+Design: [`ABOUT_PAGE_AND_INTERACTIVE_PIPELINE_DESIGN.md`](../design/ABOUT_PAGE_AND_INTERACTIVE_PIPELINE_DESIGN.md) (`Q1`–`Q7`), [`PUBLIC_ROOT_DIRECTORY_KB_DESIGN.md`](../design/PUBLIC_ROOT_DIRECTORY_KB_DESIGN.md) (`DESIGN-PUBLIC-ROOT-DIRECTORY-KB-20261127`), and [`KNOWLEDGE_FEDERATION_DESIGN.md`](../design/KNOWLEDGE_FEDERATION_DESIGN.md) (`KD15` revision, 2026-11-27).
 
-### 7.1 `/about` Route and KD15 Privacy Guarantees
+### 7.1 `/about` Route and Privacy Guarantees
 
-- **[code]** `build_public_about_routes` in `src/claire/api/routes/public_about.py` handles `GET` and `HEAD` `/about` for anonymous visitors using `src/claire/api/templates/public_about.html` (`Vary: Cookie, Authorization, Accept-Language`), and `build_public_hero_context` shares the Gemini Neon hero, KD15 KPI grid, curator strip, primary-language interpolation, and footer links with the network-mode root page `public_directory_route(..., root_page=True)` (`src/claire/api/templates/public_home.html`, rendering active themes, cross-server recent activity, and public accounts alongside `public_appbar_html`).
-- **[code] [decision]** `_collect_public_snapshot` enforces `KD15` and public viewer isolation:
+- **[code]** `build_public_about_routes` in `src/claire/api/routes/public_about.py` handles `GET` and `HEAD` `/about` for anonymous visitors using `src/claire/api/templates/public_about.html` (`Vary: Cookie, Authorization, Accept-Language`). `build_public_hero_context` builds footer links (`_build_footer_links_html`) shared with `/`.
+- **[code] [decision]** `_collect_public_snapshot` enforces public viewer isolation on `/about`:
   - **KPI Box 1**: server mode (`network` or `single`) and private invite-only registration policy (`about.kpi.mode_*`).
   - **KPI Box 2**: active public profiles (`accounts.profile_public = 1 AND status = 'active'`), public shared knowledge bases (`is_personal = 0 AND is_public = 1`), and active themes (`themes.state = 'active'`).
   - **KPI Box 3 (`Q3`)**: public-only extracted documents (`COALESCE(hidden, 0) = 0 AND COALESCE(extraction_status, 'extracted') = 'extracted'` in public knowledge bases) and non-provisional entities (`COALESCE(provisional, 0) = 0`), excluding private accounts, private knowledge bases, and `pending` staged documents.
   - **KPI Box 4 (`Q7` Option A)**: 7-character short build commit SHA from `CLAIRE_BUILD_COMMIT` or `/app/src/claire/BUILD_COMMIT`, omitted when unset or `unknown`.
   - **Curator strip**: owner `display_name` (or `username`) from `accounts` (`role = 'admin'`) and optional ActivityPub handle `@{username}@{expected_authority}`, shown once in `.about-meta-strip` and not repeated in the footer.
-  - **Never exposed**: private account or private KB counts, `pending` staged documents, federated peer server lists or counts (`KD15`), server/BYOK API keys, `jev-latest`, `gemini-decision-1`, recent document lineages, or `/admin/*` URLs.
+  - **Never exposed on `/about`**: private account or private KB counts, `pending` staged documents, federated peer server lists or counts, server/BYOK API keys, `jev-latest`, `gemini-decision-1`, recent document lineages, or `/admin/*` URLs.
 - **[code]** `resolve_primary_language_info` reads `read_server_languages()` (`src/claire/accounts/languages.py`, fallback `en`) and maps the primary language tag (normalizing `-` to `_` via `lang.name.*`) into the hero lead (`about.hero.lead`) and `pipeline_view_data["primaryLangName"]`.
-- **[code] [decision]** The page mounts the shared Gemini Neon component (`build_pipeline_view_data(viewer="public", ...)` + `render_pipeline_mount_html`, using generic `pipeline.neon.model_slot` labels and `showJev: False`), four philosophy cards (`about.philosophy.*`), and one always-visible supported sources table (`#about-sources`, `_SOURCE_ROW_KEYS`). Closed ontology lists (`11+11`) and 3-template rendition policy details are omitted from `/about` (`Q6`).
+- **[code] [decision]** `/about` mounts the shared Gemini Neon component (`build_pipeline_view_data(viewer="public", ...)` + `render_pipeline_mount_html`, using generic `pipeline.neon.model_slot` labels and `showJev: False`), four philosophy cards (`about.philosophy.*`), and one always-visible supported sources table (`#about-sources`, `_SOURCE_ROW_KEYS`). Closed ontology lists (`11+11`) and 3-template rendition policy details are omitted from `/about` (`Q6`).
 
-### 7.2 Public Header `/about` Link and Footer Links
+### 7.2 Network-Mode `/` Observatory and 2026-11-27 KD15 Revision
 
-- **[code] [decision]** (`Q2`, `Q6`) Public navigation bars link to `/about` while keeping `/reference` out of the top header:
-  - `public_appbar_html` (`src/claire/api/public_kb_routes.py`) renders `.pub-appbar-nav` with `/`, `/directory`, `/kb`, and `/about` (plus `/login` for anonymous visitors) on `/about`, `/kb*`, and `/themes*`.
-  - `src/claire/api/server.py` injects `about_label` (`nav.about`) into `src/claire/api/templates/public_directory.html` and `src/claire/api/templates/private_profile.html`; `src/bible/static/js/public_kb.js` (`publicNavHtml`) includes `/about` in `.claire-pubnav`; `src/bible/templates/partials/common_appbar.html` includes `#menuaboutlink` inside `#pop-hamburger-menu`.
+- **[code] [decision]** Under the 2026-11-27 `KD15` revision, server-list concealment is retired on `/`. Network-mode `/` renders the Calm Federated Observatory instead of `/about`'s dark-obsidian `.p4-theatre` / `.p4-hero-neon` hero.
+- **[code]** `public_directory_route(..., root_page=True)` in `src/claire/api/server.py` calls `build_federation_observatory_snapshot`, `render_observatory_stage_html`, and `render_observatory_themes_html` in `src/claire/api/routes/public_observatory.py`, appends `#public-home-recent-data` + `#public-home-recent`, and renders `src/claire/api/templates/public_home.html` with `ETag`, `304`, `HEAD`, `Vary` (including `Accept-Language`), and `Referrer-Policy`.
+- **[code]** `build_federation_observatory_snapshot` reads only public instance counts, active themes, recent cross-server exchanges, active `kf_known_servers`, and `kf_remote_knowledge_bases`. It filters out any peer domain matched by `federation_store.blocking_domain`, and never emits `software_name`, `software_version`, `last_error`, `added_by`, `server_actor_iri`, private accounts, private/hidden/pending KBs or documents, provisional entities, API keys, Jev data, or `/admin/*` paths.
+- **[code]** Tier 1 (`#home-observatory`) renders `.obs-header` (instance domain, active/standby badge, and tabular metrics), the 3-column `.obs-flow-grid` (local facts, up to 4 bridged themes, up to 5 active peer servers or cold-start standby slot), the `.obs-reflux` return arc, and declarative `popover="hint"` hovercards wired with `interestfor`. `src/bible/static/js/public_observatory.js` sets `role="tooltip"` and `aria-describedby` upfront, adds fallback positioning when native `interestfor` or CSS anchor positioning (`@supports (position-area: block-end)`) is unavailable, and draws SVG Bezier flow edges inside `.obs-flow-shell`.
+- **[code]** Tier 2 renders `#home-themes` (up to 6 active themes in `.obs-theme-grid`), `#public-home-recent`, and `#home-directory-link` (compact `.obs-directory-strip` linking to `/directory`, or cold-start empty state with `"There are no public accounts"` when `public_profiles == 0` and no active themes exist).
+- **[code]** `src/bible/static/css/public_observatory.css` provides theme-native `light` / `dark` tokens (`color-scheme: light dark`, `color-mix(in oklab, ...)`), `@media (prefers-reduced-motion: no-preference)` for `@view-transition { navigation: auto; }` and conduit motion, non-color stroke cues (`WCAG 1.4.1`), and `@media (forced-colors: active)` overrides.
+
+### 7.3 Unified `/directory` and Public 4-Item Header Navigation
+
+- **[code] [decision]** (`Q2`, `Q6`, `DESIGN-PUBLIC-ROOT-DIRECTORY-KB-20261127`) Public navigation bars use a single 4-item row and exclude `/kb` and `/reference` from the top header:
+  - `public_appbar_html` (`src/claire/api/public_kb_routes.py`) renders `.pub-appbar-nav` with `/` (`kb.pub.nav_home`), `/themes` (`kb.pub.nav_themes`, replacing `/kb` in top nav), `/directory` (`kb.pub.nav_accounts`), and `/about` (`nav.about`), plus `/login` for anonymous visitors, across `/`, `/themes*`, `/kb*`, `/directory`, and `/about`.
+  - `render_public_kb_page` sets `active_nav = "themes"` for `themes_list`, `theme_detail`, `kb_list`, and `kb_detail`. `src/bible/static/js/public_kb.js` omits the duplicate `.claire-pubnav` bar when `header.appbar .pub-appbar-nav` exists and adds a secondary `.claire-btn.sec` link to `/kb` (`kb.pub.all_kbs_link`) inside `/themes` `.claire-actions`.
+  - `public_directory_route(..., root_page=False)` renders `src/claire/api/templates/public_directory.html` via `accounts_common.render_template` inside the unified light/dark shell (`public_observatory.css`, `public_appbar_html(active="directory")`, `#directory-main.obs-main.obs-directory-main`, `.obs-page-head`, `.obs-directory-grid`, `.about-footer`).
+  - `src/claire/api/server.py` injects `about_label` (`nav.about`) into `src/claire/api/templates/private_profile.html`; `src/bible/templates/partials/common_appbar.html` includes `#menuaboutlink` inside `#pop-hamburger-menu`.
   - `_build_footer_links_html` in `src/claire/api/routes/public_about.py` renders `API 문서` / `API Docs` (`/reference`), plus non-empty `effective_github_repository` (`about.footer.github`) and `agent_marketplace_repo` (`about.footer.marketplace`) links in `.about-footer-links`, omitting empty repository links and omitting `MIT`, `v0.1.0`, `/robots.txt`, and `/mcp`.

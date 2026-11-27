@@ -1,7 +1,8 @@
-"""Tests for the network-mode root page ``/`` sharing ``/about`` UI and look-and-feel, KD15 isolation, and ETag/header contracts."""
+"""Tests for ``public_observatory.build_federation_observatory_snapshot`` and network-mode ``/`` Calm Federated Observatory routes."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -14,11 +15,11 @@ from starlette.testclient import TestClient
 
 from claire.accounts import languages
 from claire.api import server
+from claire.api.routes import public_observatory
 from claire.core import ids
 from claire.core.config import Settings
 from claire.federation.knowledge import known_servers
-from claire.store import accounts as accounts_store
-from claire.store import auth_db, db as dbm, provider_keys, themes as themes_store
+from claire.store import accounts as accounts_store, auth_db, db as dbm, federation as federation_store, kb_collab, provider_keys, themes as themes_store
 from claire.store.secrets import reset_secret_service
 
 PUBLIC_URL = "http://127.0.0.1:8765"
@@ -36,13 +37,14 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
 
 
-def _setup_home_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, server_langs: list[str] | None = None, with_content: bool = True, **setting_overrides: Any) -> SimpleNamespace:
+def _setup_home_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, server_langs: list[str] | None = None, with_content: bool = True, with_peers: bool | None = None, **setting_overrides: Any) -> SimpleNamespace:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     db_file = data_dir / "claire.db"
     auth_file = auth_db.auth_db_path(data_dir)
     monkeypatch.setenv("CLAIRE_DB_PATH", str(db_file))
     monkeypatch.setenv("CLAIRE_DATA_DIR", str(data_dir))
+    seed_peers = with_content if with_peers is None else with_peers
 
     conn = dbm.connect(db_file)
     try:
@@ -81,7 +83,19 @@ def _setup_home_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, server_l
         conn.execute("INSERT INTO entities (id, kb_id, type, name, norm_name, provisional, created_at, updated_at) VALUES ('ent-priv-1', 11, 'Concept', 'Secret Entity', 'secret entity', 0, ?, ?)", (now, now))
 
         known_servers.ensure_schema(conn)
-        known_servers.note_server(conn, domain="secret-peer.example", source="admin", now=now, added_by=1)
+        if seed_peers:
+            known_servers.note_server(conn, domain="peer-a.example", source="admin", now=now, added_by=1)
+            known_servers.record_read(conn, "peer-a.example", server_actor_iri="https://peer-a.example/ap/server", software_name="claire-bible", software_version="9.9.9-secret-ver", shared_kb_count=2, now=now)
+            cur = conn.execute("INSERT INTO kf_remote_knowledge_bases (iri, domain, url, label, description, knowledge_type, document_count, entity_count, relation_count, signature, payload, first_seen_at, seen_at, changed_at) VALUES ('https://peer-a.example/ap/kb/501', 'peer-a.example', 'https://peer-a.example/kb/501/', 'Peer A Atlas', 'Remote atlas', 'real', 12, 40, 15, NULL, '{}', ?, ?, ?)", (now, now, now))
+            remote_kb_id = int(cur.lastrowid)
+            if with_content:
+                themes_store.set_computed_remote_member(conn, theme_id=1, remote_kb_id=remote_kb_id, score=0.92)
+                kb_collab.add_contribution(conn, kb_id=10, document_id="doc-pub-1", origin="curation", contributor_account_id=None, curator_account_id=1, state="visible", approved_at=now, approved_by_account_id=1, remote={"source_kb_iri": "https://peer-a.example/ap/kb/501", "source_iri": "https://peer-a.example/doc/1", "root_iri": "https://peer-a.example/doc/1", "credit_iri": None}, now=now)
+
+            known_servers.note_server(conn, domain="blocked-peer.example", source="admin", now=now, added_by=1)
+            known_servers.record_read(conn, "blocked-peer.example", server_actor_iri="https://blocked-peer.example/ap/server", software_name="claire-bible", software_version="8.8.8-blocked-ver", shared_kb_count=4, now=now)
+            federation_store.add_domain_block(conn, "blocked-peer.example", created_by=1, note="blocked", now=now)
+
         alice_token = accounts_store.create_account_session(conn, account_id=2, scope="owner") if with_content else None
         conn.commit()
         if server_langs is not None:
@@ -113,14 +127,103 @@ def _setup_home_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, server_l
     return SimpleNamespace(settings=settings, db_file=db_file, alice_token=alice_token, client=TestClient(app, base_url=PUBLIC_URL))
 
 
-def test_public_home_get_head_etag_and_shared_about_look_and_feel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CLAIRE_BUILD_COMMIT", "7a3f9c2deadbeef")
+def test_build_federation_observatory_snapshot_interface_and_db_boundary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env = _setup_home_env(tmp_path, monkeypatch, with_content=True, with_peers=True)
+    theme_views = [
+        {
+            "number": "2001",
+            "label": "Public Theme",
+            "knowledge_type": "real",
+            "shared_knowledge_bases": 1,
+            "remote_knowledge_bases": 1,
+            "visible_contributions": 2,
+            "top_entities": ["Ada Lovelace"],
+            "knowledge_bases": [
+                {"remote": False, "server": None, "label": "Public Shared KB"},
+                {"remote": True, "server": "peer-a.example", "label": "Peer A Atlas"},
+                {"remote": True, "server": "blocked-peer.example", "label": "Blocked KB"},
+            ],
+        }
+    ]
+    recent = [
+        {"kind": "curation", "at": 1700000300.0, "server": "peer-a.example", "label": "Peer A Atlas"},
+        {"kind": "accepted_contribution", "at": 1700000200.0, "server": "peer-a.example", "label": "Peer A Atlas"},
+        {"kind": "curation", "at": 1700000100.0, "server": "blocked-peer.example", "label": "Blocked KB"},
+    ]
+
+    snap = public_observatory.build_federation_observatory_snapshot(env.db_file, settings=env.settings, origin=PUBLIC_URL, theme_views=theme_views, recent=recent)
+
+    assert snap["instance_domain"] == "127.0.0.1:8765"
+    assert snap["mode"] == "network"
+    assert snap["public_profiles"] == 2
+    assert snap["local_shared_kbs"] == 1
+    assert snap["local_docs"] == 1
+    assert len(snap["peers"]) == 1
+
+    peer = snap["peers"][0]
+    assert peer["domain"] == "peer-a.example"
+    assert peer["shared_kb_count"] == 2
+    assert peer["curations_in"] == 1
+    assert peer["contributions_out"] == 1
+    assert peer["bridged_themes"] == [{"number": "2001", "label": "Public Theme"}]
+    assert peer["remote_kbs"] == [{"label": "Peer A Atlas", "url": "https://peer-a.example/kb/501/"}]
+    assert peer["primary_url"] == "/themes/2001/"
+
+    assert snap["cycle"] == {
+        "peer_count": 1,
+        "active_themes": 1,
+        "remote_kb_total": 1,
+        "curations_count": 1,
+        "contributions_count": 1,
+        "recent_exchange_count": 3,
+        "cold_start": False,
+    }
+    assert snap["bridge_themes"][0]["peer_domains"] == ["peer-a.example"]
+
+    serialized = json.dumps(snap, ensure_ascii=False)
+    for forbidden in (
+        "blocked-peer.example",
+        "9.9.9-secret-ver",
+        "8.8.8-blocked-ver",
+        "claire-bible",
+        "https://peer-a.example/ap/server",
+        "Secret Bob",
+        "secret_bob",
+        "Top Secret KB",
+        "Pending Secret Doc",
+        "Hidden Secret Doc",
+        "Private KB Doc",
+        SERVER_API_KEY,
+        MEMBER_BYOK_KEY,
+        "jev-latest",
+    ):
+        assert forbidden not in serialized
+
+
+def test_build_federation_observatory_snapshot_cold_start_and_missing_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env = _setup_home_env(tmp_path / "cold", monkeypatch, with_content=False, with_peers=False)
+    snap = public_observatory.build_federation_observatory_snapshot(env.db_file, settings=env.settings, origin=PUBLIC_URL, theme_views=[], recent=[])
+    assert snap["peers"] == []
+    assert snap["bridge_themes"] == []
+    assert snap["public_profiles"] == 0
+    assert snap["local_shared_kbs"] == 0
+    assert snap["local_docs"] == 0
+    assert snap["cycle"]["peer_count"] == 0
+    assert snap["cycle"]["cold_start"] is True
+
+    missing_snap = public_observatory.build_federation_observatory_snapshot(tmp_path / "missing.db", settings=env.settings, origin=PUBLIC_URL, theme_views=[], recent=[])
+    assert missing_snap["peers"] == []
+    assert missing_snap["cycle"]["cold_start"] is True
+
+
+def test_public_home_get_head_etag_and_calm_observatory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = _setup_home_env(tmp_path, monkeypatch, server_langs=["ja", "ko"], github_repository="owner/repo", agent_marketplace_repo="owner/marketplace")
 
     resp = env.client.get("/", headers={"Accept-Language": "ko"})
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
     assert "Accept-Language" in resp.headers.get("vary", "")
+    assert "referrer-policy" in {k.lower() for k in resp.headers}
     etag = resp.headers.get("etag")
     assert etag is not None
 
@@ -133,55 +236,48 @@ def test_public_home_get_head_etag_and_shared_about_look_and_feel(tmp_path: Path
     assert head.headers.get("etag") == etag
 
     html = resp.text
-    assert 'id="home-top"' in html
-    assert "about-card p4-hero-neon" in html
-    assert 'class="p4-emblem"' in html
-    assert "build 7a3f9c2" in html
-    assert "7a3f9c2deadbeef" not in html
-    assert html.count('<div class="about-kpi">') == 4
-    assert "2명 · 1개 · 1개" in html
-    assert "1편 · 1개" in html
-    assert "네트워크 · 초대 전용" in html
+    assert 'id="home-observatory"' in html
+    assert 'class="obs-flow-grid"' in html
+    assert 'class="obs-reflux"' in html
+    assert 'popover="hint"' in html
+    assert 'interestfor="obs-hc-peer-0"' in html
+    assert 'id="obs-hc-peer-0"' in html
+    assert 'id="home-themes"' in html
+    assert 'id="public-home-recent"' in html
+    assert 'id="home-directory-link"' in html
+    assert "peer-a.example" in html
+    assert "Peer A Atlas" in html
+    assert "blocked-peer.example" not in html
+    assert "p4-theatre" not in html
+    assert "p4-hero-neon" not in html
+    assert 'id="home-top"' not in html
+    assert "claire-pubnav" not in html
 
-    # Shared public appbar with / active and /about linked, /reference excluded from header.
+    # Shared 4-item public appbar with / active and /themes, /directory, /about linked; /kb and /reference excluded.
     appbar_match = re.search(r'<header class="appbar".*?</header>', html, re.S)
     assert appbar_match is not None
     appbar_html = appbar_match.group(0)
     assert 'href="/" aria-current="page"' in appbar_html
+    assert 'href="/themes"' in appbar_html
+    assert 'href="/directory"' in appbar_html
     assert 'href="/about"' in appbar_html
-    assert 'href="/reference"' not in appbar_html
     assert 'href="/login"' in appbar_html
+    assert 'href="/kb"' not in appbar_html
+    assert 'href="/reference"' not in appbar_html
 
-    # Curator in hero meta strip only, not repeated in footer.
-    meta_match = re.search(r'<div class="about-meta-strip">.*?</div>', html, re.S)
     footer_match = re.search(r'<footer class="about-footer">.*?</footer>', html, re.S)
-    assert meta_match is not None and footer_match is not None
-    assert "지식 관리자" in meta_match.group(0)
-    assert "Curator Ada" in meta_match.group(0)
-    assert "@curator_ada@127.0.0.1:8765" in meta_match.group(0)
-    assert "지식 관리자" not in footer_match.group(0)
-    assert "Curator Ada" not in footer_match.group(0)
-    assert "@curator_ada@" not in footer_match.group(0)
+    assert footer_match is not None
     assert 'href="/reference"' in footer_match.group(0)
     assert 'href="https://github.com/owner/repo"' in footer_match.group(0)
     assert 'href="https://github.com/owner/marketplace"' in footer_match.group(0)
 
-    # Dynamic primary language interpolation in ko and en.
-    assert "일본어 초록·AsciiDoc 정리본" in html
-    en_html = env.client.get("/", headers={"Accept-Language": "en"}).text
-    assert "Japanese summaries, AsciiDoc renditions" in en_html
-
-    # Zero raw i18n keys outside <script>.
-    html_no_scripts = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.S)
-    assert re.search(r"\b(?:about|home_root|directory|themes|kb\.pub|lang\.name)\.[a-z0-9_]+", html_no_scripts) is None
-
-    # Unset or unknown CLAIRE_BUILD_COMMIT omits Box 4 cleanly.
-    monkeypatch.setenv("CLAIRE_BUILD_COMMIT", "unknown")
-    env_unknown = _setup_home_env(tmp_path / "unknown", monkeypatch)
-    assert env_unknown.client.get("/").text.count('<div class="about-kpi">') == 3
-    monkeypatch.delenv("CLAIRE_BUILD_COMMIT", raising=False)
-    env_unset = _setup_home_env(tmp_path / "unset", monkeypatch)
-    assert env_unset.client.get("/").text.count('<div class="about-kpi">') == 3
+    # Zero raw i18n keys in ko and en outside <script>.
+    en_resp = env.client.get("/", headers={"Accept-Language": "en"})
+    assert en_resp.status_code == 200
+    assert "Federated Knowledge Observatory" in en_resp.text
+    for body_html in (html, en_resp.text):
+        html_no_scripts = re.sub(r"<script\b[^>]*>.*?</script>", "", body_html, flags=re.S)
+        assert re.search(r"\b(?:about|home_obs|home_root|directory|themes|kb\.pub|lang\.name)\.[a-z0-9_]+", html_no_scripts) is None
 
 
 def test_public_home_kd15_privacy_isolation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -199,7 +295,10 @@ def test_public_home_kd15_privacy_isolation(tmp_path: Path, monkeypatch: pytest.
         "Private KB Doc",
         "Provisional Concept",
         "Secret Entity",
-        "secret-peer.example",
+        "blocked-peer.example",
+        "9.9.9-secret-ver",
+        "8.8.8-blocked-ver",
+        "https://peer-a.example/ap/server",
         SERVER_API_KEY,
         MEMBER_BYOK_KEY,
         "gemini-secret-server-model",
@@ -211,17 +310,21 @@ def test_public_home_kd15_privacy_isolation(tmp_path: Path, monkeypatch: pytest.
         assert forbidden not in html, f"Forbidden secret/private content leaked on /: {forbidden}"
 
 
-def test_public_home_authenticated_workspace_cta_and_empty_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_public_home_authenticated_workspace_cta_and_cold_start_empty_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = _setup_home_env(tmp_path / "auth", monkeypatch, with_content=True)
     env.client.cookies.set("claire_session", env.alice_token)
     auth_html = env.client.get("/", headers={"Accept-Language": "en"}).text
     assert 'href="/@public_alice/"' in auth_html
     assert "My workspace" in auth_html
     assert 'action="/logout"' in auth_html
+    assert 'href="/login"' not in auth_html
 
-    empty_env = _setup_home_env(tmp_path / "empty", monkeypatch, with_content=False)
+    empty_env = _setup_home_env(tmp_path / "empty", monkeypatch, with_content=False, with_peers=False)
     empty_html = empty_env.client.get("/", headers={"Accept-Language": "en"}).text
+    assert 'id="home-observatory"' in empty_html
+    assert 'data-obs-standby="true"' in empty_html
+    assert 'data-state="standby"' in empty_html
     assert "There are no public accounts" in empty_html
-    assert 'class="home-empty-state"' in empty_html
+    assert "Public directory" in empty_html
     assert 'id="home-themes"' not in empty_html
-    assert 'id="home-accounts"' in empty_html
+    assert 'id="home-directory-link"' in empty_html

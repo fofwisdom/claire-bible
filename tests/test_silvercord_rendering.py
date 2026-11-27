@@ -565,7 +565,7 @@ def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> 
     assert page_ld["mainEntityOfPage"]["@id"] == f"{origin}/silvercord/{token}"
     assert page_ld["isBasedOn"] == {"@type": "CreativeWork", "url": "https://arxiv.org/abs/2101.00001v2?utm_source=feed"}
     assert page_ld["exampleOfWork"] == {"@type": "CreativeWork", "url": "https://arxiv.org/abs/2101.00001"}
-    assert page_ld["version"] == "standard/standard-v1"
+    assert page_ld["version"] == "standard/standard-v2"
     owner_sc = _extract_docdata(alice("GET", f"/silvercord/{token}").text)["silvercord"]
     assert owner_sc["add_rendition_url"].startswith("/api/v1/kbs/") and owner_sc["add_rendition_url"].endswith("/documents/doc1/renditions")
 
@@ -582,7 +582,7 @@ def test_silvercord_rendition_sub_paths_and_the_section_data(tmp_path: Path) -> 
     concise_ld = _extract_json_ld(concise.text)
     assert concise_ld["mainEntityOfPage"]["@id"] == f"{origin}/silvercord/{token}/renditions/concise"
     assert concise_ld["exampleOfWork"] == {"@type": "CreativeWork", "url": "https://arxiv.org/abs/2101.00001"}
-    assert concise_ld["version"] == "concise/concise-v1"
+    assert concise_ld["version"] == "concise/concise-v2"
     # The 대표 정리본 has the address of the document; a template outside the set or one that the document does not have is not a page.
     standard = anon("GET", f"/silvercord/{token}/renditions/standard")
     assert (standard.status_code, standard.headers["location"]) == (308, f"/silvercord/{token}")

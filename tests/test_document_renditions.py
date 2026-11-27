@@ -77,7 +77,7 @@ def test_the_other_renditions_keep_their_bodies_in_the_template_order(tmp_path: 
         renditions_store.store_additional(conn, "doc-1", 0, template="academic", detail="= 학술\n\n== 개요\n본문", lineage={"provider": "mock", "model": "m"})
         renditions_store.store_additional(conn, "doc-1", 0, template="concise", detail="= 간결\n\n== 핵심\n* 하나", lineage={"provider": "mock", "model": "m"})
         listed = renditions_store.list_renditions(conn, "doc-1", 0)
-        assert [(r.template, r.template_version, r.primary) for r in listed] == [("standard", "standard-v1", True), ("concise", "concise-v1", False), ("academic", "academic-v1", False)]
+        assert [(r.template, r.template_version, r.primary) for r in listed] == [("standard", "standard-v2", True), ("concise", "concise-v2", False), ("academic", "academic-v2", False)]
         assert "핵심" in need(listed[1].detail_html)
         with pytest.raises(ValueError):
             renditions_store.store_additional(conn, "doc-1", 0, template="standard", detail="x", lineage={})
