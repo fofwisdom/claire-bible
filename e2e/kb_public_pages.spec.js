@@ -99,48 +99,22 @@ function makeState(signedIn) {
   return state;
 }
 
-test('/kb: the shared knowledge bases with type, state, join policy, and role; the type filter and the filter of joined ones', async ({ page }) => {
+test('/kb HTML redirects to /themes with zero /kb links and zero .obs-view-switch', async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const errors = watchErrors(page);
-  await authenticateOwner(page, 'kbpublic1');
-  const { calls, unknown } = await installPublicApi(page, makeState(true));
+  const { unknown } = await installPublicApi(page, makeState(false));
   await page.goto('/kb', { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/\/themes$/);
   const root = page.locator('#public-kb-root');
-  await expect(root.locator('.obs-page-head h1')).toContainText('공유 지식 베이스');
+  await expect(root.locator('.obs-page-head h1')).toContainText('테마');
   await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
+  await expect(root.locator('.obs-catalog-card')).toHaveCount(2);
+  await expect(page.locator('a[href="/kb"]')).toHaveCount(0);
+  await expect(page.locator('.obs-view-switch')).toHaveCount(0);
   await expect(root.locator('.claire-pubnav')).toHaveCount(0);
-  await expect(root.locator('.obs-view-switch a[href="/kb"][aria-current="page"]')).toBeVisible();
-  await expect(root.locator('.obs-view-switch a[href="/themes"]')).toBeVisible();
   await expect(page.locator('footer.about-footer')).toBeVisible();
   await expect(page.locator('footer.about-footer a[href="/reference"]')).toHaveCount(0);
-  const rows = root.locator('tbody tr');
-  await expect(rows).toHaveCount(2);
-  // The first row: the link to the page of the knowledge base, the type, the join policy, the role, and the counts.
-  await expect(rows.nth(0).locator('a[href="/kb/101/"]')).toHaveText('Modern History');
-  await expect(rows.nth(0).locator('.claire-tag.acc')).toHaveText('현실');
-  await expect(rows.nth(0)).toContainText('승인 필요');
-  await expect(rows.nth(0).locator('.claire-tag.ok')).toHaveText('모더레이터');
-  await expect(rows.nth(0)).toContainText('30 / 120');
-  // The second row: fictional, archived, re-embedding necessary, and a join request that waits.
-  await expect(rows.nth(1).locator('.claire-tag.fic')).toHaveText('허구');
-  await expect(rows.nth(1)).toContainText('보관됨');
-  await expect(rows.nth(1).locator('.claire-tag.danger')).toHaveText('재임베딩 필요');
-  await expect(rows.nth(1)).toContainText('누구나 가입');
-  await expect(rows.nth(1).locator('.claire-tag.warn').last()).toHaveText('가입 요청');
-  await expect(root.locator('#pub-kb-make')).toHaveText(/공유 지식 베이스 만들기/);
   await expectNoRawKeys(page);
-
-  // The type filter: only the fictional one; the address keeps the filter.
-  await root.locator('.claire-chip', { hasText: '허구' }).click();
-  await expect(rows).toHaveCount(1);
-  await expect(rows.nth(0)).toContainText('Fantasy Lore');
-  expect(new URL(page.url()).search).toBe('?knowledge_type=fictional');
-  // All types, and only the knowledge bases with a role: a join request is not a role.
-  await root.locator('.claire-chip', { hasText: '전체' }).click();
-  await root.locator('#pub-kb-joined').check();
-  await expect(rows).toHaveCount(1);
-  await expect(rows.nth(0)).toContainText('Modern History');
-  expect(calls.filter((c) => c.path === '/kb')).toHaveLength(1);
   expect(unknown).toEqual([]);
   expect(errors).toEqual([]);
 });
@@ -150,14 +124,14 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   const errors = watchErrors(page);
   await authenticateOwner(page, 'kbpublic2');
   const { unknown } = await installPublicApi(page, makeState(true));
-  await servePublicView(page, '/kb/101/', '/kb', 'kb_detail', '101');
+  await servePublicView(page, '/kb/101/', '/themes', 'kb_detail', '101');
   await servePublicView(page, '/themes/202/', '/themes', 'theme_detail', '202');
 
   await page.goto('/kb/101/', { waitUntil: 'domcontentloaded' });
   const root = page.locator('#public-kb-root');
   await expect(root.locator('h1')).toContainText('Modern History');
   await expect(root.locator('h1 .claire-tag.ok')).toHaveText('모더레이터');
-  await expect(root.locator('.claire-crumb a[href="/kb"]')).toBeVisible();
+  await expect(root.locator('.claire-crumb a[href="/themes"]')).toBeVisible();
   // A moderator: direct contribution, leave, fork, and the link to the review page; no join control.
   await expect(root.locator('[data-kb-act="direct"]')).toBeVisible();
   await expect(root.locator('[data-kb-act="leave"]')).toHaveText('탈퇴');
@@ -186,14 +160,14 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   await expect(docs.nth(3).locator('.claire-tag.warn')).toHaveText('숨김');
   await expectNoRawKeys(page);
 
-  // The themes: the active ones only, with Observatory header, view switch, peer pills, and counts.
+  // The themes: the active ones only, with Observatory header, peer pills, and counts (zero /kb links or view switcher).
   await page.goto('/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
   await expect(root.locator('.claire-pubnav')).toHaveCount(0);
   await expect(root.locator('.obs-page-head')).toBeVisible();
   await expect(root.locator('.obs-page-head .obs-metrics')).toBeVisible();
-  await expect(root.locator('.obs-view-switch a[href="/themes"][aria-current="page"]')).toBeVisible();
-  await expect(root.locator('.obs-view-switch a[href="/kb"]')).toBeVisible();
+  await expect(page.locator('a[href="/kb"]')).toHaveCount(0);
+  await expect(page.locator('.obs-view-switch')).toHaveCount(0);
   await expect(page.locator('footer.about-footer')).toBeVisible();
   await expect(page.locator('footer.about-footer a[href="/reference"]')).toHaveCount(0);
   const cards = root.locator('article.claire-card.obs-catalog-card');

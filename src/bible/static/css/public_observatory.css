@@ -981,42 +981,6 @@ a.obs-node-peer:focus-visible {
   min-inline-size: 0;
 }
 
-.obs-view-switch {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.22rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel-bg);
-  max-inline-size: 100%;
-}
-
-.obs-view-switch a {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.34rem 0.85rem;
-  border-radius: 999px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--muted);
-  text-decoration: none;
-  border: 1px solid transparent;
-}
-
-.obs-view-switch a:hover,
-.obs-view-switch a:focus-visible {
-  color: var(--fg);
-  background: var(--hover);
-}
-
-.obs-view-switch a[aria-current="page"] {
-  color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 12%, var(--card-bg));
-  border-color: color-mix(in oklab, var(--accent) 36%, var(--border));
-}
-
 .obs-themes-catalog-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 19.5rem), 1fr));
@@ -1103,20 +1067,14 @@ a.obs-node-peer:focus-visible {
   .obs-theme-card,
   .obs-directory-strip,
   .obs-hovercard[popover],
-  .obs-view-switch,
   .obs-catalog-card,
   .obs-peer-pill {
     border-color: CanvasText;
   }
   a.obs-node:hover,
-  a.obs-node:focus-visible,
-  .obs-view-switch a:focus-visible {
+  a.obs-node:focus-visible {
     outline: 2px solid LinkText;
     border-color: LinkText;
-  }
-  .obs-view-switch a[aria-current="page"] {
-    outline: 2px solid Highlight;
-    border-color: Highlight;
   }
   .obs-status-dot[data-state="active"] {
     background: Highlight;

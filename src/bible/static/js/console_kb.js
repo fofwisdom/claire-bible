@@ -114,7 +114,7 @@
       }
       h += "</section>";
       h += '<section class="console-subcard claire-card"><div class="console-card-head claire-card-head"><h2>' + ui().icon("users") + " " + esc(t("console.js.kb.moderated_card")) + "</h2>" +
-        '<div class="console-actions claire-actions"><a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="/kb">' + esc(t("kb.pub.nav_kbs")) + "</a>" +
+        '<div class="console-actions claire-actions"><a class="pref-btn pref-btn-sm claire-btn claire-btn-sm" href="/themes">' + esc(t("kb.pub.nav_themes")) + "</a>" +
         '<button type="button" class="pref-btn pref-btn-accent pref-btn-sm claire-btn pri claire-btn-sm" id="kb-create-btn">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button></div></div>";
       h += ui().renderTable({
         caption: t("console.js.kb.moderated_card"),
@@ -479,7 +479,7 @@
 
     function showNone(res) {
       host.innerHTML = '<section class="console-subcard claire-card"><p class="hint claire-hint">' + esc(!res || res.ok ? t("console.js.kb.no_managed_kbs") : ui().errorText(res)) + "</p>" +
-        '<div class="console-actions claire-actions"><a class="pref-btn claire-btn" href="/kb">' + esc(t("kb.pub.nav_kbs")) + '</a><a class="pref-btn claire-btn sec" href="/settings/kb">' + esc(t("kb.pub.nav_settings")) + "</a></div></section>";
+        '<div class="console-actions claire-actions"><a class="pref-btn claire-btn" href="/themes">' + esc(t("kb.pub.nav_themes")) + '</a><a class="pref-btn claire-btn sec" href="/settings/kb">' + esc(t("kb.pub.nav_settings")) + "</a></div></section>";
     }
 
     // The list of the selector, read one time: the admin is a reviewer of each shared knowledge base; each other account reviews where it is a collaborator or a moderator.

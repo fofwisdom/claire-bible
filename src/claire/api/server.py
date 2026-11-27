@@ -900,7 +900,8 @@ def create_app(
         if ns.account_id is None:
             collection_url = f"{origin}/kb"
             if collections.wants_html(request):
-                return await asyncio.to_thread(_public_page, request, view="kb_list", title=_t("kb.pub.kbs_title"))
+                location = f"/themes?{request.url.query}" if request.url.query else "/themes"
+                return Response(status_code=308, headers={"Location": location})
         else:
             collection_url = f"{origin}{ns.prefix}/kb"
             if collections.wants_html(request):

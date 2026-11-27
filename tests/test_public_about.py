@@ -262,7 +262,7 @@ def test_public_about_content_rules_build_commit_curator_language_sources_and_fo
 
 def test_public_headers_include_about_and_exclude_reference(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     env = _setup_about_env(tmp_path, monkeypatch, mode="network")
-    for path in ("/directory", "/kb", "/@secret_bob/"):
+    for path in ("/directory", "/themes", "/@secret_bob/"):
         resp = env.client.get(path, headers={"Accept": "text/html"})
         assert resp.status_code == 200, path
         assert 'href="/about"' in resp.text, path

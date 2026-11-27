@@ -1,4 +1,4 @@
-/* Public views of the shared knowledge bases and the themes: /kb, /kb/{number}/, /themes, /themes/{number}/ (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 7 and 8.4). The data comes from the JSON form of the routes of docs/implementation/API_HTTP_CONTRACT.md. */
+/* Public views of the shared knowledge bases and the themes: /kb/{number}/, /themes, /themes/{number}/ (SHARED_KNOWLEDGE_BASES_AND_THEMES_DESIGN.md Sections 7 and 8.4). The data comes from the JSON form of the routes of docs/implementation/API_HTTP_CONTRACT.md. */
 (function (root) {
   "use strict";
 
@@ -24,20 +24,12 @@
     var links = [
       { id: "home", href: "/", label: t("kb.pub.nav_home") },
       { id: "themes", href: "/themes", label: t("kb.pub.nav_themes") },
-      { id: "kb", href: "/kb", label: t("kb.pub.nav_kbs") },
       { id: "accounts", href: "/directory", label: t("kb.pub.nav_accounts") },
       { id: "about", href: "/about", label: t("nav.about") }
     ];
     return '<nav class="claire-pubnav" aria-label="' + esc(t("kb.pub.nav_label")) + '">' + links.map(function (it) {
       return '<a href="' + esc(it.href) + '"' + (it.id === current ? ' aria-current="page"' : "") + ">" + esc(it.label) + "</a>";
     }).join("") + "</nav>";
-  }
-
-  function viewSwitchHtml(active) {
-    return '<nav class="obs-view-switch" aria-label="' + esc(t("kb.pub.view_switch_label")) + '">' +
-      '<a href="/themes"' + (active === "themes" ? ' aria-current="page"' : "") + ">" + esc(t("kb.pub.view_themes")) + "</a>" +
-      '<a href="/kb"' + (active === "kb" ? ' aria-current="page"' : "") + ">" + esc(t("kb.pub.view_kbs")) + "</a>" +
-      "</nav>";
   }
 
   function knowledgeTypeChips(name, value) {
@@ -125,7 +117,7 @@
         '<div class="obs-metric"><dt>' + esc(t("kb.pub.themes_metric_local")) + "</dt><dd>" + esc(String(totalLocalKbs)) + "</dd></div>" +
         '<div class="obs-metric"><dt>' + esc(t("kb.pub.themes_metric_remote")) + "</dt><dd>" + esc(String(totalRemoteKbs)) + "</dd></div>" +
         "</dl></header>";
-      h += '<div class="obs-catalog-toolbar">' + viewSwitchHtml("themes") + '<div class="claire-actions">' + knowledgeTypeChips("pub-themes-knowledge-type", knowledgeTypeFilter);
+      h += '<div class="obs-catalog-toolbar"><div class="claire-actions">' + knowledgeTypeChips("pub-themes-knowledge-type", knowledgeTypeFilter);
       if (bs.is_authenticated) h += '<button type="button" class="claire-btn pri" id="pub-th-create-kb">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button>";
       h += "</div></div>";
       if (loadError) h += '<div class="claire-note warn"><span>' + esc(ui().errorText(loadError)) + "</span></div>";
@@ -255,73 +247,6 @@
     });
   }
 
-  // GET /kb: the root of the collection has each shared knowledge base in "knowledge_bases", with "stats" and with the "role" of the requester.
-  function renderKbList(host, bs) {
-    var knowledgeTypeFilter = knowledgeTypeFromQuery();
-    var joinedOnly = false;
-    var items = [];
-    var loadError = null;
-
-    function load() {
-      ui().request("/kb").then(function (r) {
-        items = (r.ok && r.data && r.data.knowledge_bases) || [];
-        loadError = r.ok ? null : r;
-        paint();
-      });
-    }
-
-    function paint() {
-      var visible = items.filter(function (k) {
-        if (knowledgeTypeFilter !== "all" && k.knowledge_type !== knowledgeTypeFilter) return false;
-        return !joinedOnly || !!k.role;
-      });
-      var h = publicNavHtml("kb");
-      h += '<header class="obs-page-head"><div><h1>' + ui().icon("folder") + " <span>" + esc(t("kb.pub.kbs_title")) + '</span></h1><p class="obs-subtitle claire-page-sub">' + esc(t("kb.pub.kbs_subtitle")) + "</p></div></header>";
-      h += '<div class="obs-catalog-toolbar">' + viewSwitchHtml("kb") + '<div class="claire-actions">' + knowledgeTypeChips("pub-kb-knowledge-type", knowledgeTypeFilter);
-      if (bs.is_authenticated) {
-        h += '<label class="claire-chip"><input type="checkbox" id="pub-kb-joined"' + (joinedOnly ? " checked" : "") + "/><span>" + esc(t("kb.pub.filter_joined")) + "</span></label>";
-        h += '<button type="button" class="claire-btn pri" id="pub-kb-make">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button>";
-      }
-      h += "</div></div>";
-      if (loadError) h += '<div class="claire-note warn"><span>' + esc(ui().errorText(loadError)) + "</span></div>";
-
-      h += '<section class="claire-card">';
-      h += ui().renderTable({
-        caption: t("kb.pub.kbs_title"),
-        columns: [
-          { label: t("kb.pub.col_name"), render: function (k) {
-            return '<a href="' + esc(kbHref(k.number)) + '"><strong>' + esc(k.label) + "</strong></a> " + knowledgeTypeTag(k.knowledge_type) +
-              (k.state === "archived" ? ' <span class="claire-tag warn">' + esc(dlgs().stateLabel("archived")) + "</span>" : "") +
-              (k.reembed_required ? ' <span class="claire-tag danger">' + esc(t("kb.pub.reembed_badge")) + "</span>" : "") +
-              (k.description ? '<br><span class="claire-hint">' + esc(k.description) + "</span>" : "");
-          } },
-          { label: t("kb.pub.col_policy"), render: function (k) { return esc(t("kb.join_policy." + k.join_policy)); } },
-          { label: t("kb.pub.col_role"), render: function (k) {
-            if (k.membership_state === "pending" || k.membership_state === "banned") return '<span class="claire-tag ' + (k.membership_state === "banned" ? "danger" : "warn") + '">' + esc(t("kb.member_state." + k.membership_state)) + "</span>";
-            return k.role ? '<span class="claire-tag ok">' + esc(t("kb.role." + k.role)) + "</span>" : "—";
-          } },
-          { label: t("kb.pub.col_stats"), render: function (k) { return esc((k.stats && k.stats.documents) || 0) + " / " + esc((k.stats && k.stats.entities) || 0); } }
-        ],
-        rows: visible
-      });
-      h += "</section>";
-
-      host.innerHTML = h;
-      ui().enhance(host);
-      host.querySelectorAll('input[name="pub-kb-knowledge-type"]').forEach(function (inp) {
-        inp.addEventListener("change", function () { knowledgeTypeFilter = inp.value; setKnowledgeTypeQuery(knowledgeTypeFilter); paint(); });
-      });
-      var joinedBox = host.querySelector("#pub-kb-joined");
-      if (joinedBox) joinedBox.addEventListener("change", function () { joinedOnly = joinedBox.checked; paint(); });
-      var makeBtn = host.querySelector("#pub-kb-make");
-      if (makeBtn) makeBtn.addEventListener("click", function () {
-        dlgs().openCreateKbDialog({ defaultKnowledgeType: knowledgeTypeFilter === "fictional" ? "fictional" : "real", onCreated: function () { load(); } });
-      });
-    }
-
-    load();
-  }
-
   // The page of one shared knowledge base. The data: GET /kb/{number}/ as JSON ({"knowledge_base": {...}} with "role" and "membership_state" of the requester), GET /kb/{number}/members, and GET /kb/{number}/contributions (each contribution has its "title").
   function renderKbDetail(host, bs, kbNum) {
     function load() {
@@ -331,8 +256,8 @@
         ui().request(kbHref(kbNum) + "members")
       ]).then(function (all) {
         var kb = (all[0].ok && all[0].data && all[0].data.knowledge_base) || null;
-        var h = publicNavHtml("kb");
-        h += '<div class="claire-crumb"><a href="/kb">' + esc(t("kb.pub.nav_kbs")) + "</a><span>/</span><span>" + esc(kbNum) + "</span></div>";
+        var h = publicNavHtml("themes");
+        h += '<div class="claire-crumb"><a href="/themes">' + esc(t("kb.pub.theme_back")) + "</a><span>/</span><span>" + esc(kbNum) + "</span></div>";
         if (!kb) {
           host.innerHTML = h + '<div class="claire-note warn"><span>' + esc(all[0].ok ? t("kb.err.kb_not_found") : ui().errorText(all[0])) + "</span></div>";
           return;
@@ -405,7 +330,6 @@
     if (bs.view === "theme_detail" && bs.ref) renderThemeDetail(rootEl, bs, bs.ref);
     else if (bs.view === "themes_list") renderThemesList(rootEl, bs);
     else if (bs.view === "kb_detail" && bs.ref) renderKbDetail(rootEl, bs, bs.ref);
-    else if (bs.view === "kb_list") renderKbList(rootEl, bs);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

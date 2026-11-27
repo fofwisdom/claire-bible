@@ -23,8 +23,8 @@ test('public /about works anonymously across desktop/mobile and light/dark theme
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1360, height: 900 });
 
-  // Navigate to /about via the shared public header link from /kb and verify /reference is excluded from public header.
-  await page.goto('/kb', { waitUntil: 'domcontentloaded' });
+  // Navigate to /about via the shared public header link from /themes and verify /reference is excluded from public header.
+  await page.goto('/themes', { waitUntil: 'domcontentloaded' });
   const headerAboutLink = page.locator('header.appbar .pub-appbar-nav a[href="/about"]');
   await expect(headerAboutLink).toBeVisible();
   await expect(page.locator('header.appbar a[href="/reference"]')).toHaveCount(0);

@@ -171,8 +171,12 @@ def test_public_kb_and_themes_paths_give_html_to_a_browser_and_json_to_an_api_cl
     client, _admin_hdr, alice_hdr, numbers = ui_env
     html_hdr, json_hdr = {"Accept": "text/html"}, {"Accept": "application/json"}
 
+    kb_redir = client.get("/kb", headers=html_hdr)
+    assert (kb_redir.status_code, kb_redir.headers["location"]) == (308, "/themes")
+    kb_redir_q = client.get("/kb?knowledge_type=real", headers=html_hdr)
+    assert (kb_redir_q.status_code, kb_redir_q.headers["location"]) == (308, "/themes?knowledge_type=real")
+
     for path, view in (
-        ("/kb", 'data-public-view="kb_list"'),
         (f"/kb/{numbers.kb}/", 'data-public-view="kb_detail"'),
         ("/themes", 'data-public-view="themes_list"'),
         (f"/themes/{numbers.theme}/", 'data-public-view="theme_detail"'),

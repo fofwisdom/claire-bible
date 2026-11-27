@@ -1,4 +1,4 @@
-"""The HTML pages of the public views: the shared knowledge bases (``/kb``, ``/kb/{number}/``) and the themes (``/themes``, ``/themes/{number}/``).
+"""The HTML pages of the public views: the shared knowledge bases (``/kb/{number}/``) and the themes (``/themes``, ``/themes/{number}/``).
 
 This module mounts no route. The routes of ``server.py`` own these paths and call ``render_public_kb_page`` when the request wants HTML (content negotiation of the namespace design Section 6.5); they give JSON to other requests.
 """
@@ -19,7 +19,7 @@ from .accounts_routes.common import AccountsContext, escape, open_db, render_tem
 from .principal import request_principal
 from .security import read_session_cookie
 
-PUBLIC_VIEWS = ("kb_list", "kb_detail", "themes_list", "theme_detail")
+PUBLIC_VIEWS = ("kb_detail", "themes_list", "theme_detail")
 
 
 def _caller_context(request: Request, ctx: AccountsContext) -> dict[str, Any]:
@@ -126,7 +126,7 @@ def render_public_kb_page(
         "mode": caller["mode"],
     }
     bootstrap_json = json.dumps(bootstrap, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    active_nav = "themes" if view in ("themes_list", "theme_detail", "kb_list", "kb_detail") else ""
+    active_nav = "themes" if view in ("themes_list", "theme_detail", "kb_detail") else ""
     appbar_html = public_appbar_html(request, ctx, active=active_nav)
     footer_links_html = (
         f'<a href="/">{escape(t("kb.pub.nav_home"))}</a>'

@@ -25,13 +25,13 @@ Evidence tags follow [`../PRINCIPLES.md`](../PRINCIPLES.md) F1: **[code]**, **[d
 
 ## 2. Locked Navigation Architecture (4 Top-Level Items)
 
-- **[decision] (Owner Decision, 2026-11-27)**: Remove `/kb` from top-level navigation and keep **`/themes`**.
+- **[decision] (Owner Decision, 2026-11-27)**: Retire the `/kb` browser HTML catalog (`GET /kb` HTML requests redirect with `308` to `/themes`, preserving query parameters), remove every UI link and view switcher pointing to `/kb`, and keep **`/themes`** as the sole public catalog. JSON `GET /kb`, `POST /kb`, `/@{u}/kb`, and individual KB pages `/kb/{number}/` (with breadcrumb returning to `/themes`) remain intact.
 - **Unified Top Appbar (`.pub-appbar-nav`, single row)**:
   - **`홈` (`/`)**: Calm Federated Observatory — network federation virtuous cycle and bridged active themes.
-  - **`테마` (`/themes`)**: Subject-clustered local & remote KB collections, plus direct 1-click access to the flat shared KB catalog (`/kb` via `.claire-actions`) and shared KB creation.
+  - **`테마` (`/themes`)**: Sole public catalog of subject-clustered local & remote KB collections, plus shared KB creation.
   - **`공개 계정` (`/directory`)**: Public accounts index (`@username`, theme/doc counts, cursor pagination), built with the unified light/dark shell instead of standalone inline CSS.
   - **`소개` (`/about`)**: Instance overview, KPI cards, interactive 5-stage Gemini Neon document-processing pipeline, philosophy cards, supported sources table, and `/reference` footer link.
-- **No Duplicate Sub-Navigation Bar**: `.claire-pubnav` is omitted when `header.appbar .pub-appbar-nav` is present on `/`, `/themes`, `/themes/{number}/`, `/kb`, `/kb/{number}/`, `/directory`, and `/about`.
+- **No Duplicate Sub-Navigation Bar**: `.claire-pubnav` is omitted when `header.appbar .pub-appbar-nav` is present on `/`, `/themes`, `/themes/{number}/`, `/kb/{number}/`, `/directory`, and `/about`.
 
 ---
 

@@ -361,12 +361,13 @@ def test_public_themes_observatory_alignment_and_privacy(tmp_path: Path, monkeyp
         assert '/static/js/command_palette.js' in html
         assert '<footer class="about-footer">' in html
         assert 'href="/themes" aria-current="page"' in html
+        assert 'href="/kb"' not in html
+        assert "obs-view-switch" not in html
         assert 'href="/reference"' not in html
         html_no_scripts = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.S)
         assert re.search(r"\b(?:about|home_obs|home_root|directory|themes|kb\.pub|lang\.name)\.[a-z0-9_]+", html_no_scripts) is None
 
-    kb_resp = env.client.get("/kb", headers={"Accept": "text/html", "Accept-Language": "ko"})
-    assert kb_resp.status_code == 200
-    assert 'class="obs-main obs-themes-main"' in kb_resp.text
-    assert '<footer class="about-footer">' in kb_resp.text
-    assert 'href="/reference"' not in kb_resp.text
+    kb_html_redir = env.client.get("/kb", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert (kb_html_redir.status_code, kb_html_redir.headers.get("location")) == (308, "/themes")
+    kb_html_redir_q = env.client.get("/kb?knowledge_type=fictional", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert (kb_html_redir_q.status_code, kb_html_redir_q.headers.get("location")) == (308, "/themes?knowledge_type=fictional")

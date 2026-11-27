@@ -245,8 +245,8 @@ test('network-mode / renders Calm Federated Observatory, peer hovercard, 4-item 
     await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
     await expect(page.locator('.claire-pubnav:visible')).toHaveCount(0);
     await expect(page.locator('#public-kb-root .obs-page-head')).toBeVisible();
-    await expect(page.locator('#public-kb-root .obs-view-switch a[href="/themes"][aria-current="page"]')).toBeVisible();
-    await expect(page.locator('#public-kb-root .obs-view-switch a[href="/kb"]')).toBeVisible();
+    await expect(page.locator('a[href="/kb"]')).toHaveCount(0);
+    await expect(page.locator('.obs-view-switch')).toHaveCount(0);
     await expect(page.locator('#public-kb-root .obs-catalog-card')).toContainText('AI Architecture');
     await expect(page.locator('#public-kb-root .obs-catalog-peers')).toContainText('peer-a.example');
     await expect(page.locator('body')).not.toContainText('blocked-peer.example');
