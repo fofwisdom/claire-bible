@@ -7,6 +7,7 @@ const PAGES = [
   { name: 'workspace', path: '/', currentPattern: /^\/@e2eadmin\/$/ },  // single mode: "/" gives 302 to /@{username}/ (KNOWLEDGE_FEDERATION_DESIGN.md Section 15)
   { name: 'syndication', path: '/syndication', currentPattern: /^\/syndication$/ },
   { name: 'console', path: '/settings/reader', currentPattern: /^\/(?:admin|settings)$/ },
+  { name: 'admin', path: '/admin/server', currentPattern: /^\/(?:admin|settings)$/ },
 ];
 
 async function barFacts(page) {
@@ -14,6 +15,13 @@ async function barFacts(page) {
     const bar = document.querySelector('header.appbar');
     const style = getComputedStyle(bar);
     const brand = bar.querySelector('.bar-brand-group a.brand');
+    const navLinks = Array.from(bar.querySelectorAll('.pub-appbar-nav a')).map((a) => ({
+      href: new URL(a.href).pathname,
+      text: a.textContent.trim(),
+      left: Math.round(a.getBoundingClientRect().left),
+    }));
+    const paletteEl = bar.querySelector('.appbar-center #palettetrigger');
+    const pickerEl = bar.querySelector('.appbar-center .theme-picker-wrap');
     const current = bar.querySelector('.appbar-end a[aria-current="page"]');
     const visibleEndOrder = ['#queuebtn', '#homelinkbtn', '#syndlink', '#hamburger-btn'].map((sel) => {
       const el = bar.querySelector(`.appbar-end ${sel}`);
@@ -29,7 +37,12 @@ async function barFacts(page) {
       background: style.backgroundColor,
       brandText: brand ? brand.textContent.trim() : null,
       brandPath: brand ? new URL(brand.href).pathname : null,
-      paletteVisible: !!bar.querySelector('.appbar-center #palettetrigger') && getComputedStyle(bar.querySelector('#palettetrigger')).display !== 'none',
+      brandLeft: brand ? Math.round(brand.getBoundingClientRect().left) : -1,
+      navLinks,
+      paletteLeft: paletteEl ? Math.round(paletteEl.getBoundingClientRect().left) : -1,
+      pickerLeft: pickerEl && getComputedStyle(pickerEl).display !== 'none' ? Math.round(pickerEl.getBoundingClientRect().left) : null,
+      listToggleCount: document.querySelectorAll('#listtoggle').length,
+      paletteVisible: !!paletteEl && getComputedStyle(paletteEl).display !== 'none',
       authStateCount: document.querySelectorAll('#authstate').length,
       visibleTopLogout,
       visibleEndOrder,
@@ -64,6 +77,18 @@ test('the three pages share one app bar, palette trigger, right-to-left icons, h
     expect(fact.brandText, target.name).toBe('Claire Bible');
     // In single mode the workspace is at /@{username}/ (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): its brand goes to the home of its knowledge base. The other pages link to "/", which gives 302 to the same place.
     expect(fact.brandPath, target.name).toBe(target.name === 'workspace' ? '/@e2eadmin/' : '/');
+    expect(fact.listToggleCount, target.name).toBe(0);
+    expect(fact.navLinks.map((n) => [n.href, n.text]), target.name).toEqual([
+      ['/', '홈'],
+      ['/themes', '테마'],
+      ['/directory', '디렉터리'],
+      ['/about', '소개'],
+    ]);
+    const leftPositions = [fact.brandLeft, ...fact.navLinks.map((n) => n.left), fact.paletteLeft];
+    if (fact.pickerLeft !== null) leftPositions.push(fact.pickerLeft);
+    for (let i = 1; i < leftPositions.length; i += 1) {
+      expect(leftPositions[i], `${target.name} left-to-right order[${i}]`).toBeGreaterThan(leftPositions[i - 1]);
+    }
     expect(fact.paletteVisible, target.name).toBe(true);
     expect(fact.authStateCount, target.name).toBe(0);
     expect(fact.visibleTopLogout, target.name).toBe(0);
@@ -156,20 +181,24 @@ test('the light and dark switch of one page applies to the other pages', async (
 });
 
 test('a narrow screen keeps top bar controls accessible without overflow across all three pages', async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(login(3), { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#syndlink')).toBeVisible();
   await expect(page.locator('#queuebtn')).toBeVisible();
-  for (const target of PAGES) {
-    await page.goto(target.path, { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('header.appbar a.brand')).toBeVisible();
-    await expect(page.locator('#palettetrigger')).toBeVisible();
-    await expect(page.locator('#queuebtn')).toBeVisible();
-    await expect(page.locator('#homelinkbtn')).toBeVisible();
-    await expect(page.locator('#syndlink')).toBeVisible();
-    await expect(page.locator('#hamburger-btn')).toBeVisible();
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow, target.name).toBeLessThanOrEqual(0);
+  for (const vp of [{ width: 900, height: 800 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(vp);
+    for (const target of PAGES) {
+      await page.goto(target.path, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('header.appbar a.brand')).toBeVisible();
+      await expect(page.locator('#listtoggle')).toHaveCount(0);
+      await expect(page.locator('header.appbar .pub-appbar-nav a')).toHaveCount(4);
+      await expect(page.locator('#palettetrigger')).toBeVisible();
+      await expect(page.locator('#queuebtn')).toBeVisible();
+      await expect(page.locator('#homelinkbtn')).toBeVisible();
+      await expect(page.locator('#syndlink')).toBeVisible();
+      await expect(page.locator('#hamburger-btn')).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${target.name} ${vp.width}x${vp.height}`).toBeLessThanOrEqual(0);
+    }
   }
 });
 

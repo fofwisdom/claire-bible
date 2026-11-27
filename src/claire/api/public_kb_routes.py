@@ -67,26 +67,13 @@ def _caller_context(request: Request, ctx: AccountsContext) -> dict[str, Any]:
 def public_appbar_html(request: Request, ctx: AccountsContext, *, active: str = "") -> str:
     """Build the shared public application bar with top-level navigation links (Home, Themes, Directory, About)."""
     caller = _caller_context(request, ctx)
-    nav_items = (
-        ("home", "/", "kb.pub.nav_home"),
-        ("themes", "/themes", "kb.pub.nav_themes"),
-        ("directory", "/directory", "kb.pub.nav_accounts"),
-        ("about", "/about", "nav.about"),
-    )
-    brand_extra_html = (
-        f'<nav class="pub-appbar-nav" aria-label="{escape(t("kb.pub.nav_label"))}">'
-        + "".join(
-            f'<a href="{escape(href)}"' + (' aria-current="page"' if item_key == active else "") + f">{escape(t(label_key))}</a>"
-            for item_key, href, label_key in nav_items
-        )
-        + "</nav>"
-    )
     end_extra_html = "" if caller["is_authenticated"] else f'<a href="/login" class="bar-icon-btn">{escape(t("directory.login"))}</a>'
     return get_web_ui_renderer().render_appbar_html(
         bar_id="public-bar",
         brand_id="brand-home",
         brand_href="/",
-        brand_extra_html=brand_extra_html,
+        primary_nav_active=active,
+        show_primary_nav=True,
         center_id="public-bar-center",
         end_id="public-bar-end",
         end_extra_html=end_extra_html,

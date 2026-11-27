@@ -3360,9 +3360,19 @@ test.describe('command palette (HW-7)', () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitForClaire(page);
 
-    // The list toggle is after the brand link and the theme picker. The header has no input field.
-    const order = await page.evaluate(() => [...document.querySelector('.bar-brand-group').children].map(el => el.id || el.className));
-    expect(order.indexOf('listtoggle')).toBeGreaterThan(order.indexOf('theme-picker-wrap'));
+    // Unified appbar left-to-right order: brand -> primary nav -> palette -> theme picker; #listtoggle removed on desktop and tablet.
+    await expect(page.locator('#listtoggle')).toHaveCount(0);
+    const leftOrder = await page.evaluate(() => ['#appbar-brand', '.pub-appbar-nav', '#palettetrigger', '#theme-picker-wrap'].map((sel) => {
+      const el = document.querySelector(`header.appbar ${sel}`);
+      return el ? Math.round(el.getBoundingClientRect().left) : -1;
+    }));
+    expect(leftOrder.every((x) => x >= 0)).toBe(true);
+    expect(leftOrder[0]).toBeLessThan(leftOrder[1]);
+    expect(leftOrder[1]).toBeLessThan(leftOrder[2]);
+    expect(leftOrder[2]).toBeLessThan(leftOrder[3]);
+    await page.setViewportSize({ width: 900, height: 800 });
+    await expect(page.locator('#listtoggle')).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.locator('#bar input')).toHaveCount(0);
 
     // Documents: the filter is below the list switch. "/" in the field is text, not the shortcut.

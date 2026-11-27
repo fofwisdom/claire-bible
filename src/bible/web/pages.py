@@ -57,7 +57,7 @@ def _build_standalone_graph_html() -> str:
     icons_js = (_STATIC_DIR / "js" / "icons.js").read_text(encoding="utf-8")
     index_tmpl = (_TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
 
-    ws_brand_extra = (
+    ws_kb_picker = (
         '<div class="theme-picker-wrap" id="theme-picker-wrap" __THEME_PICKER_TITLE_ATTR__ __THEME_PICKER_STYLE_ATTR__>'
         '<label for="theme-select" class="sr-only">${t:nav.theme_select}</label>'
         '<div class="theme-select-control" id="theme-select-control" __THEME_SELECT_STYLE_ATTR__>'
@@ -69,7 +69,6 @@ def _build_standalone_graph_html() -> str:
         '<span class="theme-icon" id="theme-plain-icon" aria-hidden="true">__THEME_PLAIN_ICON__</span>'
         '<span class="theme-plain-label" id="theme-plain-label">__THEME_PLAIN_LABEL__</span>'
         "</div></div>"
-        '<button id="listtoggle" type="button" class="bar-icon-btn" aria-expanded="true" aria-controls="docs" onclick="toggleListPane()" data-i18n-title="nav.list_toggle" data-i18n-aria-label="nav.list_toggle"><svg class="lineicon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11zM6 3.5v9"/></svg></button>'
     )
     ws_center_extra = (
         '<div class="center-tab-group" id="centertab-group">'
@@ -102,8 +101,9 @@ def _build_standalone_graph_html() -> str:
         brand_href="./",
         brand_onclick="if(!event.ctrlKey&&!event.metaKey&&event.button===0){event.preventDefault();enterHome({reason:'brand'});}",
         brand_title_key="ws.bar.brand_title",
-        brand_extra_html=ws_brand_extra,
+        brand_extra_html="",
         center_id="centerhead",
+        kb_picker_html=ws_kb_picker,
         center_extra_html=ws_center_extra,
         end_id="viewoptions",
         ingest_enabled=True,
@@ -189,7 +189,7 @@ def _build_standalone_syndication_html() -> str:
     synd_css = (_STATIC_DIR / "css" / "syndication.css").read_text(encoding="utf-8")
     synd_live_js = (_STATIC_DIR / "js" / "syndication_live.js").read_text(encoding="utf-8")
     syndication_tmpl = (_TEMPLATES_DIR / "syndication.html").read_text(encoding="utf-8")
-    synd_brand_extra = (
+    synd_kb_picker = (
         '<div class="theme-picker-wrap kb-only">'
         '<label for="theme-selector" class="sr-only" data-i18n="nav.theme_select">Select knowledge theme</label>'
         '<div class="theme-select-control">'
@@ -228,8 +228,9 @@ def _build_standalone_syndication_html() -> str:
         brand_id="appbar-brand",
         brand_href="/",
         brand_title_key="nav.brand_home",
-        brand_extra_html=synd_brand_extra,
+        brand_extra_html="",
         center_id="synd-center",
+        kb_picker_html=synd_kb_picker,
         center_extra_html=synd_center_extra,
         end_id="synd-end",
         ingest_enabled=True,

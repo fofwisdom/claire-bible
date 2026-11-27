@@ -72,15 +72,18 @@ class _WebUIRendererAdapter:
     def get_scalar_favicon_config(self, *, base_url: str = "") -> dict[str, Any]:
         return favicon.get_scalar_favicon_config(base_url=base_url)
 
-    def render_appbar_html(self, *, bar_id: str = "bar", brand_id: str = "appbar-brand", brand_href: str = "/", brand_onclick: str = "", brand_title_key: str = "nav.brand_home", brand_extra_html: str = "", center_id: str = "appbar-center", center_extra_html: str = "", end_id: str = "appbar-end", ingest_enabled: bool = False, ingest_hidden: bool = False, ingest_btn_class: str = "", end_extra_html: str = "", home_href: str = "/", home_onclick: str = "", home_current: bool = False, synd_href: str = "/syndication", synd_current: bool = False, synd_hidden: bool = False, synd_extra_attrs: str = "", hamburger_extra_html: str = "", moderation_href: str = "/moderation", moderation_label_key: str = "nav.topbar.moderation", moderation_icon: str = "shield", moderation_current: bool = False, moderation_hidden: bool = False, console_href: str = "/account", console_label_key: str = "nav.topbar.console", console_icon: str = "settings", console_current: bool = False, console_hidden: bool = False, show_logout: bool = True, logout_hidden: bool = False) -> str:
+    def render_appbar_html(self, *, bar_id: str = "bar", brand_id: str = "appbar-brand", brand_href: str = "/", brand_onclick: str = "", brand_title_key: str = "nav.brand_home", primary_nav_active: str = "", show_primary_nav: bool = True, brand_extra_html: str = "", center_id: str = "appbar-center", kb_picker_html: str = "", center_extra_html: str = "", end_id: str = "appbar-end", ingest_enabled: bool = False, ingest_hidden: bool = False, ingest_btn_class: str = "", end_extra_html: str = "", home_href: str = "/", home_onclick: str = "", home_current: bool = False, synd_href: str = "/syndication", synd_current: bool = False, synd_hidden: bool = False, synd_extra_attrs: str = "", hamburger_extra_html: str = "", moderation_href: str = "/moderation", moderation_label_key: str = "nav.topbar.moderation", moderation_icon: str = "shield", moderation_current: bool = False, moderation_hidden: bool = False, console_href: str = "/account", console_label_key: str = "nav.topbar.console", console_icon: str = "settings", console_current: bool = False, console_hidden: bool = False, show_logout: bool = True, logout_hidden: bool = False) -> str:
         return chrome.render_appbar_html(
             bar_id=bar_id,
             brand_id=brand_id,
             brand_href=brand_href,
             brand_onclick=brand_onclick,
             brand_title_key=brand_title_key,
+            primary_nav_active=primary_nav_active,
+            show_primary_nav=show_primary_nav,
             brand_extra_html=brand_extra_html,
             center_id=center_id,
+            kb_picker_html=kb_picker_html,
             center_extra_html=center_extra_html,
             end_id=end_id,
             ingest_enabled=ingest_enabled,

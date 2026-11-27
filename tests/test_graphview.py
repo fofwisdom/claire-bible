@@ -248,7 +248,7 @@ def test_graph_html_self_contained_markers():
 
 
 def test_right_menu_compact_icon_mode_markers():
-    """aside#detailpane(우측 문맥 패널) 및 좌측 목록 온디맨드 접기/펼치기 지원 검증."""
+    """aside#detailpane(우측 문맥 패널) 및 통합 앱바 순서, 데스크톱/태블릿 #listtoggle 제거 검증."""
     assert "--detail-width:360px;" in GRAPH_HTML
     assert "body.ctx-closed #detailpane" in GRAPH_HTML
     assert "body.list-closed #docs" in GRAPH_HTML
@@ -256,6 +256,13 @@ def test_right_menu_compact_icon_mode_markers():
     assert "closeContextPanel" in GRAPH_HTML
     assert "claireContextOpen" in GRAPH_HTML
     assert "claireListOpen" in GRAPH_HTML
+    assert 'id="listtoggle"' not in GRAPH_HTML
+    nav_pos = GRAPH_HTML.index('class="pub-appbar-nav"')
+    palette_pos = GRAPH_HTML.index('id="palettetrigger"')
+    picker_pos = GRAPH_HTML.index('id="theme-picker-wrap"')
+    assert nav_pos < palette_pos < picker_pos
+    nav_slice = GRAPH_HTML[nav_pos:palette_pos]
+    assert nav_slice.index('href="/"') < nav_slice.index('href="/themes"') < nav_slice.index('href="/directory"') < nav_slice.index('href="/about"')
 
 
 def test_right_menu_graph_section_markers():
@@ -963,7 +970,7 @@ def test_common_header_height_and_component_synchronization():
 
     # 2. 중앙 헤더 내 검색창(#barsearch)과 탭 컨트롤(.center-tabs)이 34px 높이와 6px 반경으로 상호 동기화됨
     # The rule of the palette button is in appbar.css (one application bar for all pages).
-    assert ".palette-trigger{display:flex;align-items:center;position:relative;flex:1 1 200px;min-width:140px;width:100%;max-width:380px;height:34px;box-sizing:border-box;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;" in GRAPH_HTML
+    assert ".palette-trigger{display:flex;align-items:center;position:relative;flex:1 1 130px;min-width:96px;width:100%;max-width:260px;height:34px;box-sizing:border-box;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;" in GRAPH_HTML
     assert ".center-tabs{\n    display:inline-flex;align-items:center;gap:2px;\n    height:34px;box-sizing:border-box;\n    background:var(--sec-bg);padding:2px;border-radius:6px;" in GRAPH_HTML
 
     # 3. 우측 상세 닫기 버튼(#detailclose)도 34px 정사각 및 6px 반경으로 일치함

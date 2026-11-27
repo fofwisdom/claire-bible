@@ -3,26 +3,26 @@
  * Right-top icons from rightmost edge: hamburger (#hamburger-btn) <- syndication (#syndlink) <- user home (#homelinkbtn) <- queue (#queuebtn) <- notifications (#notifybtn). Theme toggle (#themebtn) is inside #pop-hamburger-menu.
  */
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
-.appbar{position:relative;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 12px;min-height:48px;box-sizing:border-box;flex-shrink:0;background:var(--bar-bg);border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
-.appbar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px}
+.appbar{position:relative;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 12px;min-height:48px;box-sizing:border-box;flex-shrink:0;background:var(--bar-bg);border-bottom:1px solid var(--border);font-size:13px;white-space:nowrap}
+.appbar .brand{font-weight:700;letter-spacing:-.01em;cursor:pointer;user-select:none;transition:opacity .15s ease;text-decoration:none;color:inherit;display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
 .appbar .brand img{display:inline-block;vertical-align:middle;filter:drop-shadow(0 0 4px rgba(0,255,170,0.5))}
 .appbar .brand:hover{opacity:.85}
 .appbar b{color:var(--accent2)}
-.bar-brand-group{display:flex;align-items:center;gap:10px;min-width:0}
-.appbar-center{display:flex;align-items:center;gap:10px;flex:1;min-width:0;min-height:34px}
-.appbar-palette-slot{display:flex;align-items:center;flex:1 1 200px;max-width:380px;min-width:140px}
-.appbar-end{display:flex;align-items:center;gap:6px}
+.bar-brand-group{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:0}
+.appbar-center{display:flex;align-items:center;gap:8px;flex:1;min-width:0;min-height:34px}
+.appbar-palette-slot{display:flex;align-items:center;flex:1 1 130px;max-width:260px;min-width:96px}
+.appbar-end{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .appbar-title{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;font-size:13.5px;font-weight:700;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .appbar-title[hidden]{display:none}
 
 /* Theme picker */
-.theme-picker-wrap{display:inline-flex;align-items:center;position:relative}
+.theme-picker-wrap{display:inline-flex;align-items:center;position:relative;flex:0 1 auto;min-width:0}
 .theme-picker-wrap[hidden]{display:none}
 .theme-select-control{display:inline-flex;align-items:center;gap:5px;background:var(--sec-bg);border:1px solid var(--border);border-radius:6px;padding:2px 6px 2px 8px;height:28px;box-sizing:border-box;font-size:12.5px;color:var(--fg);cursor:pointer;transition:border-color .15s ease, background-color .15s ease}
 .theme-select-control:hover{border-color:var(--accent);background:var(--hover)}
 .theme-select-control:focus-within{outline:2px solid var(--accent);outline-offset:1px}
 .theme-icon{font-size:13px;line-height:1;display:inline-flex;align-items:center}
-.theme-select{appearance:none;-webkit-appearance:none;background:transparent;border:none;color:inherit;font-family:inherit;font-size:12px;font-weight:500;padding-right:14px;cursor:pointer;outline:none;max-width:140px;text-overflow:ellipsis;white-space:nowrap}
+.theme-select{appearance:none;-webkit-appearance:none;background:transparent;border:none;color:inherit;font-family:inherit;font-size:12px;font-weight:500;padding-right:14px;cursor:pointer;outline:none;max-width:132px;text-overflow:ellipsis;white-space:nowrap}
 .theme-select option{background:var(--panel-bg);color:var(--fg)}
 .theme-caret{font-size:10px;opacity:.7;pointer-events:none;margin-left:-12px}
 .theme-plain-display{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--fg);user-select:none;padding:0 2px}
@@ -43,7 +43,7 @@
 .bar-form{margin:0;display:inline-flex}
 
 /* Button of the command palette */
-.palette-trigger{display:flex;align-items:center;position:relative;flex:1 1 200px;min-width:140px;width:100%;max-width:380px;height:34px;box-sizing:border-box;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;padding:0 8px 0 10px;gap:8px;color:var(--muted);font-size:12.5px;text-align:left;cursor:pointer;transition:border-color .15s ease,background .15s ease}
+.palette-trigger{display:flex;align-items:center;position:relative;flex:1 1 130px;min-width:96px;width:100%;max-width:260px;height:34px;box-sizing:border-box;background:var(--panel-bg);border:1px solid var(--border);border-radius:6px;padding:0 8px 0 10px;gap:8px;color:var(--muted);font-size:12.5px;text-align:left;cursor:pointer;transition:border-color .15s ease,background .15s ease}
 .palette-trigger:hover{border-color:var(--accent,#0284c7);background:var(--card-bg,var(--panel-bg));filter:none}
 .palette-trigger-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .palette-trigger kbd{flex:none;min-width:18px;padding:0 5px;border:1px solid var(--border);border-radius:4px;background:var(--sec-bg);color:var(--muted);font:inherit;font-size:11px;line-height:18px;text-align:center}
@@ -127,13 +127,26 @@ dialog.claire-dialog::backdrop{background:rgba(0,0,0,0.52);backdrop-filter:blur(
 .claire-dialog .ingest-rendition-policy{margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);font-size:11.5px;color:var(--muted)}
 .claire-dialog .ingest-rendition-policy-title{margin:0 0 4px;font-weight:600;color:var(--fg)}
 .claire-dialog .ingest-rendition-policy ul{margin:0;padding-left:16px;display:grid;gap:2px;line-height:1.45}
-.pub-appbar-nav{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
-.pub-appbar-nav a{display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;color:var(--muted);font-weight:600;font-size:12.5px;text-decoration:none;min-height:28px}
+.pub-appbar-nav{display:inline-flex;align-items:center;gap:2px;flex-wrap:nowrap;flex-shrink:0}
+.pub-appbar-nav a{display:inline-flex;align-items:center;padding:3px 7px;border-radius:6px;color:var(--muted);font-weight:600;font-size:12.5px;text-decoration:none;min-height:28px;white-space:nowrap}
 .pub-appbar-nav a:hover{color:var(--fg);background:var(--hover)}
 .pub-appbar-nav a[aria-current="page"]{color:var(--accent);background:var(--active)}
+@media (min-width:721px) and (max-width:1100px){
+  .appbar{padding:6px 10px;gap:6px}
+  .bar-brand-group{gap:6px}
+  .pub-appbar-nav a{padding:3px 6px;font-size:12px}
+  .appbar-center{gap:6px}
+  .appbar-palette-slot{flex:1 1 96px;min-width:72px;max-width:180px}
+  .palette-trigger{min-width:72px;max-width:180px;padding:0 6px;gap:5px}
+  .palette-trigger kbd{display:none}
+  .theme-select{max-width:104px}
+  .theme-plain-label{max-width:110px}
+  .appbar-title{max-width:120px}
+  .appbar-end{gap:4px}
+}
 @media (max-width:720px){
-  .appbar:has(.pub-appbar-nav){white-space:normal}
-  .appbar:has(.pub-appbar-nav) .bar-brand-group{flex-wrap:wrap;min-width:0;flex:1 1 auto}
+  .appbar{white-space:normal}
+  .pub-appbar-nav{order:5;flex:1 0 100%;flex-wrap:wrap;gap:4px}
   .pub-appbar-nav a{padding:3px 7px;font-size:12px}
 }
 .claire-dialog-sub{font-size:12px;color:var(--muted)}
@@ -159,14 +172,15 @@ dialog.claire-dialog::backdrop{background:rgba(0,0,0,0.52);backdrop-filter:blur(
 /* Narrow screens: compact Row 1 targets so rightmost icons never overflow; command palette moves to Row 2. */
 @media (max-width:720px){
   .appbar{min-height:50px;padding:max(6px,env(safe-area-inset-top)) 10px 6px;flex-wrap:wrap;gap:6px}
-  .appbar .brand{font-size:13.5px}
-  .bar-brand-group{gap:6px}
-  .theme-select{max-width:72px}
+  .bar-brand-group{display:contents}
+  .appbar .brand{order:1;margin-inline-end:auto;font-size:13.5px}
+  .theme-picker-wrap{flex:0 1 auto;max-width:100%}
+  .theme-select{max-width:104px}
   .theme-select-control{height:34px;padding:2px 4px 2px 6px}
-  .appbar-center{order:10;flex:1 0 100%;gap:6px}
-  .appbar-palette-slot{max-width:none;min-width:0;width:100%}
-  .appbar-center .palette-trigger{max-width:none}
-  .appbar-end{gap:4px}
+  .appbar-center{order:10;flex:1 0 100%;flex-wrap:wrap;gap:6px}
+  .appbar-palette-slot{flex:1 1 140px;max-width:none;min-width:0}
+  .appbar-center .palette-trigger{max-width:none;min-width:0}
+  .appbar-end{order:2;gap:4px}
   .appbar-end .bar-icon-btn{min-width:34px;min-height:36px;height:36px;padding:0 6px}
   .appbar-end .bar-ingest-btn{min-width:36px;min-height:36px;height:36px;padding:0 8px}
   .appbar-end .bar-ingest-btn .btn-label{display:none}

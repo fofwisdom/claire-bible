@@ -19,8 +19,11 @@ def render_appbar_html(
     brand_href: str = "/",
     brand_onclick: str = "",
     brand_title_key: str = "nav.brand_home",
+    primary_nav_active: str = "",
+    show_primary_nav: bool = True,
     brand_extra_html: str = "",
     center_id: str = "appbar-center",
+    kb_picker_html: str = "",
     center_extra_html: str = "",
     end_id: str = "appbar-end",
     ingest_enabled: bool = False,
@@ -124,14 +127,30 @@ def render_appbar_html(
             "</button></form>"
         )
 
+    primary_nav_html = ""
+    if show_primary_nav:
+        nav_items = (
+            ("home", "/", "kb.pub.nav_home"),
+            ("themes", "/themes", "kb.pub.nav_themes"),
+            ("directory", "/directory", "kb.pub.nav_accounts"),
+            ("about", "/about", "nav.about"),
+        )
+        nav_links = "".join(
+            f'<a href="{href}"' + (' aria-current="page"' if item_key == primary_nav_active else "") + f'>${{t:{label_key}}}</a>'
+            for item_key, href, label_key in nav_items
+        )
+        primary_nav_html = f'<nav class="pub-appbar-nav" aria-label="${{t:kb.pub.nav_label}}">{nav_links}</nav>'
+
     replacements = {
         "__APPBAR_ID__": escape(bar_id, quote=True),
         "__BRAND_ID__": escape(brand_id, quote=True),
         "__BRAND_HREF__": escape(brand_href, quote=True),
         "__BRAND_ONCLICK_ATTR__": f' onclick="{brand_onclick}"' if brand_onclick else "",
         "__BRAND_TITLE_KEY__": escape(brand_title_key, quote=True),
+        "__PRIMARY_NAV_HTML__": primary_nav_html,
         "__BRAND_EXTRA_HTML__": brand_extra_html,
         "__CENTER_ID__": escape(center_id, quote=True),
+        "__KB_PICKER_HTML__": kb_picker_html,
         "__CENTER_EXTRA_HTML__": center_extra_html,
         "__END_ID__": escape(end_id, quote=True),
         "__INGEST_CONTROL_HTML__": ingest_html,

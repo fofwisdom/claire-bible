@@ -607,7 +607,8 @@
 /* --- Header view navigation, home view, list switch, and context panel on demand (docs/design/HOME_OVERVIEW_AND_CONTEXT_PANEL_DESIGN.md, unit HW-1) --- */
   /* The center head (palette trigger + view navigation) is in the header bar. */
   #bar #centerhead{flex:1;min-width:0;height:auto;min-height:0;padding:0;border:0;background:transparent;z-index:auto}
-  #bar #centerhead #netsearch{order:1}
+  #bar #centerhead #netsearch{order:0;flex:1 1 130px;max-width:260px;min-width:96px}
+  #bar #centerhead .theme-picker-wrap{order:1}
   #bar #centerhead #centertab-group{order:2}
   .center-tab-btn .btn-icon{display:inline-flex}
   body[data-center-view="home"] #centertab-home{background:var(--accent,#0284c7)!important;color:#fff!important;border-color:var(--accent,#0284c7)!important;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,0.12)}
@@ -736,6 +737,9 @@
   @media (min-width:721px) and (max-width:1100px){
     body.list-closed #wrap{grid-template-columns:0 minmax(0,1fr)}
     body.list-closed #docs{width:0;border-right:0;visibility:hidden}
+    #bar #centerhead #netsearch{flex:1 1 96px;max-width:180px;min-width:72px}
+    #centertab-group .center-tab-btn{padding:0 7px}
+    #centertab-group .center-tab-btn .btn-label{display:none}
   }
   @media (max-width:1280px){
     #centertab-presentation .btn-label,#centertab-stream .btn-label,.bar-ingest-btn .btn-label{display:none}
@@ -744,8 +748,8 @@
   @media (max-width:720px){
     /* The view buttons are in the bottom bar. The button of the command palette stays, as the second row of the header. */
     #bar #centerhead{order:10;flex:1 0 100%}
-    #bar #centerhead #centertab-group,#listtoggle{display:none}
-    #bar #centerhead #netsearch{max-width:none;width:100%}
+    #bar #centerhead #centertab-group{display:none}
+    #bar #centerhead #netsearch{flex:1 1 140px;max-width:none;min-width:0;width:auto}
     #botnav{position:fixed;left:0;right:0;bottom:0;z-index:53;display:grid;grid-template-columns:repeat(5,1fr);height:calc(52px + env(safe-area-inset-bottom));padding:0 4px env(safe-area-inset-bottom);background:var(--bar-bg);border-top:1px solid var(--border);box-sizing:border-box}
     #botnav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0;min-height:44px;padding:4px 2px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:11px;font-weight:500;line-height:1.1;cursor:pointer}
     #botnav button:hover,#botnav button:focus-visible{color:var(--fg);background:var(--hover)}

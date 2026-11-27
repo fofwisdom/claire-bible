@@ -641,14 +641,10 @@ function closeContextPanel(){
     if(target) target.focus();
   }
 }
-// --- List pane: open state and the list that the user selects (design Section 4.3) ---
+// --- List pane: always open on desktop and tablet; mobile uses the slide-over drawer (ignore legacy claireListOpen storage). ---
 let listPaneOpen = true, listOverride = null, lastListMode = null;
-try{ if(getAccountStorage('claireListOpen') === 'false') listPaneOpen = false; }catch(_){}
 function toggleListPane(){
-  if(mobileMQ.matches){ toggleDocDrawer(); return; }
-  listPaneOpen = !listPaneOpen;
-  try{ setAccountStorage('claireListOpen', listPaneOpen ? 'true' : 'false'); }catch(_){}
-  syncWorkspaceLayout();
+  if(mobileMQ.matches){ toggleDocDrawer(); }
 }
 function setListOverride(mode){
   listOverride = (mode === 'entities' || mode === 'docs') ? mode : null;
@@ -967,10 +963,10 @@ function syncWorkspaceLayout(){
     }
   }
 
-  // Wide screens: the context panel and the list pane have a width only when they are open.
+  // Wide screens: the context panel has a width only when it is open, and the list pane stays open.
   const wide = !isMobileOrCompact, ctxOpen = isContextOpen();
   document.body.classList.toggle('ctx-closed', wide && !ctxOpen);
-  document.body.classList.toggle('list-closed', !mobileMQ.matches && !listPaneOpen);
+  document.body.classList.remove('list-closed');
   if(dp && wide){
     dp.setAttribute('aria-hidden', ctxOpen ? 'false' : 'true');
     dp.inert = !ctxOpen;
@@ -981,15 +977,13 @@ function syncWorkspaceLayout(){
     const b = document.getElementById(id);
     if(b) b.hidden = ctxShown || !hasContext();
   });
-  const listBtn = document.getElementById('listtoggle');
-  if(listBtn) listBtn.setAttribute('aria-expanded', listPaneOpen ? 'true' : 'false');
   const docsPane = document.getElementById('docs');
   const docOpenNarrow = mobileMQ.matches && typeof docDrawerOpen !== 'undefined' && docDrawerOpen;
   const ctxOpenNarrow = mobileMQ.matches && isDrawerActive;
   if(docsPane){
     if(!mobileMQ.matches){
-      docsPane.setAttribute('aria-hidden', listPaneOpen ? 'false' : 'true');
-      docsPane.inert = !listPaneOpen;
+      docsPane.setAttribute('aria-hidden', 'false');
+      docsPane.inert = false;
     }
     if(docOpenNarrow){
       docsPane.setAttribute('role', 'dialog');
@@ -4345,7 +4339,6 @@ function runFullTextSearch(query){
   const v = String(query || '').trim(); if(!v) return;
   if(listMode() !== 'docs') setListOverride('docs');
   if(mobileMQ.matches){ if(typeof openDocDrawer === 'function') openDocDrawer(); }
-  else if(!listPaneOpen){ toggleListPane(); }
   const q = document.getElementById('q'); if(q) q.value = v;
   const dq = document.getElementById('docq'); if(dq) dq.value = v;
   updateCenterSearchMode();
