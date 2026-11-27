@@ -55,6 +55,8 @@ _JOB_SLOT_HELD: ContextVar[int | None] = ContextVar("claire_job_slot_account", d
 _INGEST_RESERVED: ContextVar[bool] = ContextVar("claire_ingest_reserved", default=False)
 # 자동 복구 재적재는 이미 예약된 건의 재시도다. 일 적재 건수를 다시 세지 않는다.
 _UNRESERVED_SOURCES: tuple[str, ...] = ("recover",)
+# Default threshold (seconds) after which a non-active raw_inbox row still in status='received' is requeued as interrupted_by_restart.
+DEFAULT_STALE_RECEIVED_SEC: float = 1800.0
 
 
 def _blocked_context(account_id: int | None) -> ProviderContext:
@@ -357,6 +359,33 @@ def _inbox_extraction_mode(row: Any) -> str | None:
     except (IndexError, KeyError):
         return None
     return value if value in ("provider", "client") else None
+
+
+def _active_ingest_payloads(data_dir: Path | str | None, *, kb_id: int | None = None) -> list[str]:
+    """Return payload strings for active jobs under data_dir so stale-received recovery does not requeue running ingests."""
+    if not data_dir:
+        return []
+    base = Path(data_dir)
+    if not base.exists():
+        return []
+    from .active import get_active_jobs
+
+    payloads: list[str] = []
+    for job in get_active_jobs(base):
+        if not isinstance(job, dict) or not job.get("active"):
+            continue
+        if kb_id is not None:
+            job_kb = job.get("kb_id")
+            if job_kb is not None:
+                try:
+                    if int(job_kb) != int(kb_id):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+        payload = job.get("payload")
+        if isinstance(payload, str) and payload.strip():
+            payloads.append(payload)
+    return payloads
 
 
 class IngestService:
@@ -2338,12 +2367,14 @@ class IngestService:
         max_attempts: int = 5,
         base_delay: float = 300.0,
         limit: int = 0,
+        stale_received_sec: float | None = DEFAULT_STALE_RECEIVED_SEC,
         reporter: Any | None = None,
         on_progress: Callable[[str, str], None] | None = None,
     ) -> list[dict]:
         """[자동복구] error inbox 중 재시도 시각이 도래한 항목을 자동 재적재.
 
         replay_failed 가 *수동 전량* 재적재라면, 이쪽은 데몬(recover-loop)이 부르는 *게이팅된 자동* 경로:
+          - 사전 정리: ``stale_received_sec`` 초 이상 ``status='received'`` 에 머물고 활성 작업(``get_active_jobs``)에 없는 행을 ``status='error'``, ``error='interrupted_by_restart'``, ``next_retry_at=NULL`` 로 전환.
           - 대상: status='error' AND attempts<max AND now>=next_retry_at (없으면 즉시).
           - 성공/duplicate: ingest 가 같은 inbox 행을 done/duplicate 로 갱신(멱등).
           - 실패: attempts+1, next_retry_at = now + base_delay·2^attempts(지수백오프).
@@ -2353,8 +2384,15 @@ class IngestService:
 
         conn = dbm.connect(self.s.db_file)
         dbm.init_db(conn)
-        rows = dbm.due_for_recovery(conn, max_attempts=max_attempts, limit=limit, kb_id=self.kb_id)
-        conn.close()
+        try:
+            if stale_received_sec is not None:
+                active_payloads = _active_ingest_payloads(self.s.data_dir, kb_id=self.kb_id)
+                requeued = dbm.requeue_stale_received_inbox(conn, stale_before=_time.time() - stale_received_sec, active_payloads=active_payloads, kb_id=self.kb_id)
+                if requeued:
+                    log.info("Requeued %d stale received raw_inbox row(s) for kb_id=%s: %s", len(requeued), self.kb_id, requeued)
+            rows = dbm.due_for_recovery(conn, max_attempts=max_attempts, limit=limit, kb_id=self.kb_id)
+        finally:
+            conn.close()
 
         out: list[dict] = []
         for idx, row in enumerate(rows, 1):

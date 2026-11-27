@@ -14,7 +14,7 @@ import secrets
 import shutil
 import sqlite3
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -4267,6 +4267,73 @@ def inbox_failures(conn: sqlite3.Connection, limit: int = 10, kb_id: int | None 
     q += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
     return conn.execute(q, params).fetchall()
+
+
+def _normalize_inbox_match_value(value: Any) -> str:
+    """Normalize a raw_inbox payload or file_ref string for comparison with active job payloads."""
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _inbox_row_active_candidates(row: sqlite3.Row) -> set[str]:
+    """Return payload strings that identify an in-flight active job for a raw_inbox row."""
+    candidates: set[str] = set()
+    for field in ("payload", "file_ref"):
+        raw_val = row[field]
+        if isinstance(raw_val, str) and raw_val:
+            candidates.add(raw_val)
+            norm = _normalize_inbox_match_value(raw_val)
+            if norm:
+                candidates.add(norm)
+    if row["kind"] == "composite" and isinstance(row["payload"], str) and row["payload"]:
+        try:
+            meta = json.loads(row["payload"])
+        except Exception:
+            meta = None
+        if isinstance(meta, dict):
+            url = meta.get("url")
+            if isinstance(url, str) and url:
+                candidates.add(url)
+                norm_url = _normalize_inbox_match_value(url)
+                if norm_url:
+                    candidates.add(norm_url)
+    return candidates
+
+
+def requeue_stale_received_inbox(conn: sqlite3.Connection, *, stale_before: float, active_payloads: Iterable[str] = (), kb_id: int | None = None) -> list[int]:
+    """Transition stale raw_inbox rows stuck in status='received' (received_at <= stale_before) to status='error' with error='interrupted_by_restart' and next_retry_at=NULL so due_for_recovery picks them up immediately. Rows whose payload, file_ref, or composite url matches active_payloads stay in status='received'."""
+    active_set: set[str] = set()
+    for item in active_payloads:
+        if not isinstance(item, str) or not item:
+            continue
+        active_set.add(item)
+        norm = _normalize_inbox_match_value(item)
+        if norm:
+            active_set.add(norm)
+
+    q = "SELECT id, kb_id, kind, payload, file_ref FROM raw_inbox WHERE status='received' AND received_at IS NOT NULL AND received_at <= ?"
+    params: list[Any] = [stale_before]
+    if kb_id is not None:
+        q += " AND kb_id=?"
+        params.append(kb_id)
+    q += " ORDER BY id"
+    rows = conn.execute(q, params).fetchall()
+
+    requeued: list[int] = []
+    for row in rows:
+        if active_set and (_inbox_row_active_candidates(row) & active_set):
+            continue
+        row_id = int(row["id"])
+        if kb_id is not None:
+            cur = conn.execute("UPDATE raw_inbox SET status='error', error='interrupted_by_restart', next_retry_at=NULL WHERE id=? AND kb_id=? AND status='received'", (row_id, kb_id))
+        else:
+            cur = conn.execute("UPDATE raw_inbox SET status='error', error='interrupted_by_restart', next_retry_at=NULL WHERE id=? AND status='received'", (row_id,))
+        if cur.rowcount > 0:
+            requeued.append(row_id)
+    if requeued:
+        conn.commit()
+    return requeued
 
 
 def due_for_recovery(
