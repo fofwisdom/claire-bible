@@ -111,10 +111,15 @@
 * **실행 순서**: `preflight` 검사 → Docker 이미지 빌드 (`docker compose build`) → DB 마이그레이션 (`claire migrate`) → 서비스 기동 (`up -d --wait`) → 헬스체크 (`health`).
 
 #### `update`
-Git 저장소 최신 커밋을 가져와 무중단 롤링 업데이트를 수행한다.
-* **사용법**: `./cb-manuscript update [--no-fetch]`
+Git 저장소 최신 커밋을 가져와 이미지를 다시 빌드하고, 실행 중인 적재(ingest) 작업을 보호하며 서비스를 안전하게 재기동한다.
+* **사용법**: `./cb-manuscript update [--no-fetch] [--wait-ingest [--wait-ingest-timeout <sec>] | --force-restart] [--yes | -y]`
 * **옵션**:
   * `--no-fetch`: 원격 git fetch 생략(로컬 변경사항만으로 빌드 및 재기동).
+  * `--wait-ingest`: 서비스 중지 전 `<CB_DATA_DIR>/active_jobs/*.json` 및 `active_ingest.json`에 활성 적재 작업이 있으면 완료될 때까지 대기 후 재기동.
+  * `--wait-ingest-timeout <sec>`: `--wait-ingest` 최대 대기 시간(초, 기본값 `900`). 초과 시 컨테이너를 중지하지 않고 오류로 중단.
+  * `--force-restart`: 활성 적재 작업이 있어도 대기나 확인 없이 즉시 서비스 재기동 진행.
+  * `--yes`, `-y`: 대화형 프롬프트 비활성화. 활성 적재 작업이 있을 때 `--wait-ingest` 또는 `--force-restart`가 없으면 컨테이너를 강제 종료하지 않고 안전하게 중단.
+* **활성 적재 보호(Pre-restart Guard)**: Docker 이미지 빌드 직후, 컨테이너 중지 직전에 활성 적재 상태 파일(갱신 1800초 초과 stale 항목 및 `active != true` 제외, `job_id` 기준 중복 제거)을 검사한다. 활성 작업이 있고 정책 플래그가 없으면 대화형 TTY에서는 대기(`w`)·즉시 재기동(`f`)·중단(`a`, 기본값)을 묻고, 비대화형 실행이나 `--yes`에서는 `--wait-ingest` 또는 `--force-restart` 사용을 안내하며 비정상 종료 코드(`2`)로 안전 중단한다.
 
 #### `version`
 래퍼 스크립트 및 패키징된 Claire Bible 소스코드의 버전을 출력한다.

@@ -35,6 +35,9 @@ VERSION = "0.2.0"
 DEFAULT_PROJECT = "claire-bible"
 DEFAULT_DEV_PROJECT = "claire-bible-dev"
 DEFAULT_WAIT_TIMEOUT = 120
+ACTIVE_INGEST_STALE_TIMEOUT_SEC = 1800.0
+DEFAULT_WAIT_INGEST_TIMEOUT = 900
+DEFAULT_WAIT_INGEST_POLL_INTERVAL = 5.0
 ENVIRONMENT_KEY = "CLAIRE_ENVIRONMENT"
 SITE_DOMAIN_KEY = "CLAIRE_SITE_DOMAIN"
 # Fedify sidecar (federation design, Section 4.2): the development host port of the sidecar. The sidecar is a service of each installation: federation has no switch (FEDERATION_GO_LIVE_DESIGN.md decision GD4).
@@ -3172,7 +3175,217 @@ def command_install(runtime: Runtime) -> int:
 UPDATE_PREVIOUS_REVISION_ENV = "CB_MANUSCRIPT_UPDATE_PREVIOUS_REVISION"
 
 
-def _reexec_update(runtime: Runtime, *, previous_revision: str | None) -> None:
+def _coerce_active_timestamp(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    ts = float(value)
+    if ts <= 0:
+        return None
+    return ts
+
+
+def _active_ingest_timestamp(job: Mapping[str, Any]) -> float | None:
+    return _coerce_active_timestamp(job.get("updated_at")) or _coerce_active_timestamp(job.get("started_at"))
+
+
+def _read_active_ingest_file(path: Path) -> dict[str, Any] | None:
+    try:
+        if not path.is_file():
+            return None
+        text = path.read_text(encoding="utf-8")
+        if not text.strip():
+            return None
+        data = json.loads(text)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def list_active_ingests(data_dir: Path, *, now: float | None = None, stale_timeout_sec: float = ACTIVE_INGEST_STALE_TIMEOUT_SEC) -> list[dict[str, Any]]:
+    """Return non-stale active ingest jobs from active_jobs/*.json and active_ingest.json."""
+
+    current_now = time.time() if now is None else float(now)
+    by_id: dict[str, dict[str, Any]] = {}
+    inactive_ids: dict[str, float] = {}
+    anonymous: list[dict[str, Any]] = []
+
+    jobs_dir = data_dir / "active_jobs"
+    if jobs_dir.is_dir():
+        try:
+            job_files = sorted(jobs_dir.glob("*.json"), key=lambda item: item.name)
+        except OSError:
+            job_files = []
+        for path in job_files:
+            entry = _read_active_ingest_file(path)
+            if entry is None:
+                continue
+            raw_job_id = entry.get("job_id")
+            job_id = raw_job_id.strip() if isinstance(raw_job_id, str) else ""
+            ts = _active_ingest_timestamp(entry)
+            if entry.get("active") is not True:
+                if job_id:
+                    inactive_ids[job_id] = max(inactive_ids.get(job_id, 0.0), ts or 0.0)
+                continue
+            if ts is None or (current_now - ts) > stale_timeout_sec:
+                continue
+            if job_id:
+                existing = by_id.get(job_id)
+                if existing is None or ts > (_active_ingest_timestamp(existing) or 0.0):
+                    by_id[job_id] = entry
+            else:
+                anonymous.append(entry)
+
+    single = _read_active_ingest_file(data_dir / "active_ingest.json")
+    if single is not None and single.get("active") is True:
+        ts = _active_ingest_timestamp(single)
+        if ts is not None and (current_now - ts) <= stale_timeout_sec:
+            raw_job_id = single.get("job_id")
+            job_id = raw_job_id.strip() if isinstance(raw_job_id, str) else ""
+            if job_id:
+                if job_id in inactive_ids and inactive_ids[job_id] >= ts:
+                    pass
+                else:
+                    existing = by_id.get(job_id)
+                    if existing is None or ts > (_active_ingest_timestamp(existing) or 0.0):
+                        by_id[job_id] = single
+            else:
+                anonymous.append(single)
+
+    results = [*by_id.values(), *anonymous]
+    results.sort(key=lambda item: (_coerce_active_timestamp(item.get("started_at")) or _active_ingest_timestamp(item) or 0.0, str(item.get("job_id") or "")))
+    return results
+
+
+def _compact_single_line(value: object, *, max_len: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = re.sub(r"\s+", " ", value).strip()
+    if len(text) > max_len:
+        return text[: max_len - 1].rstrip() + "…"
+    return text
+
+
+def _format_elapsed_duration(seconds: float) -> str:
+    total = max(0, int(seconds))
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
+
+
+def _format_active_ingest_line(job: Mapping[str, Any], *, now: float) -> str:
+    job_id = _compact_single_line(job.get("job_id"), max_len=32)
+    title = _compact_single_line(job.get("title"), max_len=100)
+    payload = _compact_single_line(job.get("payload"), max_len=100)
+    if title and payload and payload != title and not payload.startswith(title.rstrip("…")):
+        label = f"{title} ({payload})"
+    else:
+        label = title or payload or "(untitled)"
+    stage = _compact_single_line(job.get("stage"), max_len=40) or "unknown"
+    msg = _compact_single_line(job.get("msg"), max_len=140)
+    started = _coerce_active_timestamp(job.get("started_at")) or _active_ingest_timestamp(job) or now
+    elapsed = _format_elapsed_duration(now - started)
+    prefix = f"[{job_id}] " if job_id else ""
+    parts = [f"{prefix}{label}", f"stage={stage}", f"elapsed={elapsed}"]
+    if msg:
+        parts.append(f"msg={msg}")
+    return "  - " + " | ".join(parts)
+
+
+def _print_active_ingests(jobs: Sequence[Mapping[str, Any]], *, now: float | None = None) -> None:
+    current_now = time.time() if now is None else float(now)
+    print(f"cb-manuscript: Active ingest job(s) detected ({len(jobs)}):", flush=True)
+    for job in jobs:
+        print(_format_active_ingest_line(job, now=current_now), flush=True)
+
+
+def _is_interactive_stdin() -> bool:
+    try:
+        return bool(sys.stdin and sys.stdin.isatty())
+    except Exception:
+        return False
+
+
+def _wait_for_active_ingests(data_dir: Path, *, timeout_sec: int, poll_interval: float | None = None, sleep_func: Callable[[float], None] | None = None, monotonic_func: Callable[[], float] | None = None, now_func: Callable[[], float] | None = None) -> None:
+    _poll_interval = DEFAULT_WAIT_INGEST_POLL_INTERVAL if poll_interval is None else poll_interval
+    _sleep = time.sleep if sleep_func is None else sleep_func
+    _monotonic = time.monotonic if monotonic_func is None else monotonic_func
+    _now = time.time if now_func is None else now_func
+
+    start = _monotonic()
+    deadline = start + timeout_sec
+    print(f"cb-manuscript: Waiting for active ingest(s) to finish (timeout: {timeout_sec}s)...", flush=True)
+    last_signature: tuple[tuple[str, str, str], ...] | None = None
+    last_report = start
+    while True:
+        remaining = deadline - _monotonic()
+        if remaining <= 0:
+            current_now = _now()
+            jobs = list_active_ingests(data_dir, now=current_now)
+            if not jobs:
+                print(f"cb-manuscript: All active ingests finished after {_format_elapsed_duration(_monotonic() - start)}. Continuing update.", flush=True)
+                return
+            _print_active_ingests(jobs, now=current_now)
+            raise ManuscriptError(f"Timed out after {timeout_sec}s waiting for {len(jobs)} active ingest job(s) to finish. Re-run with a larger --wait-ingest-timeout or pass --force-restart to restart immediately.")
+        _sleep(min(_poll_interval, remaining))
+        current_now = _now()
+        jobs = list_active_ingests(data_dir, now=current_now)
+        if not jobs:
+            print(f"cb-manuscript: All active ingests finished after {_format_elapsed_duration(_monotonic() - start)}. Continuing update.", flush=True)
+            return
+        now_mono = _monotonic()
+        signature = tuple((str(j.get("job_id") or ""), str(j.get("stage") or ""), str(j.get("msg") or "")) for j in jobs)
+        if last_signature is None or signature != last_signature or (now_mono - last_report) >= 15.0:
+            print(f"cb-manuscript: Still waiting ({len(jobs)} active, waited {_format_elapsed_duration(now_mono - start)} / {timeout_sec}s):", flush=True)
+            for job in jobs:
+                print(_format_active_ingest_line(job, now=current_now), flush=True)
+            last_signature = signature
+            last_report = now_mono
+
+
+def _guard_active_ingests_before_restart(runtime: Runtime, *, wait_ingest: bool, wait_ingest_timeout: int, force_restart: bool, yes: bool, input_func: Callable[[str], str] | None = None, is_tty: bool | None = None, poll_interval: float | None = None, sleep_func: Callable[[float], None] | None = None, monotonic_func: Callable[[], float] | None = None, now_func: Callable[[], float] | None = None) -> None:
+    data_dir = resolve_storage(runtime).data
+    _now = time.time if now_func is None else now_func
+    current_now = _now()
+    jobs = list_active_ingests(data_dir, now=current_now)
+    if not jobs:
+        return
+
+    _print_active_ingests(jobs, now=current_now)
+    if force_restart:
+        print("cb-manuscript: --force-restart specified; proceeding with service restart despite active ingest(s).", flush=True)
+        return
+    if wait_ingest:
+        _wait_for_active_ingests(data_dir, timeout_sec=wait_ingest_timeout, poll_interval=poll_interval, sleep_func=sleep_func, monotonic_func=monotonic_func, now_func=_now)
+        return
+
+    interactive = _is_interactive_stdin() if is_tty is None else is_tty
+    if yes or not interactive:
+        raise ManuscriptError(f"Aborting update because {len(jobs)} active ingest job(s) are running in {data_dir}. Pass --wait-ingest to wait for completion or --force-restart to restart immediately.")
+
+    _input = input_func or input
+    while True:
+        try:
+            choice = _input("Active ingest(s) are running. [w]ait for completion, [f]orce restart now, or [a]bort [a]: ").strip().lower()
+        except EOFError as exc:
+            raise ManuscriptError(f"Aborting update because {len(jobs)} active ingest job(s) are running in {data_dir}. Pass --wait-ingest to wait for completion or --force-restart to restart immediately.") from exc
+        if choice in {"", "a", "abort", "q", "quit", "n", "no"}:
+            raise ManuscriptError("Update aborted by operator while active ingest(s) are running. Re-run with --wait-ingest or --force-restart.")
+        if choice in {"w", "wait"}:
+            _wait_for_active_ingests(data_dir, timeout_sec=wait_ingest_timeout, poll_interval=poll_interval, sleep_func=sleep_func, monotonic_func=monotonic_func, now_func=_now)
+            return
+        if choice in {"f", "force"}:
+            print("cb-manuscript: Operator chose force restart; proceeding despite active ingest(s).", flush=True)
+            return
+        print("Invalid choice. Enter 'w' (wait), 'f' (force restart), or 'a' (abort).", flush=True)
+
+
+def _reexec_update(runtime: Runtime, *, previous_revision: str | None, wait_ingest: bool = False, wait_ingest_timeout: int = DEFAULT_WAIT_INGEST_TIMEOUT, force_restart: bool = False, yes: bool = False) -> None:
     """Replace this process with the pulled manuscript code to complete the update.
 
     The target is the Python module, not the `cb-manuscript` Bash wrapper. The Python interpreter cannot run the wrapper.
@@ -3181,6 +3394,14 @@ def _reexec_update(runtime: Runtime, *, previous_revision: str | None) -> None:
     if runtime.dev:
         argv.append("dev")
     argv.extend(["update", "--no-fetch"])
+    if wait_ingest:
+        argv.append("--wait-ingest")
+    if wait_ingest_timeout != DEFAULT_WAIT_INGEST_TIMEOUT:
+        argv.extend(["--wait-ingest-timeout", str(wait_ingest_timeout)])
+    if force_restart:
+        argv.append("--force-restart")
+    if yes:
+        argv.append("--yes")
     env = dict(os.environ)
     if previous_revision:
         env[UPDATE_PREVIOUS_REVISION_ENV] = previous_revision
@@ -3189,7 +3410,12 @@ def _reexec_update(runtime: Runtime, *, previous_revision: str | None) -> None:
     os.execve(sys.executable, argv, env)
 
 
-def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
+def command_update(runtime: Runtime, *, no_fetch: bool, wait_ingest: bool = False, wait_ingest_timeout: int = DEFAULT_WAIT_INGEST_TIMEOUT, force_restart: bool = False, yes: bool = False) -> int:
+    if wait_ingest and force_restart:
+        raise ManuscriptError("--wait-ingest and --force-restart cannot be used together.")
+    if wait_ingest_timeout < 1:
+        raise ManuscriptError("--wait-ingest-timeout must be at least 1 second.")
+
     with ServerLock(runtime) as lock:
         config_preflight(runtime)
         previous_state = _profile_state(runtime) or {}
@@ -3207,7 +3433,7 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
                     "Re-executing update with updated manuscript..."
                 )
                 lock.__exit__(None, None, None)
-                _reexec_update(runtime, previous_revision=previous_revision)
+                _reexec_update(runtime, previous_revision=previous_revision, wait_ingest=wait_ingest, wait_ingest_timeout=wait_ingest_timeout, force_restart=force_restart, yes=yes)
 
         env_changes = sync_environment_files(runtime.layout)
         if env_changes.get("env"):
@@ -3230,6 +3456,7 @@ def command_update(runtime: Runtime, *, no_fetch: bool) -> int:
             ("build",),
             build_revision=build_rev,
         )
+        _guard_active_ingests_before_restart(runtime, wait_ingest=wait_ingest, wait_ingest_timeout=wait_ingest_timeout, force_restart=force_restart, yes=yes)
         _transition(runtime)
         _record_success(
             runtime,
@@ -3628,26 +3855,30 @@ def build_parser() -> argparse.ArgumentParser:
         "update",
         help="Fast-forward update and safely restart services",
         description=(
-            "Fast-forward pull Git source, rebuild images, and restart services in a safe order.\n\n"
+            "Fast-forward pull Git source, rebuild images, check active ingests, and restart services in a safe order.\n\n"
             "Steps:\n"
             "  1. Check Git working tree and fast-forward pull (skipped if --no-fetch is given)\n"
             "  2. Rebuild Docker images\n"
-            "  3. Safely stop services and migrate DB\n"
-            "  4. Restart Compose services (up -d --wait)\n"
-            "  5. API healthcheck"
+            "  3. Check for active ingest jobs before stopping running services\n"
+            "  4. Safely stop services and migrate DB\n"
+            "  5. Restart Compose services (up -d --wait)\n"
+            "  6. API healthcheck"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  ./cb-manuscript update             # git pull, rebuild, and restart\n"
-            "  ./cb-manuscript update --no-fetch  # Redeploy current code without git fetch"
+            "  ./cb-manuscript update                       # git pull, rebuild, and restart\n"
+            "  ./cb-manuscript update --no-fetch            # Redeploy current code without git fetch\n"
+            "  ./cb-manuscript update --wait-ingest         # Wait for active ingests before restart\n"
+            "  ./cb-manuscript update --force-restart       # Restart immediately despite active ingests"
         ),
     )
-    update.add_argument(
-        "--no-fetch",
-        action="store_true",
-        help="Skip git pull (fetch) and redeploy using local source",
-    )
+    update.add_argument("--no-fetch", action="store_true", help="Skip git pull (fetch) and redeploy using local source")
+    ingest_policy = update.add_mutually_exclusive_group()
+    ingest_policy.add_argument("--wait-ingest", action="store_true", help="Wait for active ingest jobs to finish before restarting services")
+    ingest_policy.add_argument("--force-restart", action="store_true", help="Proceed with service restart immediately even if active ingest jobs are running")
+    update.add_argument("--wait-ingest-timeout", type=int, default=DEFAULT_WAIT_INGEST_TIMEOUT, help=f"Maximum seconds to wait for active ingests with --wait-ingest (default: {DEFAULT_WAIT_INGEST_TIMEOUT})")
+    update.add_argument("--yes", "-y", action="store_true", dest="yes", help="Disable interactive prompts; abort if active ingests exist unless --wait-ingest or --force-restart is specified")
 
     # 5. backup
     backup = subparsers.add_parser(
@@ -4075,7 +4306,7 @@ def main(argv: Sequence[str] | None = None, *, root: Path | None = None) -> int:
         if parsed.command == "install":
             return command_install(runtime)
         if parsed.command == "update":
-            return command_update(runtime, no_fetch=parsed.no_fetch)
+            return command_update(runtime, no_fetch=parsed.no_fetch, wait_ingest=parsed.wait_ingest, wait_ingest_timeout=parsed.wait_ingest_timeout, force_restart=parsed.force_restart, yes=parsed.yes)
         if parsed.command == "backup":
             return command_backup(
                 runtime,

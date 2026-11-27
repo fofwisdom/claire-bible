@@ -76,6 +76,16 @@ Backfill details (basis: commit d15ae8e0, 2026-11-16):
 
 롤백은 같은 profile의 값을 `0`으로 되돌리고 다시 `./cb-manuscript up`을 실행한다. 이 모드의 보장 범위는 API 시작 완료 뒤의 익명 HTTP 요청뿐이다. 시작 migration과 별도 worker, Telegram bot, CLI의 쓰기는 계속 동작하며 범위 밖이다.
 
+### 업데이트 전 활성 적재 보호 (`cb-manuscript update`)
+
+장시간 실행되는 비디오 STT 전사나 PDF 적재 도중 배포가 컨테이너를 중지(`stop_grace_period: 20s` 후 SIGKILL)하지 않도록, `cb-manuscript update`는 Docker 이미지 빌드 직후이자 기존 컨테이너 중지 직전에 데이터 디렉터리(`<CB_DATA_DIR>/active_jobs/*.json` 및 `active_ingest.json`)의 활성 적재 상태를 검사한다 (`ops/cb_manuscript.py`의 `list_active_ingests`·`_guard_active_ingests_before_restart`).
+
+- `active`가 `true`이고 마지막 갱신(`updated_at`, 없으면 `started_at`)으로부터 1800초 이내인 작업만 활성으로 간주하며, 깨진 JSON·`active != true`·stale 항목은 무시하고 `job_id` 기준으로 중복을 제거한다.
+- 활성 작업이 감지되면 각 작업의 제목/페이로드, 단계(`stage`), 상태 메시지(`msg`), 경과 시간을 출력한다.
+- `--wait-ingest`를 주면 활성 작업이 끝날 때까지 `--wait-ingest-timeout`(기본 900초) 동안 진행 상태를 출력하며 대기한 뒤 재기동한다. 제한 시간을 넘기면 컨테이너를 건드리지 않고 종료 코드 `2`로 중단한다.
+- `--force-restart`를 주면 활성 작업이 있어도 즉시 서비스 교체를 진행한다.
+- 두 옵션 없이 활성 작업이 감지되면, 대화형 TTY에서는 대기(`w`), 즉시 재기동(`f`), 중단(`a`, 기본값)을 선택받고, 비대화형 stdin(`deploy.sh` SSH 실행 포함)이나 `--yes`/`-y`에서는 작업 강제 종료를 막기 위해 `--wait-ingest` 또는 `--force-restart` 안내와 함께 종료 코드 `2`로 안전하게 중단한다.
+
 ### 비디오 음성 전사 (STT) 운영 및 환경변수
 
 웹 비디오(VMware Explore/Brightcove, YouTube 등)의 음성 전사(STT) 기능은 컨테이너에 내장된 `ffmpeg`와 `yt-dlp` 및 STT 프로바이더(프로덕션 권장: `gemini` - `gemini-3.5-transcribe`)를 통해 동작한다.
