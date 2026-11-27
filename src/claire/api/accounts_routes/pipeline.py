@@ -14,7 +14,7 @@ from ...accounts.languages import ALWAYS_LANGUAGE, read_server_languages
 from ...accounts.provider_policy import split_gemini_model_and_effort
 from ...i18n import get_locale, interpolate, t
 from ...i18n.catalog import load_catalog
-from ...i18n.locales import DEFAULT_LOCALE
+from ...i18n.locales import DEFAULT_LOCALE, LocaleCode
 from .console_ui import console_card, console_kv, console_notice, console_pill, console_table, console_tabs
 
 ViewerRole = Literal["public", "member", "admin"]
@@ -85,7 +85,7 @@ def _svg_media_label(media: dict[str, Any], *, strip_effort: bool = False) -> st
     return model_val
 
 
-def _localized_language_name(tag: str, *, locale: str) -> str:
+def _localized_language_name(tag: str, *, locale: LocaleCode) -> str:
     """Map a BCP-47 tag (e.g. ``ko``, ``zh-hans``) to its localized display name."""
     cleaned = str(tag or "").strip().lower() or ALWAYS_LANGUAGE
     norm = cleaned.replace("-", "_")
@@ -105,7 +105,7 @@ def resolve_primary_language_info(
     settings: Any,
     *,
     viewer_lang_order: Sequence[str] | None = None,
-    locale: str | None = None,
+    locale: LocaleCode | None = None,
 ) -> tuple[str, list[str], str]:
     """Resolve ``(primary_tag, lang_order, primary_lang_name)`` using server/viewer preferred languages."""
     active_locale = locale if locale is not None else get_locale()
@@ -122,7 +122,7 @@ def resolve_primary_language_info(
     return primary_tag, order, _localized_language_name(primary_tag, locale=active_locale)
 
 
-def _neon_i18n_map(*, locale: str | None = None) -> dict[str, str]:
+def _neon_i18n_map(*, locale: LocaleCode | None = None) -> dict[str, str]:
     """Collect all ``pipeline.neon.*`` strings for the active locale so the shared JS bundle works without extra fetches."""
     active = locale if locale is not None else get_locale()
     merged = {**load_catalog(DEFAULT_LOCALE), **load_catalog(active)}
@@ -135,7 +135,7 @@ def build_pipeline_view_data(
     settings: Any = None,
     view: dict[str, Any] | None = None,
     lang_order: Sequence[str] | None = None,
-    locale: str | None = None,
+    locale: LocaleCode | None = None,
 ) -> dict[str, Any]:
     """Serialize sanitized Gemini Neon pipeline configuration and i18n copy for ``public``, ``member``, or ``admin`` viewers."""
     if viewer not in ("public", "member", "admin"):

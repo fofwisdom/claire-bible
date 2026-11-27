@@ -16,6 +16,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 from ...i18n import get_locale, t
+from ...i18n.locales import LocaleCode
 from ...store import accounts as accounts_store
 from ...store import db as dbm
 from ..accounts_routes.common import AccountsContext, escape, render_template
@@ -131,14 +132,14 @@ def _repo_url(repo_or_url: str) -> str:
     return f"https://github.com/{cleaned.lstrip('/')}"
 
 
-def _build_sources_rows_html(locale: str) -> str:
+def _build_sources_rows_html(locale: LocaleCode) -> str:
     return "".join(
         f"<tr><td><strong>{escape(t(f'about.sources.row.{key}.type', locale=locale))}</strong></td><td>{escape(t(f'about.sources.row.{key}.method', locale=locale))}</td><td>{escape(t(f'about.sources.row.{key}.note', locale=locale))}</td></tr>"
         for key in _SOURCE_ROW_KEYS
     )
 
 
-def _build_footer_links_html(settings: Any, *, locale: str) -> str:
+def _build_footer_links_html(settings: Any, *, locale: LocaleCode) -> str:
     links: list[str] = [f'<a href="/reference">{escape(t("about.footer.api_docs", locale=locale))}</a>']
     github_repo = str(getattr(settings, "effective_github_repository", "") or "").strip()
     if github_repo:
@@ -153,7 +154,7 @@ def _build_footer_links_html(settings: Any, *, locale: str) -> str:
     return "".join(links)
 
 
-def _build_kpi_build_html(settings: Any, *, short_sha: str, locale: str) -> str:
+def _build_kpi_build_html(settings: Any, *, short_sha: str, locale: LocaleCode) -> str:
     if not short_sha:
         return ""
     value_text = escape(t("about.kpi.build_val", locale=locale, sha=short_sha))
@@ -164,7 +165,7 @@ def _build_kpi_build_html(settings: Any, *, short_sha: str, locale: str) -> str:
     return f'<div class="about-kpi"><b>{value_html}</b><span>{sub_text}</span></div>'
 
 
-def _build_curator_strip_html(*, curator_name: str, curator_handle: str, locale: str) -> str:
+def _build_curator_strip_html(*, curator_name: str, curator_handle: str, locale: LocaleCode) -> str:
     if not curator_name:
         return ""
     handle_html = f' <code>{escape(curator_handle)}</code>' if curator_handle else ""
@@ -178,7 +179,7 @@ def _build_curator_strip_html(*, curator_name: str, curator_handle: str, locale:
     )
 
 
-def build_public_hero_context(settings: Any, *, locale: str) -> dict[str, Any]:
+def build_public_hero_context(settings: Any, *, locale: LocaleCode) -> dict[str, Any]:
     """Build shared KD15-compliant hero, KPI, curator, primary language, and footer markup context for public ``/`` and ``/about`` pages."""
     snap = _collect_public_snapshot(settings)
     _, lang_order, primary_lang_name = resolve_primary_language_info(settings, locale=locale)

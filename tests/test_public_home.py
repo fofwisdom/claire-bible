@@ -7,6 +7,7 @@ import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
@@ -35,7 +36,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
 
 
-def _setup_home_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, server_langs: list[str] | None = None, with_content: bool = True, **setting_overrides: object) -> SimpleNamespace:
+def _setup_home_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, server_langs: list[str] | None = None, with_content: bool = True, **setting_overrides: Any) -> SimpleNamespace:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     db_file = data_dir / "claire.db"
@@ -94,7 +95,7 @@ def _setup_home_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, server_l
     finally:
         auth_conn.close()
 
-    base_settings: dict[str, object] = {
+    base_settings: dict[str, Any] = {
         "_env_file": None,
         "CLAIRE_DB_PATH": str(db_file),
         "CLAIRE_DATA_DIR": str(data_dir),

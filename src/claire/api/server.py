@@ -1221,8 +1221,9 @@ def create_app(
                         "footer_links_html": hero["footer_links_html"],
                     },
                 )
-                etag = collections.collection_etag([locale, str(account_id or ""), hashlib.sha256(rendered_resp.body).hexdigest()])
-                return rendered_resp.body, etag
+                body_bytes = bytes(rendered_resp.body)
+                etag = collections.collection_etag([locale, str(account_id or ""), hashlib.sha256(body_bytes).hexdigest()])
+                return body_bytes, etag
 
             body_bytes, etag = await asyncio.to_thread(_render_root_home)
             headers = collections.collection_cache_headers(anonymous=(account_id is None), etag=etag)
