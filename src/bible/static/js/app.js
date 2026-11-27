@@ -2063,10 +2063,10 @@ function srcRowHtml(dc, prev, index){
   h += '<span class="srcmeta">' + (day ? '<span class="srcdate">' + day + '</span>' : '') + (dc.source_type ? '<span class="srctype">' + esc(dc.source_type) + '</span>' : '') + '</span></button>';
   // The default response of GET /node has detail, and docs=brief has has_detail.
   if(dc.has_detail || dc.detail || dc.summary) h += '<button type="button" class="srcread" data-read-doc="' + esc(dc.id) + '" title="' + tr("ws.node.read_doc") + '" aria-label="' + tr("ws.node.read_doc") + '"><span data-icon="book"></span></button>';
+  if(isWebUrl(dc.url)) h += '<a class="srcurl" href="' + esc(dc.url) + '" target="_blank" rel="noopener" title="' + esc(tr("ws.node.open_source_label")) + '" aria-label="' + esc(tr("ws.node.open_source_label")) + '"><span data-icon="external"></span></a>';
   h += '</div><div id="' + sid + '" class="srcbody" role="region" aria-label="' + esc(tr('ws.node.src_summary', { title: dc.title })) + '" hidden>';
   h += dc.summary ? '<p class="srcsum">' + esc(dc.summary) + '</p>' : '<p class="srcsum srcnone">' + tr("ws.node.no_summary") + '</p>';
   const links = [];
-  if(dc.has_detail || dc.detail || dc.summary) links.push('<button type="button" class="srcopen" data-read-doc="' + esc(dc.id) + '">' + tr("ws.node.open_doc") + '</button>');
   if(canIngest() && dc.has_raw_file) links.push('<a href="' + apiUrl('document/raw?id=' + encodeURIComponent(dc.id)) + '" target=_blank rel=noopener><span data-icon="doc"></span> ' + tr("ws.node.open_raw") + '</a>');
   if(links.length) h += '<p class="src">' + links.join(' · ') + '</p>';
   return h + '</div></div>';
@@ -2092,7 +2092,7 @@ panel.addEventListener('click', e => {
     loadNode(insight.dataset.insightEnt);
     return;
   }
-  const read = e.target.closest('.srcread, .srcopen');
+  const read = e.target.closest('.srcread');
   if(read){ openReader(read.dataset.readDoc); setCenterView('reader'); return; }
   const t = e.target.closest('.srctitle'); if(!t) return;
   const body = document.getElementById(t.getAttribute('aria-controls')); if(!body) return;

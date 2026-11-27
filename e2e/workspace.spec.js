@@ -2229,9 +2229,13 @@ test.describe('node detail panel and node request order', () => {
     expect(await first.locator('.srcsum').evaluate(el => getComputedStyle(el).textAlign)).toBe('justify');
     // CJK justify: a line can break between syllables, thus the extra space does not collect between eojeol.
     expect(await first.locator('.srcsum').evaluate(el => getComputedStyle(el).wordBreak)).toBe('normal');
-    await expect(first.locator('.srcbody .srcopen')).toHaveText('본문 열기');
+    await expect(first.locator('.srcbody .srcopen')).toHaveCount(0);
     await expect(first.locator('.srcbody a')).toHaveCount(0);
     await expect(first.locator('.srcread')).toHaveAttribute('aria-label', '본문 보기');
+    await expect(first.locator('.srchead .srcurl')).toHaveAttribute('aria-label', '원문 열기');
+    await expect(first.locator('.srchead .srcurl')).toHaveAttribute('target', '_blank');
+    await expect(first.locator('.srchead .srcurl')).toHaveAttribute('href', 'https://example.com/page/1');
+    await expect(first.locator('.srchead .srcurl svg.lineicon')).toHaveCount(1);
 
     // More than one row can be open. A document with no summary and no detail shows 초록 없음 and has no reader button.
     const second = srcRows.nth(1);
@@ -2239,6 +2243,8 @@ test.describe('node detail panel and node request order', () => {
     await expect(second.locator('.srcsum')).toHaveText('초록 없음');
     await expect(second.locator('.srcread')).toHaveCount(0);
     await expect(second.locator('.srcbody .srcopen')).toHaveCount(0);
+    await expect(second.locator('.srchead .srcurl')).toHaveAttribute('aria-label', '원문 열기');
+    await expect(second.locator('.srchead .srcurl')).toHaveAttribute('href', 'https://example.com/page/2');
     await expect(panel.locator('.srcbody:visible')).toHaveCount(2);
     await first.locator('.srctitle').click();
     await expect(first.locator('.srcsum')).toBeHidden();
@@ -2278,12 +2284,6 @@ test.describe('node detail panel and node request order', () => {
     // The reader button of a source document row opens the document in the reader view.
     await srcRows.nth(0).locator('.srcread').click();
     await expect(page.locator('#docs')).toHaveAttribute('data-list', 'docs');
-    await expect(page.locator('#reader')).toContainText('페이징 자료 01의 본문입니다.');
-
-    // The 본문 열기 button inside the expanded source row also opens the document in the reader view.
-    await page.evaluate(() => selectEntity('ent-list-01'));
-    await srcRows.nth(0).locator('.srctitle').click();
-    await srcRows.nth(0).locator('.srcbody .srcopen').click();
     await expect(page.locator('#reader')).toContainText('페이징 자료 01의 본문입니다.');
     expect(pageErrors).toEqual([]);
   });
@@ -3589,13 +3589,16 @@ test('document list defaults to titles only, places hide below favorite within t
   await expect(page.locator('#doclist .docitem').filter({ hasText: '테스트 문서 2' })).toHaveCount(1);
   await expect(page.locator('#panelhidechk')).not.toBeChecked();
 
-  // 4. Context panel source documents show 본문 열기 (not 원문 열기) and open the document in the reader.
+  // 4. Context panel source rows remove the 본문 열기 text button and show the 원문 열기 icon link in the header.
   await page.evaluate(() => selectEntity('ent-list-01'));
   const firstSrc = page.locator('#panel .srcrow').first();
   await firstSrc.locator('.srctitle').click();
-  await expect(firstSrc.locator('.srcbody .srcopen')).toHaveText('본문 열기');
-  await expect(firstSrc.locator('.srcbody')).not.toContainText('원문 열기');
-  await firstSrc.locator('.srcbody .srcopen').click();
+  await expect(firstSrc.locator('.srcbody .srcopen')).toHaveCount(0);
+  await expect(firstSrc.locator('.srcbody')).not.toContainText('본문 열기');
+  await expect(firstSrc.locator('.srchead .srcurl')).toHaveAttribute('aria-label', '원문 열기');
+  await expect(firstSrc.locator('.srchead .srcurl')).toHaveAttribute('target', '_blank');
+  await expect(firstSrc.locator('.srchead .srcurl')).toHaveAttribute('href', 'https://example.com/page/1');
+  await firstSrc.locator('.srcread').click();
   await expect(page.locator('#reader')).toContainText('페이징 자료 01의 본문입니다.');
 
   expect(pageErrors).toEqual([]);

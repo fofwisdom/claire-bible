@@ -267,23 +267,20 @@
   #panel .srchead{display:flex;align-items:flex-start;gap:4px}
   #panel .srctitle{flex:1;min-width:0;display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:4px;row-gap:1px;margin:0;padding:7px 2px;border:0;border-radius:0;background:none;color:var(--fg);font:inherit;text-align:left;cursor:pointer;scroll-margin-top:120px}
   #panel .srctitle:hover{background:var(--hover)}
-  #panel .srctitle:focus-visible,#panel .srcread:focus-visible{outline:2px solid var(--accent2);outline-offset:-2px}
+  #panel .srctitle:focus-visible,#panel .srcread:focus-visible,#panel .srcurl:focus-visible{outline:2px solid var(--accent2);outline-offset:-2px}
   #panel .srccaret{color:var(--muted)}
   #panel .srcname{overflow-wrap:anywhere}
   #panel .srctitle[aria-expanded="true"] .srcname{font-weight:600}
   #panel .srcmeta{grid-column:2;display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11px}
   #panel .srctype{padding:0 6px;border:1px solid var(--border);border-radius:8px;background:var(--chip-bg)}
-  #panel .srcread{flex:none;min-width:32px;min-height:32px;margin:2px 0 0;padding:0;border:0;border-radius:4px;background:none;color:var(--muted);font-size:15px;cursor:pointer}
-  #panel .srcread:hover{background:var(--hover);color:var(--fg)}
+  #panel .srcread,#panel .srcurl{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:32px;min-height:32px;margin:2px 0 0;padding:0;border:0;border-radius:4px;background:none;color:var(--muted);font-size:15px;text-decoration:none;cursor:pointer}
+  #panel .srcread:hover,#panel .srcurl:hover{background:var(--hover);color:var(--fg)}
   #panel .srcbody{padding:0 4px 8px 20px}
   #panel .srcbody[hidden]{display:none}
   /* CJK justify: keep-all puts the extra space only between eojeol (wide gaps). word-break:normal lets a line break between syllables, thus the lines fill and the gaps stay small. */
   #panel .srcsum{margin:.35em 0 .2em;text-align:justify;text-align-last:start;text-justify:inter-character;word-break:normal;overflow-wrap:anywhere;line-height:1.6}
   #panel .srcsum.srcnone{color:var(--muted)}
   #panel .srcbody p.src{margin:.45em 0 0;font-size:12px}
-  #panel .srcopen{background:none;border:0;padding:0;margin:0;color:var(--accent);font:inherit;cursor:pointer;text-decoration:none}
-  #panel .srcopen:hover{text-decoration:underline}
-  #panel .srcopen:focus-visible{outline:2px solid var(--accent2);outline-offset:2px;border-radius:2px}
   #panel .docmeta, #reader .docmeta, #rbody .docmeta, .docmeta{color:var(--muted);font-size:12px;margin:.1em 0 .6em;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
   .docmeta .docmeta-tags{display:inline-flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap}
   /* The tags of the reader meta line have one style, the style of the source badge (.prov.det). The class names stay for the code and the tests: .trunc-tag.trunc-appendix .trunc-tag.trunc-references .trunc-tag.trunc-stt .trunc-tag.parser-fallback-tag .trunc-tag.encoding-flaw-tag .trunc-tag.scanned-tag */

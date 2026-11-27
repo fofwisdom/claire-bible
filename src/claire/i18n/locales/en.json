@@ -2761,7 +2761,7 @@
   "ws.node.read_doc": "Read the text",
   "ws.node.no_summary": "No summary",
   "ws.node.open_source": "↗ Open the source",
-  "ws.node.open_doc": "Open the text",
+  "ws.node.open_source_label": "Open the source",
   "ws.node.open_raw": "Open the original file",
   "ws.node.no_title_match": "No document with a matching title",
   "ws.node.not_found": "The entity was not found.",

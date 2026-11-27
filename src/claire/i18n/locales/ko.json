@@ -2761,7 +2761,7 @@
   "ws.node.read_doc": "본문 보기",
   "ws.node.no_summary": "초록 없음",
   "ws.node.open_source": "↗ 원문 열기",
-  "ws.node.open_doc": "본문 열기",
+  "ws.node.open_source_label": "원문 열기",
   "ws.node.open_raw": "원본 열기",
   "ws.node.no_title_match": "제목이 맞는 문서 없음",
   "ws.node.not_found": "엔티티를 찾을 수 없습니다.",

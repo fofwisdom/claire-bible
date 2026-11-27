@@ -355,9 +355,10 @@ def test_favorite_and_hide_ui_markers():
     assert "dochide-btn" in GRAPH_HTML
     assert "ws.list.pinned_count" in GRAPH_HTML
     assert "ws.list.unhide" in GRAPH_HTML
-    # Context panel source list: open text button and default titles-only mode
-    assert "srcopen" in GRAPH_HTML
-    assert "ws.node.open_doc" in GRAPH_HTML
+    # Context panel source list: external source link icon and default titles-only mode
+    assert "srcurl" in GRAPH_HTML
+    assert "ws.node.open_source_label" in GRAPH_HTML
+    assert "srcopen" not in GRAPH_HTML
     assert "let descLines = 0;" in GRAPH_HTML
     # Right panel: FTS-style hide checkbox
     assert "dochide-row" in GRAPH_HTML and "dochide-label" in GRAPH_HTML
