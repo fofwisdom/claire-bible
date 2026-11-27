@@ -36,6 +36,7 @@ from . import opinion_actions
 from . import opinion_moderation
 from . import rendition_marks
 from . import knowledge_federation
+from . import ingest_queue
 from . import notifications as notification_routes
 from .common import AccountsContext, build_context, prepare_auth_db, prepare_client_db, require_recent_auth
 
@@ -83,6 +84,7 @@ def build_account_routes(
         *invites.routes(ctx),
         *keys.routes(ctx),
         *features.routes(ctx),
+        *ingest_queue.routes(ctx),
         *notification_routes.routes(ctx),
         *feeds.routes(ctx),
         *storage.routes(ctx),

@@ -234,6 +234,17 @@
     if (targetEl) targetEl.focus();
   }
 
+  function notifyQueueRefresh() {
+    if (window.ClaireAppBar && typeof window.ClaireAppBar.refreshIngestQueue === "function") {
+      window.ClaireAppBar.refreshIngestQueue();
+    }
+  }
+
+  function scheduleQueueRefresh(result) {
+    window.setTimeout(notifyQueueRefresh, 400);
+    Promise.resolve(result).then(notifyQueueRefresh, notifyQueueRefresh);
+  }
+
   function bindEvents() {
     document.addEventListener("change", function (ev) {
       var input = ev.target;
@@ -263,7 +274,9 @@
       formIngest.dataset.bound = "1";
       formIngest.addEventListener("submit", function (ev) {
         ev.preventDefault();
-        if (handlers && typeof handlers.submitIngest === "function") handlers.submitIngest();
+        if (handlers && typeof handlers.submitIngest === "function") {
+          scheduleQueueRefresh(handlers.submitIngest());
+        }
       });
     }
 
@@ -272,7 +285,9 @@
       formReingest.dataset.bound = "1";
       formReingest.addEventListener("submit", function (ev) {
         ev.preventDefault();
-        if (handlers && typeof handlers.submitReingest === "function") handlers.submitReingest();
+        if (handlers && typeof handlers.submitReingest === "function") {
+          scheduleQueueRefresh(handlers.submitReingest());
+        }
       });
     }
 
@@ -281,7 +296,9 @@
       formRegen.dataset.bound = "1";
       formRegen.addEventListener("submit", function (ev) {
         ev.preventDefault();
-        if (handlers && typeof handlers.submitRegen === "function") handlers.submitRegen(false);
+        if (handlers && typeof handlers.submitRegen === "function") {
+          scheduleQueueRefresh(handlers.submitRegen(false));
+        }
       });
     }
 

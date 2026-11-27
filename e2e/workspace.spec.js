@@ -773,8 +773,9 @@ test('provider management lives in the admin console and the root topbar shows o
     () => page.evaluate(() => window.claireDebug?.stabilized),
   ).toBe(true);
 
-  // 3. The admin owner sees right-to-left icons (#hamburger-btn -> #syndlink -> #homelinkbtn) and finds the 🛠️ console icon inside the hamburger menu
-  const endOrder = await page.evaluate(() => ['#themebtn', '#homelinkbtn', '#syndlink', '#hamburger-btn'].map((s) => document.querySelector(s).getBoundingClientRect().left));
+  // 3. The admin owner sees the appbar-end icons left to right (#homelinkbtn -> #syndlink -> #queuebtn -> #themebtn -> #hamburger-btn) and finds the console icon inside the hamburger menu
+  await expect(page.locator('#queuebtn')).toBeVisible();
+  const endOrder = await page.evaluate(() => ['#homelinkbtn', '#syndlink', '#queuebtn', '#themebtn', '#hamburger-btn'].map((s) => document.querySelector(s).getBoundingClientRect().left));
   for (let i = 1; i < endOrder.length; i += 1) {
     expect(endOrder[i]).toBeGreaterThan(endOrder[i - 1]);
   }

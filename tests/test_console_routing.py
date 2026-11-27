@@ -652,8 +652,11 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     assert '/static/js/command_palette.js' in member_html
     assert '/static/js/console_shell.js' in member_html
     assert 'id="authstate"' not in member_html
-    # 우측 상단 공통 아이콘 순서(오른쪽 끝부터 햄버거, 신디케이션, 유저홈)와 햄버거 내 로그아웃/콘솔 링크 배치 검증.
-    assert member_html.index('id="homelinkbtn"') < member_html.index('id="syndlink"') < member_html.index('id="hamburger-btn"')
+    # Common top-right icon order (left to right: user home, syndication, ingest queue, theme, hamburger) and hamburger menu links.
+    assert member_html.index('id="homelinkbtn"') < member_html.index('id="syndlink"') < member_html.index('id="queuebtn"') < member_html.index('id="themebtn"') < member_html.index('id="hamburger-btn"')
+    assert 'data-icon="rss"' in member_html[member_html.index('id="syndlink"'):member_html.index('id="queuebtn"')]
+    assert 'data-icon="layers"' in member_html[member_html.index('id="queuebtn"'):member_html.index('id="themebtn"')]
+    assert 'data-icon="rss"' in member_html[member_html.index('id="menusyndlink"'):member_html.index('id="moderationlinkbtn"')]
     assert member_html.index('id="pop-hamburger-menu"') < member_html.index('id="consolelinkbtn"') < member_html.index('action="/logout"')
     assert '/admin/' not in member_html
     assert 'data-nav-group="admin_server"' not in member_html
@@ -664,7 +667,10 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     assert 'data-nav-group-toggle="admin_system"' in admin_html
     assert 'console_admin.js' in admin_html
     assert 'id="palettetrigger"' in admin_html
-    assert admin_html.index('id="homelinkbtn"') < admin_html.index('id="syndlink"') < admin_html.index('id="hamburger-btn"')
+    assert admin_html.index('id="homelinkbtn"') < admin_html.index('id="syndlink"') < admin_html.index('id="queuebtn"') < admin_html.index('id="themebtn"') < admin_html.index('id="hamburger-btn"')
+    assert 'data-icon="rss"' in admin_html[admin_html.index('id="syndlink"'):admin_html.index('id="queuebtn"')]
+    assert 'data-icon="layers"' in admin_html[admin_html.index('id="queuebtn"'):admin_html.index('id="themebtn"')]
+    assert 'data-icon="rss"' in admin_html[admin_html.index('id="menusyndlink"'):admin_html.index('id="moderationlinkbtn"')]
 
 
 def test_settings_invites_bootstrap_isolation_and_bottom_list(console_env):

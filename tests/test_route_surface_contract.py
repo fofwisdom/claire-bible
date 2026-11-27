@@ -36,6 +36,7 @@ ANY = {"/providers", "/providers/test", "/providers/check", "/limits", "/ingest-
        "/api/me/backups", "/api/me/backups/download", "/api/me/backups/policy",
        # Notifications and Web Push of the account (PWA_NOTIFICATION_DESIGN.md PN5)
        "/api/me/notifications", "/api/me/notifications/read", "/api/me/push", "/api/me/push/subscriptions", "/api/me/push/kinds/{kind}", "/api/me/push/test",
+       "/api/me/ingest-queue", "/api/me/ingest-queue/{inbox_id}/retry",
        "/api/federation/status", "/api/federation/followers", "/api/federation/following", "/api/federation/following/{following_id}", "/api/federation/publish", "/api/federation/retract",
        # Federation client (FP4-5)
        "/api/federation/timeline", "/api/federation/timeline/{item_id}", "/api/federation/timeline/{item_id}/ingest", "/api/federation/timeline/{item_id}/context", "/render/remote/{item_id}", "/media/remote/{url_hash}", "/api/federation/objects",

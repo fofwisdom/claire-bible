@@ -1,0 +1,1704 @@
+<!doctype html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="color-scheme" content="light dark"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Claire Bible — 적재 대기열(Ingest Queue) 퀵 패널 시각 프로토타입</title>
+<style>
+/* --- BookStack Light & Dark Theme Tokens (from src/bible/static/css/theme.css) --- */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --bar-bg: #f6f8fa;
+  --border: #d0d7de;
+  --panel-bg: #f6f8fa;
+  --accent: #0969da;
+  --accent2: #1a7f37;
+  --chip-bg: #eaeef2;
+  --hover: #eef1f4;
+  --active: #ddf4ff;
+  --card-bg: #ffffff;
+  --btn-bg: #1f883d;
+  --btn-fg: #ffffff;
+  --sec-bg: #eaeef2;
+  --sec-fg: #24292f;
+  --warn: #9a6700;
+  --warn-bg: #fff8c5;
+  --danger: #cf222e;
+  --danger-bg: #ffebe9;
+  --remote: #8250df;
+  --remote-bg: #fbefff;
+  --ok: #1a7f37;
+  --ok-bg: #dafbe1;
+  --shadow: rgba(31, 35, 40, .28);
+  --scroll-track: #f1f3f5;
+  --scroll-thumb: #76808a;
+  accent-color: var(--accent);
+}
+[data-theme="light"] {
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --fg: #d7dbe0;
+  --muted: #8b949e;
+  --bar-bg: #161b22;
+  --border: #2a2f37;
+  --panel-bg: #10151c;
+  --accent: #58a6ff;
+  --accent2: #7ee787;
+  --chip-bg: #1f2937;
+  --hover: #161b22;
+  --active: #1f2937;
+  --card-bg: #161b22;
+  --btn-bg: #238636;
+  --btn-fg: #ffffff;
+  --sec-bg: #30363d;
+  --sec-fg: #d7dbe0;
+  --warn: #d29922;
+  --warn-bg: #332300;
+  --danger: #f85149;
+  --danger-bg: #38161a;
+  --remote: #c297ff;
+  --remote-bg: #2a193f;
+  --ok: #7ee787;
+  --ok-bg: #0d351d;
+  --shadow: rgba(1, 4, 9, .6);
+  --scroll-track: #161b22;
+  --scroll-thumb: #6e7681;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116;
+    --fg: #d7dbe0;
+    --muted: #8b949e;
+    --bar-bg: #161b22;
+    --border: #2a2f37;
+    --panel-bg: #10151c;
+    --accent: #58a6ff;
+    --accent2: #7ee787;
+    --chip-bg: #1f2937;
+    --hover: #161b22;
+    --active: #1f2937;
+    --card-bg: #161b22;
+    --btn-bg: #238636;
+    --btn-fg: #ffffff;
+    --sec-bg: #30363d;
+    --sec-fg: #d7dbe0;
+    --warn: #d29922;
+    --warn-bg: #332300;
+    --danger: #f85149;
+    --danger-bg: #38161a;
+    --remote: #c297ff;
+    --remote-bg: #2a193f;
+    --ok: #7ee787;
+    --ok-bg: #0d351d;
+    --shadow: rgba(1, 4, 9, .6);
+    --scroll-track: #161b22;
+    --scroll-thumb: #6e7681;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--panel-bg); color: var(--fg); font: 14px/1.55 'Noto Sans KR', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; word-break: keep-all; overflow-wrap: break-word; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.mono { font-family: 'D2Coding', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+.lineicon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.45; stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+.icon-wrap { display: inline-flex; align-items: center; justify-content: center; flex: none; }
+
+/* --- Interactive Controls Base (natural-interactions) --- */
+:where(button, a) { transition: background-color 150ms ease-out, border-color 150ms ease-out, box-shadow 150ms ease-out, scale 150ms ease-out; }
+@media (prefers-reduced-motion: no-preference) {
+  button:active:not(:disabled) { scale: 0.97; }
+}
+
+/* --- Prototype Controller Bar (not part of the product) --- */
+.proto-bar { position: sticky; top: 0; z-index: 60; background: #1f2328; color: #f0f6fc; border-bottom: 1px solid #30363d; padding: 8px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 12.5px; }
+.proto-group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.proto-group-label { font-weight: 700; color: #8b949e; margin-right: 2px; }
+.proto-bar button { background: #2d333b; border: 1px solid #444c56; color: #cdd9e5; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; min-block-size: 28px; display: inline-flex; align-items: center; gap: 5px; }
+.proto-bar button:hover { background: #373e47; border-color: #6e7681; }
+.proto-bar button[aria-pressed="true"] { background: #0969da; border-color: #388bfd; color: #ffffff; font-weight: 700; }
+.proto-bar button.sim-active { background: #1f883d; border-color: #3fb950; color: #ffffff; font-weight: 700; }
+.proto-status { background: var(--bar-bg); border-bottom: 1px solid var(--border); padding: 7px 16px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.proto-status code { background: var(--chip-bg); padding: 1px 6px; border-radius: 4px; font-size: 11.5px; color: var(--fg); border: 1px solid var(--border); }
+.proto-status strong { color: var(--fg); }
+
+/* --- Device Stage --- */
+.stage { padding: 14px 14px 20px; display: flex; justify-content: center; }
+.device { width: 100%; max-width: 1180px; min-height: 700px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .08); display: flex; flex-direction: column; overflow: hidden; }
+.device.is-mobile { max-width: 390px; border-radius: 22px; border-width: 2px; }
+
+/* --- Unified Appbar (mirrors src/bible/static/css/appbar.css + user decision 1 & 3) --- */
+.appbar { position: relative; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 12px; min-height: 48px; background: var(--bar-bg); border-bottom: 1px solid var(--border); font-size: 13px; white-space: nowrap; }
+.bar-brand-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand { font-weight: 700; letter-spacing: -.01em; text-decoration: none; color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
+.brand-dot { width: 18px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center; background: var(--accent); color: #fff; font-size: 11px; font-weight: 800; }
+.theme-pill { display: inline-flex; align-items: center; gap: 4px; background: var(--sec-bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; height: 28px; font-size: 12px; font-weight: 600; color: var(--fg); }
+.appbar-center { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 34px; }
+.palette-trigger { display: flex; align-items: center; flex: 1 1 180px; min-width: 120px; width: 100%; max-width: 360px; height: 34px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0 8px 0 10px; gap: 8px; color: var(--muted); font-size: 12.5px; text-align: left; cursor: pointer; }
+.palette-trigger:hover { border-color: var(--accent); background: var(--card-bg); }
+.palette-trigger-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-trigger kbd { flex: none; min-width: 18px; padding: 0 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--sec-bg); color: var(--muted); font: inherit; font-size: 11px; line-height: 18px; text-align: center; }
+
+.appbar-end { display: flex; align-items: center; gap: 6px; }
+.bar-ingest-btn { display: inline-flex; align-items: center; gap: 5px; min-block-size: 28px; height: 28px; padding: 0 10px; background: var(--btn-bg); color: var(--btn-fg); border: 1px solid transparent; border-radius: 4px; font-weight: 700; font-size: 12.5px; cursor: pointer; }
+.bar-ingest-btn:hover { filter: brightness(1.06); }
+.ingest-caret { font-size: 10px; opacity: .85; line-height: 1; }
+.bar-icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-block-size: 28px; min-inline-size: 30px; height: 28px; padding: 0 6px; background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font-size: 12.5px; line-height: 1; text-decoration: none; cursor: pointer; }
+.bar-icon-btn:hover { background: var(--hover); border-color: color-mix(in oklab, var(--border) 60%, var(--fg)); }
+.bar-icon-btn[aria-expanded="true"], .bar-icon-btn.is-highlighted { background: var(--active); border-color: var(--accent); color: var(--accent); }
+.bar-badge { position: absolute; top: -5px; inset-inline-end: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: #ffffff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; pointer-events: none; font-variant-numeric: tabular-nums; }
+.bar-badge.is-saturated { background: var(--warn); }
+.bar-badge.is-idle { display: none; }
+.queue-live-dot { position: absolute; bottom: 2px; inset-inline-end: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent2); border: 1px solid var(--bar-bg); pointer-events: none; }
+.queue-live-dot[hidden] { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .queue-live-dot.is-pulsing { animation: qpulse 1.8s ease-in-out infinite; }
+}
+@keyframes qpulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .45; transform: scale(.82); }
+}
+
+/* Mobile device simulation */
+.device.is-mobile .appbar { flex-wrap: wrap; padding: 6px 10px; gap: 6px; }
+.device.is-mobile .theme-pill { display: none; }
+.device.is-mobile .appbar-center { order: 10; flex: 1 0 100%; }
+.device.is-mobile .palette-trigger { max-width: none; }
+.device.is-mobile .bar-ingest-btn { min-inline-size: 34px; height: 34px; padding: 0 8px; }
+.device.is-mobile .bar-ingest-btn .btn-label { display: none; }
+.device.is-mobile .bar-icon-btn { min-inline-size: 34px; min-block-size: 34px; height: 34px; }
+.device.is-mobile .appbar-end { gap: 4px; }
+
+/* Coarse touch pointer target size (accessibility) */
+@media (pointer: coarse) {
+  .bar-icon-btn, .bar-ingest-btn, .q-tab, .q-icon-btn, .q-btn { min-block-size: 36px; min-inline-size: 36px; }
+}
+
+/* --- Workspace Mock Canvas (BookStack 2-column reading background) --- */
+.ws-body { display: grid; grid-template-columns: 240px 1fr; flex: 1; min-height: 0; background: var(--bg); }
+.device.is-mobile .ws-body { grid-template-columns: 1fr; }
+.ws-sidebar { background: var(--panel-bg); border-right: 1px solid var(--border); padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.device.is-mobile .ws-sidebar { display: none; }
+.ws-sidebar-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 2px 6px 6px; border-bottom: 1px solid var(--border); }
+.ws-doc-item { padding: 7px 9px; border-radius: 6px; font-size: 12.5px; color: var(--fg); border: 1px solid transparent; }
+.ws-doc-item.is-current { background: var(--card-bg); border-color: var(--border); border-left: 3px solid var(--accent); font-weight: 600; }
+.ws-doc-item small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+.ws-reader { padding: 26px 34px; max-width: 740px; opacity: .72; }
+.device.is-mobile .ws-reader { padding: 18px 16px; }
+.ws-reader h1 { font-size: 22px; margin: 0 0 8px; }
+.ws-reader .ws-meta { font-size: 12px; color: var(--muted); margin-bottom: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+.ws-callout { border: 1px solid var(--border); border-left: 3px solid var(--accent); background: var(--panel-bg); border-radius: 6px; padding: 10px 14px; font-size: 13px; margin: 14px 0; }
+.ws-reader p { margin: 0 0 12px; font-size: 14px; line-height: 1.7; color: var(--fg); }
+
+/* --- Popover Quick Panel (viewport-aware-dropdowns + animate-to-from-top-layer) --- */
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) { display: none; }
+}
+
+.queue-pop {
+  padding: 0;
+  width: min(448px, calc(100vw - 16px));
+  max-width: min(448px, calc(100vw - 16px));
+  max-height: min(76dvh, 620px);
+  background: var(--card-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 14px 36px var(--shadow);
+  z-index: 90;
+  overflow: hidden;
+  transform-origin: top right;
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.18s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+.queue-pop.variant-c {
+  width: min(480px, calc(100vw - 16px));
+  max-width: min(480px, calc(100vw - 16px));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .queue-pop { transform: translateY(-6px) scale(0.97); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .queue-pop { transition-duration: 0.1s; }
+}
+
+.queue-pop:is(:popover-open, .\:popover-open) {
+  display: flex;
+  flex-direction: column;
+}
+.queue-pop:is(:popover-open, .\:popover-open):where(:not([data-closing])) {
+  opacity: 1;
+  @starting-style { opacity: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    transform: translateY(0) scale(1);
+    @starting-style { transform: translateY(-6px) scale(0.97); }
+  }
+}
+
+@supports (position-area: block-end) {
+  .queue-pop {
+    inset: auto;
+    margin: 0;
+    margin-block-start: 6px;
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+}
+@supports not (position-area: block-end) {
+  .queue-pop {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+  }
+}
+
+/* Mobile full-width anchored drop-down */
+.device.is-mobile ~ .queue-pop,
+.queue-pop.is-mobile-pop {
+  width: min(366px, calc(100vw - 16px));
+  max-width: min(366px, calc(100vw - 16px));
+}
+
+/* --- Shared Quick Panel Chrome --- */
+.qp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.qp-title-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.qp-title { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--fg); line-height: 1.25; }
+.qp-sub-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--chip-bg); color: var(--muted); border: 1px solid var(--border); white-space: nowrap; }
+.qp-head-end { display: flex; align-items: center; gap: 8px; flex: none; }
+.q-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 28px; min-block-size: 28px; border-radius: 6px; border: 1px solid var(--border); background: var(--card-bg); color: var(--fg); cursor: pointer; }
+.q-icon-btn:hover { background: var(--hover); }
+
+/* Slot gauge (4-slot server capacity) */
+.slot-meter { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.slot-cells { display: inline-flex; gap: 2px; align-items: center; }
+.slot-cell { width: 8px; height: 12px; border-radius: 2px; background: var(--sec-bg); border: 1px solid var(--border); }
+.slot-cell.is-busy { background: var(--accent); border-color: var(--accent); }
+
+/* Scrollable body with scrollability-affordance-hints (scroll-state + scroll-driven fallback + IO fallback) */
+.queue-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  container-type: scroll-state;
+  scrollbar-width: auto;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  background: var(--card-bg);
+}
+@supports not (scrollbar-color: auto) {
+  .queue-scroll { scrollbar-width: auto; }
+  .queue-scroll::-webkit-scrollbar { width: 10px; }
+  .queue-scroll::-webkit-scrollbar-track { background: var(--scroll-track); }
+  .queue-scroll::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 5px; }
+}
+.queue-scroll::before,
+.queue-scroll::after {
+  content: "";
+  display: block;
+  position: sticky;
+  block-size: .75rem;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.queue-scroll::before {
+  inset-block-start: 0;
+  margin-block-end: -.75rem;
+  background: radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, .18), transparent);
+}
+.queue-scroll::after {
+  inset-block-end: 0;
+  margin-block-start: -.75rem;
+  background: radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, .18), transparent);
+}
+[data-theme="dark"] .queue-scroll::before {
+  background: radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, .48), transparent);
+}
+[data-theme="dark"] .queue-scroll::after {
+  background: radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, .48), transparent);
+}
+@container scroll-state(scrollable: block-start) {
+  .queue-scroll::before { opacity: 1; }
+}
+@container scroll-state(scrollable: block-end) {
+  .queue-scroll::after { opacity: 1; }
+}
+@supports not (container-type: scroll-state) {
+  @supports (animation-timeline: scroll()) {
+    .queue-scroll::before,
+    .queue-scroll::after {
+      animation: q-show-shadow linear both;
+      animation-timeline: scroll();
+    }
+    .queue-scroll::before { animation-range: 0 2rem; }
+    .queue-scroll::after { animation-direction: reverse; animation-range: calc(100% - 2rem) 100%; }
+  }
+}
+@keyframes q-show-shadow { to { opacity: 1; } }
+.queue-scroll.more-start::before { opacity: 1; }
+.queue-scroll.more-end::after { opacity: 1; }
+.scroll-sentinel { min-inline-size: 1px; min-block-size: 1px; height: 1px; pointer-events: none; }
+
+.qp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bar-bg);
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--muted);
+  flex: none;
+}
+.qp-foot-link { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); text-decoration: none; font-weight: 600; }
+.qp-foot-link:hover { text-decoration: underline; }
+.qp-foot-btn { border: 1px solid var(--border); background: var(--card-bg); color: var(--fg); border-radius: 5px; padding: 2px 8px; font-size: 11.5px; font-weight: 600; cursor: pointer; min-block-size: 26px; }
+.qp-foot-btn:hover { background: var(--hover); }
+
+/* --- Accessible Tablist (tabs guide) --- */
+.q-tablist {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 10px;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: none;
+}
+.q-tablist::-webkit-scrollbar { display: none; }
+.q-tab {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 9px;
+  min-block-size: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.q-tab:hover { color: var(--fg); background: var(--hover); }
+.q-tab[aria-selected="true"] { color: var(--accent); }
+.q-tab[aria-selected="true"]::after { content: ""; position: absolute; inset: auto 4px 0; border-block-end: 3px solid var(--accent); }
+.q-tab-cnt { padding: 0 5px; border-radius: 999px; background: var(--chip-bg); color: var(--fg); font-size: 10.5px; line-height: 16px; font-variant-numeric: tabular-nums; }
+.q-tab[aria-selected="true"] .q-tab-cnt { background: var(--active); color: var(--accent); }
+
+/* --- Semantic Chips & Native Progress --- */
+.q-chip { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--chip-bg); color: var(--muted); white-space: nowrap; line-height: 18px; }
+.q-chip.is-running { color: var(--accent); background: var(--active); border-color: color-mix(in oklab, var(--accent) 35%, var(--border)); }
+.q-chip.is-staged { color: var(--remote); background: var(--remote-bg); border-color: color-mix(in oklab, var(--remote) 35%, var(--border)); }
+.q-chip.is-done { color: var(--ok); background: var(--ok-bg); border-color: color-mix(in oklab, var(--ok) 35%, var(--border)); }
+.q-chip.is-error { color: var(--danger); background: var(--danger-bg); border-color: color-mix(in oklab, var(--danger) 35%, var(--border)); }
+.q-chip.is-queued { color: var(--fg); background: var(--sec-bg); }
+
+progress.q-progress { display: block; width: 100%; height: 6px; border: 0; border-radius: 999px; background: var(--sec-bg); accent-color: var(--accent); overflow: hidden; }
+progress.q-progress::-webkit-progress-bar { background: var(--sec-bg); border-radius: 999px; }
+progress.q-progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; transition: width 280ms ease; }
+progress.q-progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+
+/* --- Action buttons (revealed on hover, focus-within, or touch) --- */
+.q-btn { display: inline-flex; align-items: center; gap: 4px; min-block-size: 26px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--border); background: var(--card-bg); color: var(--fg); font-size: 11.5px; font-weight: 600; text-decoration: none; cursor: pointer; }
+.q-btn:hover { background: var(--hover); border-color: var(--accent); color: var(--accent); }
+.q-btn-danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 40%, var(--border)); }
+.q-btn-danger:hover { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+
+.q-list { list-style: none; margin: 0; padding: 0; }
+.q-sec-label { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px 5px; font-size: 11px; font-weight: 700; letter-spacing: .03em; color: var(--muted); background: var(--panel-bg); border-bottom: 1px solid var(--border); }
+.q-empty { padding: 28px 16px; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12.5px; }
+.q-empty strong { color: var(--fg); font-size: 13.5px; }
+
+/* =========================================================
+   OPTION A: BookStack Structured Queue Ledger (Recommended)
+   ========================================================= */
+.qa-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  border-inline-start: 3px solid transparent;
+  background: var(--card-bg);
+}
+.qa-row:hover { background: var(--hover); }
+.qa-row.st-running { border-inline-start-color: var(--accent); }
+.qa-row.st-queued { border-inline-start-color: var(--border); }
+.qa-row.st-staged { border-inline-start-color: var(--remote); }
+.qa-row.st-done { border-inline-start-color: var(--ok); }
+.qa-row.st-error { border-inline-start-color: var(--danger); background: color-mix(in oklab, var(--danger-bg) 32%, var(--card-bg)); }
+
+.qa-lead { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 1px; }
+.qa-order-pill { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 22px; padding: 0 5px; border-radius: 5px; background: var(--chip-bg); border: 1px solid var(--border); font-size: 11px; font-weight: 700; color: var(--fg); }
+.qa-row.st-running .qa-order-pill { background: var(--active); border-color: color-mix(in oklab, var(--accent) 45%, var(--border)); color: var(--accent); }
+.qa-row.st-staged .qa-order-pill { background: var(--remote-bg); border-color: color-mix(in oklab, var(--remote) 45%, var(--border)); color: var(--remote); }
+.qa-row.st-done .qa-order-pill { background: var(--ok-bg); border-color: color-mix(in oklab, var(--ok) 45%, var(--border)); color: var(--ok); }
+.qa-row.st-error .qa-order-pill { background: var(--danger-bg); border-color: color-mix(in oklab, var(--danger) 45%, var(--border)); color: var(--danger); }
+
+.qa-body { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.qa-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.qa-title { font-size: 13px; font-weight: 600; color: var(--fg); line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.qa-time { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; margin-top: 2px; }
+.qa-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.qa-stage-box { display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
+.qa-stage-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.qa-step { font-size: 10px; text-align: center; padding: 1px 2px; border-radius: 3px; background: var(--sec-bg); color: var(--muted); border: 1px solid transparent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qa-step.is-done { background: var(--ok-bg); color: var(--ok); }
+.qa-step.is-now { background: var(--active); color: var(--accent); border-color: var(--accent); font-weight: 700; }
+.qa-msg { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.qa-err { font-size: 11.5px; color: var(--danger); line-height: 1.4; }
+.qa-actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; opacity: .92; }
+.qa-row:hover .qa-actions, .qa-row:focus-within .qa-actions { opacity: 1; }
+@media (hover: none) { .qa-actions { opacity: 1; } }
+
+/* =========================================================
+   OPTION B: Live Pipeline Conveyor & Timeline Rail
+   ========================================================= */
+.qb-wrap { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.qb-active-card { border: 1px solid var(--border); border-inline-start: 3px solid var(--accent); border-radius: 8px; padding: 10px 11px; background: var(--panel-bg); display: flex; flex-direction: column; gap: 7px; }
+.qb-active-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.qb-active-title { font-size: 13px; font-weight: 700; line-height: 1.35; }
+.qb-conveyor { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; align-items: center; }
+.qb-node { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 10px; color: var(--muted); position: relative; }
+.qb-node-dot { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; border: 1.5px solid var(--border); background: var(--card-bg); color: var(--muted); z-index: 1; }
+.qb-node.is-done .qb-node-dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+.qb-node.is-now .qb-node-dot { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 0 3px var(--active); }
+.qb-node.is-now { color: var(--accent); font-weight: 700; }
+
+.qb-rail-title { font-size: 11.5px; font-weight: 700; color: var(--muted); margin: 2px 0 0; display: flex; justify-content: space-between; align-items: center; }
+.qb-timeline { list-style: none; margin: 0; padding: 0 0 0 4px; position: relative; }
+.qb-tl-item { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 9px; padding: 0 0 10px; }
+.qb-tl-item:last-child { padding-bottom: 2px; }
+.qb-tl-item::before { content: ""; position: absolute; left: 12px; top: 24px; bottom: 0; width: 2px; background: var(--border); }
+.qb-tl-item:last-child::before { display: none; }
+.qb-tl-item.st-staged::before { border-left: 2px dashed var(--remote); background: none; width: 0; }
+.qb-tl-node { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: var(--card-bg); border: 1.5px solid var(--border); color: var(--fg); z-index: 1; }
+.qb-tl-item.st-staged .qb-tl-node { border-style: dashed; border-color: var(--remote); color: var(--remote); background: var(--remote-bg); }
+.qb-tl-card { border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; background: var(--card-bg); display: flex; flex-direction: column; gap: 4px; }
+.qb-tl-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.qb-tl-title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+.qb-tl-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; font-size: 11px; color: var(--muted); align-items: center; }
+
+.qb-details { border: 1px solid var(--border); border-radius: 7px; background: var(--panel-bg); overflow: hidden; }
+.qb-details summary { padding: 7px 10px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: space-between; list-style: none; }
+.qb-details summary::-webkit-details-marker { display: none; }
+.qb-details-body { border-top: 1px solid var(--border); background: var(--card-bg); }
+.qb-hist-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.qb-hist-row:last-child { border-bottom: 0; }
+
+/* =========================================================
+   OPTION C: Dense Ops Strip (Expandable Compact Rows)
+   ========================================================= */
+.qc-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 7px 10px; background: var(--panel-bg); border-bottom: 1px solid var(--border); flex: none; }
+.qc-chip-btn { display: inline-flex; align-items: center; gap: 4px; min-block-size: 26px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--card-bg); color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; }
+.qc-chip-btn:hover { background: var(--hover); color: var(--fg); }
+.qc-chip-btn[aria-pressed="true"] { background: var(--active); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
+.qc-row { border-bottom: 1px solid var(--border); background: var(--card-bg); }
+.qc-row-btn { width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr) 86px; gap: 8px; align-items: center; padding: 7px 10px; border: 0; background: transparent; text-align: left; cursor: pointer; min-block-size: 40px; }
+.qc-row-btn:hover { background: var(--hover); }
+.qc-row-btn[aria-expanded="true"] { background: var(--active); }
+.qc-pos { display: inline-flex; align-items: center; justify-content: center; height: 22px; border-radius: 4px; font-size: 11px; font-weight: 700; background: var(--chip-bg); color: var(--fg); border: 1px solid var(--border); }
+.qc-row.st-running .qc-pos { background: var(--active); color: var(--accent); border-color: var(--accent); }
+.qc-row.st-staged .qc-pos { background: var(--remote-bg); color: var(--remote); border-color: color-mix(in oklab, var(--remote) 45%, var(--border)); }
+.qc-row.st-done .qc-pos { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, var(--border)); }
+.qc-row.st-error .qc-pos { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in oklab, var(--danger) 45%, var(--border)); }
+
+.qc-main { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.qc-title { font-size: 12.5px; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qc-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qc-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-size: 11px; color: var(--muted); }
+.qc-detail { padding: 8px 12px 10px 52px; background: var(--panel-bg); border-top: 1px dashed var(--border); font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+.qc-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 11.5px; color: var(--muted); }
+.qc-detail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* --- Evaluation Matrix Footer (outside .device) --- */
+.eval-wrap { max-width: 1180px; margin: 0 auto 36px; padding: 0 14px; display: grid; gap: 14px; }
+.eval-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.eval-card h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+.eval-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.eval-table th, .eval-table td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+.eval-table th { background: var(--bar-bg); font-weight: 700; font-size: 12.5px; }
+.eval-table tr.is-picked td { background: color-mix(in oklab, var(--active) 45%, var(--card-bg)); }
+.eval-list { margin: 0; padding-left: 18px; display: grid; gap: 5px; font-size: 13px; }
+@media (max-width: 720px) {
+  .eval-table { display: block; overflow-x: auto; }
+}
+
+/* --- Forced Colors Mode Support (color + tabs guides) --- */
+@media (forced-colors: active) {
+  .bar-icon-btn[aria-expanded="true"], .qc-chip-btn[aria-pressed="true"] { outline: 2px solid Highlight; }
+  .q-tab[aria-selected="true"]::after { border-block-end: 3px solid Highlight; }
+  .qa-row.st-running, .qa-row.st-error, .qa-row.st-staged, .qa-row.st-done { border-inline-start: 4px solid CanvasText; }
+  progress.q-progress { border: 1px solid CanvasText; }
+  .slot-cell.is-busy { background: Highlight; border-color: Highlight; }
+}
+</style>
+</head>
+<body>
+
+<div class="proto-bar" role="region" aria-label="프로토타입 제어판">
+  <div class="proto-group" id="grp-variant">
+    <span class="proto-group-label">프로토타입 안</span>
+    <button type="button" data-variant="a" aria-pressed="true">안 A · 순번 레일 + 슬롯 (추천)</button>
+    <button type="button" data-variant="b" aria-pressed="false">안 B · 타임라인 컨베이어</button>
+    <button type="button" data-variant="c" aria-pressed="false">안 C · 초밀도 운영 행</button>
+  </div>
+  <div class="proto-group" id="grp-scenario">
+    <span class="proto-group-label">시나리오</span>
+    <button type="button" data-scenario="mixed" aria-pressed="true">혼합 활성 (2/4)</button>
+    <button type="button" data-scenario="saturated" aria-pressed="false">대기열 포화 (4/4)</button>
+    <button type="button" data-scenario="idle" aria-pressed="false">유휴 (비어 있음)</button>
+  </div>
+  <div class="proto-group" id="grp-theme">
+    <span class="proto-group-label">테마</span>
+    <button type="button" data-theme-pick="light" aria-pressed="true">라이트</button>
+    <button type="button" data-theme-pick="dark" aria-pressed="false">다크</button>
+  </div>
+  <div class="proto-group" id="grp-viewport">
+    <span class="proto-group-label">화면</span>
+    <button type="button" data-viewport="desktop" aria-pressed="true">데스크톱</button>
+    <button type="button" data-viewport="mobile" aria-pressed="false">모바일 (390px)</button>
+  </div>
+  <div class="proto-group">
+    <button type="button" id="btn-sim" aria-pressed="false">▶ 진행 시뮬레이션</button>
+    <button type="button" id="btn-reset">초기화</button>
+  </div>
+</div>
+
+<div class="proto-status" id="proto-status">
+  <span>선택: <strong id="st-variant">안 A · 순번 레일 + 슬롯</strong></span>
+  <span>상단 순서: <code>+ 적재</code> · <code>bell</code> · <code>home</code> · <code>rss(신디케이션)</code> · <code>layers(적재 대기열)</code> · <code>moon/sun(테마)</code> · <code>menu</code></span>
+  <span>실시간: <strong id="st-counts">진행 2 · 대기 4 · 에이전트 1 · 오류 1</strong></span>
+</div>
+
+<div class="stage">
+  <div class="device" id="device-frame">
+    <header class="appbar" id="bar">
+      <div class="bar-brand-group">
+        <a class="brand" href="#workspace" onclick="return false;" title="Claire Bible 홈">
+          <span class="brand-dot" aria-hidden="true">C</span>
+          Claire Bible
+        </a>
+        <span class="theme-pill" title="현재 지식 테마">전체 지식 테마 ▾</span>
+      </div>
+      <div class="appbar-center">
+        <button type="button" class="palette-trigger" title="명령 팔레트 열기 (/)">
+          <span class="icon-wrap" data-proto-icon="search"></span>
+          <span class="palette-trigger-label">검색 · 이동 · 명령</span>
+          <kbd aria-hidden="true">/</kbd>
+        </button>
+      </div>
+      <div class="appbar-end">
+        <button type="button" id="addbtn" class="bar-ingest-btn" title="적재 기능 선택">
+          <span class="icon-wrap" data-proto-icon="plus"></span>
+          <span class="btn-label">적재</span>
+          <span class="ingest-caret" aria-hidden="true">▾</span>
+        </button>
+        <button type="button" id="notifybtn" class="bar-icon-btn" title="알림 (안 읽음 2건)" aria-label="알림 (안 읽음 2건)">
+          <span class="icon-wrap" data-proto-icon="bell"></span>
+          <span class="bar-badge" aria-hidden="true">2</span>
+        </button>
+        <a id="homelinkbtn" class="bar-icon-btn" href="#user-home" onclick="return false;" title="유저 홈" aria-label="유저 홈">
+          <span class="icon-wrap" data-proto-icon="home"></span>
+        </a>
+        <a id="syndlink" class="bar-icon-btn" href="#syndication" onclick="return false;" title="교류 · 적재 · 발행 (신디케이션)" aria-label="신디케이션">
+          <span class="icon-wrap" data-proto-icon="rss"></span>
+        </a>
+        <!-- 새 적재 대기열 퀵 패널 트리거 (aria-haspopup 없음: rich disclosure popover) -->
+        <button type="button" id="queuebtn" class="bar-icon-btn" popovertarget="pop-queue" aria-expanded="false" title="적재 대기열" aria-label="적재 대기열">
+          <span class="icon-wrap" data-proto-icon="layers"></span>
+          <span class="bar-badge" id="queue-badge" aria-hidden="true">6</span>
+          <span class="queue-live-dot is-pulsing" id="queue-live-dot" aria-hidden="true"></span>
+        </button>
+        <!-- 결정 1: 테마 전환 버튼을 메뉴(#hamburger-btn) 바로 왼쪽으로 이동 -->
+        <button type="button" id="themebtn" class="bar-icon-btn" title="라이트/다크 전환" aria-label="라이트/다크 전환">
+          <span class="icon-wrap" id="themebtn-icon" data-proto-icon="moon"></span>
+        </button>
+        <button type="button" id="hamburger-btn" class="bar-icon-btn" title="메뉴" aria-label="메뉴">
+          <span class="icon-wrap" data-proto-icon="menu"></span>
+        </button>
+      </div>
+    </header>
+
+    <main class="ws-body" aria-label="지식 베이스 작업공간 미리보기">
+      <aside class="ws-sidebar" aria-label="문서 목록">
+        <div class="ws-sidebar-title">지식 문서 목록</div>
+        <div class="ws-doc-item is-current">vLLM PagedAttention 아키텍처<small>AI · 시스템 · 12분 전</small></div>
+        <div class="ws-doc-item">HTTP/3 QUIC 혼잡 제어 비교<small>네트워크 · 2시간 전</small></div>
+        <div class="ws-doc-item">SQLite WAL 체크포인트 최적화<small>데이터베이스 · 어제</small></div>
+        <div class="ws-doc-item">CSS Anchor Positioning 사양<small>웹 플랫폼 · 3일 전</small></div>
+        <div class="ws-doc-item">Fedify ActivityPub 연합 설계<small>연합 · 5일 전</small></div>
+      </aside>
+      <article class="ws-reader">
+        <h1>vLLM PagedAttention 아키텍처 분석</h1>
+        <div class="ws-meta">
+          <span>테마: AI 인프라</span>
+          <span>출처: arxiv.org</span>
+          <span>엔티티 24개 · 관계 19개</span>
+        </div>
+        <div class="ws-callout">
+          <strong>핵심 요약:</strong> KV 캐시를 고정 크기 물리 블록으로 분할 관리하여 메모리 단편화를 4% 미만으로 줄이고 배치 처리량을 극대화하는 서빙 구조입니다.
+        </div>
+        <p>우측 상단 <strong>적재 대기열</strong> 단추(<code>layers</code> 아이콘)를 누르면 이 화면을 벗어나지 않고 서버 전체에서 처리 중인 적재 슬롯, 대기 중인 요청 순서, 에이전트 추출 대기 상태 및 실패 재시도를 즉시 확인할 수 있습니다.</p>
+        <p>상단 컨트롤 바에서 <strong>안 A / 안 B / 안 C</strong>와 <strong>시나리오(혼합·포화·유휴)</strong>, <strong>라이트/다크</strong>, <strong>데스크톱/모바일</strong>, <strong>진행 시뮬레이션</strong>을 전환해 비교해 보십시오.</p>
+      </article>
+    </main>
+  </div>
+</div>
+
+<!-- Native Popover API Top-Layer Quick Panel -->
+<div id="pop-queue" popover="auto" class="queue-pop" aria-labelledby="queue-pop-title"></div>
+<div id="queue-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+<section class="eval-wrap" aria-label="시각 프로토타입 설계 비교 및 결정 반영 내역">
+  <div class="eval-card">
+    <h2>결정 사항 반영 확인 (1·2·3안 확정 기준)</h2>
+    <ul class="eval-list">
+      <li><strong>1. 테마 버튼 위치 이동:</strong> <code>#themebtn</code>(<code>moon</code>/<code>sun</code>)을 <code>#hamburger-btn</code> 바로 왼쪽으로 이동하여 우측 끝 흐름이 <code>+ 적재</code> → <code>알림(bell)</code> → <code>유저 홈(home)</code> → <code>신디케이션(rss)</code> → <code>적재 대기열(layers)</code> → <code>테마(moon/sun)</code> → <code>메뉴(menu)</code> 순으로 정리되었습니다.</li>
+      <li><strong>2. 1순위 명칭 채택:</strong> 버튼 <code>title</code>·<code>aria-label</code> 및 패널 제목을 <strong>적재 대기열 (Ingest Queue)</strong>로 통일했습니다.</li>
+      <li><strong>3. 방안 A 아이콘 분리:</strong> 신디케이션(<code>#syndlink</code>)은 <code>rss</code>로 구독·교류·발행 성격을 명확히 하고, 적재 대기열(<code>#queuebtn</code>)은 <code>layers</code> + 실시간 건수 배지 및 동작 점으로 적층·순서·상태 성격을 분리했습니다.</li>
+    </ul>
+  </div>
+
+  <div class="eval-card">
+    <h2>퀵 패널 3가지 시각 안 비교</h2>
+    <table class="eval-table">
+      <thead>
+        <tr>
+          <th style="width:20%">시각 안</th>
+          <th style="width:28%">핵심 구조</th>
+          <th style="width:28%">BookStack 기조 · 모던 웹 적합성</th>
+          <th style="width:24%">장점 및 고려사항</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="is-picked">
+          <td><strong>안 A · 순번 레일 + 슬롯 (추천)</strong></td>
+          <td>상단 4슬롯 게이지 + 필터 탭(<code>전체/진행·대기/에이전트/완료·오류</code>) + 왼쪽 3px 상태 레일 목록</td>
+          <td>BookStack 호출 카드(좌측 3px 색선)와 1px 경계, <code>tabular-nums</code> 순번 배지(<code>#1</code>, <code>#2</code>), 5단계 인라인 진행 칩</td>
+          <td>진행·순서·에이전트·오류가 한 눈에 분리되며 정보 밀도와 가독성 균형이 가장 좋음</td>
+        </tr>
+        <tr>
+          <td><strong>안 B · 타임라인 컨베이어</strong></td>
+          <td>진행 중 카드에 5단계 원형 파이프라인 + 하단 세로 타임라인(<code>1→2→3</code>) + 접이식 최근 기록(<code>&lt;details&gt;</code>)</td>
+          <td>단계 흐름과 대기 순서의 물리적 연속성 강조, 에이전트 <code>staged</code>는 점선 보라 노드로 구분</td>
+          <td>처리 흐름 직관성이 매우 높으나, 진행 중 작업이 4개 모두 차면 스크롤 길이가 길어짐</td>
+        </tr>
+        <tr>
+          <td><strong>안 C · 초밀도 운영 행</strong></td>
+          <td>헤더 인라인 필터 칩 + 1~2줄 압축 행 + 클릭 시 인라인 아코디언 상세(단계 메시지·재시도)</td>
+          <td>다건 대기열(8~12건)도 스크롤 없이 한 화면에 조망하는 운영 콘솔형 레이아웃</td>
+          <td>대기열이 많을 때 압도적으로 빠르지만, 기본 접힘 상태에서는 세부 단계 메시지가 숨겨짐</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+(function () {
+  "use strict";
+
+  var ICONS = {
+    search: '<circle cx="7" cy="7" r="4"/><path d="m10 10 3.5 3.5"/>',
+    plus: '<path d="M8 3v10M3 8h10"/>',
+    bell: '<path d="M4 11.5V7.5a4 4 0 0 1 8 0v4l1 1.5H3zM6.7 13.5a1.4 1.4 0 0 0 2.6 0"/>',
+    home: '<path d="M2.5 8 8 3l5.5 5M4 7v6h3v-3.5h2V13h3V7"/>',
+    rss: '<circle cx="4" cy="12" r="1.2"/><path d="M3 7.5A5.5 5.5 0 0 1 8.5 13M3 3.5A9.5 9.5 0 0 1 12.5 13"/>',
+    layers: '<path d="M8 2.5 13.5 5.5 8 8.5 2.5 5.5zM2.5 8.5 8 11.5l5.5-3M2.5 11.5 8 14.5l5.5-3"/>',
+    moon: '<path d="M12.5 9.5a5.5 5.5 0 0 1-6-6 5.5 5.5 0 1 0 6 6z"/>',
+    sun: '<circle cx="8" cy="8" r="2.8"/><path d="M8 1.5V3M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/>',
+    menu: '<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>',
+    close: '<path d="m4 4 8 8M12 4l-8 8"/>',
+    clock: '<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/>',
+    "check-circle": '<circle cx="8" cy="8" r="5.5"/><path d="m5.5 8 1.8 1.8 3.2-3.6"/>',
+    warning: '<path d="M8 2.5 14 13H2zM8 6.5v3M8 11.2h.01"/>',
+    bot: '<path d="M3.5 6h9v6.5h-9zM8 6V3.5M6.2 9v.6M9.8 9v.6"/><circle cx="8" cy="3" r=".6"/>',
+    globe: '<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c-2 1.8-2 9.2 0 11M8 2.5c2 1.8 2 9.2 0 11"/>',
+    doc: '<path d="M4 2.5h5l3 3v8H4zM9 2.5v3h3M6 8.5h4M6 11h4"/>',
+    film: '<path d="M2.5 3.5h11v9h-11zM5.5 3.5v9M10.5 3.5v9M2.5 8h3M10.5 8h3"/>',
+    send: '<path d="m2 8 11.5-5.5L10 14 7.5 9.5zM7.5 9.5 13.5 2.5"/>',
+    repeat: '<path d="M3 7V6a1.5 1.5 0 0 1 1.5-1.5H12M10 2.5l2 2-2 2M13 9v1a1.5 1.5 0 0 1-1.5 1.5H4M6 13.5l-2-2 2-2"/>',
+    external: '<path d="M9.5 2.5h4v4M13.5 2.5 7 9M6.5 4H3.5A1 1 0 0 0 2.5 5v7.5a1 1 0 0 0 1 1H11a1 1 0 0 0 1-1v-3"/>',
+    chevron: '<path d="m4.5 6 3.5 4 3.5-4"/>',
+    pulse: '<path d="M2 8h3l1.5-4 3 8L11 8h3"/>'
+  };
+
+  function makeIcon(name, cls) {
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("class", "lineicon" + (cls ? " " + cls : ""));
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    svg.innerHTML = ICONS[name] || "";
+    return svg;
+  }
+
+  function hydrateStaticIcons(root) {
+    (root || document).querySelectorAll("[data-proto-icon]").forEach(function (el) {
+      var name = el.getAttribute("data-proto-icon");
+      el.textContent = "";
+      el.appendChild(makeIcon(name));
+    });
+  }
+
+  var STAGES = ["fetch", "extract", "resolve", "detail", "done"];
+  var STAGE_LABEL = {
+    fetch: "수집",
+    extract: "추출",
+    resolve: "대조",
+    detail: "본문",
+    done: "저장"
+  };
+  var STAGE_MSG = {
+    fetch: "원문 수집 및 사설망·중복 검사 중…",
+    extract: "지식 요약·주장·엔티티 추출 중…",
+    resolve: "Gate 3 벡터 대조 및 동명이인 검증 중…",
+    detail: "AsciiDoc 상세 정리본 렌더링 중…",
+    done: "원자 커밋 및 3072d 임베딩 완료"
+  };
+
+  var SOURCE_META = {
+    web: { label: "웹 UI", icon: "globe" },
+    telegram: { label: "텔레그램", icon: "send" },
+    feed: { label: "피드", icon: "rss" },
+    cli: { label: "CLI", icon: "doc" },
+    video: { label: "영상 STT", icon: "film" },
+    mcp: { label: "MCP", icon: "bot" }
+  };
+
+  function buildScenarioData(kind) {
+    if (kind === "idle") {
+      return {
+        maxSlots: 4,
+        items: [
+          { id: "j_8812", status: "done", order: null, title: "SQLite WAL 체크포인트와 동시 읽기 최적화", source: "web", kb: "데이터베이스", mode: "provider", stageIdx: 4, age: "4분 전", msg: "적재 완료 · 엔티티 14개 연결" },
+          { id: "j_8811", status: "done", order: null, title: "HTTP/3 QUIC 혼잡 제어 BBRv3 분석", source: "feed", kb: "네트워크", mode: "client", stageIdx: 4, age: "18분 전", msg: "에이전트 제출 검증 통과 · 커밋 완료" }
+        ]
+      };
+    }
+    if (kind === "saturated") {
+      return {
+        maxSlots: 4,
+        items: [
+          { id: "j_9101", status: "running", order: null, title: "vLLM PagedAttention 메모리 단편화 및 KV 캐시 최적화 논문", source: "web", kb: "AI 인프라", mode: "provider", stageIdx: 2, age: "42초 경과", msg: STAGE_MSG.resolve },
+          { id: "j_9102", status: "running", order: null, title: "VMware Explore 2026 키노트 세션 및 발표 자료 번들", source: "video", kb: "클라우드", mode: "provider", stageIdx: 1, age: "1분 18초 경과", msg: "자막 부재 -> gemini-3.5-transcribe 전사 후 추출 중…" },
+          { id: "j_9103", status: "running", order: null, title: "Fedify ActivityPub 다중 호스트 연합 큐 아키텍처", source: "telegram", kb: "연합 프로토콜", mode: "provider", stageIdx: 3, age: "2분 05초 경과", msg: STAGE_MSG.detail },
+          { id: "j_9104", status: "running", order: null, title: "Rust Tokio work-stealing 스케줄러 내부 구현", source: "feed", kb: "시스템", mode: "provider", stageIdx: 0, age: "9초 경과", msg: STAGE_MSG.fetch },
+          { id: "j_9105", status: "queued", order: 1, title: "PostgreSQL 18 비동기 I/O 서브시스템 벤치마크", source: "web", kb: "데이터베이스", mode: "provider", age: "28초 대기", msg: "슬롯 확보 시 즉시 시작 (우선순위: 사용자 요청)" },
+          { id: "j_9106", status: "queued", order: 2, title: "CSS Scroll-State Container Queries 명세 해설", source: "telegram", kb: "웹 플랫폼", mode: "provider", age: "51초 대기", msg: "자동 복구·순번 대기 중" },
+          { id: "j_9107", status: "queued", order: 3, title: "Kubernetes Gateway API v1.2 트래픽 미러링", source: "feed", kb: "클라우드", mode: "provider", age: "1분 12초 대기", msg: "피드 폴링 유입" },
+          { id: "j_9108", status: "queued", order: 4, title: "LLM Structured Output Constrained Decoding 비교", source: "cli", kb: "AI 인프라", mode: "provider", age: "1분 40초 대기", msg: "CLI 배치 적재" },
+          { id: "j_9109", status: "queued", order: 5, title: "Linux io_uring Zero-Copy 소켓 송신 경로", source: "feed", kb: "시스템", mode: "provider", age: "2분 04초 대기", msg: "피드 폴링 유입" },
+          { id: "j_9110", status: "queued", order: 6, title: "OpenTelemetry 분산 추적 샘플링 전략", source: "web", kb: "관측성", mode: "provider", age: "2분 29초 대기", msg: "대기열 #6" },
+          { id: "j_9111", status: "queued", order: 7, title: "WebGPU Compute Shader 기반 행렬 곱셈", source: "web", kb: "그래픽스", mode: "provider", age: "3분 01초 대기", msg: "대기열 #7" },
+          { id: "j_9112", status: "queued", order: 8, title: "OAuth 2.1 Device Authorization Grant 보안 점검", source: "feed", kb: "보안", mode: "provider", age: "3분 25초 대기", msg: "대기열 #8" },
+          { id: "j_9113", status: "staged", order: null, title: "사내 온프레미스 배포 보안 점검표 (원문 격리 보관)", source: "mcp", kb: "개인 KB", mode: "client", age: "4분 전 보관", msg: "외부 에이전트(Antigravity) extract_claim 대기 중" },
+          { id: "j_9099", status: "error", order: null, title: "https://intra.example.internal/spec.pdf", source: "telegram", kb: "인프라", mode: "provider", age: "6분 전", msg: "ssrf_blocked: 사설망 대역 차단으로 수집 중단됨" },
+          { id: "j_9098", status: "done", order: null, title: "AsciiDoc 표 보존 및 청크 분할 규칙", source: "web", kb: "문서 형식", mode: "provider", age: "9분 전", msg: "적재 완료 · 엔티티 11개" }
+        ]
+      };
+    }
+    return {
+      maxSlots: 4,
+      items: [
+        { id: "j_9021", status: "running", order: null, title: "vLLM PagedAttention 아키텍처와 KV 캐시 블록 관리", source: "web", kb: "AI 인프라", mode: "provider", stageIdx: 2, age: "34초 경과", msg: STAGE_MSG.resolve },
+        { id: "j_9022", status: "running", order: null, title: "2026 웹 플랫폼 Popover · Anchor Positioning 가이드", source: "telegram", kb: "웹 플랫폼", mode: "provider", stageIdx: 1, age: "12초 경과", msg: STAGE_MSG.extract },
+        { id: "j_9023", status: "queued", order: 1, title: "PostgreSQL 18 비동기 I/O 서브시스템 분석", source: "web", kb: "데이터베이스", mode: "provider", age: "19초 대기", msg: "다음 슬롯 배정 대기 (#1)" },
+        { id: "j_9024", status: "queued", order: 2, title: "Fedify ActivityPub 연합 서버 재시도 백오프 전략", source: "feed", kb: "연합 프로토콜", mode: "provider", age: "45초 대기", msg: "피드 폴링 유입 (#2)" },
+        { id: "j_9025", status: "queued", order: 3, title: "YouTube — Distributed Consensus Raft 20분 해설", source: "video", kb: "분산 시스템", mode: "provider", age: "1분 10초 대기", msg: "자막 확인 후 STT/추출 예정 (#3)" },
+        { id: "j_9026", status: "queued", order: 4, title: "OAuth 2.1 PKCE S256 및 Device Flow 구현 사례", source: "cli", kb: "보안", mode: "provider", age: "1분 38초 대기", msg: "CLI 적재 요청 (#4)" },
+        { id: "j_9027", status: "staged", order: null, title: "비공개 설계 메모: 그래프 엔티티 병합 임계치 조정안", source: "mcp", kb: "개인 KB", mode: "client", age: "3분 전 보관", msg: "원문 전체 보관됨(staged) · 에이전트 클라이언트 추출 대기" },
+        { id: "j_9019", status: "error", order: null, title: "https://media.example.org/broken-lecture.mp4", source: "telegram", kb: "강의 노트", mode: "provider", age: "5분 전", msg: "video_stt_failed: 자막 없음 및 오디오 스트림 추출 실패 (재시도 가능)" },
+        { id: "j_9018", status: "done", order: null, title: "SQLite WAL 체크포인트 최적화", source: "web", kb: "데이터베이스", mode: "provider", age: "8분 전", msg: "적재 완료 · 엔티티 16개 연결" },
+        { id: "j_9017", status: "done", order: null, title: "HTTP/3 QUIC 혼잡 제어 비교", source: "feed", kb: "네트워크", mode: "client", age: "14분 전", msg: "에이전트 제출 검증 통과 · 커밋 완료" }
+      ]
+    };
+  }
+
+  var state = {
+    variant: "a",
+    scenario: "mixed",
+    theme: "light",
+    viewport: "desktop",
+    tab: "all",
+    expandedCId: "j_9021",
+    simTimer: null,
+    data: buildScenarioData("mixed")
+  };
+
+  var pop = document.getElementById("pop-queue");
+  var queueBtn = document.getElementById("queuebtn");
+  var deviceFrame = document.getElementById("device-frame");
+  var liveRegion = document.getElementById("queue-live-region");
+
+  function announce(msg) {
+    if (!liveRegion) return;
+    liveRegion.textContent = "";
+    window.setTimeout(function () { liveRegion.textContent = msg; }, 20);
+  }
+
+  /* --- Top-layer exit animation detection (animate-to-from-top-layer) --- */
+  var supportsDisplayTransition;
+  function canTransitionDisplay() {
+    if (supportsDisplayTransition !== undefined) return supportsDisplayTransition;
+    if (!window.CSS || !CSS.supports || !CSS.supports("transition-behavior", "allow-discrete") || !document.body) {
+      return false;
+    }
+    var probe = document.createElement("div");
+    probe.style.cssText = "transition: display 1s allow-discrete !important; display: block;";
+    document.body.appendChild(probe);
+    getComputedStyle(probe).display;
+    probe.style.display = "none";
+    supportsDisplayTransition = getComputedStyle(probe).display === "block";
+    probe.remove();
+    return supportsDisplayTransition;
+  }
+
+  function supportsTopLayerExit() {
+    return Boolean(window.CSS && CSS.supports && CSS.supports("overlay", "auto") && canTransitionDisplay());
+  }
+
+  function closeTopLayer(element) {
+    if (!element) return;
+    if (!supportsTopLayerExit()) {
+      element.setAttribute("data-closing", "");
+      var animations = typeof element.getAnimations === "function" ? element.getAnimations({ subtree: true }) : [];
+      var finishPromise = animations.length > 0
+        ? Promise.race([Promise.allSettled(animations.map(function (a) { return a.finished; })), new Promise(function (r) { setTimeout(r, 400); })])
+        : Promise.resolve();
+      finishPromise.then(function () {
+        if (!element.hasAttribute("data-closing")) return;
+        element.removeAttribute("data-closing");
+        try { element.hidePopover(); } catch (_) {}
+      });
+      return;
+    }
+    try { element.hidePopover(); } catch (_) {}
+  }
+
+  /* --- Fallback positioning when CSS Anchor Positioning is unsupported --- */
+  function supportsNativeAnchor() {
+    return Boolean(window.CSS && CSS.supports && CSS.supports("position-area", "block-end"));
+  }
+
+  function positionPopoverFallback() {
+    if (!queueBtn || !pop || supportsNativeAnchor()) return;
+    var r = queueBtn.getBoundingClientRect();
+    var pw = pop.offsetWidth || 420;
+    var ph = pop.offsetHeight || 460;
+    var top = r.bottom + 6;
+    if (top + ph > window.innerHeight - 8 && r.top - 6 - ph >= 8) {
+      top = r.top - 6 - ph;
+    }
+    var left = Math.max(8, Math.min(r.right - pw, window.innerWidth - pw - 8));
+    pop.style.top = Math.round(top) + "px";
+    pop.style.left = Math.round(left) + "px";
+  }
+
+  function isPopOpen() {
+    try { return pop.matches(":popover-open") || pop.classList.contains(":popover-open"); } catch (_) { return false; }
+  }
+
+  function openPopoverAnchored() {
+    if (!pop || !queueBtn) return;
+    pop.removeAttribute("data-closing");
+    if (!isPopOpen()) {
+      try { pop.showPopover({ source: queueBtn }); } catch (_) { try { pop.showPopover(); } catch (__) {} }
+    }
+    positionPopoverFallback();
+  }
+
+  pop.addEventListener("beforetoggle", function (ev) {
+    if (ev.newState === "open") {
+      pop.removeAttribute("data-closing");
+      requestAnimationFrame(positionPopoverFallback);
+    }
+  });
+  pop.addEventListener("toggle", function (ev) {
+    var opened = ev.newState === "open";
+    queueBtn.setAttribute("aria-expanded", opened ? "true" : "false");
+    if (opened) {
+      positionPopoverFallback();
+      attachScrollFallback();
+    }
+  });
+  window.addEventListener("resize", function () { if (isPopOpen()) positionPopoverFallback(); });
+  window.addEventListener("scroll", function () { if (isPopOpen()) positionPopoverFallback(); }, { passive: true });
+
+  /* --- Scrollability fallback (scrollability-affordance-hints) --- */
+  function attachScrollFallback() {
+    var scroller = pop.querySelector(".queue-scroll");
+    if (!scroller) return;
+    if (CSS.supports && (CSS.supports("container-type", "scroll-state") || CSS.supports("animation-timeline", "scroll()"))) {
+      return;
+    }
+    if (scroller.dataset.ioBound === "1") return;
+    scroller.dataset.ioBound = "1";
+    var start = document.createElement("div");
+    var end = document.createElement("div");
+    start.className = "scroll-sentinel";
+    end.className = "scroll-sentinel";
+    start.setAttribute("aria-hidden", "true");
+    end.setAttribute("aria-hidden", "true");
+    scroller.prepend(start);
+    scroller.append(end);
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.target === start) scroller.classList.toggle("more-start", !entry.isIntersecting);
+        if (entry.target === end) scroller.classList.toggle("more-end", !entry.isIntersecting);
+      });
+    }, { root: scroller });
+    io.observe(start);
+    io.observe(end);
+  }
+
+  /* --- Helpers --- */
+  function countByStatus(items) {
+    var counts = { running: 0, queued: 0, staged: 0, error: 0, done: 0 };
+    items.forEach(function (it) {
+      if (Object.prototype.hasOwnProperty.call(counts, it.status)) counts[it.status] += 1;
+    });
+    return counts;
+  }
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function makeChip(text, cls, iconName) {
+    var chip = el("span", "q-chip" + (cls ? " " + cls : ""));
+    if (iconName) chip.appendChild(makeIcon(iconName));
+    chip.appendChild(document.createTextNode(text));
+    return chip;
+  }
+
+  function statusLabelText(item) {
+    if (item.status === "running") return "처리 중 · " + STAGE_LABEL[STAGES[item.stageIdx] || "fetch"];
+    if (item.status === "queued") return "대기 #" + item.order;
+    if (item.status === "staged") return "에이전트 추출 대기";
+    if (item.status === "error") return "실패";
+    return "완료";
+  }
+
+  function statusIconName(status) {
+    if (status === "running") return "pulse";
+    if (status === "queued") return "clock";
+    if (status === "staged") return "bot";
+    if (status === "error") return "warning";
+    return "check-circle";
+  }
+
+  function filteredItems() {
+    var items = state.data.items;
+    if (state.tab === "active") return items.filter(function (i) { return i.status === "running" || i.status === "queued"; });
+    if (state.tab === "staged") return items.filter(function (i) { return i.status === "staged"; });
+    if (state.tab === "history") return items.filter(function (i) { return i.status === "done" || i.status === "error"; });
+    if (state.tab === "running") return items.filter(function (i) { return i.status === "running"; });
+    if (state.tab === "queued") return items.filter(function (i) { return i.status === "queued"; });
+    if (state.tab === "error") return items.filter(function (i) { return i.status === "error"; });
+    if (state.tab === "done") return items.filter(function (i) { return i.status === "done"; });
+    return items;
+  }
+
+  function retryItem(id) {
+    var item = state.data.items.find(function (i) { return i.id === id; });
+    if (!item) return;
+    var maxOrd = state.data.items.reduce(function (m, i) { return i.status === "queued" && i.order > m ? i.order : m; }, 0);
+    item.status = "queued";
+    item.order = maxOrd + 1;
+    item.stageIdx = 0;
+    item.age = "방금 재등록";
+    item.msg = "수동 재시도 요청됨 · 대기열 #" + item.order;
+    renderAll();
+    announce("실패 항목을 대기열 #" + item.order + "번으로 다시 넣었습니다.");
+  }
+
+  function clearHistory() {
+    state.data.items = state.data.items.filter(function (i) { return i.status !== "done"; });
+    renderAll();
+    announce("완료된 기록을 비웠습니다.");
+  }
+
+  function makeHead(counts) {
+    var head = el("div", "qp-head");
+    var tg = el("div", "qp-title-group");
+    tg.appendChild(makeIcon("layers"));
+    var h = el("h2", "qp-title", "적재 대기열");
+    h.id = "queue-pop-title";
+    tg.appendChild(h);
+
+    if (state.variant === "b") {
+      var sumTxt = (counts.running + counts.queued) > 0
+        ? (counts.running + "건 처리 중 · " + counts.queued + "건 순서 대기")
+        : "현재 유휴 상태";
+      tg.appendChild(el("span", "qp-sub-pill tnum", sumTxt));
+    } else if (state.variant === "c") {
+      tg.appendChild(el("span", "qp-sub-pill tnum", "슬롯 " + counts.running + "/" + state.data.maxSlots));
+    }
+
+    var end = el("div", "qp-head-end");
+    if (state.variant === "a") {
+      var meter = el("div", "slot-meter tnum");
+      meter.title = "서버 동시 처리 슬롯 사용 현황";
+      meter.appendChild(document.createTextNode("슬롯 " + counts.running + "/" + state.data.maxSlots));
+      var cells = el("span", "slot-cells");
+      cells.setAttribute("aria-hidden", "true");
+      for (var s = 0; s < state.data.maxSlots; s++) {
+        cells.appendChild(el("span", "slot-cell" + (s < counts.running ? " is-busy" : "")));
+      }
+      meter.appendChild(cells);
+      end.appendChild(meter);
+    }
+
+    var closeBtn = el("button", "q-icon-btn");
+    closeBtn.type = "button";
+    closeBtn.title = "닫기 (Esc)";
+    closeBtn.setAttribute("aria-label", "적재 대기열 패널 닫기");
+    closeBtn.appendChild(makeIcon("close"));
+    closeBtn.addEventListener("click", function () { closeTopLayer(pop); });
+    end.appendChild(closeBtn);
+
+    head.appendChild(tg);
+    head.appendChild(end);
+    return head;
+  }
+
+  function makeFoot(counts) {
+    var foot = el("div", "qp-foot");
+    var link = el("a", "qp-foot-link");
+    link.href = "#support-pipeline";
+    link.addEventListener("click", function (ev) { ev.preventDefault(); announce("파이프라인 안내 화면(/support/pipeline) 링크입니다."); });
+    link.appendChild(document.createTextNode("파이프라인 구조 (/support/pipeline)"));
+    link.appendChild(makeIcon("external"));
+    foot.appendChild(link);
+
+    if (state.variant === "b" && counts.done > 0) {
+      var clr = el("button", "qp-foot-btn", "완료 비우기");
+      clr.type = "button";
+      clr.addEventListener("click", clearHistory);
+      foot.appendChild(clr);
+    } else {
+      foot.appendChild(el("span", "tnum", "총 " + (counts.running + counts.queued + counts.staged) + "건 활성/대기"));
+    }
+    return foot;
+  }
+
+  /* --- Render Option A: BookStack Structured Queue Ledger --- */
+  function renderVariantA(counts) {
+    pop.classList.remove("variant-c");
+    pop.appendChild(makeHead(counts));
+
+    var tabsDef = [
+      { id: "all", label: "전체", cnt: state.data.items.length },
+      { id: "active", label: "진행·대기", cnt: counts.running + counts.queued },
+      { id: "staged", label: "에이전트", cnt: counts.staged },
+      { id: "history", label: "완료·오류", cnt: counts.done + counts.error }
+    ];
+    if (!tabsDef.some(function (t) { return t.id === state.tab; })) state.tab = "all";
+
+    var tablist = el("div", "q-tablist");
+    tablist.setAttribute("focusgroup", "tablist nomemory");
+    tablist.setAttribute("role", "tablist");
+    tablist.setAttribute("aria-label", "적재 대기열 상태 필터");
+
+    var tabButtons = [];
+    tabsDef.forEach(function (t) {
+      var selected = state.tab === t.id;
+      var btn = el("button", "q-tab");
+      btn.type = "button";
+      btn.setAttribute("role", "tab");
+      btn.setAttribute("aria-selected", selected ? "true" : "false");
+      btn.tabIndex = selected ? 0 : -1;
+      if (selected) btn.setAttribute("focusgroupstart", "");
+      btn.appendChild(document.createTextNode(t.label));
+      btn.appendChild(el("span", "q-tab-cnt", String(t.cnt)));
+      btn.addEventListener("click", function () {
+        state.tab = t.id;
+        renderPopover();
+        var nextBtn = pop.querySelector('.q-tab[aria-selected="true"]');
+        if (nextBtn) nextBtn.focus();
+      });
+      tablist.appendChild(btn);
+      tabButtons.push(btn);
+    });
+
+    tablist.addEventListener("keydown", function (ev) {
+      var idx = tabButtons.indexOf(document.activeElement);
+      if (idx === -1) return;
+      var next = -1;
+      if (ev.key === "ArrowRight") next = (idx + 1) % tabButtons.length;
+      else if (ev.key === "ArrowLeft") next = (idx - 1 + tabButtons.length) % tabButtons.length;
+      else if (ev.key === "Home") next = 0;
+      else if (ev.key === "End") next = tabButtons.length - 1;
+      if (next !== -1) {
+        ev.preventDefault();
+        tabButtons[next].click();
+      }
+    });
+    pop.appendChild(tablist);
+
+    var scroller = el("div", "queue-scroll");
+    var listItems = filteredItems();
+    if (listItems.length === 0) {
+      var emp = el("div", "q-empty");
+      emp.appendChild(makeIcon("check-circle"));
+      emp.appendChild(el("strong", "", "대기 중인 적재 요청이 없습니다."));
+      emp.appendChild(el("span", "", "웹, 텔레그램, 피드, MCP로 새 URL이나 텍스트를 적재하면 이곳에 순서대로 표시됩니다."));
+      scroller.appendChild(emp);
+      pop.appendChild(scroller);
+      pop.appendChild(makeFoot(counts));
+      return;
+    }
+
+    var groups = [
+      { key: "running", title: "처리 중인 슬롯", items: listItems.filter(function (i) { return i.status === "running"; }) },
+      { key: "queued", title: "대기 순서 (선입·우선 처리)", items: listItems.filter(function (i) { return i.status === "queued"; }) },
+      { key: "staged", title: "에이전트 클라이언트 대기 (원문 격리)", items: listItems.filter(function (i) { return i.status === "staged"; }) },
+      { key: "history", title: "최근 완료 · 오류", items: listItems.filter(function (i) { return i.status === "error" || i.status === "done"; }) }
+    ];
+
+    groups.forEach(function (g) {
+      if (!g.items.length) return;
+      var secHead = el("div", "q-sec-label");
+      secHead.appendChild(el("span", "", g.title));
+      secHead.appendChild(el("span", "tnum", g.items.length + "건"));
+      scroller.appendChild(secHead);
+
+      var ol = el("ol", "q-list");
+      ol.setAttribute("role", "list");
+      g.items.forEach(function (item) {
+        var li = el("li", "qa-row st-" + item.status);
+        var lead = el("div", "qa-lead");
+        var ordText = item.status === "queued" ? ("#" + item.order) : (item.status === "running" ? "실행" : item.status === "staged" ? "격리" : item.status === "error" ? "오류" : "완료");
+        lead.appendChild(el("span", "qa-order-pill mono", ordText));
+        lead.appendChild(makeIcon(statusIconName(item.status)));
+        li.appendChild(lead);
+
+        var body = el("div", "qa-body");
+        var top = el("div", "qa-top");
+        top.appendChild(el("div", "qa-title", item.title));
+        top.appendChild(el("span", "qa-time tnum", item.age));
+        body.appendChild(top);
+
+        var meta = el("div", "qa-meta");
+        var src = SOURCE_META[item.source] || SOURCE_META.web;
+        meta.appendChild(makeChip(src.label, "", src.icon));
+        meta.appendChild(makeChip(item.kb, ""));
+        meta.appendChild(makeChip(item.mode === "client" ? "에이전트" : "서버 API", item.mode === "client" ? "is-staged" : ""));
+        body.appendChild(meta);
+
+        if (item.status === "running") {
+          var sbox = el("div", "qa-stage-box");
+          var prog = document.createElement("progress");
+          prog.className = "q-progress";
+          prog.max = 5;
+          prog.value = item.stageIdx + 1;
+          prog.setAttribute("aria-label", item.title + " 진행 단계");
+          sbox.appendChild(prog);
+
+          var steps = el("div", "qa-stage-steps");
+          STAGES.forEach(function (stKey, idx) {
+            var cls = "qa-step";
+            if (idx < item.stageIdx) cls += " is-done";
+            else if (idx === item.stageIdx) cls += " is-now";
+            steps.appendChild(el("span", cls, STAGE_LABEL[stKey]));
+          });
+          sbox.appendChild(steps);
+          sbox.appendChild(el("div", "qa-msg", item.msg));
+          body.appendChild(sbox);
+        } else if (item.status === "error") {
+          body.appendChild(el("div", "qa-err", item.msg));
+          var actsErr = el("div", "qa-actions");
+          var retryBtn = el("button", "q-btn q-btn-danger");
+          retryBtn.type = "button";
+          retryBtn.appendChild(makeIcon("repeat"));
+          retryBtn.appendChild(document.createTextNode("지금 재시도"));
+          retryBtn.addEventListener("click", function () { retryItem(item.id); });
+          actsErr.appendChild(retryBtn);
+          body.appendChild(actsErr);
+        } else if (item.status === "done") {
+          body.appendChild(el("div", "qa-msg", item.msg));
+          var actsDone = el("div", "qa-actions");
+          var openLnk = el("a", "q-btn");
+          openLnk.href = "#doc-" + item.id;
+          openLnk.addEventListener("click", function (ev) { ev.preventDefault(); announce("완료된 문서('" + item.title + "')로 이동합니다."); });
+          openLnk.appendChild(document.createTextNode("문서 열기"));
+          openLnk.appendChild(makeIcon("external"));
+          actsDone.appendChild(openLnk);
+          body.appendChild(actsDone);
+        } else {
+          body.appendChild(el("div", "qa-msg", item.msg));
+        }
+
+        li.appendChild(body);
+        ol.appendChild(li);
+      });
+      scroller.appendChild(ol);
+    });
+
+    pop.appendChild(scroller);
+    pop.appendChild(makeFoot(counts));
+  }
+
+  /* --- Render Option B: Live Pipeline Conveyor & Timeline Rail --- */
+  function renderVariantB(counts) {
+    pop.classList.remove("variant-c");
+    pop.appendChild(makeHead(counts));
+
+    var scroller = el("div", "queue-scroll");
+    var wrap = el("div", "qb-wrap");
+
+    var running = state.data.items.filter(function (i) { return i.status === "running"; });
+    var queued = state.data.items.filter(function (i) { return i.status === "queued" || i.status === "staged"; });
+    var history = state.data.items.filter(function (i) { return i.status === "error" || i.status === "done"; });
+
+    if (running.length === 0 && queued.length === 0) {
+      var emp = el("div", "q-empty");
+      emp.appendChild(makeIcon("check-circle"));
+      emp.appendChild(el("strong", "", "파이프라인이 비어 있습니다."));
+      emp.appendChild(el("span", "", "현재 처리 중이거나 순서 대기 중인 요청이 없습니다."));
+      wrap.appendChild(emp);
+    }
+
+    if (running.length > 0) {
+      var rHead = el("div", "qb-rail-title");
+      rHead.appendChild(el("span", "", "실행 중 컨베이어"));
+      rHead.appendChild(el("span", "tnum", "슬롯 " + running.length + "/" + state.data.maxSlots));
+      wrap.appendChild(rHead);
+
+      running.forEach(function (item) {
+        var card = el("div", "qb-active-card");
+        var top = el("div", "qb-active-head");
+        top.appendChild(el("div", "qb-active-title", item.title));
+        top.appendChild(makeChip(item.age, "is-running", "clock"));
+        card.appendChild(top);
+
+        var conv = el("div", "qb-conveyor");
+        STAGES.forEach(function (stKey, idx) {
+          var nCls = "qb-node";
+          if (idx < item.stageIdx) nCls += " is-done";
+          else if (idx === item.stageIdx) nCls += " is-now";
+          var nd = el("div", nCls);
+          var dot = el("span", "qb-node-dot", idx < item.stageIdx ? "✓" : String(idx + 1));
+          nd.appendChild(dot);
+          nd.appendChild(el("span", "", STAGE_LABEL[stKey]));
+          conv.appendChild(nd);
+        });
+        card.appendChild(conv);
+
+        var prog = document.createElement("progress");
+        prog.className = "q-progress";
+        prog.max = 5;
+        prog.value = item.stageIdx + 1;
+        prog.setAttribute("aria-label", item.title + " 진행도");
+        card.appendChild(prog);
+
+        var footMeta = el("div", "qb-tl-meta");
+        footMeta.appendChild(makeChip((SOURCE_META[item.source] || SOURCE_META.web).label, ""));
+        footMeta.appendChild(makeChip(item.kb, ""));
+        footMeta.appendChild(el("span", "", item.msg));
+        card.appendChild(footMeta);
+
+        wrap.appendChild(card);
+      });
+    }
+
+    if (queued.length > 0) {
+      var qHead = el("div", "qb-rail-title");
+      qHead.appendChild(el("span", "", "대기 순서 타임라인"));
+      qHead.appendChild(el("span", "tnum", queued.length + "건"));
+      wrap.appendChild(qHead);
+
+      var ol = el("ol", "qb-timeline");
+      ol.setAttribute("role", "list");
+      queued.forEach(function (item) {
+        var li = el("li", "qb-tl-item st-" + item.status);
+        var nd = el("div", "qb-tl-node mono", item.status === "queued" ? String(item.order) : "M");
+        if (item.status === "staged") nd.title = "에이전트 클라이언트(MCP) 추출 대기";
+        li.appendChild(nd);
+
+        var card = el("div", "qb-tl-card");
+        var top = el("div", "qb-tl-top");
+        top.appendChild(el("div", "qb-tl-title", item.title));
+        top.appendChild(el("span", "qa-time tnum", item.age));
+        card.appendChild(top);
+
+        var meta = el("div", "qb-tl-meta");
+        meta.appendChild(makeChip(statusLabelText(item), item.status === "staged" ? "is-staged" : "is-queued"));
+        meta.appendChild(makeChip((SOURCE_META[item.source] || SOURCE_META.web).label, ""));
+        meta.appendChild(makeChip(item.kb, ""));
+        card.appendChild(meta);
+        card.appendChild(el("div", "qa-msg", item.msg));
+
+        li.appendChild(card);
+        ol.appendChild(li);
+      });
+      wrap.appendChild(ol);
+    }
+
+    if (history.length > 0) {
+      var det = el("details", "qb-details");
+      if (counts.error > 0 || (running.length === 0 && queued.length === 0)) det.open = true;
+      var sum = document.createElement("summary");
+      sum.appendChild(el("span", "", "최근 완료 · 오류 (" + history.length + "건)"));
+      sum.appendChild(makeIcon("chevron"));
+      det.appendChild(sum);
+
+      var dbody = el("div", "qb-details-body");
+      history.forEach(function (item) {
+        var row = el("div", "qb-hist-row");
+        var left = el("div", "");
+        left.style.minWidth = "0";
+        left.appendChild(el("div", "qc-title", item.title));
+        left.appendChild(el("div", item.status === "error" ? "qa-err" : "qa-msg", item.msg));
+        row.appendChild(left);
+
+        if (item.status === "error") {
+          var rb = el("button", "q-btn q-btn-danger", "재시도");
+          rb.type = "button";
+          rb.addEventListener("click", function () { retryItem(item.id); });
+          row.appendChild(rb);
+        } else {
+          row.appendChild(makeChip("완료", "is-done", "check-circle"));
+        }
+        dbody.appendChild(row);
+      });
+      det.appendChild(dbody);
+      wrap.appendChild(det);
+    }
+
+    scroller.appendChild(wrap);
+    pop.appendChild(scroller);
+    pop.appendChild(makeFoot(counts));
+  }
+
+  /* --- Render Option C: Dense Ops Strip --- */
+  function renderVariantC(counts) {
+    pop.classList.add("variant-c");
+    pop.appendChild(makeHead(counts));
+
+    var chipsDef = [
+      { id: "all", label: "전체", n: state.data.items.length },
+      { id: "running", label: "진행", n: counts.running },
+      { id: "queued", label: "대기", n: counts.queued },
+      { id: "staged", label: "에이전트", n: counts.staged },
+      { id: "error", label: "오류", n: counts.error },
+      { id: "done", label: "완료", n: counts.done }
+    ];
+    if (!chipsDef.some(function (c) { return c.id === state.tab; })) state.tab = "all";
+
+    var bar = el("div", "qc-chips");
+    bar.setAttribute("role", "group");
+    bar.setAttribute("aria-label", "상태별 필터");
+    chipsDef.forEach(function (c) {
+      var b = el("button", "qc-chip-btn tnum");
+      b.type = "button";
+      b.setAttribute("aria-pressed", state.tab === c.id ? "true" : "false");
+      b.textContent = c.label + " " + c.n;
+      b.addEventListener("click", function () {
+        state.tab = c.id;
+        renderPopover();
+      });
+      bar.appendChild(b);
+    });
+    pop.appendChild(bar);
+
+    var scroller = el("div", "queue-scroll");
+    var listItems = filteredItems();
+    if (listItems.length === 0) {
+      var emp = el("div", "q-empty");
+      emp.appendChild(makeIcon("check-circle"));
+      emp.appendChild(el("strong", "", "표시할 작업이 없습니다."));
+      emp.appendChild(el("span", "", "선택한 필터 조건에 해당하는 적재 요청이 없습니다."));
+      scroller.appendChild(emp);
+      pop.appendChild(scroller);
+      pop.appendChild(makeFoot(counts));
+      return;
+    }
+
+    var ol = el("ol", "q-list");
+    ol.setAttribute("role", "list");
+    listItems.forEach(function (item) {
+      var li = el("li", "qc-row st-" + item.status);
+      var expanded = state.expandedCId === item.id;
+      var rowBtn = el("button", "qc-row-btn");
+      rowBtn.type = "button";
+      rowBtn.setAttribute("aria-expanded", expanded ? "true" : "false");
+
+      var posTxt = item.status === "queued" ? ("#" + item.order) : (item.status === "running" ? (item.stageIdx + 1) + "/5" : item.status === "staged" ? "MCP" : item.status === "error" ? "ERR" : "OK");
+      rowBtn.appendChild(el("span", "qc-pos mono", posTxt));
+
+      var main = el("div", "qc-main");
+      main.appendChild(el("div", "qc-title", item.title));
+      var src = SOURCE_META[item.source] || SOURCE_META.web;
+      main.appendChild(el("div", "qc-sub", statusLabelText(item) + " · " + src.label + " · " + item.kb));
+      rowBtn.appendChild(main);
+
+      var right = el("div", "qc-right tnum");
+      right.appendChild(el("span", "", item.age));
+      if (item.status === "running") {
+        var prog = document.createElement("progress");
+        prog.className = "q-progress";
+        prog.max = 5;
+        prog.value = item.stageIdx + 1;
+        prog.setAttribute("aria-hidden", "true");
+        right.appendChild(prog);
+      } else {
+        right.appendChild(el("span", "", expanded ? "접기 ▴" : "상세 ▾"));
+      }
+      rowBtn.appendChild(right);
+
+      rowBtn.addEventListener("click", function () {
+        state.expandedCId = expanded ? null : item.id;
+        renderPopover();
+      });
+      li.appendChild(rowBtn);
+
+      if (expanded) {
+        var det = el("div", "qc-detail");
+        det.appendChild(el("div", item.status === "error" ? "qa-err" : "qa-msg", item.msg));
+        var dm = el("div", "qc-detail-meta mono");
+        dm.appendChild(el("span", "", "ID: " + item.id));
+        dm.appendChild(el("span", "", "모드: " + (item.mode === "client" ? "에이전트 클라이언트" : "서버 API")));
+        det.appendChild(dm);
+
+        var dActs = el("div", "qc-detail-actions");
+        if (item.status === "error") {
+          var rBtn = el("button", "q-btn q-btn-danger");
+          rBtn.type = "button";
+          rBtn.appendChild(makeIcon("repeat"));
+          rBtn.appendChild(document.createTextNode("지금 재시도"));
+          rBtn.addEventListener("click", function () { retryItem(item.id); });
+          dActs.appendChild(rBtn);
+        } else if (item.status === "done") {
+          var oBtn = el("a", "q-btn");
+          oBtn.href = "#doc-" + item.id;
+          oBtn.addEventListener("click", function (ev) { ev.preventDefault(); announce("완료된 문서로 이동합니다."); });
+          oBtn.appendChild(document.createTextNode("문서 열기"));
+          oBtn.appendChild(makeIcon("external"));
+          dActs.appendChild(oBtn);
+        }
+        if (dActs.children.length) det.appendChild(dActs);
+        li.appendChild(det);
+      }
+
+      ol.appendChild(li);
+    });
+    scroller.appendChild(ol);
+    pop.appendChild(scroller);
+    pop.appendChild(makeFoot(counts));
+  }
+
+  function renderPopover() {
+    var counts = countByStatus(state.data.items);
+    pop.textContent = "";
+    if (state.variant === "a") renderVariantA(counts);
+    else if (state.variant === "b") renderVariantB(counts);
+    else renderVariantC(counts);
+    requestAnimationFrame(function () {
+      positionPopoverFallback();
+      attachScrollFallback();
+    });
+  }
+
+  function renderChrome() {
+    var counts = countByStatus(state.data.items);
+    var activeTotal = counts.running + counts.queued + counts.staged;
+    var badge = document.getElementById("queue-badge");
+    var dot = document.getElementById("queue-live-dot");
+
+    badge.textContent = activeTotal > 99 ? "99+" : String(activeTotal);
+    badge.classList.toggle("is-idle", activeTotal === 0);
+    badge.classList.toggle("is-saturated", counts.running >= state.data.maxSlots);
+    dot.hidden = counts.running === 0;
+    dot.classList.toggle("is-pulsing", counts.running > 0);
+    queueBtn.title = activeTotal ? ("적재 대기열 (진행 " + counts.running + " · 대기 " + counts.queued + ")") : "적재 대기열";
+
+    var vMap = {
+      a: "안 A · 순번 레일 + 슬롯",
+      b: "안 B · 타임라인 컨베이어",
+      c: "안 C · 초밀도 운영 행"
+    };
+    document.getElementById("st-variant").textContent = vMap[state.variant];
+    document.getElementById("st-counts").textContent = "진행 " + counts.running + " · 대기 " + counts.queued + " · 에이전트 " + counts.staged + " · 오류 " + counts.error;
+  }
+
+  function renderAll() {
+    renderChrome();
+    renderPopover();
+  }
+
+  function applyTheme(next) {
+    state.theme = next === "dark" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", state.theme);
+    var iconWrap = document.getElementById("themebtn-icon");
+    if (iconWrap) {
+      iconWrap.textContent = "";
+      iconWrap.appendChild(makeIcon(state.theme === "dark" ? "sun" : "moon"));
+    }
+    document.querySelectorAll("[data-theme-pick]").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-theme-pick") === state.theme ? "true" : "false");
+    });
+  }
+
+  function applyViewport(next) {
+    state.viewport = next === "mobile" ? "mobile" : "desktop";
+    deviceFrame.classList.toggle("is-mobile", state.viewport === "mobile");
+    pop.classList.toggle("is-mobile-pop", state.viewport === "mobile");
+    document.querySelectorAll("[data-viewport]").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-viewport") === state.viewport ? "true" : "false");
+    });
+    requestAnimationFrame(positionPopoverFallback);
+  }
+
+  function stepSimulation() {
+    var items = state.data.items;
+    var running = items.filter(function (i) { return i.status === "running"; });
+    var promoted = false;
+    running.forEach(function (job) {
+      if (job.stageIdx < 4) {
+        job.stageIdx += 1;
+        job.msg = STAGE_MSG[STAGES[job.stageIdx]];
+      } else {
+        job.status = "done";
+        job.age = "방금 완료";
+        job.msg = "적재 완료 · 지식 그래프 커밋됨";
+      }
+    });
+    var busyNow = items.filter(function (i) { return i.status === "running"; }).length;
+    while (busyNow < state.data.maxSlots) {
+      var nextQ = items
+        .filter(function (i) { return i.status === "queued"; })
+        .sort(function (a, b) { return a.order - b.order; })[0];
+      if (!nextQ) break;
+      nextQ.status = "running";
+      nextQ.order = null;
+      nextQ.stageIdx = 0;
+      nextQ.age = "방금 시작";
+      nextQ.msg = STAGE_MSG.fetch;
+      busyNow += 1;
+      promoted = true;
+    }
+    if (promoted) {
+      var seq = 1;
+      items.filter(function (i) { return i.status === "queued"; })
+        .sort(function (a, b) { return a.order - b.order; })
+        .forEach(function (q) { q.order = seq++; });
+    }
+    renderAll();
+  }
+
+  function toggleSim(forceOff) {
+    var btn = document.getElementById("btn-sim");
+    if (state.simTimer || forceOff) {
+      if (state.simTimer) clearInterval(state.simTimer);
+      state.simTimer = null;
+      btn.setAttribute("aria-pressed", "false");
+      btn.classList.remove("sim-active");
+      btn.textContent = "▶ 진행 시뮬레이션";
+      return;
+    }
+    btn.setAttribute("aria-pressed", "true");
+    btn.classList.add("sim-active");
+    btn.textContent = "⏸ 시뮬레이션 중";
+    stepSimulation();
+    state.simTimer = setInterval(stepSimulation, 2200);
+  }
+
+  /* --- Bind Controls --- */
+  document.querySelectorAll("[data-variant]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.variant = btn.getAttribute("data-variant");
+      state.tab = "all";
+      document.querySelectorAll("[data-variant]").forEach(function (b) {
+        b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+      });
+      renderAll();
+      openPopoverAnchored();
+    });
+  });
+
+  document.querySelectorAll("[data-scenario]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      toggleSim(true);
+      state.scenario = btn.getAttribute("data-scenario");
+      state.data = buildScenarioData(state.scenario);
+      state.tab = "all";
+      state.expandedCId = state.data.items[0] ? state.data.items[0].id : null;
+      document.querySelectorAll("[data-scenario]").forEach(function (b) {
+        b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+      });
+      renderAll();
+      openPopoverAnchored();
+    });
+  });
+
+  document.querySelectorAll("[data-theme-pick]").forEach(function (btn) {
+    btn.addEventListener("click", function () { applyTheme(btn.getAttribute("data-theme-pick")); });
+  });
+  document.getElementById("themebtn").addEventListener("click", function () {
+    applyTheme(state.theme === "dark" ? "light" : "dark");
+  });
+
+  document.querySelectorAll("[data-viewport]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      applyViewport(btn.getAttribute("data-viewport"));
+      openPopoverAnchored();
+    });
+  });
+
+  document.getElementById("btn-sim").addEventListener("click", function () { toggleSim(false); });
+  document.getElementById("btn-reset").addEventListener("click", function () {
+    toggleSim(true);
+    state.data = buildScenarioData(state.scenario);
+    state.tab = "all";
+    renderAll();
+    openPopoverAnchored();
+  });
+
+  /* --- Boot --- */
+  hydrateStaticIcons(document);
+  applyTheme("light");
+  renderAll();
+  requestAnimationFrame(openPopoverAnchored);
+})();
+</script>
+</body>
+</html>

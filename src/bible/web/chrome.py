@@ -88,7 +88,7 @@ def render_appbar_html(
         f'<a id="menusyndlink" class="app-menu-item" href="{escape(synd_href, quote=True)}"'
         ' data-i18n-title="nav.syndication" title="${t:nav.syndication}"'
         f"{menu_synd_hid}{menu_synd_cur}>"
-        '<span class="btn-icon" data-icon="inbox"></span>'
+        '<span class="btn-icon" data-icon="rss"></span>'
         '<span class="btn-label" data-i18n="nav.topbar.syndication">${t:nav.topbar.syndication}</span>'
         "</a>"
     )

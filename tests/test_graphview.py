@@ -267,7 +267,10 @@ def test_right_menu_graph_section_markers():
     assert ".app-menu-sec-title{" in GRAPH_HTML
     assert 'id="addbtn"' in GRAPH_HTML and 'id="pop-ingest-menu"' in GRAPH_HTML
     assert 'id="modal-ingest"' in GRAPH_HTML and 'id="modal-reingest"' in GRAPH_HTML and 'id="modal-regen"' in GRAPH_HTML
-    assert GRAPH_HTML.index('id="homelinkbtn"') < GRAPH_HTML.index('id="syndlink"') < GRAPH_HTML.index('id="hamburger-btn"')
+    assert GRAPH_HTML.index('id="homelinkbtn"') < GRAPH_HTML.index('id="syndlink"') < GRAPH_HTML.index('id="queuebtn"') < GRAPH_HTML.index('id="themebtn"') < GRAPH_HTML.index('id="hamburger-btn"')
+    assert 'data-icon="rss"' in GRAPH_HTML[GRAPH_HTML.index('id="syndlink"'):GRAPH_HTML.index('id="queuebtn"')]
+    assert 'data-icon="layers"' in GRAPH_HTML[GRAPH_HTML.index('id="queuebtn"'):GRAPH_HTML.index('id="themebtn"')]
+    assert 'data-icon="rss"' in GRAPH_HTML[GRAPH_HTML.index('id="menusyndlink"'):GRAPH_HTML.index('id="moderationlinkbtn"')]
     assert 'id="centertab-graph"' in GRAPH_HTML
     assert 'id="centertab-reader"' in GRAPH_HTML
     assert 'id="centertab-stream"' in GRAPH_HTML

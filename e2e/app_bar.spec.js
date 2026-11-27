@@ -15,7 +15,7 @@ async function barFacts(page) {
     const style = getComputedStyle(bar);
     const brand = bar.querySelector('.bar-brand-group a.brand');
     const current = bar.querySelector('.appbar-end a[aria-current="page"]');
-    const visibleEndOrder = ['#themebtn', '#homelinkbtn', '#syndlink', '#hamburger-btn'].map((sel) => {
+    const visibleEndOrder = ['#homelinkbtn', '#syndlink', '#queuebtn', '#themebtn', '#hamburger-btn'].map((sel) => {
       const el = bar.querySelector(`.appbar-end ${sel}`);
       if (!el || el.hidden) return null;
       const r = el.getBoundingClientRect();
@@ -32,6 +32,9 @@ async function barFacts(page) {
       visibleTopLogout,
       visibleEndOrder,
       syndicationLinks: bar.querySelectorAll('.appbar-end > a[href^="/syndication"]').length,
+      syndIcon: bar.querySelector('.appbar-end #syndlink')?.getAttribute('data-icon') || null,
+      queueIcon: bar.querySelector('.appbar-end #queuebtn [data-icon]')?.getAttribute('data-icon') || null,
+      menuSyndIcon: document.querySelector('#pop-hamburger-menu #menusyndlink [data-icon]')?.getAttribute('data-icon') || null,
       homeLinks: bar.querySelectorAll('.appbar-end > a#homelinkbtn').length,
       hamburgerConsoleLinks: bar.querySelectorAll('#pop-hamburger-menu a#consolelinkbtn').length,
       hamburgerLogoutForms: bar.querySelectorAll('#pop-hamburger-menu form[action="/logout"]').length,
@@ -46,11 +49,13 @@ test('the three pages share one app bar, palette trigger, right-to-left icons, h
   await page.setViewportSize({ width: 1360, height: 800 });
   await page.goto(login(1), { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#syndlink')).toBeVisible();
+  await expect(page.locator('#queuebtn')).toBeVisible();
   const facts = [];
   for (const target of PAGES) {
     await page.goto(target.path, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('header.appbar')).toHaveCount(1);
     await expect(page.locator('#syndlink')).toBeVisible();
+    await expect(page.locator('#queuebtn')).toBeVisible();
     const fact = await barFacts(page);
     expect(fact.brandText, target.name).toBe('Claire Bible');
     // In single mode the workspace is at /@{username}/ (KNOWLEDGE_FEDERATION_DESIGN.md Section 15): its brand goes to the home of its knowledge base. The other pages link to "/", which gives 302 to the same place.
@@ -60,13 +65,16 @@ test('the three pages share one app bar, palette trigger, right-to-left icons, h
     expect(fact.visibleTopLogout, target.name).toBe(0);
     expect(fact.homeLinks, target.name).toBe(1);
     expect(fact.syndicationLinks, target.name).toBe(1);
+    expect(fact.syndIcon, target.name).toBe('rss');
+    expect(fact.queueIcon, target.name).toBe('layers');
+    expect(fact.menuSyndIcon, target.name).toBe('rss');
     expect(fact.hamburgerConsoleLinks, target.name).toBe(1);
     expect(fact.hamburgerLogoutForms, target.name).toBe(1);
     expect(fact.themeSwitch, target.name).toBe(true);
     expect(fact.currentPath, target.name).toMatch(target.currentPattern);
     expect(fact.inputs, target.name).toBe(0);
 
-    // Order from left to right along .appbar-end: themebtn -> homelinkbtn -> syndlink -> hamburger-btn (rightmost).
+    // Order from left to right along .appbar-end: homelinkbtn -> syndlink -> queuebtn -> themebtn -> hamburger-btn (rightmost).
     expect(fact.visibleEndOrder.every((item) => item && item.width > 0), target.name).toBe(true);
     for (let i = 1; i < fact.visibleEndOrder.length; i += 1) {
       expect(fact.visibleEndOrder[i].left, `${target.name} ${fact.visibleEndOrder[i].sel}`).toBeGreaterThan(fact.visibleEndOrder[i - 1].left);
@@ -140,12 +148,15 @@ test('a narrow screen keeps top bar controls accessible without overflow across 
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto(login(3), { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#syndlink')).toBeVisible();
+  await expect(page.locator('#queuebtn')).toBeVisible();
   for (const target of PAGES) {
     await page.goto(target.path, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('header.appbar a.brand')).toBeVisible();
     await expect(page.locator('#palettetrigger')).toBeVisible();
     await expect(page.locator('#homelinkbtn')).toBeVisible();
     await expect(page.locator('#syndlink')).toBeVisible();
+    await expect(page.locator('#queuebtn')).toBeVisible();
+    await expect(page.locator('#themebtn')).toBeVisible();
     await expect(page.locator('#hamburger-btn')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, target.name).toBeLessThanOrEqual(0);

@@ -29,9 +29,33 @@
       <p id="notify-empty" class="notify-empty" data-i18n="nav.notify.empty" hidden>${t:nav.notify.empty}</p>
       <a id="notify-settings" class="notify-foot" href="/account/notifications" data-i18n="nav.notify.settings">${t:nav.notify.settings}</a>
     </div>
-    <button type="button" id="themebtn" class="bar-icon-btn" data-i18n-title="nav.theme_toggle" data-i18n-aria-label="nav.theme_toggle" title="${t:nav.theme_toggle}" aria-label="${t:nav.theme_toggle}" data-icon="moon"></button>
     <a id="homelinkbtn" class="bar-icon-btn" href="__HOME_HREF__"__HOME_ONCLICK_ATTR____HOME_CURRENT_ATTR__ data-i18n-title="nav.home_aria" data-i18n-aria-label="nav.home_aria" title="${t:nav.home_aria}" aria-label="${t:nav.home_aria}" data-icon="home"></a>
-    <a id="syndlink" class="bar-icon-btn" href="__SYND_HREF__"__SYND_HIDDEN_ATTR____SYND_CURRENT_ATTR____SYND_EXTRA_ATTRS__ data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication" title="${t:nav.syndication}" aria-label="${t:nav.syndication}" data-icon="inbox"></a>
+    <a id="syndlink" class="bar-icon-btn" href="__SYND_HREF__"__SYND_HIDDEN_ATTR____SYND_CURRENT_ATTR____SYND_EXTRA_ATTRS__ data-i18n-title="nav.syndication" data-i18n-aria-label="nav.syndication" title="${t:nav.syndication}" aria-label="${t:nav.syndication}" data-icon="rss"></a>
+    <button type="button" id="queuebtn" class="bar-icon-btn queue-btn" popovertarget="pop-queue" aria-expanded="false" data-i18n-title="nav.queue.open" data-i18n-aria-label="nav.queue.open" title="${t:nav.queue.open}" aria-label="${t:nav.queue.open}" hidden><span data-icon="layers"></span><span class="queue-count" id="queue-count" aria-hidden="true" hidden></span><span class="queue-live-dot" id="queue-live-dot" aria-hidden="true" hidden></span></button>
+    <div id="pop-queue" popover="auto" class="app-popover app-popover-end queue-pop" aria-labelledby="queue-pop-title" data-queue-view="ledger">
+      <div class="queue-head">
+        <div class="queue-title-group">
+          <span data-icon="layers"></span>
+          <h2 id="queue-pop-title" class="queue-title" data-i18n="nav.queue.title">${t:nav.queue.title}</h2>
+        </div>
+        <div class="queue-head-end">
+          <div id="queue-slot-meter" class="slot-meter tnum" data-i18n-title="nav.queue.slots_title" title="${t:nav.queue.slots_title}">
+            <span id="queue-slot-label"></span>
+            <span class="slot-cells" aria-hidden="true"><span class="slot-cell"></span><span class="slot-cell"></span><span class="slot-cell"></span><span class="slot-cell"></span></span>
+          </div>
+          <button type="button" id="queue-view-toggle" class="queue-icon-btn" aria-pressed="false" data-i18n-title="nav.queue.switch_compact" data-i18n-aria-label="nav.queue.switch_compact" title="${t:nav.queue.switch_compact}" aria-label="${t:nav.queue.switch_compact}"><span data-icon="list"></span></button>
+          <button type="button" id="queue-close-btn" class="queue-icon-btn" data-i18n-title="nav.queue.close" data-i18n-aria-label="nav.queue.close" title="${t:nav.queue.close}" aria-label="${t:nav.queue.close}"><span data-icon="close"></span></button>
+        </div>
+      </div>
+      <div id="queue-filter-bar" class="queue-filter-bar"></div>
+      <div id="queue-scroll" class="queue-scroll"></div>
+      <div id="queue-foot" class="queue-foot">
+        <a id="queue-pipeline-link" class="queue-foot-link" href="/support/pipeline"><span data-i18n="nav.queue.pipeline_link">${t:nav.queue.pipeline_link}</span><span data-icon="external"></span></a>
+        <span id="queue-foot-summary" class="tnum"></span>
+      </div>
+      <div id="queue-live-region" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    </div>
+    <button type="button" id="themebtn" class="bar-icon-btn" data-i18n-title="nav.theme_toggle" data-i18n-aria-label="nav.theme_toggle" title="${t:nav.theme_toggle}" aria-label="${t:nav.theme_toggle}" data-icon="moon"></button>
     <button type="button" id="hamburger-btn" class="bar-icon-btn app-hamburger-btn" commandfor="pop-hamburger-menu" command="toggle-popover" aria-haspopup="menu" aria-expanded="false" data-i18n-title="nav.menu" data-i18n-aria-label="nav.menu" title="${t:nav.menu}" aria-label="${t:nav.menu}" data-icon="menu"></button>
     <div id="pop-hamburger-menu" popover="auto" class="app-popover app-popover-end">
       <div focusgroup="menu nomemory" aria-labelledby="hamburger-btn">

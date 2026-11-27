@@ -536,6 +536,9 @@ def test_route_policy_is_exact_method_path_matrix_with_explicit_head():
         ("DELETE", "/api/me/push/subscriptions"),
         ("PUT", "/api/me/push/kinds/{kind}"),
         ("POST", "/api/me/push/test"),
+        ("GET", "/api/me/ingest-queue"),
+        ("HEAD", "/api/me/ingest-queue"),
+        ("POST", "/api/me/ingest-queue/{inbox_id}/retry"),
         *(
             (method, path)
             for path in ("/api/me/data-bundles", "/api/me/backups")
