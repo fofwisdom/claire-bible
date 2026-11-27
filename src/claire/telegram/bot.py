@@ -142,13 +142,16 @@ def server_bot_profile(settings: Any) -> Any:
     )
 
 
-def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
-    """텔레그램 봇 전용 회전 파일 로거 설정 (data/logs/telegram.log).
+_TELEGRAM_LOG_LOGGER_NAMES: tuple[str, ...] = ("claire.telegram", "telegram", "claire.ingest", "claire.extract", "claire_plugins", "httpx", "httpx2")
 
-    최대 5MB 크기의 회전 로그 3개를 유지하며 claire.telegram 로거에 부착한다.
-    프로바이더 오류 문자열에 섞인 키가 기록되지 않도록 로그 스크러버를 먼저 설치한다(설계 §11.3).
+
+def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
+    """Configure the rotating file logger for the Telegram bot (``data/logs/telegram.log``).
+
+    Keep up to 3 rotating log files of 5 MB each and attach one scrubbed handler to the Telegram, ingest, extract, plugin, and HTTP loggers.
+    Install the log scrubber first so provider error text cannot write keys to the log file (design Section 11.3).
     """
-    from ..core.secret_scrub import install_log_scrubber
+    from ..core.secret_scrub import SecretScrubFilter, install_log_scrubber
 
     install_log_scrubber()
     try:
@@ -158,35 +161,36 @@ def setup_telegram_logging(data_dir: Path | str | None = None) -> Path | None:
         log_dir = Path(data_dir) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "telegram.log"
+        resolved_log_file = log_file.resolve()
 
-        # 동일 파일 핸들러 중복 부착 방지
-        for h in log.handlers:
-            if isinstance(h, RotatingFileHandler) and getattr(h, "baseFilename", None):
-                if Path(h.baseFilename).resolve() == log_file.resolve():
-                    return log_file
+        def _find_matching_handler(target_logger: logging.Logger) -> RotatingFileHandler | None:
+            for existing in target_logger.handlers:
+                base = getattr(existing, "baseFilename", None)
+                if isinstance(existing, RotatingFileHandler) and base and Path(base).resolve() == resolved_log_file:
+                    return existing
+            return None
 
-        handler = RotatingFileHandler(
-            log_file,
-            maxBytes=5 * 1024 * 1024,
-            backupCount=3,
-            encoding="utf-8",
-        )
-        fmt = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
-        handler.setFormatter(fmt)
-        handler.setLevel(logging.INFO)
-        log.addHandler(handler)
-        log.setLevel(logging.INFO)
+        handler: RotatingFileHandler | None = None
+        for logger_name in _TELEGRAM_LOG_LOGGER_NAMES:
+            handler = _find_matching_handler(logging.getLogger(logger_name))
+            if handler is not None:
+                break
 
-        # telegram 패키지 로거(PTB 내부 및 미처리 예외)에도 핸들러 부착
-        tg_log = logging.getLogger("telegram")
-        if not any(
-            isinstance(h, RotatingFileHandler)
-            and getattr(h, "baseFilename", None)
-            and Path(h.baseFilename).resolve() == log_file.resolve()
-            for h in tg_log.handlers
-        ):
-            tg_log.addHandler(handler)
-            tg_log.setLevel(logging.INFO)
+        if handler is None:
+            handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+            fmt = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+            handler.setFormatter(fmt)
+            handler.setLevel(logging.INFO)
+
+        if not any(isinstance(f, SecretScrubFilter) for f in handler.filters):
+            handler.addFilter(SecretScrubFilter())
+
+        for logger_name in _TELEGRAM_LOG_LOGGER_NAMES:
+            target_logger = logging.getLogger(logger_name)
+            if _find_matching_handler(target_logger) is None:
+                target_logger.addHandler(handler)
+            if target_logger.level == logging.NOTSET or target_logger.level > logging.INFO:
+                target_logger.setLevel(logging.INFO)
 
         return log_file
     except Exception as e:  # noqa: BLE001
@@ -1848,6 +1852,7 @@ def build_app(settings: Settings | None = None, *, profile: Any | None = None) -
             await _reply_focus_sealed(msg)
         uid = user.id if user else None
         cid = update.effective_chat.id if update.effective_chat else None
+        log.info("User document received: user_id=%s, chat_id=%s, file_name=%r, composite_url=%r", uid, cid, name, composite_url)
 
         async def _download() -> str:
             tg_file = await doc.get_file()
