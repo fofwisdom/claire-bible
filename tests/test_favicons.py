@@ -359,7 +359,7 @@ def test_pages_have_one_favicon_set() -> None:
             ).body
         ).decode("utf-8"),
         "public_kb.html": bytes(
-            render_template("public_kb.html", text={"page_title": "x", "view_name": "x"}, markup={"common_appbar_html": "", "bootstrap_json": "{}"}).body
+            render_template("public_kb.html", text={"page_title": "x", "view_name": "x"}, markup={"common_appbar_html": "", "bootstrap_json": "{}", "footer_links_html": ""}).body
         ).decode("utf-8"),
     }
     for name, html in pages.items():

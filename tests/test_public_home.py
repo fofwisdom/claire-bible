@@ -328,3 +328,45 @@ def test_public_home_authenticated_workspace_cta_and_cold_start_empty_state(tmp_
     assert "Public directory" in empty_html
     assert 'id="home-themes"' not in empty_html
     assert 'id="home-directory-link"' in empty_html
+
+
+def test_public_themes_observatory_alignment_and_privacy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env = _setup_home_env(tmp_path / "themes", monkeypatch, server_langs=["ko", "en"])
+
+    json_resp = env.client.get("/themes", headers={"Accept": "application/json"})
+    assert json_resp.status_code == 200
+    payload = json_resp.json()
+    active_themes = [th for th in payload["themes"] if th["state"] == "active"]
+    assert len(active_themes) == 1
+    theme_item = active_themes[0]
+    assert theme_item["number"] == "2001"
+    assert theme_item["label"] == "Public Theme"
+    assert theme_item["knowledge_bases"] == 1
+    assert theme_item["remote_knowledge_bases"] == 1
+    assert theme_item["top_entities"] == ["Ada Lovelace"]
+    assert theme_item["peer_servers"] == ["peer-a.example"]
+    assert isinstance(theme_item["last_activity_at"], (int, float))
+
+    serialized = json.dumps(payload, ensure_ascii=False)
+    for forbidden in ("blocked-peer.example", "9.9.9-secret-ver", "8.8.8-blocked-ver", "Secret Bob", "Top Secret KB", SERVER_API_KEY, MEMBER_BYOK_KEY, "jev-latest"):
+        assert forbidden not in serialized
+
+    for lang_code in ("ko", "en"):
+        html_resp = env.client.get("/themes", headers={"Accept": "text/html", "Accept-Language": lang_code})
+        assert html_resp.status_code == 200
+        html = html_resp.text
+        assert 'class="obs-main obs-themes-main"' in html
+        assert '<meta name="text-scale" content="scale"/>' in html
+        assert '/static/css/public_observatory.css' in html
+        assert '/static/js/command_palette.js' in html
+        assert '<footer class="about-footer">' in html
+        assert 'href="/themes" aria-current="page"' in html
+        assert 'href="/reference"' not in html
+        html_no_scripts = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.S)
+        assert re.search(r"\b(?:about|home_obs|home_root|directory|themes|kb\.pub|lang\.name)\.[a-z0-9_]+", html_no_scripts) is None
+
+    kb_resp = env.client.get("/kb", headers={"Accept": "text/html", "Accept-Language": "ko"})
+    assert kb_resp.status_code == 200
+    assert 'class="obs-main obs-themes-main"' in kb_resp.text
+    assert '<footer class="about-footer">' in kb_resp.text
+    assert 'href="/reference"' not in kb_resp.text

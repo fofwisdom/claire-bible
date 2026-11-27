@@ -4998,5 +4998,12 @@
   "home_obs.themes.all": "All themes",
   "home_obs.themes.empty": "No active public themes yet.",
   "home_obs.directory_bar": "Browse public accounts and personal themes on this server",
-  "home_obs.diagram_label": "Virtuous-cycle diagram of knowledge ingestion, publication, exchange, and reflux across Claire Bible servers"
+  "home_obs.diagram_label": "Virtuous-cycle diagram of knowledge ingestion, publication, exchange, and reflux across Claire Bible servers",
+  "kb.pub.view_switch_label": "Switch view",
+  "kb.pub.view_themes": "Active themes",
+  "kb.pub.view_kbs": "Shared KBs",
+  "kb.pub.themes_metric_themes": "Active themes",
+  "kb.pub.themes_metric_local": "Local KBs",
+  "kb.pub.themes_metric_remote": "Remote KBs",
+  "kb.pub.themes_peer_label": "Peer servers"
 }

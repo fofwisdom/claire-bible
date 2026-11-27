@@ -16,10 +16,15 @@ const THEME_202 = { number: '202', url: ORIGIN + '/themes/202/', label: 'Dragons
 ] };
 
 const THEMES = [
-  { number: '202', url: ORIGIN + '/themes/202', label: 'Dragons · Elves', description: 'Dragons, Elves', knowledge_type: 'fictional', state: 'active', knowledge_bases: 2, remote_knowledge_bases: 1 },
-  { number: '201', url: ORIGIN + '/themes/201', label: 'Railway · Steam', description: '', knowledge_type: 'real', state: 'active', knowledge_bases: 1, remote_knowledge_bases: 0 },
-  { number: '203', url: ORIGIN + '/themes/203', label: 'Canals', description: '', knowledge_type: 'real', state: 'merged', knowledge_bases: 0, remote_knowledge_bases: 0 }
+  { number: '202', url: ORIGIN + '/themes/202', label: 'Dragons · Elves', description: 'Dragons, Elves', knowledge_type: 'fictional', state: 'active', knowledge_bases: 2, remote_knowledge_bases: 1, top_entities: ['Dragon', 'Elf'], peer_servers: ['b.example'] },
+  { number: '201', url: ORIGIN + '/themes/201', label: 'Railway · Steam', description: '', knowledge_type: 'real', state: 'active', knowledge_bases: 1, remote_knowledge_bases: 0, top_entities: ['Steam Engine'], peer_servers: [] },
+  { number: '203', url: ORIGIN + '/themes/203', label: 'Canals', description: '', knowledge_type: 'real', state: 'merged', knowledge_bases: 0, remote_knowledge_bases: 0, top_entities: [], peer_servers: [] }
 ];
+
+async function expectZeroOverflow(page, label) {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, `${label} horizontal overflow`).toBeLessThanOrEqual(1);
+}
 
 function collection(path, key, items) {
   return { id: ORIGIN + path, type: 'OrderedCollection', totalItems: items.length, first: ORIGIN + path + '?page=true', [key]: items };
@@ -101,9 +106,13 @@ test('/kb: the shared knowledge bases with type, state, join policy, and role; t
   const { calls, unknown } = await installPublicApi(page, makeState(true));
   await page.goto('/kb', { waitUntil: 'domcontentloaded' });
   const root = page.locator('#public-kb-root');
-  await expect(root.locator('h1')).toContainText('공유 지식 베이스');
+  await expect(root.locator('.obs-page-head h1')).toContainText('공유 지식 베이스');
   await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
   await expect(root.locator('.claire-pubnav')).toHaveCount(0);
+  await expect(root.locator('.obs-view-switch a[href="/kb"][aria-current="page"]')).toBeVisible();
+  await expect(root.locator('.obs-view-switch a[href="/themes"]')).toBeVisible();
+  await expect(page.locator('footer.about-footer')).toBeVisible();
+  await expect(page.locator('footer.about-footer a[href="/reference"]')).toHaveCount(0);
   const rows = root.locator('tbody tr');
   await expect(rows).toHaveCount(2);
   // The first row: the link to the page of the knowledge base, the type, the join policy, the role, and the counts.
@@ -177,17 +186,34 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   await expect(docs.nth(3).locator('.claire-tag.warn')).toHaveText('숨김');
   await expectNoRawKeys(page);
 
-  // The themes: the active ones only, with the count of the knowledge bases of other servers and the link to /kb.
+  // The themes: the active ones only, with Observatory header, view switch, peer pills, and counts.
   await page.goto('/themes', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
   await expect(root.locator('.claire-pubnav')).toHaveCount(0);
-  await expect(root.locator('.claire-actions a[href="/kb"]')).toBeVisible();
-  const cards = root.locator('article.claire-card');
+  await expect(root.locator('.obs-page-head')).toBeVisible();
+  await expect(root.locator('.obs-page-head .obs-metrics')).toBeVisible();
+  await expect(root.locator('.obs-view-switch a[href="/themes"][aria-current="page"]')).toBeVisible();
+  await expect(root.locator('.obs-view-switch a[href="/kb"]')).toBeVisible();
+  await expect(page.locator('footer.about-footer')).toBeVisible();
+  await expect(page.locator('footer.about-footer a[href="/reference"]')).toHaveCount(0);
+  const cards = root.locator('article.claire-card.obs-catalog-card');
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0).locator('h2 a[href="/themes/202/"]')).toHaveText('Dragons · Elves');
   await expect(cards.nth(0).locator('.claire-tag.fic')).toHaveText('허구');
+  await expect(cards.nth(0).locator('.obs-catalog-entities')).toContainText('Dragon');
+  await expect(cards.nth(0).locator('.obs-catalog-peers')).toContainText('b.example');
   await expect(cards.nth(0).locator('.claire-tags')).toHaveText('지식 베이스 2개다른 서버 1개');
   await expect(cards.nth(1).locator('.claire-tags .claire-tag')).toHaveCount(1);
+  await expectZeroOverflow(page, '/themes desktop light');
+  await page.locator('#themebtn').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expectZeroOverflow(page, '/themes desktop dark');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectZeroOverflow(page, '/themes mobile dark');
+  await page.locator('#themebtn').click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expectZeroOverflow(page, '/themes mobile light');
+  await page.setViewportSize({ width: 1360, height: 900 });
   await root.locator('.claire-chip', { hasText: '현실' }).click();
   await expect(cards).toHaveCount(1);
   await expect(cards.nth(0)).toContainText('Railway · Steam');

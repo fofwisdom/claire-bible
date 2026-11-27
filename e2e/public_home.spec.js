@@ -244,6 +244,25 @@ test('network-mode / renders Calm Federated Observatory, peer hovercard, 4-item 
     await expect(page).toHaveURL(/\/themes$/);
     await expect(page.locator('header.appbar .pub-appbar-nav a[href="/themes"][aria-current="page"]')).toBeVisible();
     await expect(page.locator('.claire-pubnav:visible')).toHaveCount(0);
+    await expect(page.locator('#public-kb-root .obs-page-head')).toBeVisible();
+    await expect(page.locator('#public-kb-root .obs-view-switch a[href="/themes"][aria-current="page"]')).toBeVisible();
+    await expect(page.locator('#public-kb-root .obs-view-switch a[href="/kb"]')).toBeVisible();
+    await expect(page.locator('#public-kb-root .obs-catalog-card')).toContainText('AI Architecture');
+    await expect(page.locator('#public-kb-root .obs-catalog-peers')).toContainText('peer-a.example');
+    await expect(page.locator('body')).not.toContainText('blocked-peer.example');
+    await expect(page.locator('footer.about-footer')).toBeVisible();
+    await expect(page.locator('footer.about-footer a[href="/reference"]')).toHaveCount(0);
+    await expectNoHomeRawKeys(page);
+    await expectZeroOverflow(page, '/themes desktop light');
+    await page.locator('#themebtn').click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    await expectZeroOverflow(page, '/themes desktop dark');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectZeroOverflow(page, '/themes mobile dark');
+    await page.locator('#themebtn').click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expectZeroOverflow(page, '/themes mobile light');
+    await page.setViewportSize({ width: 1360, height: 900 });
 
     await page.locator('header.appbar .pub-appbar-nav a[href="/directory"]').click();
     await expect(page).toHaveURL(/\/directory$/);

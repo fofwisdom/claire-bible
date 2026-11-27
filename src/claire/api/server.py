@@ -969,10 +969,21 @@ def create_app(
             conn = dbm.connect_existing(s.db_file, readonly=True)
             try:
                 rows = themes_store.list_themes(conn, knowledge_type=knowledge_type)
-                remote_ids = {kb.id for kb in remote_kbs.list_all(conn)}
+                remote_by_id = {kb.id: kb for kb in remote_kbs.list_all(conn)}
                 out = []
                 for row in rows:
                     number = ids.format_public_id(int(row["number"]))
+                    raw_top = row.get("top_entities")
+                    if isinstance(raw_top, list):
+                        parsed_top = raw_top
+                    else:
+                        try:
+                            parsed_top = json.loads(raw_top or "[]")
+                        except (ValueError, TypeError):
+                            parsed_top = []
+                    top_entities = [str(name) for name in parsed_top if str(name or "").strip()][:4] if isinstance(parsed_top, list) else []
+                    r_members = themes_store.remote_members(conn, theme_id=int(row["id"]))
+                    peer_servers = sorted({remote_by_id[int(m["remote_kb_id"])].domain for m in r_members if int(m["remote_kb_id"]) in remote_by_id and remote_by_id[int(m["remote_kb_id"])].domain})
                     out.append({
                         "number": number,
                         "url": f"{origin}/themes/{number}",
@@ -982,7 +993,10 @@ def create_app(
                         "state": row["state"],
                         "knowledge_bases": len(themes_store.theme_members(conn, int(row["id"]))),
                         # KNOWLEDGE_FEDERATION_DESIGN.md Section 8.2: the shared knowledge bases of other servers in this theme.
-                        "remote_knowledge_bases": sum(1 for m in themes_store.remote_members(conn, theme_id=int(row["id"])) if int(m["remote_kb_id"]) in remote_ids),
+                        "remote_knowledge_bases": sum(1 for m in r_members if int(m["remote_kb_id"]) in remote_by_id),
+                        "top_entities": top_entities,
+                        "peer_servers": peer_servers,
+                        "last_activity_at": row["last_activity_at"],
                     })
                 return out
             finally:

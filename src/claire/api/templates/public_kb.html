@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="text-scale" content="scale"/>
 <meta name="color-scheme" content="light dark"/>
 <title>$page_title — Claire Bible</title>
 <script>
@@ -17,10 +18,15 @@ $i18n_bootstrap_html
 </head>
 <body class="claire-public-body">
 <!-- __COMMON_APPBAR__ -->
-<main id="public-kb-root" class="claire-page" data-public-view="$view_name"></main>
+<main id="public-kb-root" class="obs-main obs-themes-main" data-public-view="$view_name"></main>
+<footer class="about-footer">
+  <div><strong>Claire Bible</strong></div>
+  <div class="about-footer-links">$footer_links_html</div>
+</footer>
 <!-- __COMMON_CMDPALETTE__ -->
 <script src="/static/js/icons.js" defer></script>
 <script src="/static/js/appbar.js" defer></script>
+<script src="/static/js/command_palette.js" defer></script>
 <script src="/static/js/shared_ui.js" defer></script>
 <script src="/static/js/kb_dialogs.js" defer></script>
 <script src="/static/js/public_kb.js" defer></script>

@@ -128,6 +128,12 @@ def render_public_kb_page(
     bootstrap_json = json.dumps(bootstrap, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     active_nav = "themes" if view in ("themes_list", "theme_detail", "kb_list", "kb_detail") else ""
     appbar_html = public_appbar_html(request, ctx, active=active_nav)
+    footer_links_html = (
+        f'<a href="/">{escape(t("kb.pub.nav_home"))}</a>'
+        f'<a href="/themes">{escape(t("kb.pub.nav_themes"))}</a>'
+        f'<a href="/directory">{escape(t("kb.pub.nav_accounts"))}</a>'
+        f'<a href="/about">{escape(t("nav.about"))}</a>'
+    )
     return render_template(
         "public_kb.html",
         text={
@@ -137,6 +143,7 @@ def render_public_kb_page(
         markup={
             "common_appbar_html": appbar_html,
             "bootstrap_json": bootstrap_json,
+            "footer_links_html": footer_links_html,
         },
     )
 

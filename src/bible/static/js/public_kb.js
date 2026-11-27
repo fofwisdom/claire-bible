@@ -33,6 +33,13 @@
     }).join("") + "</nav>";
   }
 
+  function viewSwitchHtml(active) {
+    return '<nav class="obs-view-switch" aria-label="' + esc(t("kb.pub.view_switch_label")) + '">' +
+      '<a href="/themes"' + (active === "themes" ? ' aria-current="page"' : "") + ">" + esc(t("kb.pub.view_themes")) + "</a>" +
+      '<a href="/kb"' + (active === "kb" ? ' aria-current="page"' : "") + ">" + esc(t("kb.pub.view_kbs")) + "</a>" +
+      "</nav>";
+  }
+
   function knowledgeTypeChips(name, value) {
     return ui().renderChips({
       name: name,
@@ -109,22 +116,39 @@
 
     function paint() {
       var list = themes.filter(function (th) { return knowledgeTypeFilter === "all" || th.knowledge_type === knowledgeTypeFilter; });
+      var totalLocalKbs = list.reduce(function (acc, th) { return acc + (Number(th.knowledge_bases) || 0); }, 0);
+      var totalRemoteKbs = list.reduce(function (acc, th) { return acc + (Number(th.remote_knowledge_bases) || 0); }, 0);
       var h = publicNavHtml("themes");
-      h += '<div class="claire-page-head"><div><h1>' + ui().icon("folder") + " " + esc(t("kb.pub.themes_title")) + '</h1><p class="claire-page-sub">' + esc(t("kb.pub.themes_subtitle")) + "</p></div>";
-      h += '<div class="claire-actions">' + knowledgeTypeChips("pub-themes-knowledge-type", knowledgeTypeFilter);
-      h += '<a class="claire-btn sec" href="/kb">' + esc(t("kb.pub.all_kbs_link")) + "</a>";
+      h += '<header class="obs-page-head"><div><h1>' + ui().icon("folder") + " <span>" + esc(t("kb.pub.themes_title")) + '</span></h1><p class="obs-subtitle claire-page-sub">' + esc(t("kb.pub.themes_subtitle")) + "</p></div>";
+      h += '<dl class="obs-metrics">' +
+        '<div class="obs-metric"><dt>' + esc(t("kb.pub.themes_metric_themes")) + "</dt><dd>" + esc(String(list.length)) + "</dd></div>" +
+        '<div class="obs-metric"><dt>' + esc(t("kb.pub.themes_metric_local")) + "</dt><dd>" + esc(String(totalLocalKbs)) + "</dd></div>" +
+        '<div class="obs-metric"><dt>' + esc(t("kb.pub.themes_metric_remote")) + "</dt><dd>" + esc(String(totalRemoteKbs)) + "</dd></div>" +
+        "</dl></header>";
+      h += '<div class="obs-catalog-toolbar">' + viewSwitchHtml("themes") + '<div class="claire-actions">' + knowledgeTypeChips("pub-themes-knowledge-type", knowledgeTypeFilter);
       if (bs.is_authenticated) h += '<button type="button" class="claire-btn pri" id="pub-th-create-kb">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button>";
       h += "</div></div>";
       if (loadError) h += '<div class="claire-note warn"><span>' + esc(ui().errorText(loadError)) + "</span></div>";
-      h += '<div class="claire-grid-3">';
+      h += '<div class="obs-themes-catalog-grid">';
       if (!list.length) {
         h += '<div class="claire-card"><p class="claire-hint">' + esc(t("kb.ui.empty_list")) + "</p></div>";
       } else {
         list.forEach(function (th) {
-          h += '<article class="claire-card"><div class="claire-card-head"><h2><a href="' + esc(themeHref(th.number)) + '">' + esc(th.label) + "</a></h2>" + knowledgeTypeTag(th.knowledge_type) + "</div>";
+          var entities = Array.isArray(th.top_entities) ? th.top_entities.slice(0, 4) : [];
+          var peers = Array.isArray(th.peer_servers) ? th.peer_servers : [];
+          h += '<article class="claire-card obs-catalog-card" data-knowledge-type="' + esc(th.knowledge_type || "real") + '"><div class="claire-card-head"><h2><a href="' + esc(themeHref(th.number)) + '">' + esc(th.label) + "</a></h2>" + knowledgeTypeTag(th.knowledge_type) + "</div>";
           if (th.description) h += '<p class="claire-hint">' + esc(th.description) + "</p>";
+          if (entities.length) {
+            h += '<div class="obs-catalog-entities">' + entities.map(function (name) { return '<span class="claire-tag">' + esc(name) + "</span>"; }).join("") + "</div>";
+          }
           h += '<div class="claire-tags"><span class="claire-tag">' + esc(t("kb.pub.kb_count", { count: th.knowledge_bases || 0 })) + "</span>" +
-            (th.remote_knowledge_bases ? '<span class="claire-tag">' + esc(t("kb.pub.remote_kb_count", { count: th.remote_knowledge_bases })) + "</span>" : "") + "</div></article>";
+            (th.remote_knowledge_bases ? '<span class="claire-tag">' + esc(t("kb.pub.remote_kb_count", { count: th.remote_knowledge_bases })) + "</span>" : "") + "</div>";
+          if (peers.length) {
+            h += '<div class="obs-catalog-peers" aria-label="' + esc(t("kb.pub.themes_peer_label")) + '">' +
+              peers.map(function (domain) { return '<span class="obs-peer-pill">' + ui().icon("globe") + "<code>" + esc(domain) + "</code></span>"; }).join("") +
+              "</div>";
+          }
+          h += "</article>";
         });
       }
       h += "</div>";
@@ -155,17 +179,17 @@
       var remoteKbs = kbs.filter(function (k) { return !!k.remote; });
       var personalKbs = kbs.filter(function (k) { return !!k.is_personal; });
 
-      h += '<div class="claire-page-head"><div><h1>' + esc(th.label) + " " + knowledgeTypeTag(th.knowledge_type) + "</h1>" +
-        (th.description ? '<p class="claire-page-sub">' + esc(th.description) + "</p>" : "") +
-        '<p class="claire-page-sub">' + esc(t("themes.counts_federated", { knowledge_bases: th.shared_knowledge_bases || 0, remote: th.remote_knowledge_bases || 0, contributions: th.visible_contributions || 0 })) + "</p></div>";
-      h += '<div class="claire-actions">';
+      h += '<header class="obs-page-head"><div><h1>' + esc(th.label) + " " + knowledgeTypeTag(th.knowledge_type) + "</h1>" +
+        (th.description ? '<p class="obs-subtitle claire-page-sub">' + esc(th.description) + "</p>" : "") +
+        '<p class="obs-subtitle claire-page-sub">' + esc(t("themes.counts_federated", { knowledge_bases: th.shared_knowledge_bases || 0, remote: th.remote_knowledge_bases || 0, contributions: th.visible_contributions || 0 })) + "</p></div>";
+      h += '<div class="obs-page-head-actions claire-actions">';
       if (bs.is_authenticated) {
         h += '<button type="button" class="claire-btn pri" id="th-contrib-btn">' + ui().icon("merge") + " " + esc(t("campaign.contribute_action")) + "</button>";
         h += '<button type="button" class="claire-btn sec" id="th-make-kb-btn">' + ui().icon("plus") + " " + esc(t("kb.pub.theme_make_kb")) + "</button>";
       } else {
         h += '<a class="claire-btn pri" href="' + esc(loginHref()) + '">' + esc(t("kb.pub.login_to_act")) + "</a>";
       }
-      h += "</div></div>";
+      h += "</div></header>";
 
       var top = Array.isArray(th.top_entities) ? th.top_entities : [];
       h += '<section class="claire-card"><div class="claire-card-head"><h2>' + esc(t("kb.pub.theme_top_entities")) + "</h2></div>";
@@ -252,8 +276,8 @@
         return !joinedOnly || !!k.role;
       });
       var h = publicNavHtml("kb");
-      h += '<div class="claire-page-head"><div><h1>' + ui().icon("folder") + " " + esc(t("kb.pub.kbs_title")) + '</h1><p class="claire-page-sub">' + esc(t("kb.pub.kbs_subtitle")) + "</p></div>";
-      h += '<div class="claire-actions">' + knowledgeTypeChips("pub-kb-knowledge-type", knowledgeTypeFilter);
+      h += '<header class="obs-page-head"><div><h1>' + ui().icon("folder") + " <span>" + esc(t("kb.pub.kbs_title")) + '</span></h1><p class="obs-subtitle claire-page-sub">' + esc(t("kb.pub.kbs_subtitle")) + "</p></div></header>";
+      h += '<div class="obs-catalog-toolbar">' + viewSwitchHtml("kb") + '<div class="claire-actions">' + knowledgeTypeChips("pub-kb-knowledge-type", knowledgeTypeFilter);
       if (bs.is_authenticated) {
         h += '<label class="claire-chip"><input type="checkbox" id="pub-kb-joined"' + (joinedOnly ? " checked" : "") + "/><span>" + esc(t("kb.pub.filter_joined")) + "</span></label>";
         h += '<button type="button" class="claire-btn pri" id="pub-kb-make">' + ui().icon("plus") + " " + esc(t("campaign.make_kb_link")) + "</button>";
@@ -319,16 +343,16 @@
         var role = dlgs().membershipOf(kb).role;
         var archived = kb.state === "archived";
 
-        h += '<section class="claire-card"><div class="claire-page-head"><div><h1>' + esc(kb.label) + " " + knowledgeTypeTag(kb.knowledge_type) +
+        h += '<section class="claire-card"><header class="obs-page-head"><div><h1>' + esc(kb.label) + " " + knowledgeTypeTag(kb.knowledge_type) +
           ' <span class="claire-tag">' + esc(t("kb.join_policy." + kb.join_policy)) + "</span>" +
           (role ? ' <span class="claire-tag ok">' + esc(t("kb.role." + role)) + "</span>" : "") +
           (archived ? ' <span class="claire-tag warn">' + esc(dlgs().stateLabel("archived")) + "</span>" : "") +
-          "</h1>" + (kb.description ? '<p class="claire-page-sub">' + esc(kb.description) + "</p>" : "") +
-          '<p class="claire-page-sub">' + esc(t("kb.dlg.col_docs")) + ": " + esc((kb.stats && kb.stats.documents) || 0) + " · " + esc(t("kb.dlg.col_entities")) + ": " + esc((kb.stats && kb.stats.entities) || 0) + "</p></div>";
-        h += '<div class="claire-actions">';
+          "</h1>" + (kb.description ? '<p class="obs-subtitle claire-page-sub">' + esc(kb.description) + "</p>" : "") +
+          '<p class="obs-subtitle claire-page-sub">' + esc(t("kb.dlg.col_docs")) + ": " + esc((kb.stats && kb.stats.documents) || 0) + " · " + esc(t("kb.dlg.col_entities")) + ": " + esc((kb.stats && kb.stats.entities) || 0) + "</p></div>";
+        h += '<div class="obs-page-head-actions claire-actions">';
         if (bs.is_authenticated) h += dlgs().kbActionsHtml(kb, { isAdmin: !!bs.is_admin });
         else h += '<a class="claire-btn pri" href="' + esc(loginHref()) + '">' + esc(t("kb.pub.login_to_act")) + "</a>";
-        h += "</div></div>";
+        h += "</div></header>";
         if (bs.is_authenticated) h += dlgs().kbMembershipNoteHtml(kb);
         h += '<div class="claire-note"><span>' + esc(t("kb.pub.kb_ingest_blocked_desc")) + "</span></div></section>";
 

@@ -4998,5 +4998,12 @@
   "home_obs.themes.all": "모든 테마 보기",
   "home_obs.themes.empty": "아직 활성화된 공개 테마가 없습니다.",
   "home_obs.directory_bar": "이 서버의 공개 계정과 개인 테마를 둘러보세요",
-  "home_obs.diagram_label": "Claire Bible 서버 간 지식 적재·발행·교류·환류 선순환 다이어그램"
+  "home_obs.diagram_label": "Claire Bible 서버 간 지식 적재·발행·교류·환류 선순환 다이어그램",
+  "kb.pub.view_switch_label": "보기 전환",
+  "kb.pub.view_themes": "활성 테마",
+  "kb.pub.view_kbs": "공유 지식 베이스",
+  "kb.pub.themes_metric_themes": "활성 테마",
+  "kb.pub.themes_metric_local": "로컬 KB",
+  "kb.pub.themes_metric_remote": "원격 KB",
+  "kb.pub.themes_peer_label": "연합 서버"
 }
