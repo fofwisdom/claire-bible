@@ -38,7 +38,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch):
     reset_secret_service()
 
 
-def _make_world(tmp_path: Path) -> SimpleNamespace:
+def _make_world(tmp_path: Path, *, data_lifecycle: str = "purgeable", allow_purge: bool = True) -> SimpleNamespace:
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     plugins_dir = tmp_path / "plugins"
@@ -50,7 +50,8 @@ def _make_world(tmp_path: Path) -> SimpleNamespace:
         CLAIRE_DB_PATH=str(data_dir / "claire.db"),
         CLAIRE_PLUGINS_DIR=str(plugins_dir),
         CLAIRE_CORS_ALLOWED_ORIGINS="",
-        CLAIRE_DATA_LIFECYCLE="purgeable",
+        CLAIRE_DATA_LIFECYCLE=data_lifecycle,
+        CLAIRE_ALLOW_PURGE=allow_purge,
         CLAIRE_PROVIDER="mock",
     )
     app = create_app(settings, SimpleNamespace(provider=SimpleNamespace(name="mock", embed_model="mock-embed")))
@@ -425,3 +426,211 @@ def test_ingest_queue_retry_records_error_when_background_task_raises(tmp_path: 
         assert err_now is not None
         assert "sk-secretkey" not in err_now
         assert "[REDACTED]" in err_now
+
+
+def test_ingest_queue_get_includes_cancel_purge_and_claim_metadata(tmp_path: Path) -> None:
+    world = _make_world(tmp_path)
+    now = time.time()
+    conn = dbm.connect_existing(world.db_file)
+    try:
+        conn.execute(
+            "INSERT INTO documents (id, kb_id, url, title, fetched_at, raw_text, source_type, extraction_status, claim_token, lease_expires_at, claimed_by_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("doc-staged-claimed", world.alice_kb_id, "https://example.com/staged-claimed", "Claimed Staged Doc", now, "Raw", "article", "pending", "tok-123", now + 300, "agent-alpha sk-secret1234567890abcd"),
+        )
+        _insert_doc(conn, doc_id="doc-done-purge", kb_id=world.alice_kb_id, title="Done Doc")
+        _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 30, payload="https://example.com/q1", status="received")
+        _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 20, payload="https://example.com/staged-claimed", document_id="doc-staged-claimed", status="staged", extraction_mode="client")
+        _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 10, payload="https://example.com/done-purge", document_id="doc-done-purge", status="done", last_attempt=now - 5)
+        conn.commit()
+    finally:
+        conn.close()
+
+    _write_job_file(
+        world.data_dir,
+        "j_cancel_flag",
+        {
+            "active": True,
+            "job_id": "j_cancel_flag",
+            "kb_id": world.alice_kb_id,
+            "payload": "https://example.com/running-flag",
+            "title": "Running With Cancel Flag",
+            "stage": "extract",
+            "started_at": now - 4,
+            "updated_at": now - 1,
+        },
+    )
+    (world.data_dir / "active_jobs" / "j_cancel_flag.cancel.json").write_text(
+        json.dumps({"job_id": "j_cancel_flag", "requested_at": now, "tombstone": False, "reason": "queue_running_cancel"}),
+        encoding="utf-8",
+    )
+
+    with TestClient(world.app, base_url=PUBLIC_URL, follow_redirects=False) as client:
+        resp = client.get("/api/me/ingest-queue", headers=_session_headers(world.alice_token))
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["purge_allowed"] is True
+        by_status = {it["status"]: it for it in body["items"]}
+        assert by_status["running"]["can_cancel"] is True
+        assert by_status["running"]["cancel_requested"] is True
+        assert by_status["queued"]["can_cancel"] is True
+        assert by_status["queued"]["can_purge"] is False
+        assert by_status["staged"]["can_cancel"] is True
+        assert by_status["staged"]["claimed_active"] is True
+        assert "sk-secret" not in (by_status["staged"]["claimed_by"] or "")
+        assert "[REDACTED]" in (by_status["staged"]["claimed_by"] or "")
+        assert by_status["staged"]["lease_expires_at"] > now
+        assert by_status["done"]["can_cancel"] is False
+        assert by_status["done"]["can_purge"] is True
+
+
+def test_ingest_queue_cancel_inbox_and_purge_document_flow(tmp_path: Path) -> None:
+    world = _make_world(tmp_path)
+    now = time.time()
+    raw_files_dir = world.data_dir / "raw" / "files"
+    raw_files_dir.mkdir(parents=True, exist_ok=True)
+    raw_file = raw_files_dir / "queued_upload.txt"
+    raw_file.write_text("hello", encoding="utf-8")
+
+    conn = dbm.connect_existing(world.db_file)
+    try:
+        q_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 50, kind="file", payload="queued_upload.txt", file_ref=str(raw_file), status="received")
+        run_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 45, payload="https://example.com/in-flight", status="received")
+        err_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 40, kind="url", payload="https://example.com/err-tomb", status="error", error="fail")
+        conn.execute(
+            "INSERT INTO documents (id, kb_id, url, title, fetched_at, raw_text, source_type, extraction_status, claim_token, lease_expires_at, claimed_by_client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("doc-staged", world.alice_kb_id, "https://example.com/staged", "Staged Doc", now, "Raw", "article", "pending", "claim-1", now + 300, "agent-1"),
+        )
+        staged_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 30, payload="https://example.com/staged", document_id="doc-staged", status="staged", extraction_mode="client")
+        _insert_doc(conn, doc_id="doc-done", kb_id=world.alice_kb_id, title="Done Doc")
+        done_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 20, payload="https://example.com/done", document_id="doc-done", status="done", last_attempt=now - 10)
+        bob_id = _insert_inbox(conn, kb_id=world.bob_kb_id, received_at=now - 10, payload="https://example.com/bob", status="received")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _write_job_file(
+        world.data_dir,
+        "j_inflight",
+        {"active": True, "job_id": "j_inflight", "kb_id": world.alice_kb_id, "inbox_id": run_id, "payload": "https://example.com/in-flight", "stage": "extract", "started_at": now - 5, "updated_at": now - 1},
+    )
+
+    with TestClient(world.app, base_url=PUBLIC_URL, follow_redirects=False) as client:
+        # Auth & existence hiding.
+        assert client.post(f"/api/me/ingest-queue/{q_id}/cancel", json={}).status_code == 404
+        assert client.post(f"/api/me/ingest-queue/{bob_id}/cancel", headers=_session_headers(world.alice_token), json={}).status_code == 404
+        assert client.post("/api/me/ingest-queue/bad/cancel", headers=_session_headers(world.alice_token), json={}).status_code == 404
+
+        # Running match returns 409 item_currently_running.
+        conflict_run = client.post(f"/api/me/ingest-queue/{run_id}/cancel", headers=_session_headers(world.alice_token), json={})
+        assert conflict_run.status_code == 409
+        assert conflict_run.json()["error"] == "item_currently_running"
+        assert conflict_run.json()["job_id"] == "j_inflight"
+
+        # Queued dry_run and execute (unlinks safe raw file).
+        q_dry = client.post(f"/api/me/ingest-queue/{q_id}/cancel", headers=_session_headers(world.alice_token), json={"dry_run": True})
+        assert q_dry.status_code == 200
+        assert q_dry.json()["mode"] == "inbox_cancel"
+        assert q_dry.json()["disk_files_count"] == 1
+        assert raw_file.exists()
+
+        q_exec = client.post(f"/api/me/ingest-queue/{q_id}/cancel", headers=_session_headers(world.alice_token), json={})
+        assert q_exec.status_code == 200
+        assert q_exec.json() == {"ok": True, "action": "cancelled", "inbox_id": q_id, "tombstone": False}
+        assert not raw_file.exists()
+
+        # Error cancel with tombstone=True writes purged_tombstones.
+        e_exec = client.post(f"/api/me/ingest-queue/{err_id}/cancel", headers=_session_headers(world.alice_token), json={"tombstone": True})
+        assert e_exec.status_code == 200
+        assert e_exec.json()["tombstone"] is True
+
+        # Staged with active lease returns 409 unless force=True.
+        s_dry = client.post(f"/api/me/ingest-queue/{staged_id}/cancel", headers=_session_headers(world.alice_token), json={"dry_run": True})
+        assert s_dry.status_code == 200
+        assert s_dry.json()["mode"] == "staged_cancel"
+        assert s_dry.json()["claimed_active"] is True
+
+        s_blocked = client.post(f"/api/me/ingest-queue/{staged_id}/cancel", headers=_session_headers(world.alice_token), json={})
+        assert s_blocked.status_code == 409
+        assert s_blocked.json()["error"] == "staged_claim_active"
+
+        s_forced = client.post(f"/api/me/ingest-queue/{staged_id}/cancel", headers=_session_headers(world.alice_token), json={"force": True, "tombstone": False})
+        assert s_forced.status_code == 200
+        assert s_forced.json()["action"] == "purged_staged"
+
+        # Done document dry_run and purge.
+        d_dry = client.post(f"/api/me/ingest-queue/{done_id}/cancel", headers=_session_headers(world.alice_token), json={"dry_run": True, "tombstone": True})
+        assert d_dry.status_code == 200
+        assert d_dry.json()["mode"] == "document_purge"
+        assert d_dry.json()["purged_count"] == 1
+
+        d_exec = client.post(f"/api/me/ingest-queue/{done_id}/cancel", headers=_session_headers(world.alice_token), json={"tombstone": True})
+        assert d_exec.status_code == 200
+        assert d_exec.json()["action"] == "purged_document"
+        assert d_exec.json()["stats"]["purged_count"] == 1
+
+    conn = dbm.connect_existing(world.db_file, readonly=True)
+    try:
+        assert dbm.get_inbox(conn, q_id) is None
+        assert dbm.get_inbox(conn, err_id) is None
+        assert dbm.get_inbox(conn, staged_id) is None
+        assert dbm.get_inbox(conn, done_id) is None
+        assert conn.execute("SELECT 1 FROM documents WHERE id IN ('doc-staged', 'doc-done')").fetchone() is None
+        assert conn.execute("SELECT 1 FROM purged_tombstones WHERE id=?", (f"inbox:{err_id}",)).fetchone() is not None
+        assert conn.execute("SELECT 1 FROM purged_tombstones WHERE id='doc-done'").fetchone() is not None
+    finally:
+        conn.close()
+
+
+def test_ingest_queue_cancel_and_jobs_cancel_policy_and_running_marker(tmp_path: Path) -> None:
+    world = _make_world(tmp_path, data_lifecycle="append-only", allow_purge=False)
+    now = time.time()
+    conn = dbm.connect_existing(world.db_file)
+    try:
+        q_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 30, payload="https://example.com/q", status="received")
+        _insert_doc(conn, doc_id="doc-readonly-done", kb_id=world.alice_kb_id, title="Protected Doc")
+        done_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 20, payload="https://example.com/done", document_id="doc-readonly-done", status="done")
+        conn.commit()
+    finally:
+        conn.close()
+
+    _write_job_file(
+        world.data_dir,
+        "j_alice_live",
+        {"active": True, "job_id": "j_alice_live", "kb_id": world.alice_kb_id, "payload": "https://example.com/live", "stage": "extract", "started_at": now - 5, "updated_at": now - 1},
+    )
+    _write_job_file(
+        world.data_dir,
+        "j_alice_finished",
+        {"active": False, "job_id": "j_alice_finished", "kb_id": world.alice_kb_id, "doc_id": "doc-readonly-done", "payload": "https://example.com/fin", "stage": "done", "started_at": now - 8, "updated_at": now - 4, "completed_at": now - 4},
+    )
+    _write_job_file(
+        world.data_dir,
+        "j_bob_live",
+        {"active": True, "job_id": "j_bob_live", "kb_id": world.bob_kb_id, "payload": "https://example.com/bob", "stage": "extract", "started_at": now - 5, "updated_at": now - 1},
+    )
+
+    with TestClient(world.app, base_url=PUBLIC_URL, follow_redirects=False) as client:
+        # In append_only mode, purge_allowed is False; tombstone/document purges return 403, while tombstone=False queued cancel succeeds.
+        assert client.get("/api/me/ingest-queue", headers=_session_headers(world.alice_token)).json()["purge_allowed"] is False
+        assert client.post(f"/api/me/ingest-queue/{q_id}/cancel", headers=_session_headers(world.alice_token), json={"tombstone": True}).status_code == 403
+        assert client.post(f"/api/me/ingest-queue/{done_id}/cancel", headers=_session_headers(world.alice_token), json={"dry_run": True}).status_code == 403
+        assert client.post(f"/api/me/ingest-queue/{q_id}/cancel", headers=_session_headers(world.alice_token), json={"tombstone": False}).status_code == 200
+
+        # Running job cancel checks auth, bad id, policy, finished 409, and active 202.
+        client.cookies.clear()
+        assert client.post("/api/me/ingest-queue/jobs/j_alice_live/cancel", headers={"Origin": PUBLIC_URL}, json={}).status_code == 404
+        assert client.post("/api/me/ingest-queue/jobs/bad.id/cancel", headers=_session_headers(world.alice_token), json={}).status_code == 404
+        assert client.post("/api/me/ingest-queue/jobs/j_missing/cancel", headers=_session_headers(world.alice_token), json={}).status_code == 404
+        assert client.post("/api/me/ingest-queue/jobs/j_bob_live/cancel", headers=_session_headers(world.alice_token), json={}).status_code == 404
+        assert client.post("/api/me/ingest-queue/jobs/j_alice_live/cancel", headers=_session_headers(world.alice_token), json={"tombstone": True}).status_code == 403
+
+        fin_resp = client.post("/api/me/ingest-queue/jobs/j_alice_finished/cancel", headers=_session_headers(world.alice_token), json={})
+        assert fin_resp.status_code == 409
+        assert fin_resp.json()["error"] == "job_already_finished"
+
+        ok_resp = client.post("/api/me/ingest-queue/jobs/j_alice_live/cancel", headers=_session_headers(world.alice_token), json={})
+        assert ok_resp.status_code == 202
+        assert ok_resp.headers["cache-control"] == "no-store"
+        assert ok_resp.json() == {"ok": True, "action": "cancel_requested", "job_id": "j_alice_live", "tombstone": False}
+        assert (world.data_dir / "active_jobs" / "j_alice_live.cancel.json").is_file()
+

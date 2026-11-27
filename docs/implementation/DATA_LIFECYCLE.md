@@ -31,20 +31,25 @@ Code: `src/claire/store/raw.py`.
 ### 3.1 Surfaces
 
 - **[code] CLI.** `claire purge [<target>]` with `--doc-id`, `--token`, `--url`, `--canonical-url`, `--pattern`, `--reason` (default `manual_purge`), `--no-tombstone`, `--untombstone`, `--apply`, `--dry-run`, `--yes`, and `-t/--theme`. Without `--apply` it is a dry run. With `--apply` it shows the targets and asks for confirmation unless `--yes` is given; in a non-interactive shell without `--yes` it does not purge and prints the command with `--yes`. `--untombstone` removes tombstones instead of purging.
-- **[code] HTTP.** `POST /purge` and `POST /document/purge` (route table: namespace owner). The handler also requires the scope `owner`. The body has `target` (or `id`, `doc_id`), `dry_run`, `tombstone` (default true), and `reason` (default `web_purge`).
+- **[code] HTTP.**
+  - `POST /purge` and `POST /document/purge` (route table: namespace owner). The handler also requires the scope `owner`. The body has `target` (or `id`, `doc_id`), `dry_run`, `tombstone` (default true), and `reason` (default `web_purge`).
+  - `POST /api/me/ingest-queue/{inbox_id}/cancel` (route table: `_any("owner", "none")`, handler requires `owner` scope and KB ownership or admin): takes `{dry_run, tombstone, force}`. Returns `403 purge_disabled_by_policy` when `tombstone` is true or the row has a `document_id` and `is_purge_allowed` is false; returns `409 item_currently_running` when a `received`/`error`/`failed` row matches an active job; deletes `received`/`error`/`failed` inbox rows atomically in `BEGIN IMMEDIATE` (optionally recording `purged_tombstones` and unlinking unreferenced files inside `data/raw`); enforces the active `documents` lease (`409 staged_claim_active` unless `force=true`) on `staged` rows; and runs `estimate_document_purge_impact` on `dry_run=true` or `purge_document_cascade(..., heal=False, vacuum=False)` + `purge_active_matrix` on `dry_run=false` for `staged` and `done` rows.
+  - `POST /api/me/ingest-queue/jobs/{job_id}/cancel` (route table: `_any("owner", "none")`, handler requires `owner` scope and KB ownership or admin): validates `job_id`, checks `is_purge_allowed` when `tombstone=true`, returns `409 job_already_finished` if inactive, and writes `active_jobs/<job_id>.cancel.json` via `request_job_cancel` (`202`).
 - **[code] Target resolution** uses `resolve_document_targets` (principle D1).
+- **[code] Blast-radius estimation.** `estimate_document_purge_impact(conn, data_dir, target_ids, *, kb_id=None)` in `src/claire/store/db.py` runs read-only and returns `purged_count`, `target_documents`, `orphan_entities_count`, `shared_entities_count`, `orphan_relations_count`, `disk_files_count`, and `federation_objects_count`. `purge_document_cascade(..., dry_run=True)` returns these same impact fields alongside `disk_files`.
 
 ### 3.2 Cascade
 
 `purge_document_cascade` in `src/claire/store/db.py` does these steps:
 
-1. **[code]** Read the target documents (limited to the theme when a theme is given) and collect the files: all raw artifacts (`artifact_paths`), images `data/images/<doc_id>_*`, and attachments under `data/raw/attachments/<doc_id>/`. A dry run stops here and returns the counts.
-2. **[code]** Remove the graph contributions of the documents (`rollback_document_graph_contributions`).
-3. **[code]** In one `BEGIN IMMEDIATE` transaction: write tombstones (unless disabled), delete rows from `expand_queue`, `refresh_queue`, `permalinks` (the rows of the purged documents get `gone_at`; they are not deleted), `document_snapshots`, `extractions`, `proposals`, `raw_inbox`, and `documents`, and retract published federation objects of these documents (`federation.retract_objects`, which makes a tombstone and a Delete task). On an error the transaction rolls back.
-4. **[code]** Delete the collected files and the attachment directories.
-5. **[code]** Trigger CDN invalidation for the documents (`media.trigger_cdn_invalidation`; errors are ignored).
-6. **[code]** Run `heal_graph`: clean stale document references in entity and relation sources, remove dangling relations, ghost entities, and orphan embeddings, and rebuild the FTS index.
-7. **[code]** Run `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM`. The report tells if `VACUUM` ran.
+1. **[code]** Read the target documents (limited to the theme when a theme is given) and collect the files: all raw artifacts (`artifact_paths`), images `data/images/<doc_id>_*`, and attachments under `data/raw/attachments/<doc_id>/`. A dry run calls `_estimate_purge_impact_for_docs`, stops here, and returns the counts.
+2. **[code]** In one `BEGIN IMMEDIATE` transaction:
+   - Remove the graph contributions of the documents (`rollback_document_graph_contributions(..., prune_orphans=(not heal), kb_id=kb_id, commit=False)`). `upsert_entity`, `rollback_resolution`, and `rollback_document_graph_contributions` accept `commit: bool = True`, so `conn.commit()` runs only once at the end of the cascade and `conn.rollback()` undoes both entity rollbacks and table deletes on an error. Before restoring `prev_type` on a `MERGE` rollback, `_has_later_type_change` in `src/claire/extract/decision.py` checks whether a remaining document merged into `target_entity_id` afterward and recorded a non-empty `prev_type`; if so, it keeps the newer `cand.type`.
+   - Write tombstones (unless disabled), delete rows from `expand_queue`, `same_subject_shadow`, `refresh_queue`, `permalinks` (the rows of the purged documents get `gone_at`; they are not deleted), `document_snapshots`, `extractions`, `proposals`, `raw_inbox`, and `documents`, update `kb_contributions`, and retract published federation objects of these documents (`federation.retract_objects`, which makes a tombstone and a Delete task). Queue-triggered purges pass `heal=False, vacuum=False` so `prune_orphans=True` removes orphan entities, FTS rows, embeddings, and dangling relations inside this transaction without a full-database `VACUUM` lock.
+3. **[code]** Delete the collected files and the attachment directories.
+4. **[code]** Trigger CDN invalidation for the documents (`media.trigger_cdn_invalidation`; errors are ignored).
+5. **[code]** When `heal=True`, run `heal_graph`: clean stale document references in entity and relation sources, remove dangling relations, ghost entities, and orphan embeddings, and rebuild the FTS index.
+6. **[code]** When `vacuum=True`, run `PRAGMA wal_checkpoint(TRUNCATE)` and `VACUUM`. The report tells if `VACUUM` ran.
 
 The HTTP handler also removes the active ingest matrix of each purged document (`purge_active_matrix`).
 

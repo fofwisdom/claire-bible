@@ -27,6 +27,15 @@ Design reasons: [`PDF_INGESTION_AND_ADAPTIVE_EFFORT_DESIGN.md`](../design/PDF_IN
    - `raw_inbox.extraction_mode` (schema v45) keeps the mode of each request. `recover-loop`, `replay-failed`, and the manual retry take the same mode; a row from before v45 (NULL) takes the default mode of the account. [code]
 7. Otherwise `extract_resolve_store` calls `validate_extractable_content` first (§12), then selects the reasoning effort (§7), then calls the LLM. [code]
 
+### 1.1 Running-job cancellation (Cancel-or-Compensate)
+
+`src/claire/ingest/active.py` and `src/claire/ingest/pipeline.py` coordinate cross-process cancellation for active ingest jobs without overwriting worker progress updates: [code]
+
+1. `active_job(..., inbox_id=...)` records `inbox_id` in `active_jobs/<job_id>.json`. `request_job_cancel(data_dir, job_id, *, tombstone=False, reason=...)` (called by `POST /api/me/ingest-queue/jobs/{job_id}/cancel`) validates `job_id` (`^[A-Za-z0-9_-]{1,64}$`), confirms the job is active, and atomically writes the sibling marker `active_jobs/<job_id>.cancel.json`. `get_active_jobs` reads this marker (`get_job_cancel_request`) to annotate `cancel_requested` and `cancel_tombstone` and prunes orphaned `.cancel.json` files. Worker `_save_job` calls never touch `.cancel.json`; on exit, `active_job` preserves `stage="cancelled"` and calls `clear_job_cancel_request`.
+2. `_consume_cancel(data_dir, job)` checks `.cancel.json` at deterministic checkpoints in `_ingest_core`, `_complete_server_extraction`, and `extract_resolve_store` (`cancel_check`):
+   - Before `fetch_fn` and before `_store_doc_attachments_or_report` / `insert_document`: `_cancel_before_document` deletes the `raw_inbox` row (and optionally writes `purged_tombstones`), setting `IngestReport.cancelled = True` (`error="cancelled_by_user"`) with zero document, entity, or relation writes.
+   - Inside `_complete_server_extraction` and `extract_resolve_store` (before extraction, after LLM extraction before `before_store` / `log_extraction` / `ensure_document_detail`, at the start of each entity in the `resolve` loop, and before relation judgment / watch / expand): if cancelled during the resolve loop, `extract_resolve_store` flushes partial `decisions` to `documents.meta["resolution_log"]` before returning `"__cancelled__"`. Then `_compensate_cancelled_document` runs `purge_document_cascade(..., heal=False, vacuum=False)` (or `rollback_document_graph_contributions(..., prune_orphans=True)` when updating an existing document), clears `purge_active_matrix`, deletes the `raw_inbox` row, sets `stage="cancelled"`, and exits without marking `extracted` or `done`.
+
 ## 2. Router and registry
 
 ### 2.1 `router.fetch`

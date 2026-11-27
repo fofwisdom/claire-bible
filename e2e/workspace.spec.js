@@ -42,17 +42,16 @@ test('mobile primary view displays the bottom view bar and the graph, and the he
   // 2. 바텀 바 및 단추 제거 확인
   await expect(page.locator('#worktabs')).toBeHidden();
 
-  // 3. The header bar has the theme switch and the hamburger menu, but no context button: the context panel has its one close button in its own head.
-  const themebtn = page.locator('#themebtn');
+  // 3. The header bar has the hamburger menu (with the theme switch inside), and no context button: the context panel has its one close button in its own head.
   const hamburgerBtn = page.locator('#hamburger-btn');
-  await expect(themebtn).toBeVisible();
   await expect(hamburgerBtn).toBeVisible();
+  await expect(page.locator('#bar .appbar-end > #themebtn')).toHaveCount(0);
   await expect(page.locator('#bar #ctxbtn, #bar #morebtn')).toHaveCount(0);
-  const themeBox = await themebtn.boundingBox();
-  const hamburgerBox = await hamburgerBtn.boundingBox();
-  expect(themeBox).not.toBeNull();
-  expect(hamburgerBox).not.toBeNull();
-  expect(hamburgerBox.x).toBeGreaterThan(themeBox.x);
+  await hamburgerBtn.click();
+  const themebtn = page.locator('#pop-hamburger-menu #themebtn');
+  await expect(themebtn).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#pop-hamburger-menu')).toBeHidden();
 
   // 4. The open button of the graph canvas opens the context sheet and hides; the close button of the sheet closes it.
   const graphCtxBtn = page.locator('#gctxbtn');
@@ -773,9 +772,9 @@ test('provider management lives in the admin console and the root topbar shows o
     () => page.evaluate(() => window.claireDebug?.stabilized),
   ).toBe(true);
 
-  // 3. The admin owner sees the appbar-end icons left to right (#homelinkbtn -> #syndlink -> #queuebtn -> #themebtn -> #hamburger-btn) and finds the console icon inside the hamburger menu
+  // 3. The admin owner sees the appbar-end icons left to right (#queuebtn -> #homelinkbtn -> #syndlink -> #hamburger-btn) and finds the console icon inside the hamburger menu
   await expect(page.locator('#queuebtn')).toBeVisible();
-  const endOrder = await page.evaluate(() => ['#homelinkbtn', '#syndlink', '#queuebtn', '#themebtn', '#hamburger-btn'].map((s) => document.querySelector(s).getBoundingClientRect().left));
+  const endOrder = await page.evaluate(() => ['#queuebtn', '#homelinkbtn', '#syndlink', '#hamburger-btn'].map((s) => document.querySelector(s).getBoundingClientRect().left));
   for (let i = 1; i < endOrder.length; i += 1) {
     expect(endOrder[i]).toBeGreaterThan(endOrder[i - 1]);
   }

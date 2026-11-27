@@ -652,12 +652,12 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     assert '/static/js/command_palette.js' in member_html
     assert '/static/js/console_shell.js' in member_html
     assert 'id="authstate"' not in member_html
-    # Common top-right icon order (left to right: user home, syndication, ingest queue, theme, hamburger) and hamburger menu links.
-    assert member_html.index('id="homelinkbtn"') < member_html.index('id="syndlink"') < member_html.index('id="queuebtn"') < member_html.index('id="themebtn"') < member_html.index('id="hamburger-btn"')
-    assert 'data-icon="rss"' in member_html[member_html.index('id="syndlink"'):member_html.index('id="queuebtn"')]
-    assert 'data-icon="layers"' in member_html[member_html.index('id="queuebtn"'):member_html.index('id="themebtn"')]
+    # Common top-right icon order (left to right: notifications, ingest queue, user home, syndication, hamburger) and theme switch inside hamburger menu.
+    assert member_html.index('id="notifybtn"') < member_html.index('id="queuebtn"') < member_html.index('id="homelinkbtn"') < member_html.index('id="syndlink"') < member_html.index('id="hamburger-btn"')
+    assert 'data-icon="layers"' in member_html[member_html.index('id="queuebtn"'):member_html.index('id="homelinkbtn"')]
+    assert 'data-icon="rss"' in member_html[member_html.index('id="syndlink"'):member_html.index('id="hamburger-btn"')]
+    assert member_html.index('id="pop-hamburger-menu"') < member_html.index('id="themebtn"') < member_html.index('id="menusyndlink"') < member_html.index('id="moderationlinkbtn"') < member_html.index('id="consolelinkbtn"') < member_html.index('action="/logout"')
     assert 'data-icon="rss"' in member_html[member_html.index('id="menusyndlink"'):member_html.index('id="moderationlinkbtn"')]
-    assert member_html.index('id="pop-hamburger-menu"') < member_html.index('id="consolelinkbtn"') < member_html.index('action="/logout"')
     assert '/admin/' not in member_html
     assert 'data-nav-group="admin_server"' not in member_html
     assert 'console_admin.js' not in member_html
@@ -667,9 +667,10 @@ def test_modern_console_shell_markup_and_security_boundaries(console_env):
     assert 'data-nav-group-toggle="admin_system"' in admin_html
     assert 'console_admin.js' in admin_html
     assert 'id="palettetrigger"' in admin_html
-    assert admin_html.index('id="homelinkbtn"') < admin_html.index('id="syndlink"') < admin_html.index('id="queuebtn"') < admin_html.index('id="themebtn"') < admin_html.index('id="hamburger-btn"')
-    assert 'data-icon="rss"' in admin_html[admin_html.index('id="syndlink"'):admin_html.index('id="queuebtn"')]
-    assert 'data-icon="layers"' in admin_html[admin_html.index('id="queuebtn"'):admin_html.index('id="themebtn"')]
+    assert admin_html.index('id="notifybtn"') < admin_html.index('id="queuebtn"') < admin_html.index('id="homelinkbtn"') < admin_html.index('id="syndlink"') < admin_html.index('id="hamburger-btn"')
+    assert 'data-icon="layers"' in admin_html[admin_html.index('id="queuebtn"'):admin_html.index('id="homelinkbtn"')]
+    assert 'data-icon="rss"' in admin_html[admin_html.index('id="syndlink"'):admin_html.index('id="hamburger-btn"')]
+    assert admin_html.index('id="pop-hamburger-menu"') < admin_html.index('id="themebtn"') < admin_html.index('id="menusyndlink"')
     assert 'data-icon="rss"' in admin_html[admin_html.index('id="menusyndlink"'):admin_html.index('id="moderationlinkbtn"')]
 
 

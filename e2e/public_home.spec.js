@@ -227,14 +227,18 @@ test('network-mode / renders Calm Federated Observatory, peer hovercard, 4-item 
     await expectZeroOverflow(page, 'desktop light');
 
     // Theme toggle: light -> dark
-    await page.locator('#themebtn').click();
+    await page.locator('#hamburger-btn').click();
+    await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+    await page.locator('#pop-hamburger-menu #themebtn').click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await expectZeroOverflow(page, 'desktop dark');
 
     // Mobile 390x844 in dark and light themes
     await page.setViewportSize({ width: 390, height: 844 });
     await expectZeroOverflow(page, 'mobile dark');
-    await page.locator('#themebtn').click();
+    await page.locator('#hamburger-btn').click();
+    await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+    await page.locator('#pop-hamburger-menu #themebtn').click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await expectZeroOverflow(page, 'mobile light');
 
@@ -254,12 +258,16 @@ test('network-mode / renders Calm Federated Observatory, peer hovercard, 4-item 
     await expect(page.locator('footer.about-footer a[href="/reference"]')).toHaveCount(0);
     await expectNoHomeRawKeys(page);
     await expectZeroOverflow(page, '/themes desktop light');
-    await page.locator('#themebtn').click();
+    await page.locator('#hamburger-btn').click();
+    await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+    await page.locator('#pop-hamburger-menu #themebtn').click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await expectZeroOverflow(page, '/themes desktop dark');
     await page.setViewportSize({ width: 390, height: 844 });
     await expectZeroOverflow(page, '/themes mobile dark');
-    await page.locator('#themebtn').click();
+    await page.locator('#hamburger-btn').click();
+    await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+    await page.locator('#pop-hamburger-menu #themebtn').click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
     await expectZeroOverflow(page, '/themes mobile light');
     await page.setViewportSize({ width: 1360, height: 900 });

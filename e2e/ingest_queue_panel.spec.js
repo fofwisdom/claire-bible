@@ -12,6 +12,7 @@ function createInitialQueueState() {
   return {
     max_slots: 4,
     busy_slots: 2,
+    purge_allowed: true,
     counts: { running: 2, queued: 2, staged: 1, error: 1, done: 1 },
     server_time: now,
     items: [
@@ -33,6 +34,12 @@ function createInitialQueueState() {
         document_id: null,
         doc_url: null,
         can_retry: false,
+        can_cancel: true,
+        can_purge: false,
+        cancel_requested: false,
+        claimed_active: false,
+        claimed_by: null,
+        lease_expires_at: null,
       },
       {
         id: 'job_9022',
@@ -52,6 +59,12 @@ function createInitialQueueState() {
         document_id: null,
         doc_url: null,
         can_retry: false,
+        can_cancel: true,
+        can_purge: false,
+        cancel_requested: false,
+        claimed_active: false,
+        claimed_by: null,
+        lease_expires_at: null,
       },
       {
         id: 'inbox_9023',
@@ -71,6 +84,12 @@ function createInitialQueueState() {
         document_id: null,
         doc_url: null,
         can_retry: false,
+        can_cancel: true,
+        can_purge: false,
+        cancel_requested: false,
+        claimed_active: false,
+        claimed_by: null,
+        lease_expires_at: null,
       },
       {
         id: 'inbox_9024',
@@ -90,6 +109,12 @@ function createInitialQueueState() {
         document_id: null,
         doc_url: null,
         can_retry: false,
+        can_cancel: true,
+        can_purge: false,
+        cancel_requested: false,
+        claimed_active: false,
+        claimed_by: null,
+        lease_expires_at: null,
       },
       {
         id: 'inbox_9025',
@@ -109,6 +134,12 @@ function createInitialQueueState() {
         document_id: null,
         doc_url: null,
         can_retry: false,
+        can_cancel: true,
+        can_purge: false,
+        cancel_requested: false,
+        claimed_active: false,
+        claimed_by: null,
+        lease_expires_at: null,
       },
       {
         id: 'inbox_501',
@@ -128,6 +159,12 @@ function createInitialQueueState() {
         document_id: null,
         doc_url: null,
         can_retry: true,
+        can_cancel: true,
+        can_purge: false,
+        cancel_requested: false,
+        claimed_active: false,
+        claimed_by: null,
+        lease_expires_at: null,
       },
       {
         id: 'inbox_500',
@@ -147,13 +184,31 @@ function createInitialQueueState() {
         document_id: 'doc-1',
         doc_url: '/silvercord/23456789abcdefgh',
         can_retry: false,
+        can_cancel: false,
+        can_purge: true,
+        cancel_requested: false,
+        claimed_active: false,
+        claimed_by: null,
+        lease_expires_at: null,
       },
     ],
   };
 }
 
-async function installQueueRoutes(page, state) {
+function recomputeCounts(state) {
+  state.counts = { running: 0, queued: 0, staged: 0, error: 0, done: 0 };
+  state.items.forEach((it) => {
+    if (Object.prototype.hasOwnProperty.call(state.counts, it.status)) {
+      state.counts[it.status] += 1;
+    }
+  });
+  state.busy_slots = state.counts.running;
+}
+
+async function installQueueRoutes(page, state, impactMap = {}) {
   const retryCalls = [];
+  const cancelCalls = [];
+  const jobCancelCalls = [];
   await page.route('**/api/me/ingest-queue', async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state) });
@@ -174,13 +229,69 @@ async function installQueueRoutes(page, state) {
     target.stage = 'fetch';
     target.stage_index = 0;
     target.can_retry = false;
+    target.can_cancel = true;
     target.msg = 'Re-queued for ingest';
     target.updated_at = Math.floor(Date.now() / 1000);
-    state.counts.error = state.items.filter((it) => it.status === 'error').length;
-    state.counts.queued = state.items.filter((it) => it.status === 'queued').length;
+    recomputeCounts(state);
     return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ ok: true, inbox_id: inboxId, status: 'queued' }) });
   });
-  return { retryCalls };
+  await page.route('**/api/me/ingest-queue/*/cancel', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const url = new URL(route.request().url());
+    const match = url.pathname.match(/\/api\/me\/ingest-queue\/(\d+)\/cancel$/);
+    const inboxId = match ? Number(match[1]) : 0;
+    const body = route.request().postDataJSON() || {};
+    cancelCalls.push({ inboxId, body });
+    const target = state.items.find((it) => it.inbox_id === inboxId);
+    if (!target) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'not_found' }) });
+    }
+    if (body.dry_run) {
+      const customImpact = impactMap[inboxId] || {};
+      const payload = {
+        dry_run: true,
+        mode: target.status === 'done' ? 'document_purge' : target.status === 'staged' ? 'staged_cancel' : 'inbox_cancel',
+        inbox_id: inboxId,
+        document_id: target.document_id,
+        purged_count: target.status === 'done' || target.status === 'staged' ? 1 : 0,
+        orphan_entities_count: 0,
+        shared_entities_count: 0,
+        orphan_relations_count: 0,
+        disk_files_count: target.status === 'done' || target.status === 'staged' ? 1 : 0,
+        federation_objects_count: 0,
+        claimed_active: Boolean(target.claimed_active),
+        claimed_by: target.claimed_by,
+        lease_expires_at: target.lease_expires_at,
+        tombstone: Boolean(body.tombstone),
+        ...customImpact,
+      };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payload) });
+    }
+    if (target.status === 'staged' && target.claimed_active && !body.force) {
+      return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'staged_claim_active', claimed_by: target.claimed_by }) });
+    }
+    state.items = state.items.filter((it) => it.inbox_id !== inboxId);
+    let qOrd = 1;
+    state.items.filter((it) => it.status === 'queued').forEach((it) => { it.order = qOrd++; });
+    recomputeCounts(state);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, action: target.status === 'done' ? 'purged_document' : 'cancelled', inbox_id: inboxId, tombstone: Boolean(body.tombstone) }) });
+  });
+  await page.route('**/api/me/ingest-queue/jobs/*/cancel', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const url = new URL(route.request().url());
+    const match = url.pathname.match(/\/api\/me\/ingest-queue\/jobs\/([^/]+)\/cancel$/);
+    const jobId = match ? decodeURIComponent(match[1]) : '';
+    const body = route.request().postDataJSON() || {};
+    jobCancelCalls.push({ jobId, body });
+    const target = state.items.find((it) => it.id === jobId);
+    if (!target) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'not_found' }) });
+    }
+    target.cancel_requested = true;
+    target.can_cancel = false;
+    return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ ok: true, action: 'cancel_requested', job_id: jobId, tombstone: Boolean(body.tombstone) }) });
+  });
+  return { retryCalls, cancelCalls, jobCancelCalls };
 }
 
 async function expectUnifiedSlotMeter(pop, expectedBusy, expectedMax) {
@@ -214,8 +325,19 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
   const queueBtn = page.locator('#queuebtn');
   const pop = page.locator('#pop-queue');
   await expect(queueBtn).toBeVisible();
+  await expect(page.locator('#notifybtn')).toBeVisible();
   await expect(page.locator('#queue-count')).toHaveText('5');
   await expect(page.locator('#queue-live-dot')).toBeVisible();
+
+  // Verify #queuebtn sits to the right of #notifybtn and to the left of #homelinkbtn.
+  const barOrder = await page.evaluate(() => {
+    const notify = document.getElementById('notifybtn').getBoundingClientRect();
+    const queue = document.getElementById('queuebtn').getBoundingClientRect();
+    const home = document.getElementById('homelinkbtn').getBoundingClientRect();
+    return { notifyRight: Math.round(notify.right), queueLeft: Math.round(queue.left), queueRight: Math.round(queue.right), homeLeft: Math.round(home.left) };
+  });
+  expect(barOrder.queueLeft).toBeGreaterThanOrEqual(barOrder.notifyRight);
+  expect(barOrder.homeLeft).toBeGreaterThanOrEqual(barOrder.queueRight);
 
   // Open #pop-queue from #queuebtn and verify Option A (ledger) is the default view.
   await queueBtn.click();
@@ -224,6 +346,12 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
   await expect(pop).toHaveAttribute('data-queue-view', 'ledger');
   await expectUnifiedSlotMeter(pop, 2, 4);
   await expectNoRawKeys(page, '#pop-queue');
+  await expect.poll(async () => {
+    const b = await pop.boundingBox();
+    return b ? Math.round(b.width) : 0;
+  }).toBe(480);
+  const boxA = await pop.boundingBox();
+  expect(boxA).not.toBeNull();
 
   // Verify #queue-view-toggle is directly left of #queue-close-btn.
   const headLayout = await page.evaluate(() => {
@@ -283,11 +411,18 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expectZeroOverflow(page, pop, 'desktop light ledger');
 
-  // Switch to Option C (compact) and verify unified slot meter, dense rows, inline expand, and persistence across reload.
+  // Switch to Option C (compact) and verify identical width, unified slot meter, dense rows, inline expand, and persistence across reload.
   const viewToggle = page.locator('#queue-view-toggle');
   await viewToggle.click();
   await expect(pop).toHaveAttribute('data-queue-view', 'compact');
   await expect(viewToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => {
+    const b = await pop.boundingBox();
+    return b ? Math.round(b.width) : 0;
+  }).toBe(480);
+  const boxC = await pop.boundingBox();
+  expect(boxC).not.toBeNull();
+  expect(Math.abs(boxA.width - boxC.width)).toBeLessThanOrEqual(1);
   await expectUnifiedSlotMeter(pop, 2, 4);
   await expect(pop.locator('.qc-chips .qc-chip-btn')).toHaveCount(6);
   await expect(pop.locator('.qc-row')).toHaveCount(7);
@@ -312,7 +447,9 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
   // Switch to Dark theme in Option C, then back to Option A in Dark theme, and check zero overflow.
   await page.keyboard.press('Escape');
   await expect.poll(() => pop.evaluate((el) => el.matches(':popover-open'))).toBe(false);
-  await page.locator('#themebtn').click();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+  await page.locator('#pop-hamburger-menu #themebtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   await queueBtn.click();
@@ -342,7 +479,9 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
 
   await page.keyboard.press('Escape');
   await expect.poll(() => pop.evaluate((el) => el.matches(':popover-open'))).toBe(false);
-  await page.locator('#themebtn').click();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+  await page.locator('#pop-hamburger-menu #themebtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
 
   await queueBtn.click();
@@ -351,6 +490,145 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
   await viewToggle.click();
   await expect(pop).toHaveAttribute('data-queue-view', 'ledger');
   await expectZeroOverflow(page, pop, 'mobile light ledger');
+
+  await context.close();
+  expect(errors).toEqual([]);
+});
+
+test('ingest queue panel supports Stage 1 and Stage 2 cancel and purge flows in Option A and Option C', async ({ browser, baseURL }) => {
+  const targetOrigin = new URL(baseURL || 'http://127.0.0.1:8766/').origin;
+  const context = await browser.newContext({ serviceWorkers: 'block', locale: 'ko-KR' });
+  await context.addCookies([{ name: 'claire_session', value: OWNER_COOKIE_TOKEN, url: targetOrigin }]);
+  const page = await context.newPage();
+  const errors = watchErrors(page);
+  const state = createInitialQueueState();
+  const stagedItem = state.items.find((it) => it.inbox_id === 9025);
+  stagedItem.claimed_active = true;
+  stagedItem.claimed_by = 'antigravity-agent';
+  stagedItem.lease_expires_at = Math.floor(Date.now() / 1000) + 300;
+
+  const impactMap = {
+    500: {
+      purged_count: 1,
+      orphan_entities_count: 3,
+      shared_entities_count: 2,
+      orphan_relations_count: 4,
+      disk_files_count: 2,
+      federation_objects_count: 1,
+    },
+  };
+  const { cancelCalls, jobCancelCalls } = await installQueueRoutes(page, state, impactMap);
+
+  await page.setViewportSize({ width: 1360, height: 800 });
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
+
+  const queueBtn = page.locator('#queuebtn');
+  const pop = page.locator('#pop-queue');
+  const modal = page.locator('#modal-queue-cancel');
+  await expect(queueBtn).toBeVisible();
+  await queueBtn.click();
+  await expect(pop).toBeVisible();
+  await expect(pop).toHaveAttribute('data-queue-view', 'ledger');
+
+  // 1. Cancel a queued item in Option A: dry_run=true on open, then dry_run=false, tombstone=false on confirm.
+  const firstQueuedRow = pop.locator('.qa-row.st-queued').first();
+  await firstQueuedRow.locator('[data-queue-action="cancel-inbox"]').click();
+  await expect(modal).toBeVisible();
+  await expectNoRawKeys(page, '#modal-queue-cancel');
+
+  // #modal-queue-cancel must live outside header.appbar so header.appbar keeps zero <input> elements.
+  const headerCheck = await page.evaluate(() => ({
+    appbarInputs: document.querySelectorAll('header.appbar input').length,
+    modalInsideAppbar: Boolean(document.querySelector('header.appbar #modal-queue-cancel')),
+  }));
+  expect(headerCheck.appbarInputs).toBe(0);
+  expect(headerCheck.modalInsideAppbar).toBe(false);
+
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 9023 && c.body.dry_run === true)).toBe(true);
+  const tombChk = page.locator('#queue-cancel-tombstone');
+  await expect(tombChk).not.toBeChecked();
+  await page.locator('#queue-cancel-confirm').click();
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 9023 && c.body.dry_run === false && c.body.tombstone === false)).toBe(true);
+  await expect(modal).toBeHidden();
+  await expect(pop).toBeVisible();
+  await expect(pop.locator('.qa-row.st-queued')).toHaveCount(1);
+
+  // 2. Staged item with claimed_active=true shows warning badge and locks confirm until #queue-cancel-force is checked.
+  const stagedRow = pop.locator('.qa-row.st-staged').first();
+  await expect(stagedRow.locator('.q-chip.is-cancelling')).toContainText(/에이전트 추출 중|Agent extracting/);
+  await stagedRow.locator('[data-queue-action="cancel-staged"]').click();
+  await expect(modal).toBeVisible();
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 9025 && c.body.dry_run === true)).toBe(true);
+  const confirmBtn = page.locator('#queue-cancel-confirm');
+  const forceChk = page.locator('#queue-cancel-force');
+  await expect(page.locator('#queue-cancel-warn')).toBeVisible();
+  await expect(page.locator('#queue-cancel-warn')).toContainText('antigravity-agent');
+  await expect(confirmBtn).toBeDisabled();
+  await forceChk.check();
+  await expect(confirmBtn).toBeEnabled();
+  await confirmBtn.click();
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 9025 && c.body.dry_run === false && c.body.force === true)).toBe(true);
+  await expect(modal).toBeHidden();
+  await expect(pop).toBeVisible();
+  await expect(pop.locator('.qa-row.st-staged')).toHaveCount(0);
+
+  // 3. Done item purge shows Dry-Run impact counts and tombstone checked by default.
+  const doneRow = pop.locator('.qa-row.st-done').first();
+  await doneRow.locator('[data-queue-action="purge-done"]').click();
+  await expect(modal).toBeVisible();
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 500 && c.body.dry_run === true)).toBe(true);
+  const impactCells = page.locator('#queue-cancel-impact .queue-impact-cell strong');
+  await expect(impactCells).toHaveCount(5);
+  await expect(impactCells.nth(0)).toHaveText('1');
+  await expect(impactCells.nth(1)).toHaveText('3');
+  await expect(impactCells.nth(2)).toHaveText('2');
+  await expect(impactCells.nth(3)).toHaveText('4');
+  await expect(impactCells.nth(4)).toHaveText('2');
+  await expect(page.locator('#queue-cancel-warn')).toBeVisible();
+  await expect(tombChk).toBeChecked();
+  await confirmBtn.click();
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 500 && c.body.dry_run === false && c.body.tombstone === true)).toBe(true);
+  await expect(modal).toBeHidden();
+  await expect(pop).toBeVisible();
+  await expect(pop.locator('.qa-row.st-done')).toHaveCount(0);
+
+  // 4. Running item cancel posts to /jobs/{job_id}/cancel, shows cancelling badge, and hides cancel button.
+  const firstRunningRow = pop.locator('.qa-row.st-running').first();
+  await firstRunningRow.locator('[data-queue-action="cancel-running"]').click();
+  await expect(modal).toBeVisible();
+  await expect(tombChk).not.toBeChecked();
+  await confirmBtn.click();
+  await expect.poll(() => jobCancelCalls.some((c) => c.jobId === 'job_9021' && c.body.tombstone === false)).toBe(true);
+  await expect(modal).toBeHidden();
+  await expect(pop).toBeVisible();
+  await expect(firstRunningRow.locator('.q-chip.is-cancelling')).toContainText(/중단 예약됨|Cancel requested/);
+  await expect(firstRunningRow.locator('[data-queue-action="cancel-running"]')).toHaveCount(0);
+
+  // 5. Switch to Option C: collapsed rows have zero action buttons and show cancelling badge; expanded rows expose actions inside .qc-detail-actions.
+  await page.locator('#queue-view-toggle').click();
+  await expect(pop).toHaveAttribute('data-queue-view', 'compact');
+  await expect(pop.locator('.qc-row .qc-row-btn [data-queue-action]')).toHaveCount(0);
+  await expect(pop.locator('.qc-row .qc-title-row .q-chip.is-cancelling').first()).toContainText(/중단 예약됨|Cancel requested/);
+
+  const secondRunningBtn = pop.locator('.qc-row.st-running .qc-row-btn').nth(1);
+  await secondRunningBtn.click();
+  await expect(secondRunningBtn).toHaveAttribute('aria-expanded', 'true');
+  const secondRunningDetailActions = pop.locator('.qc-row.st-running').nth(1).locator('.qc-detail-actions');
+  await expect(secondRunningDetailActions.locator('[data-queue-action="cancel-running"]')).toBeVisible();
+  await secondRunningDetailActions.locator('[data-queue-action="cancel-running"]').click();
+  await expect(modal).toBeVisible();
+  await confirmBtn.click();
+  await expect.poll(() => jobCancelCalls.some((c) => c.jobId === 'job_9022')).toBe(true);
+  await expect(modal).toBeHidden();
+  await expect(pop.locator('.qc-row.st-running').nth(1).locator('.q-chip.is-cancelling')).toContainText(/중단 예약됨|Cancel requested/);
+
+  const headerCheckAfter = await page.evaluate(() => ({
+    appbarInputs: document.querySelectorAll('header.appbar input').length,
+    modalInsideAppbar: Boolean(document.querySelector('header.appbar #modal-queue-cancel')),
+  }));
+  expect(headerCheckAfter.appbarInputs).toBe(0);
+  expect(headerCheckAfter.modalInsideAppbar).toBe(false);
 
   await context.close();
   expect(errors).toEqual([]);

@@ -179,12 +179,16 @@ test('/kb/101/ and the themes as the admin: the actions, the members, the contri
   await expect(cards.nth(0).locator('.claire-tags')).toHaveText('지식 베이스 2개다른 서버 1개');
   await expect(cards.nth(1).locator('.claire-tags .claire-tag')).toHaveCount(1);
   await expectZeroOverflow(page, '/themes desktop light');
-  await page.locator('#themebtn').click();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+  await page.locator('#pop-hamburger-menu #themebtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expectZeroOverflow(page, '/themes desktop dark');
   await page.setViewportSize({ width: 390, height: 844 });
   await expectZeroOverflow(page, '/themes mobile dark');
-  await page.locator('#themebtn').click();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+  await page.locator('#pop-hamburger-menu #themebtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expectZeroOverflow(page, '/themes mobile light');
   await page.setViewportSize({ width: 1360, height: 900 });

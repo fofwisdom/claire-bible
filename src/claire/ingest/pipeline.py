@@ -34,7 +34,7 @@ from ..store import document_renditions as renditions_store
 from ..store.graph import GraphStore
 from ..core.secret_scrub import scrub_exception, scrub_text
 from ..store.vectors import VectorStore, is_kb_active_space_eos, read_embed_pin, read_kb_embedding_spaces, resolve_embed_identity
-from .active import active_job, clear_active_ingest, set_active_ingest, update_active_ingest
+from .active import active_job, clear_active_ingest, clear_job_cancel_request, get_job_cancel_request, purge_active_matrix, set_active_ingest, update_active_ingest
 from .fetchers.base import bound_fetch_settings
 from .router import fetch as default_fetch
 
@@ -193,6 +193,7 @@ class IngestReport:
     content_hash: str | None = None
     raw_chars: int = 0
     message: str | None = None
+    cancelled: bool = False
 
     def notice_lines(self, *, locale: str | None = "en") -> list[str]:
         """The texts of the campaign notices. ``locale`` None: the active locale."""
@@ -497,6 +498,87 @@ def _clear_stale_additional_renditions(conn: sqlite3.Connection, document_id: st
         renditions_store.delete_additional(conn, document_id, kb_id, template)
 
 
+def _consume_cancel(data_dir: Path | None, job: Any) -> dict[str, Any] | None:
+    """Read the cross-process cancel marker for the active job when present."""
+    if job is None:
+        return None
+    job_id = getattr(job, "job_id", None)
+    if not job_id:
+        return None
+    target_dir = data_dir if data_dir is not None else getattr(job, "data_dir", None)
+    return get_job_cancel_request(target_dir, str(job_id))
+
+
+def _cancel_before_document(
+    conn: sqlite3.Connection,
+    data_dir: Path | None,
+    inbox_id: int | None,
+    payload: str,
+    kb_id: int,
+    *,
+    tombstone: bool,
+    reason: str,
+    doc: Document | None = None,
+) -> None:
+    """Delete the inbox row before any document write and optionally record a tombstone."""
+    del data_dir
+    if inbox_id is not None:
+        conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
+        conn.commit()
+    if tombstone and ((payload and payload.strip()) or doc is not None):
+        clean_payload = (payload or "").strip()
+        url_val = doc.url if doc is not None and doc.url else None
+        canon_val = doc.canonical_url if doc is not None and doc.canonical_url else None
+        content_hash_val = doc.content_hash if doc is not None and doc.content_hash else None
+        if url_val is None and clean_payload.startswith(("http://", "https://")):
+            from .normalize import canonicalize_url
+
+            url_val = clean_payload
+            canon_val = canon_val or canonicalize_url(clean_payload)
+        if url_val or canon_val or content_hash_val:
+            import secrets
+
+            identifier = f"inbox:{inbox_id}" if inbox_id is not None else f"cancel:{secrets.token_hex(6)}"
+            dbm.record_tombstone(
+                conn,
+                identifier,
+                reason=reason,
+                url=url_val,
+                canonical_url=canon_val,
+                content_hash=content_hash_val,
+                kb_id=kb_id,
+            )
+
+
+def _compensate_cancelled_document(
+    conn: sqlite3.Connection,
+    data_dir: Path | None,
+    doc_id: str,
+    inbox_id: int | None,
+    kb_id: int,
+    *,
+    tombstone: bool,
+    reason: str,
+) -> None:
+    """Purge a newly created document and its partial graph writes without VACUUM."""
+    target_dir = Path(data_dir) if data_dir is not None else Path("data")
+    dbm.purge_document_cascade(
+        conn,
+        target_dir,
+        [doc_id],
+        reason=reason,
+        dry_run=False,
+        tombstone=tombstone,
+        kb_id=kb_id,
+        heal=False,
+        vacuum=False,
+    )
+    purge_active_matrix(target_dir, doc_id)
+    if inbox_id is not None:
+        conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
+        conn.commit()
+
+
 def _complete_server_extraction(
     *,
     conn: sqlite3.Connection,
@@ -516,8 +598,35 @@ def _complete_server_extraction(
     full_content: bool,
     job_settings: Any,
     run_watch_and_expand: bool,
+    job: Any = None,
+    newly_created_doc: bool = True,
 ) -> IngestReport:
     """Run server-side extraction, graph storage, optional watch/expand, and mark the document extracted."""
+    def _abort_cancelled(cancel_req: dict[str, Any] | None, *, extraction_ran: bool) -> IngestReport:
+        req = cancel_req or {}
+        tombstone = bool(req.get("tombstone"))
+        reason = str(req.get("reason") or "queue_running_cancel")
+        if newly_created_doc:
+            _compensate_cancelled_document(conn, data_dir, doc.id, inbox_id, tid, tombstone=tombstone, reason=reason)
+        else:
+            if extraction_ran:
+                dbm.rollback_document_graph_contributions(conn, [doc.id], prune_orphans=True, kb_id=tid)
+            if data_dir is not None:
+                purge_active_matrix(data_dir, doc.id)
+            if inbox_id is not None:
+                conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, tid))
+                conn.commit()
+        report.cancelled = True
+        report.error = "cancelled_by_user"
+        if job is not None:
+            job.update(stage="cancelled", msg="중단 및 역연산 소각 완료")
+            clear_job_cancel_request(data_dir, job.job_id)
+        return report
+
+    pre_cancel = _consume_cancel(data_dir, job)
+    if pre_cancel is not None:
+        return _abort_cancelled(pre_cancel, extraction_ran=False)
+
     if data_dir is not None:
         try:
             from ..store.raw import save_artifact
@@ -526,14 +635,25 @@ def _complete_server_extraction(
         except Exception:  # noqa: BLE001
             pass
     _download_doc_images(conn, doc, data_dir, kb_id=tid)
+
+    before_extract_cancel = _consume_cancel(data_dir, job)
+    if before_extract_cancel is not None:
+        return _abort_cancelled(before_extract_cancel, extraction_ran=False)
+
+    cancel_cb = (lambda: _consume_cancel(data_dir, job)) if job is not None else None
     try:
-        ok, err = extract_resolve_store(conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort, full_content=full_content, kb_id=tid, settings=job_settings)
+        ok, err = extract_resolve_store(conn, provider, vstore, doc, report, format=format, focus=focus, effort=effort, full_content=full_content, kb_id=tid, settings=job_settings, cancel_check=cancel_cb)
     except ProviderPolicyError as e:
         ok, err = False, error_text(e)
+    if not ok and err == "__cancelled__":
+        return _abort_cancelled(_consume_cancel(data_dir, job), extraction_ran=True)
     if not ok:
         report.error = err
         dbm.update_inbox(conn, inbox_id, status="error", document_id=doc.id, error=err, kb_id=tid)
         return report
+    post_extract_cancel = _consume_cancel(data_dir, job)
+    if post_extract_cancel is not None:
+        return _abort_cancelled(post_extract_cancel, extraction_ran=True)
     dbm.mark_document_extraction_status(conn, doc.id, "extracted", kb_id=tid, clear_claim=True)
     report.extraction_status = "extracted"
     if run_watch_and_expand:
@@ -550,6 +670,9 @@ def _complete_server_extraction(
                 from ..expand.proposal import find_candidates
 
                 report.candidates = find_candidates(conn, doc, limit=expand_max, kb_id=tid)
+    pre_done_cancel = _consume_cancel(data_dir, job)
+    if pre_done_cancel is not None:
+        return _abort_cancelled(pre_done_cancel, extraction_ran=True)
     dbm.update_inbox(conn, inbox_id, status="done", document_id=doc.id, kb_id=tid)
     return report
 
@@ -620,6 +743,7 @@ def _ingest_core(
         theme_label=tlabel,
         title=prefetched.title if prefetched else None,
         source=source,
+        inbox_id=inbox_id,
     ) as job, lineage_ctx:
         from ..extract.provider import _progress_local, set_progress_callback
 
@@ -647,6 +771,27 @@ def _ingest_core(
 
         set_progress_callback(_active_progress_hook)
         try:
+            def _abort_pre_doc(cancel_req: dict[str, Any], *, cancelled_doc: Document | None = None) -> IngestReport:
+                _cancel_before_document(
+                    conn,
+                    data_dir,
+                    inbox_id,
+                    payload,
+                    tid,
+                    tombstone=bool(cancel_req.get("tombstone")),
+                    reason=str(cancel_req.get("reason") or "queue_running_cancel"),
+                    doc=cancelled_doc,
+                )
+                report.cancelled = True
+                report.error = "cancelled_by_user"
+                job.update(stage="cancelled", msg="사용자 요청으로 취소됨")
+                clear_job_cancel_request(data_dir, job.job_id)
+                return report
+
+            pre_fetch_cancel = _consume_cancel(data_dir, job)
+            if pre_fetch_cancel is not None:
+                return _abort_pre_doc(pre_fetch_cancel)
+
             fetch_settings_scope = _fetch_settings_for_staging(job_settings) if stage_only else settings
             try:
                 if prefetched is None:
@@ -765,6 +910,10 @@ def _ingest_core(
                 report.error = "tombstoned: document was previously purged"
                 dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                 return report
+
+            post_fetch_cancel = _consume_cancel(data_dir, job)
+            if post_fetch_cancel is not None:
+                return _abort_pre_doc(post_fetch_cancel, cancelled_doc=doc)
 
             if doc.source_type == "pdf" and doc.canonical_url:
                 bundled_id = dbm.find_document_by_extra_source(conn, doc.canonical_url, kb_id=tid)
@@ -891,6 +1040,8 @@ def _ingest_core(
                         full_content=full_content,
                         job_settings=job_settings,
                         run_watch_and_expand=True,
+                        job=job,
+                        newly_created_doc=False,
                     )
                 if not stage_only and focus and focus.strip():
                     doc_obj = dbm.get_document(conn, existing, kb_id=tid)
@@ -922,6 +1073,9 @@ def _ingest_core(
             # Dedup 2: same canonical_url with changed content_hash updates in-place.
             same_url = dbm.find_document_by_canonical_url(conn, doc.canonical_url, kb_id=tid)
             if same_url:
+                pre_update_cancel = _consume_cancel(data_dir, job)
+                if pre_update_cancel is not None:
+                    return _abort_pre_doc(pre_update_cancel, cancelled_doc=doc)
                 doc.id = same_url
                 old_row = dbm.get_document_row(conn, same_url, kb_id=tid)
                 if old_row is not None:
@@ -981,6 +1135,8 @@ def _ingest_core(
                     full_content=full_content,
                     job_settings=job_settings,
                     run_watch_and_expand=False,
+                    job=job,
+                    newly_created_doc=False,
                 )
 
             # Dedup 3: near-duplicate MinHash check.
@@ -1043,6 +1199,9 @@ def _ingest_core(
                     report.error = error_text(e)
                     dbm.update_inbox(conn, inbox_id, status="error", error=report.error, kb_id=tid)
                     return report
+            pre_insert_cancel = _consume_cancel(data_dir, job)
+            if pre_insert_cancel is not None:
+                return _abort_pre_doc(pre_insert_cancel, cancelled_doc=doc)
             if not _store_doc_attachments_or_report(conn, inbox_id, doc, doc.id, data_dir, report, kb_id=tid):
                 return report
             dbm.insert_document(
@@ -1089,6 +1248,8 @@ def _ingest_core(
                 full_content=full_content,
                 job_settings=job_settings,
                 run_watch_and_expand=True,
+                job=job,
+                newly_created_doc=True,
             )
 
         finally:
@@ -1295,6 +1456,7 @@ def extract_resolve_store(
     kb_id: int | None = None,
     settings: Any = None,
     before_store: Callable[[], None] | None = None,
+    cancel_check: Callable[[], dict[str, Any] | None] | None = None,
 ) -> tuple[bool, str | None]:
     """문서 1건의 추출→엔티티 해소/머지→관계 검증/적재.
 
@@ -1316,11 +1478,13 @@ def extract_resolve_store(
                 conn, provider, vstore, doc, report,
                 format=format, focus=focus, effort=effort, full_content=full_content,
                 on_progress=on_progress, kb_id=kb_id, settings=settings, before_store=before_store,
+                cancel_check=cancel_check,
             )
     return _extract_resolve_store_impl(
         conn, provider, vstore, doc, report,
         format=format, focus=focus, effort=effort, full_content=full_content,
         on_progress=on_progress, kb_id=kb_id, settings=settings, before_store=before_store,
+        cancel_check=cancel_check,
     )
 
 
@@ -1339,6 +1503,7 @@ def _extract_resolve_store_impl(
     kb_id: int | None = None,
     settings: Any = None,
     before_store: Callable[[], None] | None = None,
+    cancel_check: Callable[[], dict[str, Any] | None] | None = None,
 ) -> tuple[bool, str | None]:
     tid = kb_id if kb_id is not None else getattr(conn, "kb_id", 0)
     settings = resolve_job_settings(settings, provider)
@@ -1471,6 +1636,9 @@ def _extract_resolve_store_impl(
         p_model = str((raw_res_model if isinstance(raw_res_model, str) and raw_res_model else "") or (raw_p_model if isinstance(raw_p_model, str) and raw_p_model else "") or p_name)
         lineage.record_stage(stage="summarize", requested_provider=p_name, requested_model=p_model, requested_effort=eff, final_provider=p_name, final_model=p_model, status="ok" if (result.summary and result.summary.strip()) else "empty", duration_ms=extract_ms)
 
+    if cancel_check is not None and cancel_check() is not None:
+        return False, "__cancelled__"
+
     if before_store is not None:
         before_store()
 
@@ -1502,6 +1670,9 @@ def _extract_resolve_store_impl(
     if on_progress:
         on_progress("LLM 가독 상세(detail) 렌더링 생성", f"format={format or '기본'}, effort={detail_effort}")
     emit_progress(f"LLM 가독 상세(detail) 렌더링 생성{eff_badge}")
+
+    if cancel_check is not None and cancel_check() is not None:
+        return False, "__cancelled__"
 
     detail_err_box: list[str] = []
     detail_started = time.perf_counter()
@@ -1570,9 +1741,29 @@ def _extract_resolve_store_impl(
         on_progress("지식 그래프 엔티티 해소/병합", f"추출된 엔티티 {total_entities}개")
     emit_progress(f"지식 그래프 엔티티 해소/병합 ({total_entities}개)")
 
+    def _flush_partial_decisions() -> None:
+        partial_decisions = [
+            getattr(r, "decision", None)
+            for r in resolution_results
+            if getattr(r, "decision", None) is not None
+        ]
+        if partial_decisions and getattr(doc, "id", None):
+            from ..extract.decision import attach_resolution_meta
+
+            attach_resolution_meta(doc, partial_decisions)
+            dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
+            conn.commit()
+
+    if cancel_check is not None and cancel_check() is not None:
+        _flush_partial_decisions()
+        return False, "__cancelled__"
+
     embed_calls = [0]
     embed_ms = [0.0]
     for idx_e, ee in enumerate(result.entities, 1):
+        if cancel_check is not None and cancel_check() is not None:
+            _flush_partial_decisions()
+            return False, "__cancelled__"
         etype, prov = classify_entity_type(ee.type)
         if ee.proposed_type:
             dbm.log_proposal(conn, "entity_type", ee.proposed_type,
@@ -1695,6 +1886,10 @@ def _extract_resolve_store_impl(
             "matrix": report.heatmap_matrix,
         })
 
+    if cancel_check is not None and cancel_check() is not None:
+        _flush_partial_decisions()
+        return False, "__cancelled__"
+
     if on_progress:
         on_progress("관계(Relation) 검증 및 적재", f"총 {len(result.relations)}개 관계")
     emit_progress(f"관계(Relation) 검증 및 적재 ({len(result.relations)}개)")
@@ -1754,6 +1949,9 @@ def _extract_resolve_store_impl(
         eval_candidates = unique_candidates[:max_per_doc]
 
         if eval_candidates:
+            if cancel_check is not None and cancel_check() is not None:
+                _flush_partial_decisions()
+                return False, "__cancelled__"
             if on_progress:
                 on_progress("전역 지식 관계(Cross-link) 판정", f"후보 {len(eval_candidates)}쌍 평가")
             emit_progress(f"전역 지식 관계(Cross-link) 판정 ({len(eval_candidates)}쌍)")
@@ -1869,6 +2067,9 @@ def _extract_resolve_store_impl(
     doc.meta["model_lineage"] = model_lineage
     report.model_lineage = model_lineage
     if getattr(doc, "id", None):
+        if cancel_check is not None and cancel_check() is not None:
+            _flush_partial_decisions()
+            return False, "__cancelled__"
         dbm.update_document_meta(conn, doc.id, doc.meta, kb_id=tid)
         _start_contribution_revisions(conn, settings, kb_id=tid, document_id=doc.id)
         _match_document_theme(conn, kb_id=tid, document_id=doc.id)

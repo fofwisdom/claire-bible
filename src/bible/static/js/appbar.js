@@ -4,7 +4,12 @@
   function syncThemeIcons(theme) {
     var nextIcon = theme === "dark" ? "sun" : "moon";
     var btn = document.getElementById("themebtn");
-    if (btn) btn.setAttribute("data-icon", nextIcon);
+    if (!btn) return;
+    var iconEl = btn.querySelector("[data-icon]") || btn;
+    iconEl.setAttribute("data-icon", nextIcon);
+    if (window.ClaireIcons && typeof window.ClaireIcons.hydrate === "function") {
+      window.ClaireIcons.hydrate(iconEl);
+    }
   }
 
   function applyTheme(next) {
@@ -405,7 +410,7 @@
     tab: "all",
     expandedCompactId: null,
     loadFailed: false,
-    data: { max_slots: 4, busy_slots: 0, counts: { running: 0, queued: 0, staged: 0, error: 0, done: 0 }, items: [] }
+    data: { max_slots: 4, busy_slots: 0, purge_allowed: true, counts: { running: 0, queued: 0, staged: 0, error: 0, done: 0 }, items: [] }
   };
 
   function isQueueOpen() {
@@ -418,7 +423,7 @@
     var btn = document.getElementById("queuebtn");
     var pop = document.getElementById("pop-queue");
     if (!btn || !pop) return;
-    positionMenuFallback(btn, pop, queue.viewMode === "compact" ? 480 : 448, 460);
+    positionMenuFallback(btn, pop, 480, 460);
   }
 
   function announceQueue(msg) {
@@ -577,6 +582,424 @@
       }
       announceQueue(tr("nav.queue.retry_failed"));
       loadIngestQueue();
+    });
+  }
+
+  var cancelModal = { action: "", item: null, dryRunData: null, dryRunFailed: false, submitting: false, seq: 0, wasQueueOpen: false };
+
+  function makeQueueBtn(label, iconName, cls, actionName, item) {
+    var btn = makeQueueEl("button", "q-btn" + (cls ? " " + cls : ""));
+    btn.type = "button";
+    if (actionName) btn.setAttribute("data-queue-action", actionName);
+    if (iconName) btn.appendChild(makeQueueIcon(iconName));
+    btn.appendChild(document.createTextNode(label));
+    if (actionName) {
+      btn.addEventListener("click", function () { openQueueCancelModal(actionName, item); });
+    }
+    return btn;
+  }
+
+  function appendQueueItemActions(container, item, st) {
+    if (!container || !item) return;
+    if (st === "running") {
+      if (!item.cancel_requested && item.can_cancel) {
+        container.appendChild(makeQueueBtn(tr("nav.queue.cancel_running"), "block", "", "cancel-running", item));
+      }
+      return;
+    }
+    if (st === "queued") {
+      if (item.can_cancel && item.inbox_id != null) {
+        container.appendChild(makeQueueBtn(tr("nav.queue.cancel_btn"), "trash", "", "cancel-inbox", item));
+      }
+      return;
+    }
+    if (st === "staged") {
+      if (item.can_cancel && item.inbox_id != null) {
+        container.appendChild(makeQueueBtn(tr("nav.queue.cancel_btn"), "trash", "", "cancel-staged", item));
+      }
+      return;
+    }
+    if (st === "error") {
+      if (item.can_retry && item.inbox_id != null) {
+        var retryBtn = makeQueueEl("button", "q-btn q-btn-danger");
+        retryBtn.type = "button";
+        retryBtn.appendChild(makeQueueIcon("repeat"));
+        retryBtn.appendChild(document.createTextNode(tr("nav.queue.retry")));
+        retryBtn.addEventListener("click", function () { retryQueueItem(item, retryBtn); });
+        container.appendChild(retryBtn);
+      }
+      if (item.can_cancel && item.inbox_id != null) {
+        container.appendChild(makeQueueBtn(tr("nav.queue.cancel_btn"), "trash", "", "cancel-inbox", item));
+      }
+      return;
+    }
+    if (st === "done") {
+      if (validRelativeUrl(item.doc_url)) {
+        var openLnk = makeQueueEl("a", "q-btn");
+        openLnk.href = item.doc_url;
+        openLnk.appendChild(document.createTextNode(tr("nav.queue.open_doc")));
+        openLnk.appendChild(makeQueueIcon("external"));
+        container.appendChild(openLnk);
+      }
+      if (item.can_purge && item.inbox_id != null) {
+        container.appendChild(makeQueueBtn(tr("nav.queue.purge_btn"), "flame", "q-btn-danger", "purge-done", item));
+      }
+    }
+  }
+
+  function ensureCancelDialog() {
+    var dlg = document.getElementById("modal-queue-cancel");
+    if (dlg) return dlg;
+    dlg = document.createElement("dialog");
+    dlg.id = "modal-queue-cancel";
+    dlg.setAttribute("closedby", "any");
+    dlg.className = "claire-dialog queue-cancel-dialog";
+    dlg.setAttribute("aria-labelledby", "queue-cancel-title");
+
+    var body = makeQueueEl("div", "claire-dialog-body");
+    var head = makeQueueEl("div", "claire-dialog-head");
+    var title = makeQueueEl("h2", "", "");
+    title.id = "queue-cancel-title";
+    var closeBtn = makeQueueEl("button", "claire-dialog-close");
+    closeBtn.type = "button";
+    closeBtn.id = "queue-cancel-close";
+    closeBtn.title = tr("nav.queue.modal_close");
+    closeBtn.setAttribute("aria-label", tr("nav.queue.modal_close"));
+    closeBtn.appendChild(makeQueueIcon("close"));
+    closeBtn.addEventListener("click", function () { dlg.close(); });
+    head.appendChild(title);
+    head.appendChild(closeBtn);
+    body.appendChild(head);
+
+    var target = makeQueueEl("div", "queue-cancel-target");
+    target.id = "queue-cancel-target";
+    body.appendChild(target);
+
+    var intro = makeQueueEl("p", "claire-dialog-intro");
+    intro.id = "queue-cancel-intro";
+    body.appendChild(intro);
+
+    var warn = makeQueueEl("div", "queue-cancel-warn");
+    warn.id = "queue-cancel-warn";
+    warn.hidden = true;
+    body.appendChild(warn);
+
+    var impact = makeQueueEl("div", "queue-impact-grid");
+    impact.id = "queue-cancel-impact";
+    impact.hidden = true;
+    body.appendChild(impact);
+
+    var tombRow = makeQueueEl("label", "claire-dialog-check");
+    tombRow.id = "queue-cancel-tombstone-row";
+    var tombChk = document.createElement("input");
+    tombChk.type = "checkbox";
+    tombChk.id = "queue-cancel-tombstone";
+    var tombLbl = document.createElement("span");
+    tombLbl.id = "queue-cancel-tombstone-label";
+    tombLbl.textContent = tr("nav.queue.modal_tombstone_label");
+    tombRow.appendChild(tombChk);
+    tombRow.appendChild(document.createTextNode(" "));
+    tombRow.appendChild(tombLbl);
+    body.appendChild(tombRow);
+
+    var forceRow = makeQueueEl("label", "claire-dialog-check");
+    forceRow.id = "queue-cancel-force-row";
+    forceRow.hidden = true;
+    var forceChk = document.createElement("input");
+    forceChk.type = "checkbox";
+    forceChk.id = "queue-cancel-force";
+    var forceLbl = document.createElement("span");
+    forceLbl.id = "queue-cancel-force-label";
+    forceLbl.textContent = tr("nav.queue.modal_force_label");
+    forceRow.appendChild(forceChk);
+    forceRow.appendChild(document.createTextNode(" "));
+    forceRow.appendChild(forceLbl);
+    forceChk.addEventListener("change", syncCancelConfirmState);
+    body.appendChild(forceRow);
+
+    var msg = makeQueueEl("p", "claire-dialog-msg");
+    msg.id = "queue-cancel-msg";
+    msg.setAttribute("role", "status");
+    msg.setAttribute("aria-live", "polite");
+    body.appendChild(msg);
+
+    var foot = makeQueueEl("div", "claire-dialog-foot");
+    var dismissBtn = document.createElement("button");
+    dismissBtn.type = "button";
+    dismissBtn.id = "queue-cancel-dismiss";
+    dismissBtn.textContent = tr("nav.queue.modal_close");
+    dismissBtn.addEventListener("click", function () { dlg.close(); });
+    var confirmBtn = document.createElement("button");
+    confirmBtn.type = "button";
+    confirmBtn.id = "queue-cancel-confirm";
+    confirmBtn.addEventListener("click", submitQueueCancelModal);
+    foot.appendChild(dismissBtn);
+    foot.appendChild(confirmBtn);
+    body.appendChild(foot);
+
+    dlg.appendChild(body);
+    dlg.addEventListener("close", function () {
+      cancelModal.submitting = false;
+      if (cancelModal.wasQueueOpen && !isQueueOpen()) {
+        cancelModal.wasQueueOpen = false;
+        var pop = document.getElementById("pop-queue");
+        var btn = document.getElementById("queuebtn");
+        if (pop) {
+          try { pop.showPopover({ source: btn || undefined }); } catch (_) { try { pop.showPopover(); } catch (__) {} }
+        }
+      }
+    });
+    document.body.appendChild(dlg);
+    installClosedByFallback();
+    hydrateQueueIcons(dlg);
+    return dlg;
+  }
+
+  function setCancelMsg(text, isError) {
+    var msg = document.getElementById("queue-cancel-msg");
+    if (!msg) return;
+    msg.textContent = text || "";
+    if (!text) msg.removeAttribute("data-state");
+    else msg.setAttribute("data-state", isError ? "error" : "ok");
+  }
+
+  function setCancelWarn(text) {
+    var warn = document.getElementById("queue-cancel-warn");
+    if (!warn) return;
+    warn.textContent = "";
+    if (!text) {
+      warn.hidden = true;
+      return;
+    }
+    warn.appendChild(makeQueueIcon("warning"));
+    warn.appendChild(makeQueueEl("span", "", text));
+    warn.hidden = false;
+    hydrateQueueIcons(warn);
+  }
+
+  function renderCancelImpact(cells) {
+    var impact = document.getElementById("queue-cancel-impact");
+    if (!impact) return;
+    impact.textContent = "";
+    if (!cells || !cells.length) {
+      impact.hidden = true;
+      return;
+    }
+    cells.forEach(function (c) {
+      var box = makeQueueEl("div", "queue-impact-cell");
+      box.appendChild(makeQueueEl("strong", "tnum", String(c.value != null ? c.value : 0)));
+      box.appendChild(makeQueueEl("span", "", c.label));
+      impact.appendChild(box);
+    });
+    impact.hidden = false;
+  }
+
+  function cancelConfirmLabel(action) {
+    if (action === "purge-done") return tr("nav.queue.modal_confirm_purge");
+    if (action === "cancel-running") return tr("nav.queue.modal_confirm_running");
+    return tr("nav.queue.modal_confirm_cancel");
+  }
+
+  function syncCancelConfirmState() {
+    var confirmBtn = document.getElementById("queue-cancel-confirm");
+    var forceRow = document.getElementById("queue-cancel-force-row");
+    var forceChk = document.getElementById("queue-cancel-force");
+    if (!confirmBtn) return;
+    var needsForce = forceRow && !forceRow.hidden;
+    var disabled = Boolean(cancelModal.submitting || cancelModal.dryRunFailed || (needsForce && !(forceChk && forceChk.checked)));
+    confirmBtn.disabled = disabled;
+    confirmBtn.textContent = cancelModal.submitting ? tr("nav.queue.modal_submitting") : cancelConfirmLabel(cancelModal.action);
+  }
+
+  function localizedCancelError(status, data) {
+    var code = data && typeof data.error === "string" ? data.error : "";
+    if (status === 409 && code === "staged_claim_active") return tr("nav.queue.err_staged_claim_active");
+    if (status === 409 && code === "job_already_finished") return tr("nav.queue.err_job_already_finished");
+    if (status === 409 && code === "item_currently_running") return tr("nav.queue.err_item_currently_running");
+    if (status === 403 && code === "purge_disabled_by_policy") return tr("nav.queue.err_purge_disabled");
+    return tr("nav.queue.err_cancel_failed", { error: code || ("HTTP " + status) });
+  }
+
+  function applyDryRunResponse(data) {
+    if (!data) return;
+    cancelModal.dryRunData = data;
+    var action = cancelModal.action;
+    var item = cancelModal.item || {};
+    var forceRow = document.getElementById("queue-cancel-force-row");
+    if (action === "purge-done") {
+      renderCancelImpact([
+        { label: tr("nav.queue.modal_impact_docs"), value: data.purged_count },
+        { label: tr("nav.queue.modal_impact_orphan_entities"), value: data.orphan_entities_count },
+        { label: tr("nav.queue.modal_impact_shared_entities"), value: data.shared_entities_count },
+        { label: tr("nav.queue.modal_impact_relations"), value: data.orphan_relations_count },
+        { label: tr("nav.queue.modal_impact_files"), value: data.disk_files_count }
+      ]);
+      if (typeof data.federation_objects_count === "number" && data.federation_objects_count > 0) {
+        setCancelWarn(tr("nav.queue.modal_federation_warn", { count: data.federation_objects_count }));
+      }
+    } else if (action === "cancel-staged") {
+      renderCancelImpact([
+        { label: tr("nav.queue.modal_impact_docs"), value: data.purged_count },
+        { label: tr("nav.queue.modal_impact_files"), value: data.disk_files_count }
+      ]);
+      if (data.claimed_active || item.claimed_active) {
+        var clientName = data.claimed_by || item.claimed_by || tr("nav.queue.unknown_client");
+        setCancelWarn(tr("nav.queue.modal_staged_claim_warn", { client: clientName }));
+        if (forceRow) forceRow.hidden = false;
+      }
+    } else if (action === "cancel-inbox" && typeof data.disk_files_count === "number" && data.disk_files_count > 0) {
+      renderCancelImpact([{ label: tr("nav.queue.modal_impact_files"), value: data.disk_files_count }]);
+    }
+    syncCancelConfirmState();
+  }
+
+  function openQueueCancelModal(action, item) {
+    if (!item) return;
+    var dlg = ensureCancelDialog();
+    cancelModal.action = action;
+    cancelModal.item = item;
+    cancelModal.dryRunData = null;
+    cancelModal.dryRunFailed = false;
+    cancelModal.submitting = false;
+    cancelModal.wasQueueOpen = isQueueOpen();
+    var mySeq = ++cancelModal.seq;
+
+    var titleEl = document.getElementById("queue-cancel-title");
+    var targetEl = document.getElementById("queue-cancel-target");
+    var introEl = document.getElementById("queue-cancel-intro");
+    var tombRow = document.getElementById("queue-cancel-tombstone-row");
+    var tombChk = document.getElementById("queue-cancel-tombstone");
+    var forceRow = document.getElementById("queue-cancel-force-row");
+    var forceChk = document.getElementById("queue-cancel-force");
+    var confirmBtn = document.getElementById("queue-cancel-confirm");
+
+    if (targetEl) targetEl.textContent = item.title || tr("nav.queue.untitled");
+    if (action === "purge-done") {
+      if (titleEl) titleEl.textContent = tr("nav.queue.modal_purge_title");
+      if (introEl) introEl.textContent = tr("nav.queue.modal_purge_desc");
+    } else if (action === "cancel-staged") {
+      if (titleEl) titleEl.textContent = tr("nav.queue.modal_cancel_staged_title");
+      if (introEl) introEl.textContent = tr("nav.queue.modal_cancel_staged_desc");
+    } else if (action === "cancel-running") {
+      if (titleEl) titleEl.textContent = tr("nav.queue.modal_cancel_running_title");
+      if (introEl) introEl.textContent = tr("nav.queue.modal_cancel_running_desc");
+    } else {
+      if (titleEl) titleEl.textContent = tr("nav.queue.modal_cancel_inbox_title");
+      if (introEl) introEl.textContent = tr("nav.queue.modal_cancel_inbox_desc");
+    }
+
+    setCancelWarn("");
+    renderCancelImpact([]);
+    setCancelMsg("", false);
+
+    var purgeAllowed = queue.data.purge_allowed !== false;
+    if (tombRow && tombChk) {
+      if (action === "purge-done") {
+        tombRow.hidden = false;
+        tombChk.disabled = !purgeAllowed;
+        tombChk.checked = purgeAllowed;
+      } else {
+        tombRow.hidden = !purgeAllowed;
+        tombChk.disabled = !purgeAllowed;
+        tombChk.checked = false;
+      }
+    }
+    if (forceRow && forceChk) {
+      forceChk.checked = false;
+      var claimed = action === "cancel-staged" && Boolean(item.claimed_active);
+      forceRow.hidden = !claimed;
+      if (claimed) {
+        setCancelWarn(tr("nav.queue.modal_staged_claim_warn", { client: item.claimed_by || tr("nav.queue.unknown_client") }));
+      }
+    }
+    if (confirmBtn) {
+      confirmBtn.className = action === "purge-done" ? "danger" : "pri";
+    }
+    syncCancelConfirmState();
+
+    if (!dlg.open) dlg.showModal();
+
+    if (action !== "cancel-running" && item.inbox_id != null) {
+      setCancelMsg(tr("nav.queue.modal_impact_loading"), false);
+      fetch(QUEUE_PATH + "/" + encodeURIComponent(String(item.inbox_id)) + "/cancel", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ dry_run: true, tombstone: Boolean(tombChk && tombChk.checked) })
+      }).then(function (res) {
+        return res.json().catch(function () { return null; }).then(function (data) {
+          return { ok: res.ok, status: res.status, data: data };
+        });
+      }).then(function (result) {
+        if (cancelModal.seq !== mySeq || !dlg.open) return;
+        if (!result.ok) {
+          cancelModal.dryRunFailed = result.status === 403 || result.status === 404;
+          setCancelMsg(localizedCancelError(result.status, result.data), true);
+          syncCancelConfirmState();
+          return;
+        }
+        setCancelMsg("", false);
+        applyDryRunResponse(result.data);
+      }).catch(function () {
+        if (cancelModal.seq !== mySeq || !dlg.open) return;
+        setCancelMsg("", false);
+      });
+    }
+  }
+
+  function submitQueueCancelModal() {
+    var dlg = document.getElementById("modal-queue-cancel");
+    var tombChk = document.getElementById("queue-cancel-tombstone");
+    var forceChk = document.getElementById("queue-cancel-force");
+    var item = cancelModal.item;
+    var action = cancelModal.action;
+    if (!dlg || !item || cancelModal.submitting) return;
+
+    cancelModal.submitting = true;
+    setCancelMsg("", false);
+    syncCancelConfirmState();
+
+    var url;
+    var payload;
+    if (action === "cancel-running") {
+      var jobId = item.job_id || item.id;
+      url = QUEUE_PATH + "/jobs/" + encodeURIComponent(String(jobId)) + "/cancel";
+      payload = { tombstone: Boolean(tombChk && tombChk.checked) };
+    } else {
+      url = QUEUE_PATH + "/" + encodeURIComponent(String(item.inbox_id)) + "/cancel";
+      payload = { dry_run: false, tombstone: Boolean(tombChk && tombChk.checked), force: Boolean(forceChk && forceChk.checked) };
+    }
+
+    fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (res) {
+      return res.json().catch(function () { return null; }).then(function (data) {
+        return { ok: res.ok, status: res.status, data: data };
+      });
+    }).then(function (result) {
+      cancelModal.submitting = false;
+      if (!result.ok) {
+        if (result.status === 409 && result.data && result.data.error === "staged_claim_active") {
+          var forceRow = document.getElementById("queue-cancel-force-row");
+          if (forceRow) forceRow.hidden = false;
+          setCancelWarn(tr("nav.queue.modal_staged_claim_warn", { client: result.data.claimed_by || tr("nav.queue.unknown_client") }));
+        }
+        setCancelMsg(localizedCancelError(result.status, result.data), true);
+        syncCancelConfirmState();
+        return;
+      }
+      if (dlg.open) dlg.close();
+      if (action === "cancel-running") announceQueue(tr("nav.queue.announced_cancel_requested"));
+      else if (action === "purge-done") announceQueue(tr("nav.queue.announced_purged"));
+      else announceQueue(tr("nav.queue.announced_cancelled"));
+      loadIngestQueue();
+    }).catch(function () {
+      cancelModal.submitting = false;
+      setCancelMsg(tr("nav.queue.err_cancel_failed", { error: "network" }), true);
+      syncCancelConfirmState();
     });
   }
 
@@ -755,6 +1178,11 @@
         }
         var isClient = item.mode === "client";
         meta.appendChild(makeQueueChip(tr(isClient ? "nav.queue.mode_client" : "nav.queue.mode_provider"), isClient ? "is-staged" : ""));
+        if (st === "running" && item.cancel_requested) {
+          meta.appendChild(makeQueueChip(tr("nav.queue.cancelling_badge"), "is-cancelling", "clock"));
+        } else if (st === "staged" && item.claimed_active) {
+          meta.appendChild(makeQueueChip(tr("nav.queue.staged_claimed_badge"), "is-cancelling", "bot"));
+        }
         body.appendChild(meta);
 
         var stageIdx = queueStageIdx(item);
@@ -779,30 +1207,13 @@
           body.appendChild(sbox);
         } else if (st === "error") {
           if (item.msg) body.appendChild(makeQueueEl("div", "qa-err", String(item.msg)));
-          if (item.can_retry && item.inbox_id != null) {
-            var actsErr = makeQueueEl("div", "qa-actions");
-            var retryBtn = makeQueueEl("button", "q-btn q-btn-danger");
-            retryBtn.type = "button";
-            retryBtn.appendChild(makeQueueIcon("repeat"));
-            retryBtn.appendChild(document.createTextNode(tr("nav.queue.retry")));
-            retryBtn.addEventListener("click", function () { retryQueueItem(item, retryBtn); });
-            actsErr.appendChild(retryBtn);
-            body.appendChild(actsErr);
-          }
-        } else if (st === "done") {
-          if (item.msg) body.appendChild(makeQueueEl("div", "qa-msg", String(item.msg)));
-          if (validRelativeUrl(item.doc_url)) {
-            var actsDone = makeQueueEl("div", "qa-actions");
-            var openLnk = makeQueueEl("a", "q-btn");
-            openLnk.href = item.doc_url;
-            openLnk.appendChild(document.createTextNode(tr("nav.queue.open_doc")));
-            openLnk.appendChild(makeQueueIcon("external"));
-            actsDone.appendChild(openLnk);
-            body.appendChild(actsDone);
-          }
         } else if (item.msg) {
           body.appendChild(makeQueueEl("div", "qa-msg", String(item.msg)));
         }
+
+        var acts = makeQueueEl("div", "qa-actions");
+        appendQueueItemActions(acts, item, st);
+        if (acts.children.length) body.appendChild(acts);
 
         li.appendChild(body);
         ol.appendChild(li);
@@ -867,7 +1278,18 @@
       rowBtn.appendChild(makeQueueEl("span", "qc-pos mono", posTxt));
 
       var main = makeQueueEl("div", "qc-main");
-      main.appendChild(makeQueueEl("div", "qc-title", titleText));
+      if ((st === "running" && item.cancel_requested) || (st === "staged" && item.claimed_active)) {
+        var titleRow = makeQueueEl("div", "qc-title-row");
+        titleRow.appendChild(makeQueueEl("div", "qc-title", titleText));
+        if (st === "running" && item.cancel_requested) {
+          titleRow.appendChild(makeQueueChip(tr("nav.queue.cancelling_badge"), "is-cancelling", "clock"));
+        } else {
+          titleRow.appendChild(makeQueueChip(tr("nav.queue.staged_claimed_badge"), "is-cancelling", "bot"));
+        }
+        main.appendChild(titleRow);
+      } else {
+        main.appendChild(makeQueueEl("div", "qc-title", titleText));
+      }
       var src = queueSourceMeta(item.source);
       var subParts = [queueStatusLabel(item), src.label];
       if (item.kb_label || item.kb_id) subParts.push(String(item.kb_label || item.kb_id));
@@ -905,20 +1327,7 @@
         det.appendChild(dm);
 
         var dActs = makeQueueEl("div", "qc-detail-actions");
-        if (st === "error" && item.can_retry && item.inbox_id != null) {
-          var rBtn = makeQueueEl("button", "q-btn q-btn-danger");
-          rBtn.type = "button";
-          rBtn.appendChild(makeQueueIcon("repeat"));
-          rBtn.appendChild(document.createTextNode(tr("nav.queue.retry")));
-          rBtn.addEventListener("click", function () { retryQueueItem(item, rBtn); });
-          dActs.appendChild(rBtn);
-        } else if (st === "done" && validRelativeUrl(item.doc_url)) {
-          var oBtn = makeQueueEl("a", "q-btn");
-          oBtn.href = item.doc_url;
-          oBtn.appendChild(document.createTextNode(tr("nav.queue.open_doc")));
-          oBtn.appendChild(makeQueueIcon("external"));
-          dActs.appendChild(oBtn);
-        }
+        appendQueueItemActions(dActs, item, st);
         if (dActs.children.length) det.appendChild(dActs);
         li.appendChild(det);
       }
@@ -1020,6 +1429,7 @@
       queue.data = {
         max_slots: typeof state.max_slots === "number" && state.max_slots > 0 ? state.max_slots : 4,
         busy_slots: typeof state.busy_slots === "number" ? state.busy_slots : 0,
+        purge_allowed: state.purge_allowed !== false,
         counts: state.counts && typeof state.counts === "object" ? state.counts : {},
         items: Array.isArray(state.items) ? state.items : []
       };

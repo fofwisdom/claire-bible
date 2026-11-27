@@ -187,6 +187,72 @@ def _strings(value: Any) -> list[str]:
     return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
 
 
+def _has_later_type_change(
+    conn: Any,
+    target_id: str,
+    entity_kb_id: int,
+    decision: ResolutionDecision,
+    document_id: str | None,
+    remaining: list[str],
+) -> bool:
+    """Return True when a remaining document merged into the target entity after this decision and recorded a non-empty prev_type."""
+    if not remaining:
+        return False
+    import json
+
+    cur_fetched_at: float | None = None
+    cur_rowid: int | None = None
+    if document_id:
+        cur_row = conn.execute("SELECT rowid, fetched_at FROM documents WHERE id=? AND kb_id=?", (document_id, entity_kb_id)).fetchone()
+        if cur_row is not None:
+            cur_rowid = int(cur_row[0])
+            cur_fetched_at = float(cur_row[1]) if cur_row[1] is not None else None
+    decision_ts = float(decision.timestamp or 0)
+    for rem_id in remaining:
+        rem_row = conn.execute("SELECT rowid, fetched_at, meta FROM documents WHERE id=? AND kb_id=?", (rem_id, entity_kb_id)).fetchone()
+        if rem_row is None or not rem_row[2]:
+            continue
+        try:
+            rem_meta = json.loads(rem_row[2]) if isinstance(rem_row[2], str) else rem_row[2]
+        except Exception:
+            continue
+        if not isinstance(rem_meta, dict):
+            continue
+        raw_log = rem_meta.get("resolution_log")
+        if not isinstance(raw_log, list):
+            continue
+        rem_rowid = int(rem_row[0])
+        rem_fetched_at = float(rem_row[1]) if rem_row[1] is not None else None
+        for entry in raw_log:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("decision") != "MERGE" or entry.get("target_entity_id") != target_id:
+                continue
+            rem_payload = entry.get("rollback_payload")
+            if not isinstance(rem_payload, dict) or not rem_payload.get("prev_type"):
+                continue
+            raw_ts = entry.get("timestamp")
+            if raw_ts is not None:
+                try:
+                    if float(raw_ts) >= decision_ts:
+                        return True
+                    continue
+                except (TypeError, ValueError):
+                    pass
+            if cur_fetched_at is not None and rem_fetched_at is not None:
+                if rem_fetched_at > cur_fetched_at:
+                    return True
+                if rem_fetched_at < cur_fetched_at:
+                    continue
+            if cur_rowid is not None:
+                if rem_rowid > cur_rowid:
+                    return True
+                continue
+            if decision_ts == 0:
+                return True
+    return False
+
+
 def rollback_resolution(
     conn: Any,
     decision: ResolutionDecision,
@@ -195,6 +261,7 @@ def rollback_resolution(
     document_id: str | None = None,
     gone: Any = (),
     provenance: Provenance | None = None,
+    commit: bool = True,
 ) -> bool:
     """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복.
 
@@ -284,11 +351,12 @@ def rollback_resolution(
         changed = True
 
     if prev_type and prev_type != cand.type:
-        cand.type = prev_type
-        changed = True
+        if not _has_later_type_change(conn, target_id, entity_kb_id, decision, document_id, remaining):
+            cand.type = prev_type
+            changed = True
 
     if changed:
-        dbm.upsert_entity(conn, cand, kb_id=entity_kb_id)
+        dbm.upsert_entity(conn, cand, kb_id=entity_kb_id, commit=commit)
         return True
     return False
 

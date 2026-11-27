@@ -851,7 +851,9 @@ function buildGroups(){ const g={}, th=T();
     g[t]={color:{background:c,border:th.nodeBorder,highlight:{background:c,border:th.lit},hover:{background:c,border:th.lit}}}; });
   return g; }
 function syncThemeBtn(){ const b=document.getElementById('themebtn');
-  if(b) b.setAttribute('data-icon', curTheme()==='dark'?'sun':'moon'); }
+  if(!b) return;
+  const ic=b.querySelector('[data-icon]')||b;
+  ic.setAttribute('data-icon', curTheme()==='dark'?'sun':'moon'); }
 function onAppThemeChanged(next){
   const presFrame = document.getElementById('presentation-frame');
   if(presFrame && presFrame.contentWindow){

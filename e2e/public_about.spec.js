@@ -78,14 +78,18 @@ test('public /about works anonymously across desktop/mobile and light/dark theme
   await expect(page.locator('footer.about-footer')).not.toContainText('지식 관리자');
 
   // Dark theme on desktop 1360x900
-  await page.locator('#themebtn').click();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+  await page.locator('#pop-hamburger-menu #themebtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expectZeroOverflow(page, 'desktop dark');
 
   // Mobile 390x844 in dark and light themes
   await page.setViewportSize({ width: 390, height: 844 });
   await expectZeroOverflow(page, 'mobile dark');
-  await page.locator('#themebtn').click();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+  await page.locator('#pop-hamburger-menu #themebtn').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await expectZeroOverflow(page, 'mobile light');
 

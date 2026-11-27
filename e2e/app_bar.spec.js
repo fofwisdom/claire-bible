@@ -15,12 +15,14 @@ async function barFacts(page) {
     const style = getComputedStyle(bar);
     const brand = bar.querySelector('.bar-brand-group a.brand');
     const current = bar.querySelector('.appbar-end a[aria-current="page"]');
-    const visibleEndOrder = ['#homelinkbtn', '#syndlink', '#queuebtn', '#themebtn', '#hamburger-btn'].map((sel) => {
+    const visibleEndOrder = ['#queuebtn', '#homelinkbtn', '#syndlink', '#hamburger-btn'].map((sel) => {
       const el = bar.querySelector(`.appbar-end ${sel}`);
       if (!el || el.hidden) return null;
       const r = el.getBoundingClientRect();
       return { sel, left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width) };
     });
+    const notifyEl = bar.querySelector('.appbar-end #notifybtn');
+    const notifyLeft = notifyEl && !notifyEl.hidden ? Math.round(notifyEl.getBoundingClientRect().left) : null;
     const visibleTopLogout = Array.from(bar.querySelectorAll('form[action="/logout"], a[href="/logout"]')).filter((el) => !el.closest('#pop-hamburger-menu') && el.offsetParent !== null).length;
     return {
       height: Math.round(bar.getBoundingClientRect().height),
@@ -31,6 +33,7 @@ async function barFacts(page) {
       authStateCount: document.querySelectorAll('#authstate').length,
       visibleTopLogout,
       visibleEndOrder,
+      notifyLeft,
       syndicationLinks: bar.querySelectorAll('.appbar-end > a[href^="/syndication"]').length,
       syndIcon: bar.querySelector('.appbar-end #syndlink')?.getAttribute('data-icon') || null,
       queueIcon: bar.querySelector('.appbar-end #queuebtn [data-icon]')?.getAttribute('data-icon') || null,
@@ -38,7 +41,8 @@ async function barFacts(page) {
       homeLinks: bar.querySelectorAll('.appbar-end > a#homelinkbtn').length,
       hamburgerConsoleLinks: bar.querySelectorAll('#pop-hamburger-menu a#consolelinkbtn').length,
       hamburgerLogoutForms: bar.querySelectorAll('#pop-hamburger-menu form[action="/logout"]').length,
-      themeSwitch: !!bar.querySelector('.appbar-end #themebtn'),
+      topThemeSwitchCount: bar.querySelectorAll('.appbar-end > #themebtn').length,
+      menuThemeSwitch: !!bar.querySelector('#pop-hamburger-menu #themebtn'),
       currentPath: current ? new URL(current.href).pathname : null,
       inputs: bar.querySelectorAll('input').length,
     };
@@ -70,12 +74,16 @@ test('the three pages share one app bar, palette trigger, right-to-left icons, h
     expect(fact.menuSyndIcon, target.name).toBe('rss');
     expect(fact.hamburgerConsoleLinks, target.name).toBe(1);
     expect(fact.hamburgerLogoutForms, target.name).toBe(1);
-    expect(fact.themeSwitch, target.name).toBe(true);
+    expect(fact.topThemeSwitchCount, target.name).toBe(0);
+    expect(fact.menuThemeSwitch, target.name).toBe(true);
     expect(fact.currentPath, target.name).toMatch(target.currentPattern);
     expect(fact.inputs, target.name).toBe(0);
 
-    // Order from left to right along .appbar-end: homelinkbtn -> syndlink -> queuebtn -> themebtn -> hamburger-btn (rightmost).
+    // Order from left to right along .appbar-end: (notifybtn ->) queuebtn -> homelinkbtn -> syndlink -> hamburger-btn (rightmost).
     expect(fact.visibleEndOrder.every((item) => item && item.width > 0), target.name).toBe(true);
+    if (fact.notifyLeft !== null) {
+      expect(fact.visibleEndOrder[0].left, `${target.name} #queuebtn right of #notifybtn`).toBeGreaterThan(fact.notifyLeft);
+    }
     for (let i = 1; i < fact.visibleEndOrder.length; i += 1) {
       expect(fact.visibleEndOrder[i].left, `${target.name} ${fact.visibleEndOrder[i].sel}`).toBeGreaterThan(fact.visibleEndOrder[i - 1].left);
     }
@@ -86,9 +94,10 @@ test('the three pages share one app bar, palette trigger, right-to-left icons, h
     await page.keyboard.press('Escape');
     await expect(page.locator('#cmdpalette')).toBeHidden();
 
-    // Hamburger menu exposes the common bottom section from top to bottom: syndication -> moderation -> console -> sign-out.
+    // Hamburger menu exposes the theme toggle and the common bottom section from top to bottom: syndication -> moderation -> console -> sign-out.
     await page.locator('#hamburger-btn').click();
     await expect(page.locator('#pop-hamburger-menu')).toBeVisible();
+    await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
     await expect(page.locator('#menusyndlink')).toBeVisible();
     await expect(page.locator('#moderationlinkbtn')).toBeVisible();
     await expect(page.locator('#consolelinkbtn')).toBeVisible();
@@ -135,7 +144,9 @@ test('the light and dark switch of one page applies to the other pages', async (
   await expect.poll(() => page.evaluate(() => window.claireDebug?.authScope)).toBe('owner');
   await page.goto('/settings/reader', { waitUntil: 'domcontentloaded' });
   const before = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
-  await page.locator('#themebtn').click();
+  await page.locator('#hamburger-btn').click();
+  await expect(page.locator('#pop-hamburger-menu #themebtn')).toBeVisible();
+  await page.locator('#pop-hamburger-menu #themebtn').click();
   const after = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
   expect(after).not.toBe(before);
   for (const path of ['/syndication', '/']) {
@@ -153,10 +164,9 @@ test('a narrow screen keeps top bar controls accessible without overflow across 
     await page.goto(target.path, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('header.appbar a.brand')).toBeVisible();
     await expect(page.locator('#palettetrigger')).toBeVisible();
+    await expect(page.locator('#queuebtn')).toBeVisible();
     await expect(page.locator('#homelinkbtn')).toBeVisible();
     await expect(page.locator('#syndlink')).toBeVisible();
-    await expect(page.locator('#queuebtn')).toBeVisible();
-    await expect(page.locator('#themebtn')).toBeVisible();
     await expect(page.locator('#hamburger-btn')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow, target.name).toBeLessThanOrEqual(0);

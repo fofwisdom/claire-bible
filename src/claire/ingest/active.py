@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 _STATE_FILENAME = "active_ingest.json"
 _JOBS_DIRNAME = "active_jobs"
+_JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_CANCEL_SUFFIX = ".cancel.json"
 _MAX_EXPENSIVE_JOBS = 4  # server.py 동시 고가 작업 최대 슬롯 수
 _STALE_TIMEOUT_SEC = 600.0  # 10분 이상 갱신 없는 작업은 크래시로 간주
 _COMPLETED_RETENTION_SEC = 30.0  # 완료 후 30초간 클라이언트에 완료 상태 유지
@@ -123,15 +125,83 @@ def _job_matches_account(job: dict[str, Any], account_id: int) -> bool:
     return False
 
 
+def _is_valid_job_id(job_id: str) -> bool:
+    return isinstance(job_id, str) and bool(_JOB_ID_RE.match(job_id))
+
+
+def _cancel_file_path(data_dir: Path | str | None, job_id: str) -> Path:
+    return _get_jobs_dir(data_dir) / f"{job_id}{_CANCEL_SUFFIX}"
+
+
+def request_job_cancel(
+    data_dir: Path | str | None,
+    job_id: str,
+    *,
+    tombstone: bool = False,
+    reason: str = "queue_running_cancel",
+) -> dict[str, Any] | None:
+    """Write a sibling cancel marker for an active job."""
+    if not _is_valid_job_id(job_id):
+        return None
+    p = Path(data_dir) if data_dir else Path("data")
+    job_file = p / _JOBS_DIRNAME / f"{job_id}.json"
+    if not job_file.is_file():
+        return None
+    try:
+        job = json.loads(job_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(job, dict) or not job.get("active"):
+        return None
+    marker = {
+        "job_id": job_id,
+        "requested_at": time.time(),
+        "tombstone": bool(tombstone),
+        "reason": str(reason or "queue_running_cancel"),
+    }
+    _atomic_write(_cancel_file_path(data_dir, job_id), marker)
+    return marker
+
+
+def get_job_cancel_request(data_dir: Path | str | None, job_id: str) -> dict[str, Any] | None:
+    """Read the cancel marker for a job if it exists."""
+    if not _is_valid_job_id(job_id):
+        return None
+    p = Path(data_dir) if data_dir else Path("data")
+    cancel_file = p / _JOBS_DIRNAME / f"{job_id}{_CANCEL_SUFFIX}"
+    if not cancel_file.is_file():
+        return None
+    try:
+        data = json.loads(cancel_file.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def clear_job_cancel_request(data_dir: Path | str | None, job_id: str) -> None:
+    """Delete the cancel marker for a job when it exists."""
+    if not _is_valid_job_id(job_id):
+        return
+    p = Path(data_dir) if data_dir else Path("data")
+    cancel_file = p / _JOBS_DIRNAME / f"{job_id}{_CANCEL_SUFFIX}"
+    try:
+        cancel_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def get_active_jobs(data_dir: Path | str | None = None, account_id: int | None = None) -> list[dict[str, Any]]:
     """현재 활성화되어 있거나 최근 완료된 작업 목록 반환 (최대 _MAX_EXPENSIVE_JOBS개)."""
     p = Path(data_dir) if data_dir else Path("data")
     jobs_dir = p / _JOBS_DIRNAME
     jobs: list[dict[str, Any]] = []
     now = time.time()
+    active_ids: set[str] = set()
 
     if jobs_dir.is_dir():
         for f in jobs_dir.glob("*.json"):
+            if f.name.endswith(_CANCEL_SUFFIX) or ".tmp." in f.name:
+                continue
             try:
                 text = f.read_text(encoding="utf-8")
                 if not text.strip():
@@ -139,6 +209,7 @@ def get_active_jobs(data_dir: Path | str | None = None, account_id: int | None =
                 job = json.loads(text)
                 if not isinstance(job, dict):
                     continue
+                jid = str(job.get("job_id") or f.stem)
 
                 if job.get("active"):
                     updated_at = float(job.get("updated_at") or job.get("started_at") or 0)
@@ -147,8 +218,16 @@ def get_active_jobs(data_dir: Path | str | None = None, account_id: int | None =
                             f.unlink(missing_ok=True)
                         except Exception:
                             pass
+                        clear_job_cancel_request(data_dir, jid)
                         continue
+                    active_ids.add(jid)
+                    cancel_req = get_job_cancel_request(data_dir, jid)
+                    job["cancel_requested"] = bool(cancel_req)
+                    job["cancel_tombstone"] = bool(cancel_req.get("tombstone")) if cancel_req else False
                 else:
+                    clear_job_cancel_request(data_dir, jid)
+                    job["cancel_requested"] = False
+                    job["cancel_tombstone"] = False
                     completed_at = float(job.get("completed_at") or 0)
                     if now - completed_at > _COMPLETED_RETENTION_SEC:
                         try:
@@ -162,6 +241,14 @@ def get_active_jobs(data_dir: Path | str | None = None, account_id: int | None =
             except Exception as e:
                 logger.debug("Failed to read job file %s: %s", f, e)
                 continue
+
+        for cf in jobs_dir.glob(f"*{_CANCEL_SUFFIX}"):
+            cid = cf.name[: -len(_CANCEL_SUFFIX)]
+            if not _is_valid_job_id(cid) or cid not in active_ids:
+                try:
+                    cf.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     # active_ingest.json에 존재하는 단일 작업이 active_jobs 디렉터리에 없는 경우 동기화 (레거시 단일 슬롯 쓰기 호환)
     single = get_active_ingest(data_dir)
@@ -293,6 +380,7 @@ def active_job(
     title: str | None = None,
     source: str = "web",
     account_id: int | None = None,
+    inbox_id: int | None = None,
 ) -> Iterator[JobHandle]:
     """멀티 슬롯 활성 작업 컨텍스트 관리자.
 
@@ -309,6 +397,8 @@ def active_job(
             current_job.state["title"] = title
         if account_id is not None and current_job.state.get("account_id") is None:
             current_job.state["account_id"] = account_id
+        if inbox_id is not None and current_job.state.get("inbox_id") is None:
+            current_job.state["inbox_id"] = inbox_id
         try:
             yield inner_handle
         finally:
@@ -337,6 +427,7 @@ def active_job(
         "kb_id": kb_id,
         "theme_label": theme_label,
         "account_id": account_id,
+        "inbox_id": inbox_id,
         "doc_id": doc_id,
         "title": short_title,
         "stage": "init",
@@ -359,7 +450,7 @@ def active_job(
         if not handle.state.get("completed_at"):
             handle.state["completed_at"] = now
         handle.state["updated_at"] = now
-        if handle.state.get("stage") != "error" and handle.state.get("stage") != "done":
+        if handle.state.get("stage") not in ("error", "done", "cancelled"):
             handle.state["stage"] = "done"
             if not handle.state.get("msg"):
                 handle.state["msg"] = "작업 완료"
@@ -376,6 +467,7 @@ def active_job(
         _sync_active_ingest(data_dir)
         raise
     finally:
+        clear_job_cancel_request(data_dir, job_id)
         _local.current_job = None
         _local.depth = 0
 
@@ -500,7 +592,9 @@ def clear_active_ingest(
         current_job.state["active"] = False
         current_job.state["completed_at"] = now
         current_job.state["updated_at"] = now
-        if error:
+        if current_job.state.get("stage") == "cancelled":
+            pass
+        elif error:
             current_job.state["msg"] = f"적재 오류: {scrub_text(error)}"
             current_job.state["stage"] = "error"
         else:
@@ -514,6 +608,8 @@ def clear_active_ingest(
                 current_job.state["heatmap_matrix"] = result["heatmap_matrix"]
         _save_job(data_dir, current_job.state)
         _sync_active_ingest(data_dir)
+        if current_job.job_id:
+            clear_job_cancel_request(data_dir, current_job.job_id)
         return
 
     f = _get_state_file(data_dir)
@@ -522,7 +618,9 @@ def clear_active_ingest(
     current["active"] = False
     current["completed_at"] = now
     current["updated_at"] = now
-    if error:
+    if current.get("stage") == "cancelled":
+        pass
+    elif error:
         current["msg"] = f"적재 오류: {scrub_text(error)}"
         current["stage"] = "error"
     else:
@@ -537,6 +635,7 @@ def clear_active_ingest(
     _atomic_write(f, current)
     if current.get("job_id"):
         _save_job(data_dir, current)
+        clear_job_cancel_request(data_dir, str(current["job_id"]))
 
 
 def purge_active_matrix(data_dir: Path | str | None, doc_id: str | None = None) -> None:
@@ -564,6 +663,8 @@ def purge_active_matrix(data_dir: Path | str | None, doc_id: str | None = None) 
         jobs_dir = p / _JOBS_DIRNAME
         if jobs_dir.is_dir():
             for jf in jobs_dir.glob("*.json"):
+                if jf.name.endswith(_CANCEL_SUFFIX) or ".tmp." in jf.name:
+                    continue
                 try:
                     txt = jf.read_text(encoding="utf-8")
                     job = json.loads(txt)

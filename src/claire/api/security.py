@@ -830,6 +830,8 @@ ROUTE_POLICY: Mapping[RouteKey, RouteRule] = {
     ("GET", "/api/me/ingest-queue"): _any("owner", "none"),
     ("HEAD", "/api/me/ingest-queue"): _any("owner", "none"),
     ("POST", "/api/me/ingest-queue/{inbox_id}/retry"): _any("owner", "none"),
+    ("POST", "/api/me/ingest-queue/{inbox_id}/cancel"): _any("owner", "none"),
+    ("POST", "/api/me/ingest-queue/jobs/{job_id}/cancel"): _any("owner", "none"),
     # The support bundles of /support/bundles: each account (scope "account"); the handler gives the scope "server" to the administrator only.
     ("GET", "/api/support/bundles"): _any("owner", "none"),
     ("HEAD", "/api/support/bundles"): _any("owner", "none"),

@@ -4,8 +4,12 @@ const { test, expect } = require('@playwright/test');
 // Characters that a browser shows as a color pictograph.
 const EMOJI = /\p{Extended_Pictographic}️|[\u{1F000}-\u{1FAFF}]/u;
 
+const OWNER_COOKIE_TOKEN = 'e2e-owner-token-0123456789abcdef';
+
 test.describe('line icons', () => {
-  test('the top bar and the menus of /syndication have line icons and no emoji', async ({ page }) => {
+  test('the top bar and the menus of /syndication have line icons and no emoji', async ({ page, baseURL }) => {
+    const targetOrigin = new URL(baseURL || 'http://127.0.0.1:8766/').origin;
+    await page.context().addCookies([{ name: 'claire_session', value: OWNER_COOKIE_TOKEN, url: targetOrigin }]);
     await page.goto('/syndication', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#panel-kb')).toBeVisible();
 
@@ -15,17 +19,20 @@ test.describe('line icons', () => {
     expect(await syndIcon.evaluate(el => getComputedStyle(el).stroke)).toBe(await page.locator('#syndlink').evaluate(el => getComputedStyle(el).color));
     expect(await syndIcon.evaluate(el => getComputedStyle(el).fill)).toBe('none');
 
-    // The light and dark switch changes its icon through the `data-icon` attribute.
-    const themeBtn = page.locator('#themebtn');
-    const before = await themeBtn.getAttribute('data-icon');
+    // The light and dark switch inside the hamburger menu changes its icon through the `data-icon` attribute on its inner icon span.
+    await page.locator('#hamburger-btn').click();
+    const themeBtn = page.locator('#pop-hamburger-menu #themebtn');
+    const themeIcon = themeBtn.locator('[data-icon]');
+    await expect(themeBtn).toBeVisible();
+    const before = await themeIcon.getAttribute('data-icon');
     expect(['moon', 'sun']).toContain(before);
-    await expect(themeBtn.locator('svg.lineicon')).toHaveCount(1);
+    await expect(themeIcon.locator('svg.lineicon')).toHaveCount(1);
     await themeBtn.click();
-    await expect(themeBtn).toHaveAttribute('data-icon', before === 'moon' ? 'sun' : 'moon');
-    await expect(themeBtn.locator('svg.lineicon')).toHaveCount(1);
+    await expect(themeIcon).toHaveAttribute('data-icon', before === 'moon' ? 'sun' : 'moon');
+    await expect(themeIcon.locator('svg.lineicon')).toHaveCount(1);
 
     // The tree that a script draws has line icons too.
-    await expect(page.locator('.tt-tree-item svg.lineicon').first()).toBeVisible();
+    await expect(page.locator('#panel-kb .tt-tree-item svg.lineicon').first()).toBeVisible();
 
     await page.locator('#hamburger-btn').click();
     await expect(page.locator('#menu-pref-link svg.lineicon')).toBeVisible();

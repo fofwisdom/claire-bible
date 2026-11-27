@@ -3711,7 +3711,7 @@ def get_staged_document(conn: sqlite3.Connection, document_id: str, *, kb_id: in
 
 # --- entities ---
 
-def upsert_entity(conn: sqlite3.Connection, ent: Entity, kb_id: int = 0) -> None:
+def upsert_entity(conn: sqlite3.Connection, ent: Entity, kb_id: int = 0, *, commit: bool = True) -> None:
     ent.updated_at = time.time()
     conn.execute(
         """INSERT OR REPLACE INTO entities
@@ -3738,7 +3738,8 @@ def upsert_entity(conn: sqlite3.Connection, ent: Entity, kb_id: int = 0) -> None
         "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
         (ent.id, ent.name, body),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def get_entity(conn: sqlite3.Connection, entity_id: str, kb_id: int | None = None) -> Entity | None:
@@ -7484,6 +7485,7 @@ def rollback_document_graph_contributions(
     *,
     prune_orphans: bool = False,
     kb_id: int | None = None,
+    commit: bool = True,
 ) -> dict[str, int]:
     """Undo the entity decisions of the specified documents and optionally prune orphan graph nodes.
 
@@ -7521,7 +7523,7 @@ def rollback_document_graph_contributions(
         for decision in reversed(decisions):
             if decision.decision in ("MERGE", "CREATE_NEW"):
                 # The decisions of a document are in the knowledge base of the document: an entity of another knowledge base is not changed, and no entity changes its knowledge base.
-                if rollback_resolution(conn, decision, kb_id=doc_kb_id, document_id=did, gone=target_ids, provenance=given):
+                if rollback_resolution(conn, decision, kb_id=doc_kb_id, document_id=did, gone=target_ids, provenance=given, commit=commit):
                     rolled_back_merges += decision.decision == "MERGE"
                     rolled_back_entities.add(str(decision.target_entity_id))
 
@@ -7605,9 +7607,149 @@ def rollback_document_graph_contributions(
         if del_rels.rowcount and del_rels.rowcount > 0:
             pruned_relations += del_rels.rowcount
 
-        conn.commit()
+        if commit:
+            conn.commit()
 
     return {"rolled_back_merges": rolled_back_merges, "pruned_entities": pruned_entities, "pruned_relations": pruned_relations}
+
+
+def _collect_document_disk_files(data_dir: Path, matched_ids: list[str]) -> list[Path]:
+    """Collect existing artifact, image, and attachment files for the target documents."""
+    data_path = Path(data_dir)
+    artifacts_dir = data_path / "raw" / "artifacts"
+    img_dir = data_path / "images"
+    attachments_root = data_path / "raw" / "attachments"
+    candidates: list[Path] = []
+    for did in matched_ids:
+        if artifacts_dir.is_dir():
+            for ext in (".txt.zst", ".txt.gz"):
+                art = artifacts_dir / f"{did}{ext}"
+                if art.is_file():
+                    candidates.append(art)
+        if img_dir.is_dir():
+            for img in img_dir.glob(f"{did}_*"):
+                if img.is_file():
+                    candidates.append(img)
+        attachment_dir = attachments_root / did
+        if attachment_dir.is_dir():
+            for attachment in attachment_dir.rglob("*"):
+                if attachment.is_file():
+                    candidates.append(attachment)
+    return candidates
+
+
+def _estimate_purge_impact_for_docs(
+    conn: sqlite3.Connection,
+    target_docs: list[dict[str, Any]],
+    disk_files: list[Path],
+    *,
+    kb_id: int | None = None,
+) -> dict[str, Any]:
+    """Compute read-only entity, relation, disk, and federation impact counts for matched documents."""
+    matched_ids = [str(d["id"]) for d in target_docs]
+    target_set = set(matched_ids)
+    orphan_entities_count = 0
+    shared_entities_count = 0
+    orphaned_entity_ids: set[str] = set()
+
+    ent_q = "SELECT id, sources FROM entities"
+    ent_p: list[Any] = []
+    if kb_id is not None:
+        ent_q += " WHERE kb_id=?"
+        ent_p.append(kb_id)
+    for row in conn.execute(ent_q, tuple(ent_p)).fetchall():
+        try:
+            srcs = json.loads(row["sources"] or "[]")
+        except Exception:
+            srcs = []
+        if not isinstance(srcs, list) or not any(s in target_set for s in srcs):
+            continue
+        remaining = [s for s in srcs if s not in target_set]
+        if len(remaining) == 0:
+            orphan_entities_count += 1
+            orphaned_entity_ids.add(str(row["id"]))
+        else:
+            shared_entities_count += 1
+
+    orphan_relations_count = 0
+    rel_q = "SELECT id, source_id, target_id, sources FROM relations"
+    rel_p: list[Any] = []
+    if kb_id is not None:
+        rel_q += " WHERE kb_id=?"
+        rel_p.append(kb_id)
+    for row in conn.execute(rel_q, tuple(rel_p)).fetchall():
+        try:
+            srcs = json.loads(row["sources"] or "[]")
+        except Exception:
+            srcs = []
+        if not isinstance(srcs, list):
+            srcs = []
+        has_target = any(s in target_set for s in srcs)
+        remaining = [s for s in srcs if s not in target_set]
+        endpoint_orphaned = str(row["source_id"]) in orphaned_entity_ids or str(row["target_id"]) in orphaned_entity_ids
+        if (has_target and len(remaining) == 0) or endpoint_orphaned:
+            orphan_relations_count += 1
+
+    federation_objects_count = 0
+    if matched_ids and _table_exists(conn, "federation_objects"):
+        ph_matched = ",".join("?" for _ in matched_ids)
+        fed_q = f"SELECT COUNT(*) FROM federation_objects WHERE document_id IN ({ph_matched})"
+        fed_p: list[Any] = list(matched_ids)
+        if kb_id is not None:
+            fed_q += " AND kb_id=?"
+            fed_p.append(kb_id)
+        federation_objects_count = int(conn.execute(fed_q, tuple(fed_p)).fetchone()[0])
+
+    return {
+        "purged_count": len(matched_ids),
+        "target_documents": target_docs,
+        "orphan_entities_count": orphan_entities_count,
+        "shared_entities_count": shared_entities_count,
+        "orphan_relations_count": orphan_relations_count,
+        "disk_files_count": len(disk_files),
+        "federation_objects_count": federation_objects_count,
+    }
+
+
+def estimate_document_purge_impact(
+    conn: sqlite3.Connection,
+    data_dir: Path,
+    target_ids: list[str],
+    *,
+    kb_id: int | None = None,
+) -> dict[str, Any]:
+    """Read-only blast-radius estimator for purging the given documents."""
+    if not target_ids:
+        return {
+            "purged_count": 0,
+            "target_documents": [],
+            "orphan_entities_count": 0,
+            "shared_entities_count": 0,
+            "orphan_relations_count": 0,
+            "disk_files_count": 0,
+            "federation_objects_count": 0,
+        }
+    ph = ",".join("?" for _ in target_ids)
+    doc_q = f"SELECT id, kb_id, url, canonical_url, title, content_hash, fetched_at FROM documents WHERE id IN ({ph})"
+    doc_p: list[Any] = list(target_ids)
+    if kb_id is not None:
+        doc_q += " AND kb_id = ?"
+        doc_p.append(kb_id)
+    docs = conn.execute(doc_q, tuple(doc_p)).fetchall()
+    target_docs = [dict(d) for d in docs]
+    matched_ids = [str(d["id"]) for d in target_docs]
+    if not matched_ids:
+        return {
+            "purged_count": 0,
+            "target_documents": [],
+            "orphan_entities_count": 0,
+            "shared_entities_count": 0,
+            "orphan_relations_count": 0,
+            "disk_files_count": 0,
+            "federation_objects_count": 0,
+        }
+    disk_files = _collect_document_disk_files(data_dir, matched_ids)
+    return _estimate_purge_impact_for_docs(conn, target_docs, disk_files, kb_id=kb_id)
 
 
 def purge_document_cascade(
@@ -7627,7 +7769,6 @@ def purge_document_cascade(
     ``heal``: run ``heal_graph`` after the deletion. ``vacuum``: run the WAL checkpoint and ``VACUUM`` after it. A caller that already cleaned the graph of the documents (``rollback_document_graph_contributions`` with ``prune_orphans``) and that purges often (the copy of a contribution) sets both to False; then ``graph_healed`` is None and ``vacuum_executed`` is False.
     """
     import time
-    from .raw import _artifacts_dir, _images_dir, artifact_paths
 
     if isinstance(target_ids, Path) and isinstance(reason, (list, tuple, set)):
         target_ids = list(reason)
@@ -7654,25 +7795,13 @@ def purge_document_cascade(
     ph_matched = ",".join("?" for _ in matched_ids)
 
     # 2. 로컬 디스크 파일 경로 탐색
-    art_dir = _artifacts_dir(data_dir)
-    img_dir = _images_dir(data_dir)
-    attachments_root = data_dir / "raw" / "attachments"
-    unlinked_candidates: list[Path] = []
-
-    for did in matched_ids:
-        for art in artifact_paths(data_dir, did):
-            unlinked_candidates.append(art)
-        for img in img_dir.glob(f"{did}_*"):
-            if img.is_file():
-                unlinked_candidates.append(img)
-        attachment_dir = attachments_root / did
-        if attachment_dir.exists():
-            for attachment in attachment_dir.rglob("*"):
-                if attachment.is_file():
-                    unlinked_candidates.append(attachment)
+    data_path = Path(data_dir)
+    attachments_root = data_path / "raw" / "attachments"
+    unlinked_candidates = _collect_document_disk_files(data_path, matched_ids)
 
     if dry_run:
         # Dry-run 보고서 반환
+        impact = _estimate_purge_impact_for_docs(conn, target_docs, unlinked_candidates, kb_id=kb_id)
         return {
             "dry_run": True,
             "purged_count": len(matched_ids),
@@ -7680,6 +7809,10 @@ def purge_document_cascade(
             "disk_files_count": len(unlinked_candidates),
             "disk_files": [str(p) for p in unlinked_candidates[:50]],
             "tombstone_recorded": tombstone,
+            "orphan_entities_count": impact["orphan_entities_count"],
+            "shared_entities_count": impact["shared_entities_count"],
+            "orphan_relations_count": impact["orphan_relations_count"],
+            "federation_objects_count": impact["federation_objects_count"],
         }
 
     # 3. 실제 소각 실행 (DB 트랜잭션)
@@ -7694,10 +7827,16 @@ def purge_document_cascade(
         "purged_tombstones_registered": len(matched_ids) if tombstone else 0,
     }
 
-    stats["graph_rollback"] = rollback_document_graph_contributions(conn, matched_ids, prune_orphans=False, kb_id=kb_id)
-
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        stats["graph_rollback"] = rollback_document_graph_contributions(
+            conn,
+            matched_ids,
+            prune_orphans=(not heal),
+            kb_id=kb_id,
+            commit=False,
+        )
         now = time.time()
         if tombstone:
             for d in target_docs:
