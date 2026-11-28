@@ -253,25 +253,17 @@ def _has_later_type_change(
     return False
 
 
-def rollback_resolution(
+def _apply_rollback_to_entity(
     conn: Any,
     decision: ResolutionDecision,
-    kb_id: int | None = None,
+    cand: Entity,
+    entity_kb_id: int,
     *,
     document_id: str | None = None,
     gone: Any = (),
-    provenance: Provenance | None = None,
-    commit: bool = True,
+    provenance: Provenance,
 ) -> bool:
-    """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복.
-
-    The entity stays in its knowledge base: the write uses the ``kb_id`` of the entity row, never a guessed one. With ``kb_id`` the entity must be in that knowledge base; else nothing changes and the result is False.
-
-    ``document_id``: the document of the decision. ``gone``: the other documents that go with this rollback. The remaining sources of the entity are its sources without these documents and without the added source.
-    - A ``MERGE`` removes the aliases and the observations that the payload added, but not one that a remaining source gave (``Provenance``).
-    - With ``document_id`` a ``MERGE`` also removes what the document gave and the payload does not have (the document can have kept a value of a document that went before), but only when it knows what each remaining source gave.
-    - With ``document_id`` a ``CREATE_NEW`` removes what the document gave (all of it was added by the document) and its source, when the entity has a remaining source. An entity with no remaining source does not change (the prune step deletes it). Without ``document_id`` a ``CREATE_NEW`` changes nothing.
-    """
+    """Apply one entity rollback decision in memory and return True when cand changed."""
     if decision.decision not in ("MERGE", "CREATE_NEW") or not decision.target_entity_id:
         return False
     payload = decision.rollback_payload if isinstance(decision.rollback_payload, dict) else None
@@ -280,19 +272,7 @@ def rollback_resolution(
     if decision.decision == "CREATE_NEW" and document_id is None:
         return False
 
-    from ..store import db as dbm
-
     target_id = decision.target_entity_id
-    owner = conn.execute("SELECT kb_id FROM entities WHERE id=?", (target_id,)).fetchone()
-    if owner is None or (kb_id is not None and int(owner[0]) != int(kb_id)):
-        return False
-    entity_kb_id = int(owner[0])
-    cand = dbm.get_entity(conn, target_id, kb_id=entity_kb_id)
-    if not cand:
-        return False
-    if provenance is None or provenance.kb_id != entity_kb_id:
-        provenance = Provenance(conn, entity_kb_id)
-
     own_given = provenance.given(document_id) if document_id is not None else None
     own = own_given.get(target_id) if own_given is not None else None
     if decision.decision == "CREATE_NEW":
@@ -355,8 +335,118 @@ def rollback_resolution(
             cand.type = prev_type
             changed = True
 
+    return changed
+
+
+def prepare_document_rollback_plan(
+    conn: Any,
+    target_ids: list[str],
+    *,
+    kb_id: int | None = None,
+) -> tuple[dict[int, Provenance], dict[str, tuple[float | None, str]]]:
+    """Warm provenance and precompute post-rollback FTS bodies outside write locks."""
+    if not target_ids:
+        return {}, {}
+    import copy
+    import json
+    from ..store import db as dbm
+
+    provenance_by_kb: dict[int, Provenance] = {}
+    sim_entities: dict[tuple[int, str], Entity] = {}
+    orig_updated_at: dict[str, float | None] = {}
+    mutated_keys: set[tuple[int, str]] = set()
+
+    for did in target_ids:
+        doc_q = "SELECT meta, kb_id FROM documents WHERE id=?"
+        doc_p: list[Any] = [did]
+        if kb_id is not None:
+            doc_q += " AND kb_id=?"
+            doc_p.append(kb_id)
+        row = conn.execute(doc_q, tuple(doc_p)).fetchone()
+        if not row or not row["meta"]:
+            continue
+        try:
+            meta = json.loads(row["meta"]) if isinstance(row["meta"], str) else row["meta"]
+        except Exception:
+            continue
+        decisions = get_resolution_log_from_meta(meta if isinstance(meta, dict) else None)
+        doc_kb_id = int(row["kb_id"])
+        given = provenance_by_kb.setdefault(doc_kb_id, Provenance(conn, doc_kb_id))
+        for decision in reversed(decisions):
+            if decision.decision not in ("MERGE", "CREATE_NEW") or not decision.target_entity_id:
+                continue
+            target_id = str(decision.target_entity_id)
+            key = (doc_kb_id, target_id)
+            cand = sim_entities.get(key)
+            if cand is None:
+                loaded = dbm.get_entity(conn, target_id, kb_id=doc_kb_id)
+                if loaded is None:
+                    continue
+                orig_updated_at[target_id] = loaded.updated_at
+                cand = copy.deepcopy(loaded)
+                sim_entities[key] = cand
+            if _apply_rollback_to_entity(conn, decision, cand, doc_kb_id, document_id=did, gone=target_ids, provenance=given):
+                mutated_keys.add(key)
+
+    precomputed_fts: dict[str, tuple[float | None, str]] = {}
+    for key in mutated_keys:
+        _, target_id = key
+        simulated_ent = sim_entities[key]
+        precomputed_fts[target_id] = (orig_updated_at.get(target_id), dbm.compute_entity_fts_body(simulated_ent))
+    return provenance_by_kb, precomputed_fts
+
+
+def rollback_resolution(
+    conn: Any,
+    decision: ResolutionDecision,
+    kb_id: int | None = None,
+    *,
+    document_id: str | None = None,
+    gone: Any = (),
+    provenance: Provenance | None = None,
+    commit: bool = True,
+    precomputed_fts: dict[str, tuple[float | None, str]] | None = None,
+) -> bool:
+    """단일 ResolutionDecision에 기록된 rollback_payload를 기반으로 엔티티 상태를 안전하게 원복.
+
+    The entity stays in its knowledge base: the write uses the ``kb_id`` of the entity row, never a guessed one. With ``kb_id`` the entity must be in that knowledge base; else nothing changes and the result is False.
+
+    ``document_id``: the document of the decision. ``gone``: the other documents that go with this rollback. The remaining sources of the entity are its sources without these documents and without the added source.
+    - A ``MERGE`` removes the aliases and the observations that the payload added, but not one that a remaining source gave (``Provenance``).
+    - With ``document_id`` a ``MERGE`` also removes what the document gave and the payload does not have (the document can have kept a value of a document that went before), but only when it knows what each remaining source gave.
+    - With ``document_id`` a ``CREATE_NEW`` removes what the document gave (all of it was added by the document) and its source, when the entity has a remaining source. An entity with no remaining source does not change (the prune step deletes it). Without ``document_id`` a ``CREATE_NEW`` changes nothing.
+    """
+    if decision.decision not in ("MERGE", "CREATE_NEW") or not decision.target_entity_id:
+        return False
+    payload = decision.rollback_payload if isinstance(decision.rollback_payload, dict) else None
+    if decision.decision == "MERGE" and payload is None:
+        return False
+    if decision.decision == "CREATE_NEW" and document_id is None:
+        return False
+
+    from ..store import db as dbm
+
+    target_id = decision.target_entity_id
+    owner = conn.execute("SELECT kb_id FROM entities WHERE id=?", (target_id,)).fetchone()
+    if owner is None or (kb_id is not None and int(owner[0]) != int(kb_id)):
+        return False
+    entity_kb_id = int(owner[0])
+    cand = dbm.get_entity(conn, target_id, kb_id=entity_kb_id)
+    if not cand:
+        return False
+    orig_updated_at = cand.updated_at
+    if provenance is None or provenance.kb_id != entity_kb_id:
+        provenance = Provenance(conn, entity_kb_id)
+
+    changed = _apply_rollback_to_entity(conn, decision, cand, entity_kb_id, document_id=document_id, gone=gone, provenance=provenance)
+
     if changed:
-        dbm.upsert_entity(conn, cand, kb_id=entity_kb_id, commit=commit)
+        precomputed_fts_body: str | None = None
+        if precomputed_fts and target_id in precomputed_fts:
+            entry_updated_at, entry_body = precomputed_fts[target_id]
+            if entry_updated_at == orig_updated_at:
+                precomputed_fts_body = entry_body
+        dbm.upsert_entity(conn, cand, kb_id=entity_kb_id, commit=commit, precomputed_fts_body=precomputed_fts_body)
         return True
     return False
 

@@ -500,7 +500,10 @@
       var stKey = QUEUE_STAGES[queueStageIdx(item)] || "fetch";
       return tr("nav.queue.status_running", { stage: queueStageLabel(stKey) });
     }
-    if (item.status === "queued") return tr("nav.queue.status_queued", { order: item.order != null ? item.order : 1 });
+    if (item.status === "queued") {
+      if (item.cancel_queued) return tr("nav.queue.cancel_queued_badge");
+      return tr("nav.queue.status_queued", { order: item.order != null ? item.order : 1 });
+    }
     if (item.status === "staged") return tr("nav.queue.status_staged");
     if (item.status === "error") return tr("nav.queue.status_error");
     return tr("nav.queue.status_done");
@@ -684,6 +687,11 @@
     warn.hidden = true;
     body.appendChild(warn);
 
+    var info = makeQueueEl("div", "queue-cancel-info");
+    info.id = "queue-cancel-info";
+    info.hidden = true;
+    body.appendChild(info);
+
     var impact = makeQueueEl("div", "queue-impact-grid");
     impact.id = "queue-cancel-impact";
     impact.hidden = true;
@@ -763,18 +771,26 @@
     else msg.setAttribute("data-state", isError ? "error" : "ok");
   }
 
-  function setCancelWarn(text) {
-    var warn = document.getElementById("queue-cancel-warn");
-    if (!warn) return;
-    warn.textContent = "";
+  function setCancelBanner(elId, iconName, text) {
+    var el = document.getElementById(elId);
+    if (!el) return;
+    el.textContent = "";
     if (!text) {
-      warn.hidden = true;
+      el.hidden = true;
       return;
     }
-    warn.appendChild(makeQueueIcon("warning"));
-    warn.appendChild(makeQueueEl("span", "", text));
-    warn.hidden = false;
-    hydrateQueueIcons(warn);
+    el.appendChild(makeQueueIcon(iconName));
+    el.appendChild(makeQueueEl("span", "", text));
+    el.hidden = false;
+    hydrateQueueIcons(el);
+  }
+
+  function setCancelWarn(text) {
+    setCancelBanner("queue-cancel-warn", "warning", text);
+  }
+
+  function setCancelInfo(text) {
+    setCancelBanner("queue-cancel-info", "clock", text);
   }
 
   function renderCancelImpact(cells) {
@@ -816,6 +832,7 @@
     if (status === 409 && code === "staged_claim_active") return tr("nav.queue.err_staged_claim_active");
     if (status === 409 && code === "job_already_finished") return tr("nav.queue.err_job_already_finished");
     if (status === 409 && code === "item_currently_running") return tr("nav.queue.err_item_currently_running");
+    if (status === 409 && code === "cancel_already_queued") return tr("nav.queue.err_cancel_already_queued");
     if (status === 403 && code === "purge_disabled_by_policy") return tr("nav.queue.err_purge_disabled");
     return tr("nav.queue.err_cancel_failed", { error: code || ("HTTP " + status) });
   }
@@ -826,6 +843,9 @@
     var action = cancelModal.action;
     var item = cancelModal.item || {};
     var forceRow = document.getElementById("queue-cancel-force-row");
+    if (data.will_queue === true) {
+      setCancelInfo(tr("nav.queue.modal_will_queue_note"));
+    }
     if (action === "purge-done") {
       renderCancelImpact([
         { label: tr("nav.queue.modal_impact_docs"), value: data.purged_count },
@@ -889,6 +909,7 @@
     }
 
     setCancelWarn("");
+    setCancelInfo("");
     renderCancelImpact([]);
     setCancelMsg("", false);
 
@@ -992,7 +1013,8 @@
         return;
       }
       if (dlg.open) dlg.close();
-      if (action === "cancel-running") announceQueue(tr("nav.queue.announced_cancel_requested"));
+      if (result.data && result.data.action === "cancel_queued") announceQueue(tr("nav.queue.announced_cancel_queued"));
+      else if (action === "cancel-running") announceQueue(tr("nav.queue.announced_cancel_requested"));
       else if (action === "purge-done") announceQueue(tr("nav.queue.announced_purged"));
       else announceQueue(tr("nav.queue.announced_cancelled"));
       loadIngestQueue();
@@ -1081,7 +1103,8 @@
       { id: "all", label: tr("nav.queue.tab_all"), cnt: items.length },
       { id: "active", label: tr("nav.queue.tab_active"), cnt: counts.running + counts.queued },
       { id: "staged", label: tr("nav.queue.tab_staged"), cnt: counts.staged },
-      { id: "history", label: tr("nav.queue.tab_history"), cnt: counts.done + counts.error }
+      { id: "error", label: tr("nav.queue.tab_error"), cnt: counts.error, isError: counts.error > 0 },
+      { id: "done", label: tr("nav.queue.tab_done"), cnt: counts.done }
     ];
     if (!tabsDef.some(function (t) { return t.id === queue.tab; })) queue.tab = "all";
 
@@ -1101,7 +1124,7 @@
       btn.tabIndex = selected ? 0 : -1;
       if (selected) btn.setAttribute("focusgroupstart", "");
       btn.appendChild(document.createTextNode(t.label));
-      btn.appendChild(makeQueueEl("span", "q-tab-cnt", String(t.cnt)));
+      btn.appendChild(makeQueueEl("span", "q-tab-cnt" + (t.isError ? " is-error" : ""), String(t.cnt)));
       btn.addEventListener("click", function () {
         queue.tab = t.id;
         renderQueuePopover(false);
@@ -1137,7 +1160,8 @@
       { key: "running", title: tr("nav.queue.sec_running"), items: listItems.filter(function (i) { return i.status === "running"; }) },
       { key: "queued", title: tr("nav.queue.sec_queued"), items: listItems.filter(function (i) { return i.status === "queued"; }) },
       { key: "staged", title: tr("nav.queue.sec_staged"), items: listItems.filter(function (i) { return i.status === "staged"; }) },
-      { key: "history", title: tr("nav.queue.sec_history"), items: listItems.filter(function (i) { return i.status === "error" || i.status === "done"; }) }
+      { key: "error", title: tr("nav.queue.sec_error"), items: listItems.filter(function (i) { return i.status === "error"; }) },
+      { key: "done", title: tr("nav.queue.sec_done"), items: listItems.filter(function (i) { return i.status === "done"; }) }
     ];
 
     groups.forEach(function (g) {
@@ -1180,6 +1204,8 @@
         meta.appendChild(makeQueueChip(tr(isClient ? "nav.queue.mode_client" : "nav.queue.mode_provider"), isClient ? "is-staged" : ""));
         if (st === "running" && item.cancel_requested) {
           meta.appendChild(makeQueueChip(tr("nav.queue.cancelling_badge"), "is-cancelling", "clock"));
+        } else if (st === "queued" && item.cancel_queued) {
+          meta.appendChild(makeQueueChip(tr("nav.queue.cancel_queued_badge"), "is-cancelling", "clock"));
         } else if (st === "staged" && item.claimed_active) {
           meta.appendChild(makeQueueChip(tr("nav.queue.staged_claimed_badge"), "is-cancelling", "bot"));
         }
@@ -1207,6 +1233,8 @@
           body.appendChild(sbox);
         } else if (st === "error") {
           if (item.msg) body.appendChild(makeQueueEl("div", "qa-err", String(item.msg)));
+        } else if (st === "queued" && item.cancel_queued && !item.msg) {
+          body.appendChild(makeQueueEl("div", "qa-msg", tr("nav.queue.status_cancel_queued")));
         } else if (item.msg) {
           body.appendChild(makeQueueEl("div", "qa-msg", String(item.msg)));
         }
@@ -1229,7 +1257,7 @@
       { id: "running", label: tr("nav.queue.chip_running"), n: counts.running },
       { id: "queued", label: tr("nav.queue.chip_queued"), n: counts.queued },
       { id: "staged", label: tr("nav.queue.chip_staged"), n: counts.staged },
-      { id: "error", label: tr("nav.queue.chip_error"), n: counts.error },
+      { id: "error", label: tr("nav.queue.chip_error"), n: counts.error, isError: counts.error > 0 },
       { id: "done", label: tr("nav.queue.chip_done"), n: counts.done }
     ];
     if (!chipsDef.some(function (c) { return c.id === queue.tab; })) queue.tab = "all";
@@ -1238,7 +1266,7 @@
     bar.setAttribute("role", "group");
     bar.setAttribute("aria-label", tr("nav.queue.filter_label"));
     chipsDef.forEach(function (c) {
-      var b = makeQueueEl("button", "qc-chip-btn tnum");
+      var b = makeQueueEl("button", "qc-chip-btn tnum" + (c.isError ? " is-error" : ""));
       b.type = "button";
       b.setAttribute("data-filter-id", c.id);
       b.setAttribute("aria-pressed", queue.tab === c.id ? "true" : "false");
@@ -1278,11 +1306,13 @@
       rowBtn.appendChild(makeQueueEl("span", "qc-pos mono", posTxt));
 
       var main = makeQueueEl("div", "qc-main");
-      if ((st === "running" && item.cancel_requested) || (st === "staged" && item.claimed_active)) {
+      if ((st === "running" && item.cancel_requested) || (st === "queued" && item.cancel_queued) || (st === "staged" && item.claimed_active)) {
         var titleRow = makeQueueEl("div", "qc-title-row");
         titleRow.appendChild(makeQueueEl("div", "qc-title", titleText));
         if (st === "running" && item.cancel_requested) {
           titleRow.appendChild(makeQueueChip(tr("nav.queue.cancelling_badge"), "is-cancelling", "clock"));
+        } else if (st === "queued" && item.cancel_queued) {
+          titleRow.appendChild(makeQueueChip(tr("nav.queue.cancel_queued_badge"), "is-cancelling", "clock"));
         } else {
           titleRow.appendChild(makeQueueChip(tr("nav.queue.staged_claimed_badge"), "is-cancelling", "bot"));
         }
@@ -1320,6 +1350,7 @@
       if (expanded) {
         var det = makeQueueEl("div", "qc-detail");
         if (item.msg) det.appendChild(makeQueueEl("div", st === "error" ? "qa-err" : "qa-msg", String(item.msg)));
+        else if (st === "queued" && item.cancel_queued) det.appendChild(makeQueueEl("div", "qa-msg", tr("nav.queue.status_cancel_queued")));
         var dm = makeQueueEl("div", "qc-detail-meta mono");
         dm.appendChild(makeQueueEl("span", "", tr("nav.queue.detail_id", { id: rowKey })));
         var modeText = tr(item.mode === "client" ? "nav.queue.mode_client_long" : "nav.queue.mode_provider_long");
@@ -1484,7 +1515,8 @@
       viewToggle.addEventListener("click", function () {
         queue.viewMode = queue.viewMode === "compact" ? "ledger" : "compact";
         saveQueueViewMode(queue.viewMode);
-        queue.tab = "all";
+        var validTabs = queue.viewMode === "compact" ? ["all", "running", "queued", "staged", "error", "done"] : ["all", "active", "staged", "error", "done"];
+        if (validTabs.indexOf(queue.tab) === -1) queue.tab = "all";
         renderQueuePopover(false);
         announceQueue(tr(queue.viewMode === "compact" ? "nav.queue.announced_compact" : "nav.queue.announced_ledger"));
       });

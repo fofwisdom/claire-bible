@@ -69,14 +69,14 @@ def client_db_path(claire_db_file: Path | str) -> Path:
 def _configure(conn: sqlite3.Connection) -> None:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON;")
-    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute("PRAGMA busy_timeout=30000;")
 
 
 def connect_client_db(path: Path | str) -> sqlite3.Connection:
     """Open ``client.db`` (make the file when it is absent) and bring the schema to ``CLIENT_SCHEMA_VERSION``. A newer schema raises ``RuntimeError`` (no downgrade)."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(p), timeout=5.0)
+    conn = sqlite3.connect(str(p), timeout=30.0)
     try:
         conn.execute("PRAGMA journal_mode=WAL;")
         _configure(conn)
@@ -90,7 +90,7 @@ def connect_client_db(path: Path | str) -> sqlite3.Connection:
 def connect_client_existing(path: Path | str, *, readonly: bool = False) -> sqlite3.Connection:
     """Open a prepared ``client.db``. A file that is absent is an error: the start of the process prepares it."""
     mode = "ro" if readonly else "rw"
-    conn = sqlite3.connect(Path(path).resolve().as_uri() + f"?mode={mode}", uri=True, timeout=5.0)
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + f"?mode={mode}", uri=True, timeout=30.0)
     _configure(conn)
     if readonly:
         conn.execute("PRAGMA query_only=ON;")

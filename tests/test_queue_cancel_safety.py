@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -14,6 +15,7 @@ from claire.extract.decision import ResolutionDecision, rollback_resolution
 from claire.extract.provider import ExtractedEntity, ExtractedRelation, ExtractionResult
 from claire.ingest.active import active_job, clear_job_cancel_request, get_active_jobs, get_job_cancel_request, request_job_cancel
 from claire.ingest.pipeline import ingest
+from claire.ingest.queue_manager import get_queue_coordinator, reset_queue_coordinators
 from claire.ontology.base import Document, Entity, Relation
 from claire.store import db as dbm
 from claire.store.vectors import make_vector_store
@@ -369,3 +371,205 @@ def test_pipeline_cancel_after_extract_skips_detail_and_relation_judge(tmp_path:
         assert conn.execute("SELECT COUNT(*) FROM raw_inbox").fetchone()[0] == 0
     finally:
         conn.close()
+
+
+def test_upsert_entity_tokenizes_before_lock_and_retries_busy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify upsert_entity tokenizes before acquiring write locks and retries on SQLite busy errors."""
+    db_file = tmp_path / "claire.db"
+    conn1 = dbm.connect(db_file)
+    try:
+        dbm.init_db(conn1)
+        conn1.execute("PRAGMA busy_timeout=10;")
+
+        from claire.retrieval import tokenizer as tok_mod
+
+        orig_get_tok = tok_mod.get_search_tokenizer
+        tok_calls = 0
+
+        class _CountingTokenizer:
+            def __init__(self, inner) -> None:
+                self._inner = inner
+
+            def add_user_words(self, words) -> None:
+                self._inner.add_user_words(words)
+
+            def extract_search_tokens(self, text: str) -> list[str]:
+                nonlocal tok_calls
+                tok_calls += 1
+                assert not conn1.in_transaction
+                return self._inner.extract_search_tokens(text)
+
+        monkeypatch.setattr(tok_mod, "get_search_tokenizer", lambda: _CountingTokenizer(orig_get_tok()))
+
+        locked_evt = threading.Event()
+        release_evt = threading.Event()
+
+        def _hold_and_release_lock() -> None:
+            conn2 = dbm.connect(db_file)
+            try:
+                conn2.execute("BEGIN IMMEDIATE")
+                locked_evt.set()
+                time.sleep(0.15)
+                conn2.commit()
+            finally:
+                conn2.close()
+                release_evt.set()
+
+        locker = threading.Thread(target=_hold_and_release_lock, daemon=True)
+        locker.start()
+        assert locked_evt.wait(timeout=2.0)
+
+        ent = Entity(id="ent_busy_1", type="Concept", name="SQLiteWAL", aliases=["WALMode"], observations=["Non-blocking read"], sources=["d1"])
+        dbm.upsert_entity(conn1, ent, kb_id=0)
+        assert release_evt.wait(timeout=2.0)
+        assert tok_calls == 1
+        saved = dbm.get_entity(conn1, "ent_busy_1", kb_id=0)
+        assert saved is not None and saved.name == "SQLiteWAL"
+    finally:
+        conn1.close()
+
+
+def test_purge_document_cascade_two_phase_prefilter_and_counts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify two-phase rollback planning, _sources_like_clause prefiltering, unrelated preservation, and rollback on error."""
+    conn, data_dir = _setup_db(tmp_path)
+    try:
+        dbm.insert_document(conn, Document(id="doc_keep_1", url="https://example.com/k1", canonical_url="https://example.com/k1", title="Keep 1", raw_text="K1", content_hash="hk1"), kb_id=0)
+        dbm.insert_document(conn, Document(id="doc_keep_2", url="https://example.com/k2", canonical_url="https://example.com/k2", title="Keep 2", raw_text="K2", content_hash="hk2"), kb_id=0)
+        ent_shared = Entity(id="ent_shared_p", type="Concept", name="SharedP", aliases=["SharedAlias"], observations=["KeepObs", "DropObs"], sources=["doc_keep_1", "doc_drop"])
+        ent_orphan = Entity(id="ent_orphan_p", type="Tool", name="OrphanP", observations=["OnlyDrop"], sources=["doc_drop"])
+        ent_unrel_a = Entity(id="ent_unrel_a", type="Concept", name="UnrelA", observations=["StayA"], sources=["doc_keep_2"])
+        ent_unrel_b = Entity(id="ent_unrel_b", type="Concept", name="UnrelB", observations=["StayB"], sources=["doc_keep_2"])
+        dbm.upsert_entity(conn, ent_shared, kb_id=0)
+        dbm.upsert_entity(conn, ent_orphan, kb_id=0)
+        dbm.upsert_entity(conn, ent_unrel_a, kb_id=0)
+        dbm.upsert_entity(conn, ent_unrel_b, kb_id=0)
+        dbm.upsert_relation(conn, Relation(type="uses", source_id="ent_orphan_p", target_id="ent_shared_p", sources=["doc_drop"]), kb_id=0)
+        dbm.upsert_relation(conn, Relation(type="relates_to", source_id="ent_unrel_a", target_id="ent_unrel_b", sources=["doc_keep_2"]), kb_id=0)
+
+        dec_merge = ResolutionDecision(entity="SharedP", stage="exact_match", decision="MERGE", candidate="SharedP", target_entity_id="ent_shared_p", rollback_payload={"target_entity_id": "ent_shared_p", "added_aliases": ["SharedAlias"], "added_observations": ["DropObs"], "added_source": "doc_drop", "prev_type": None})
+        dec_new = ResolutionDecision(entity="OrphanP", stage="no_match", decision="CREATE_NEW", candidate="OrphanP", target_entity_id="ent_orphan_p", rollback_payload={"target_entity_id": "ent_orphan_p"})
+        dbm.insert_document(conn, Document(id="doc_drop", url="https://example.com/drop", canonical_url="https://example.com/drop", title="Drop", raw_text="Drop body", content_hash="hdrop", meta={"resolution_log": [dec_merge.to_dict(), dec_new.to_dict()]}), kb_id=0)
+
+        impact = dbm.estimate_document_purge_impact(conn, data_dir, ["doc_drop"], kb_id=0)
+        assert impact["purged_count"] == 1
+        assert impact["orphan_entities_count"] == 1
+        assert impact["shared_entities_count"] == 1
+        assert impact["orphan_relations_count"] == 1
+
+        report = dbm.purge_document_cascade(conn, data_dir, ["doc_drop"], dry_run=False, tombstone=True, kb_id=0, heal=False, vacuum=False)
+        assert report["purged_count"] == 1
+        assert dbm.get_document(conn, "doc_drop", kb_id=0) is None
+        assert dbm.get_entity(conn, "ent_orphan_p", kb_id=0) is None
+        shared_after = dbm.get_entity(conn, "ent_shared_p", kb_id=0)
+        assert shared_after is not None and shared_after.sources == ["doc_keep_1"] and "DropObs" not in shared_after.observations
+        assert dbm.get_entity(conn, "ent_unrel_a", kb_id=0) is not None
+        assert dbm.get_entity(conn, "ent_unrel_b", kb_id=0) is not None
+        unrel_rels = conn.execute("SELECT COUNT(*) FROM relations WHERE source_id='ent_unrel_a' AND target_id='ent_unrel_b'").fetchone()[0]
+        assert unrel_rels == 1
+
+        # Failure on a second purge rolls back atomically.
+        from claire.store import federation as federation_store
+
+        monkeypatch.setattr(federation_store, "retract_objects", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+        with pytest.raises(RuntimeError, match="boom"):
+            dbm.purge_document_cascade(conn, data_dir, ["doc_keep_2"], dry_run=False, kb_id=0, heal=False, vacuum=False)
+        assert dbm.get_document(conn, "doc_keep_2", kb_id=0) is not None
+        assert dbm.get_entity(conn, "ent_unrel_a", kb_id=0) is not None
+    finally:
+        conn.close()
+
+
+def test_queue_coordinator_defers_purge_while_active_and_caps_retries(tmp_path: Path) -> None:
+    """Verify IngestQueueCoordinator defers purges behind active jobs and caps retry concurrency."""
+    db_file = tmp_path / "claire.db"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    conn = dbm.connect(db_file)
+    try:
+        dbm.init_db(conn)
+        now = time.time()
+        conn.execute("INSERT INTO documents (id, kb_id, url, title, fetched_at, raw_text, source_type, extraction_status) VALUES ('doc_defer', 0, 'https://example.com/defer', 'Defer', ?, 'Body', 'web', 'extracted')", (now,))
+        cur = conn.execute("INSERT INTO raw_inbox (kb_id, received_at, source, kind, payload, document_id, status) VALUES (0, ?, 'web', 'url', 'https://example.com/defer', 'doc_defer', 'cancelling')", (now,))
+        cancel_inbox_id = int(cur.lastrowid)
+
+        retry_ids: list[int] = []
+        for idx in range(6):
+            r_cur = conn.execute("INSERT INTO raw_inbox (kb_id, received_at, source, kind, payload, status) VALUES (0, ?, 'web', 'url', ?, 'received')", (now + idx, f"https://example.com/r{idx}"))
+            retry_ids.append(int(r_cur.lastrowid))
+        cancelled_retry_id = retry_ids[-1]
+        conn.execute("DELETE FROM raw_inbox WHERE id=?", (cancelled_retry_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    jobs_dir = data_dir / "active_jobs"
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    job_path = jobs_dir / "j_live_block.json"
+    job_path.write_text(json.dumps({"active": True, "job_id": "j_live_block", "kb_id": 0, "payload": "https://example.com/live", "started_at": time.time(), "updated_at": time.time()}), encoding="utf-8")
+
+    try:
+        coord = get_queue_coordinator(data_dir, poll_interval=0.02)
+        op_file = data_dir / "queue_ops" / f"cancel_{cancel_inbox_id}.json"
+        coord.enqueue_cancel_purge(db_file=db_file, inbox_id=cancel_inbox_id, kb_id=0, document_id="doc_defer", prev_status="done", tombstone=True, force=False, reason="test_defer", file_ref=None)
+
+        gate = threading.Event()
+        lock = threading.Lock()
+        active_now = 0
+        max_concurrent = 0
+        ran_retries: list[int] = []
+
+        def _retry_fn(kb_settings, kb_id: int, inbox_id: int) -> None:
+            nonlocal active_now, max_concurrent
+            with lock:
+                active_now += 1
+                if active_now > max_concurrent:
+                    max_concurrent = active_now
+                ran_retries.append(inbox_id)
+            gate.wait(timeout=2.0)
+            with lock:
+                active_now -= 1
+
+        for iid in retry_ids:
+            coord.enqueue_retry(db_file=db_file, kb_settings=None, kb_id=0, inbox_id=iid, retry_fn=_retry_fn)
+
+        # While cancel op waits on active job, cancel op remains queued and queued retries also wait.
+        time.sleep(0.12)
+        assert op_file.is_file()
+        assert ran_retries == []
+        check_conn = dbm.connect_existing(db_file, readonly=True)
+        try:
+            assert dbm.get_document(check_conn, "doc_defer", kb_id=0) is not None
+        finally:
+            check_conn.close()
+
+        # Mark active job inactive -> cancel op drains first, then retries execute up to _MAX_EXPENSIVE_JOBS (4).
+        job_path.write_text(json.dumps({"active": False, "job_id": "j_live_block", "kb_id": 0, "completed_at": time.time()}), encoding="utf-8")
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and op_file.is_file():
+            time.sleep(0.02)
+        assert not op_file.is_file()
+
+        # Wait for first batch of 4 concurrent retries to hit the gate, then release gate.
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and len(ran_retries) < 4:
+            time.sleep(0.02)
+        time.sleep(0.08)
+        assert max_concurrent <= 4
+        gate.set()
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and len(ran_retries) < 5:
+            time.sleep(0.02)
+        time.sleep(0.05)
+        assert sorted(ran_retries) == sorted(retry_ids[:-1])
+        assert cancelled_retry_id not in ran_retries
+        assert max_concurrent <= 4
+
+        after_conn = dbm.connect_existing(db_file, readonly=True)
+        try:
+            assert dbm.get_document(after_conn, "doc_defer", kb_id=0) is None
+            assert dbm.get_inbox(after_conn, cancel_inbox_id) is None
+        finally:
+            after_conn.close()
+    finally:
+        reset_queue_coordinators()

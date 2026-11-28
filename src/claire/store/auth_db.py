@@ -101,12 +101,12 @@ def connect_auth_db(path: Path | str) -> sqlite3.Connection:
     p = Path(path)
     _ensure_private_dir(p.parent)
     _ensure_private_file(p)
-    conn = sqlite3.connect(str(p), timeout=5.0)
+    conn = sqlite3.connect(str(p), timeout=30.0)
     try:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute("PRAGMA foreign_keys=ON;")
-        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("PRAGMA busy_timeout=30000;")
         init_auth_db(conn)
         prune_stale_redemptions(conn)
         prune_stale_oidc_states(conn)

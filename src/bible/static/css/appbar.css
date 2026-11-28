@@ -257,19 +257,21 @@ dialog.claire-dialog::backdrop{background:rgba(0,0,0,0.52);backdrop-filter:blur(
 .slot-cell.is-busy{background:var(--accent);border-color:var(--accent)}
 
 .queue-filter-bar{flex:none}
-.q-tablist{display:flex;align-items:stretch;gap:2px;padding:0 10px;background:var(--panel-bg);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.q-tablist{display:flex;align-items:stretch;gap:2px;padding:0 8px;background:var(--panel-bg);border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
 .q-tablist::-webkit-scrollbar{display:none}
-.q-tab{position:relative;flex:none;display:inline-flex;align-items:center;gap:5px;padding:8px 9px;min-block-size:36px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.q-tab{position:relative;flex:none;display:inline-flex;align-items:center;gap:4px;padding:8px 7px;min-block-size:36px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
 .q-tab:hover{color:var(--fg);background:var(--hover)}
 .q-tab[aria-selected="true"]{color:var(--accent)}
 .q-tab[aria-selected="true"]::after{content:"";position:absolute;inset:auto 4px 0;border-block-end:3px solid var(--accent)}
 .q-tab-cnt{padding:0 5px;border-radius:999px;background:var(--chip-bg);color:var(--fg);font-size:10.5px;line-height:16px;font-variant-numeric:tabular-nums}
 .q-tab[aria-selected="true"] .q-tab-cnt{background:var(--active);color:var(--accent)}
+.q-tab-cnt.is-error,.q-tab[aria-selected="true"] .q-tab-cnt.is-error{background:var(--danger-bg);color:var(--danger)}
 
 .qc-chips{display:flex;flex-wrap:wrap;gap:4px;padding:7px 10px;background:var(--panel-bg);border-bottom:1px solid var(--border)}
 .qc-chip-btn{display:inline-flex;align-items:center;gap:4px;min-block-size:26px;padding:1px 8px;border-radius:999px;border:1px solid var(--border);background:var(--card-bg);color:var(--muted);font:inherit;font-size:11px;font-weight:600;cursor:pointer}
 .qc-chip-btn:hover{background:var(--hover);color:var(--fg)}
 .qc-chip-btn[aria-pressed="true"]{background:var(--active);border-color:var(--accent);color:var(--accent);font-weight:700}
+.qc-chip-btn.is-error:not([aria-pressed="true"]){color:var(--danger);background:var(--danger-bg);border-color:color-mix(in oklab,var(--danger) 40%,var(--border))}
 
 .queue-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;container-type:scroll-state;scrollbar-width:auto;scrollbar-color:var(--scroll-thumb,#76808a) var(--scroll-track,#f1f3f5);background:var(--card-bg)}
 [data-theme="dark"] .queue-scroll{scrollbar-color:var(--scroll-thumb,#6e7681) var(--scroll-track,#161b22)}
@@ -389,6 +391,9 @@ dialog.claire-dialog.queue-cancel-dialog{width:min(94vw,520px)}
 .queue-cancel-warn{display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border:1px solid color-mix(in oklab,var(--warn) 45%,var(--border));border-inline-start:3px solid var(--warn);border-radius:6px;background:var(--warn-bg);color:var(--fg);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
 .queue-cancel-warn[hidden]{display:none}
 .queue-cancel-warn [data-icon]{color:var(--warn);margin-top:2px}
+.queue-cancel-info{display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border:1px solid color-mix(in oklab,var(--accent) 40%,var(--border));border-inline-start:3px solid var(--accent);border-radius:6px;background:var(--active);color:var(--fg);font-size:12px;line-height:1.45;overflow-wrap:anywhere}
+.queue-cancel-info[hidden]{display:none}
+.queue-cancel-info [data-icon]{color:var(--accent);margin-top:2px}
 .queue-impact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:6px}
 .queue-impact-grid[hidden]{display:none}
 .queue-impact-cell{border:1px solid var(--border);border-radius:6px;padding:7px 8px;background:var(--panel-bg);display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -417,6 +422,7 @@ dialog.claire-dialog.queue-cancel-dialog{width:min(94vw,520px)}
   .qa-row.st-running,.qa-row.st-error,.qa-row.st-staged,.qa-row.st-done{border-inline-start:4px solid CanvasText}
   progress.q-progress{border:1px solid CanvasText}
   .slot-cell.is-busy{background:Highlight;border-color:Highlight}
-  .q-chip.is-cancelling,.queue-cancel-warn{border:1px solid CanvasText}
+  .q-chip.is-cancelling,.queue-cancel-warn,.queue-cancel-info{border:1px solid CanvasText}
+  .qc-chip-btn.is-error:not([aria-pressed="true"]){border-color:CanvasText}
   .claire-dialog-foot button.danger{border:2px solid ButtonText}
 }

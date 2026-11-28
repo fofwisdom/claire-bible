@@ -17,6 +17,7 @@ from claire.api.accounts_routes import ingest_queue
 from claire.api.server import create_app
 from claire.core.config import Settings
 from claire.ingest.active import _MAX_EXPENSIVE_JOBS
+from claire.ingest.queue_manager import reset_queue_coordinators
 from claire.store import accounts as accounts_store
 from claire.store import db as dbm
 from claire.store import kb_collab
@@ -34,7 +35,9 @@ def _isolate(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("CLAIRE_SECRET_KEY", "44" * 32)
     reset_secret_service()
+    reset_queue_coordinators()
     yield
+    reset_queue_coordinators()
     reset_secret_service()
 
 
@@ -526,6 +529,13 @@ def test_ingest_queue_cancel_inbox_and_purge_document_flow(tmp_path: Path) -> No
         assert conflict_run.json()["error"] == "item_currently_running"
         assert conflict_run.json()["job_id"] == "j_inflight"
 
+        # Deactivate j_inflight so staged and done cancel/purge requests test the immediate idle path.
+        _write_job_file(
+            world.data_dir,
+            "j_inflight",
+            {"active": False, "job_id": "j_inflight", "kb_id": world.alice_kb_id, "inbox_id": run_id, "payload": "https://example.com/in-flight", "stage": "done", "started_at": now - 5, "updated_at": now - 1, "completed_at": now - 1},
+        )
+
         # Queued dry_run and execute (unlinks safe raw file).
         q_dry = client.post(f"/api/me/ingest-queue/{q_id}/cancel", headers=_session_headers(world.alice_token), json={"dry_run": True})
         assert q_dry.status_code == 200
@@ -633,4 +643,97 @@ def test_ingest_queue_cancel_and_jobs_cancel_policy_and_running_marker(tmp_path:
         assert ok_resp.headers["cache-control"] == "no-store"
         assert ok_resp.json() == {"ok": True, "action": "cancel_requested", "job_id": "j_alice_live", "tombstone": False}
         assert (world.data_dir / "active_jobs" / "j_alice_live.cancel.json").is_file()
+
+
+def test_ingest_queue_cancel_queues_when_active_job_running_and_drains_after(tmp_path: Path) -> None:
+    world = _make_world(tmp_path)
+    now = time.time()
+    conn = dbm.connect_existing(world.db_file)
+    try:
+        _insert_doc(conn, doc_id="doc-err-partial", kb_id=world.alice_kb_id, title="Partial Error Doc")
+        err_doc_inbox_id = _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 20, payload="https://example.com/err-partial", document_id="doc-err-partial", status="error", error="partial error", last_attempt=now - 10)
+        conn.commit()
+    finally:
+        conn.close()
+
+    _write_job_file(
+        world.data_dir,
+        "j_other_live",
+        {"active": True, "job_id": "j_other_live", "kb_id": world.alice_kb_id, "payload": "https://example.com/other-live", "stage": "extract", "started_at": now - 5, "updated_at": now - 1},
+    )
+    op_file = world.data_dir / "queue_ops" / f"cancel_{err_doc_inbox_id}.json"
+
+    with TestClient(world.app, base_url=PUBLIC_URL, follow_redirects=False) as client:
+        dry_resp = client.post(f"/api/me/ingest-queue/{err_doc_inbox_id}/cancel", headers=_session_headers(world.alice_token), json={"dry_run": True, "tombstone": False})
+        assert dry_resp.status_code == 200
+        assert dry_resp.json()["will_queue"] is True
+
+        exec_resp = client.post(f"/api/me/ingest-queue/{err_doc_inbox_id}/cancel", headers=_session_headers(world.alice_token), json={"tombstone": False})
+        assert exec_resp.status_code == 202
+        exec_body = exec_resp.json()
+        assert exec_body["ok"] is True
+        assert exec_body["action"] == "cancel_queued"
+        assert exec_body["queued"] is True
+        assert op_file.is_file()
+
+        check_conn = dbm.connect_existing(world.db_file, readonly=True)
+        try:
+            assert dbm.get_document(check_conn, "doc-err-partial", kb_id=world.alice_kb_id) is not None
+        finally:
+            check_conn.close()
+
+        get_resp = client.get("/api/me/ingest-queue", headers=_session_headers(world.alice_token))
+        assert get_resp.status_code == 200
+        queued_item = next(it for it in get_resp.json()["items"] if it["inbox_id"] == err_doc_inbox_id)
+        assert queued_item["status"] == "queued"
+        assert queued_item["stage"] == "cancelling"
+        assert queued_item["cancel_queued"] is True
+        assert queued_item["can_cancel"] is False
+        assert queued_item["can_retry"] is False
+
+        assert client.post(f"/api/me/ingest-queue/{err_doc_inbox_id}/retry", headers=_session_headers(world.alice_token)).status_code == 409
+        dup_resp = client.post(f"/api/me/ingest-queue/{err_doc_inbox_id}/cancel", headers=_session_headers(world.alice_token), json={})
+        assert dup_resp.status_code == 409
+        assert dup_resp.json()["error"] == "cancel_already_queued"
+
+        _write_job_file(
+            world.data_dir,
+            "j_other_live",
+            {"active": False, "job_id": "j_other_live", "kb_id": world.alice_kb_id, "payload": "https://example.com/other-live", "stage": "done", "started_at": now - 5, "updated_at": now - 1, "completed_at": now},
+        )
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and op_file.is_file():
+            time.sleep(0.05)
+        assert not op_file.is_file()
+
+    after_conn = dbm.connect_existing(world.db_file, readonly=True)
+    try:
+        assert dbm.get_document(after_conn, "doc-err-partial", kb_id=world.alice_kb_id) is None
+        assert dbm.get_inbox(after_conn, err_doc_inbox_id) is None
+    finally:
+        after_conn.close()
+
+
+def test_ingest_queue_get_succeeds_readonly_under_concurrent_write_lock(tmp_path: Path) -> None:
+    world = _make_world(tmp_path)
+    now = time.time()
+    conn = dbm.connect_existing(world.db_file)
+    try:
+        _insert_doc(conn, doc_id="doc-lock-read", kb_id=world.alice_kb_id, title="Readable Under Lock")
+        conn.execute("INSERT INTO permalinks (token, kind, kb_id, target, link_access, created_at) VALUES ('locktok123456789', 'document', ?, 'doc-lock-read', 0, ?)", (world.alice_kb_id, now))
+        _insert_inbox(conn, kb_id=world.alice_kb_id, received_at=now - 10, payload="https://example.com/lock-read", document_id="doc-lock-read", status="done", last_attempt=now - 5)
+        conn.commit()
+    finally:
+        conn.close()
+
+    lock_conn = dbm.connect_existing(world.db_file)
+    try:
+        lock_conn.execute("BEGIN IMMEDIATE")
+        with TestClient(world.app, base_url=PUBLIC_URL, follow_redirects=False) as client:
+            resp = client.get("/api/me/ingest-queue", headers=_session_headers(world.alice_token))
+            assert resp.status_code == 200
+            assert any(it["document_id"] == "doc-lock-read" for it in resp.json()["items"])
+        lock_conn.commit()
+    finally:
+        lock_conn.close()
 

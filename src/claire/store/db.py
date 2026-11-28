@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import secrets
 import shutil
@@ -16,10 +17,15 @@ import sqlite3
 import time
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from ..core.ids import ID_SALT_BYTES, generate_id_salt, legacy_timestamp_id
 from ..ontology.base import Document, Entity, Relation
+
+T = TypeVar("T")
+
+DB_BUSY_TIMEOUT_MS = 30000
+DB_BUSY_TIMEOUT_SEC = 30.0
 
 SCHEMA_VERSION = 57
 SCHEMA_LINEAGE = "claire-bible/common"
@@ -535,15 +541,43 @@ def reset_graph(conn: sqlite3.Connection, kb_id: int | None = None) -> None:
     conn.commit()
 
 
+def is_sqlite_locked_error(exc: BaseException) -> bool:
+    """Return True when exc is a SQLite locked or busy OperationalError."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
+
+
+def run_with_busy_retry(
+    fn: Callable[[], T],
+    *,
+    max_attempts: int = 5,
+    base_delay: float = 0.08,
+    max_delay: float = 1.0,
+) -> T:
+    """Run fn and retry with jittered exponential backoff on SQLite locked errors."""
+    attempts = max(1, int(max_attempts))
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except sqlite3.OperationalError as exc:
+            if not is_sqlite_locked_error(exc) or attempt + 1 >= attempts:
+                raise
+            delay = min(max_delay, base_delay * (2**attempt))
+            time.sleep(delay * (0.5 + random.random() * 0.5))
+    raise RuntimeError("unreachable")
+
+
 def connect(db_path: str | Path) -> sqlite3.Connection:
     p = Path(db_path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(p), timeout=5.0)
+    conn = sqlite3.connect(str(p), timeout=DB_BUSY_TIMEOUT_SEC)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA foreign_keys=ON;")
     # 봇 프로세스와 inject API 프로세스가 같은 DB 에 쓰므로 잠금 대기 허용.
-    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS};")
     return conn
 
 
@@ -580,10 +614,10 @@ def connect_existing(
 
     mode = "ro" if readonly else "rw"
     uri = Path(db_path).resolve().as_uri() + f"?mode={mode}"
-    conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+    conn = sqlite3.connect(uri, uri=True, timeout=DB_BUSY_TIMEOUT_SEC)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON;")
-    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS};")
     if readonly:
         conn.execute("PRAGMA query_only=ON;")
     return conn
@@ -3711,35 +3745,64 @@ def get_staged_document(conn: sqlite3.Connection, document_id: str, *, kb_id: in
 
 # --- entities ---
 
-def upsert_entity(conn: sqlite3.Connection, ent: Entity, kb_id: int = 0, *, commit: bool = True) -> None:
-    ent.updated_at = time.time()
-    conn.execute(
-        """INSERT OR REPLACE INTO entities
-        (id,kb_id,type,name,norm_name,aliases,props,observations,sources,provisional,
-         created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (
-            ent.id, kb_id, ent.type, ent.name, ent.norm_name,
-            json.dumps(ent.aliases, ensure_ascii=False), json.dumps(ent.props, ensure_ascii=False),
-            json.dumps(ent.observations, ensure_ascii=False), json.dumps(ent.sources, ensure_ascii=False),
-            int(ent.provisional), ent.created_at, ent.updated_at,
-        ),
-    )
-    # FTS 갱신 (형태소 및 표면어 토큰 색인)
+def compute_entity_fts_body(ent: Entity) -> str:
+    """Compute the FTS body string for an entity outside database write locks."""
     from ..retrieval.tokenizer import get_search_tokenizer
 
     tokenizer = get_search_tokenizer()
     tokenizer.add_user_words([ent.name, *ent.aliases])
     raw_body = " \n".join(ent.observations) + " " + " ".join(ent.aliases)
     morph_tokens = tokenizer.extract_search_tokens(f"{ent.name} {raw_body}")
-    body = f"{raw_body}\n{' '.join(morph_tokens)}" if morph_tokens else raw_body
-    conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (ent.id,))
-    conn.execute(
-        "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
-        (ent.id, ent.name, body),
-    )
-    if commit:
-        conn.commit()
+    return f"{raw_body}\n{' '.join(morph_tokens)}" if morph_tokens else raw_body
+
+
+def upsert_entity(
+    conn: sqlite3.Connection,
+    ent: Entity,
+    kb_id: int = 0,
+    *,
+    commit: bool = True,
+    precomputed_fts_body: str | None = None,
+) -> None:
+    body = precomputed_fts_body if precomputed_fts_body is not None else compute_entity_fts_body(ent)
+    ent.updated_at = time.time()
+
+    def _write() -> None:
+        conn.execute(
+            """INSERT OR REPLACE INTO entities
+            (id,kb_id,type,name,norm_name,aliases,props,observations,sources,provisional,
+             created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                ent.id, kb_id, ent.type, ent.name, ent.norm_name,
+                json.dumps(ent.aliases, ensure_ascii=False), json.dumps(ent.props, ensure_ascii=False),
+                json.dumps(ent.observations, ensure_ascii=False), json.dumps(ent.sources, ensure_ascii=False),
+                int(ent.provisional), ent.created_at, ent.updated_at,
+            ),
+        )
+        conn.execute("DELETE FROM entities_fts WHERE entity_id=?", (ent.id,))
+        conn.execute(
+            "INSERT INTO entities_fts(entity_id,name,body) VALUES (?,?,?)",
+            (ent.id, ent.name, body),
+        )
+        if commit:
+            conn.commit()
+
+    if commit and not conn.in_transaction:
+        def _write_with_rollback() -> None:
+            try:
+                _write()
+            except sqlite3.OperationalError as exc:
+                if is_sqlite_locked_error(exc) and conn.in_transaction:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                raise
+
+        run_with_busy_retry(_write_with_rollback)
+    else:
+        _write()
 
 
 def get_entity(conn: sqlite3.Connection, entity_id: str, kb_id: int | None = None) -> Entity | None:
@@ -7479,6 +7542,34 @@ def record_tombstone(
 tombstone = record_tombstone
 
 
+def _escape_sql_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _sources_like_clause(
+    target_ids: list[str],
+    *,
+    extra_id_col: str | None = None,
+    extra_ids: set[str] | None = None,
+) -> tuple[str, list[Any]]:
+    """Build a SQL LIKE prefilter for JSON sources with an optional ID IN clause."""
+    if not target_ids or len(target_ids) > 50:
+        return "", []
+    if extra_id_col and extra_ids and len(extra_ids) > 500:
+        return "", []
+    clauses: list[str] = []
+    params: list[Any] = []
+    for tid in target_ids:
+        clauses.append("sources LIKE ? ESCAPE '\\'")
+        params.append(f"%{_escape_sql_like(json.dumps(str(tid), ensure_ascii=False))}%")
+    if extra_id_col and extra_ids:
+        sorted_extra = sorted(str(x) for x in extra_ids)
+        ph = ",".join("?" for _ in sorted_extra)
+        clauses.append(f"{extra_id_col} IN ({ph})")
+        params.extend(sorted_extra)
+    return "(" + " OR ".join(clauses) + ")", params
+
+
 def rollback_document_graph_contributions(
     conn: sqlite3.Connection,
     target_ids: list[str],
@@ -7486,6 +7577,8 @@ def rollback_document_graph_contributions(
     prune_orphans: bool = False,
     kb_id: int | None = None,
     commit: bool = True,
+    provenance: dict[int, Any] | None = None,
+    precomputed_fts: dict[str, tuple[float | None, str]] | None = None,
 ) -> dict[str, int]:
     """Undo the entity decisions of the specified documents and optionally prune orphan graph nodes.
 
@@ -7502,7 +7595,7 @@ def rollback_document_graph_contributions(
     # The entities that a rollback changed: the rollback removes the document from ``sources``, so the prune step below finds such an entity by this set.
     rolled_back_entities: set[str] = set()
     # One record of what each document gave, for each knowledge base, for all documents of this call.
-    provenance: dict[int, Provenance] = {}
+    prov_map: dict[int, Provenance] = provenance if provenance is not None else {}
 
     for did in target_ids:
         doc_q = "SELECT meta, kb_id FROM documents WHERE id=?"
@@ -7519,21 +7612,26 @@ def rollback_document_graph_contributions(
             continue
         decisions = get_resolution_log_from_meta(meta)
         doc_kb_id = int(row["kb_id"])
-        given = provenance.setdefault(doc_kb_id, Provenance(conn, doc_kb_id))
+        given = prov_map.setdefault(doc_kb_id, Provenance(conn, doc_kb_id))
         for decision in reversed(decisions):
             if decision.decision in ("MERGE", "CREATE_NEW"):
                 # The decisions of a document are in the knowledge base of the document: an entity of another knowledge base is not changed, and no entity changes its knowledge base.
-                if rollback_resolution(conn, decision, kb_id=doc_kb_id, document_id=did, gone=target_ids, provenance=given, commit=commit):
+                if rollback_resolution(conn, decision, kb_id=doc_kb_id, document_id=did, gone=target_ids, provenance=given, commit=commit, precomputed_fts=precomputed_fts):
                     rolled_back_merges += decision.decision == "MERGE"
                     rolled_back_entities.add(str(decision.target_entity_id))
 
     if prune_orphans:
         target_set = set(target_ids)
-        ent_q = "SELECT id, sources FROM entities"
+        ent_conds: list[str] = []
         ent_p: list[Any] = []
         if kb_id is not None:
-            ent_q += " WHERE kb_id=?"
+            ent_conds.append("kb_id=?")
             ent_p.append(kb_id)
+        ent_like_sql, ent_like_p = _sources_like_clause(target_ids, extra_id_col="id", extra_ids=rolled_back_entities)
+        if ent_like_sql:
+            ent_conds.append(ent_like_sql)
+            ent_p.extend(ent_like_p)
+        ent_q = "SELECT id, sources FROM entities" + (" WHERE " + " AND ".join(ent_conds) if ent_conds else "")
         for r in conn.execute(ent_q, tuple(ent_p)).fetchall():
             try:
                 srcs = json.loads(r["sources"] or "[]")
@@ -7564,11 +7662,16 @@ def rollback_document_graph_contributions(
                         upd_ent_p.append(kb_id)
                     conn.execute(upd_ent, tuple(upd_ent_p))
 
-        rel_q = "SELECT id, sources FROM relations"
+        rel_conds: list[str] = []
         rel_p: list[Any] = []
         if kb_id is not None:
-            rel_q += " WHERE kb_id=?"
+            rel_conds.append("kb_id=?")
             rel_p.append(kb_id)
+        rel_like_sql, rel_like_p = _sources_like_clause(target_ids)
+        if rel_like_sql:
+            rel_conds.append(rel_like_sql)
+            rel_p.extend(rel_like_p)
+        rel_q = "SELECT id, sources FROM relations" + (" WHERE " + " AND ".join(rel_conds) if rel_conds else "")
         for r in conn.execute(rel_q, tuple(rel_p)).fetchall():
             try:
                 srcs = json.loads(r["sources"] or "[]")
@@ -7652,11 +7755,16 @@ def _estimate_purge_impact_for_docs(
     shared_entities_count = 0
     orphaned_entity_ids: set[str] = set()
 
-    ent_q = "SELECT id, sources FROM entities"
+    ent_conds: list[str] = []
     ent_p: list[Any] = []
     if kb_id is not None:
-        ent_q += " WHERE kb_id=?"
+        ent_conds.append("kb_id=?")
         ent_p.append(kb_id)
+    ent_like_sql, ent_like_p = _sources_like_clause(matched_ids)
+    if ent_like_sql:
+        ent_conds.append(ent_like_sql)
+        ent_p.extend(ent_like_p)
+    ent_q = "SELECT id, sources FROM entities" + (" WHERE " + " AND ".join(ent_conds) if ent_conds else "")
     for row in conn.execute(ent_q, tuple(ent_p)).fetchall():
         try:
             srcs = json.loads(row["sources"] or "[]")
@@ -7672,11 +7780,22 @@ def _estimate_purge_impact_for_docs(
             shared_entities_count += 1
 
     orphan_relations_count = 0
-    rel_q = "SELECT id, source_id, target_id, sources FROM relations"
+    rel_conds: list[str] = []
     rel_p: list[Any] = []
     if kb_id is not None:
-        rel_q += " WHERE kb_id=?"
+        rel_conds.append("kb_id=?")
         rel_p.append(kb_id)
+    rel_like_sql, rel_like_p = _sources_like_clause(matched_ids)
+    if rel_like_sql:
+        if orphaned_entity_ids and len(orphaned_entity_ids) <= 500:
+            sorted_orphans = sorted(orphaned_entity_ids)
+            ph_orphans = ",".join("?" for _ in sorted_orphans)
+            rel_conds.append(f"({rel_like_sql} OR source_id IN ({ph_orphans}) OR target_id IN ({ph_orphans}))")
+            rel_p.extend([*rel_like_p, *sorted_orphans, *sorted_orphans])
+        elif len(orphaned_entity_ids) <= 500:
+            rel_conds.append(rel_like_sql)
+            rel_p.extend(rel_like_p)
+    rel_q = "SELECT id, source_id, target_id, sources FROM relations" + (" WHERE " + " AND ".join(rel_conds) if rel_conds else "")
     for row in conn.execute(rel_q, tuple(rel_p)).fetchall():
         try:
             srcs = json.loads(row["sources"] or "[]")
@@ -7827,15 +7946,24 @@ def purge_document_cascade(
         "purged_tombstones_registered": len(matched_ids) if tombstone else 0,
     }
 
+    provenance_plan: dict[int, Any] | None = None
+    precomputed_fts_plan: dict[str, tuple[float | None, str]] | None = None
+    if not conn.in_transaction:
+        from ..extract.decision import prepare_document_rollback_plan
+
+        provenance_plan, precomputed_fts_plan = prepare_document_rollback_plan(conn, matched_ids, kb_id=kb_id)
+
     try:
         if not conn.in_transaction:
-            conn.execute("BEGIN IMMEDIATE")
+            run_with_busy_retry(lambda: conn.execute("BEGIN IMMEDIATE"))
         stats["graph_rollback"] = rollback_document_graph_contributions(
             conn,
             matched_ids,
             prune_orphans=(not heal),
             kb_id=kb_id,
             commit=False,
+            provenance=provenance_plan,
+            precomputed_fts=precomputed_fts_plan,
         )
         now = time.time()
         if tombstone:

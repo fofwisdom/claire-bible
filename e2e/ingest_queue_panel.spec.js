@@ -262,6 +262,7 @@ async function installQueueRoutes(page, state, impactMap = {}) {
         claimed_active: Boolean(target.claimed_active),
         claimed_by: target.claimed_by,
         lease_expires_at: target.lease_expires_at,
+        will_queue: Boolean(target.willQueue),
         tombstone: Boolean(body.tombstone),
         ...customImpact,
       };
@@ -269,6 +270,20 @@ async function installQueueRoutes(page, state, impactMap = {}) {
     }
     if (target.status === 'staged' && target.claimed_active && !body.force) {
       return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'staged_claim_active', claimed_by: target.claimed_by }) });
+    }
+    if (target.willQueue) {
+      target.status = 'queued';
+      target.stage = 'cancelling';
+      target.cancel_queued = true;
+      target.can_cancel = false;
+      target.can_retry = false;
+      target.can_purge = false;
+      target.msg = '';
+      target.order = 1;
+      let qOrd = 2;
+      state.items.filter((it) => it.status === 'queued' && it.inbox_id !== inboxId).forEach((it) => { it.order = qOrd++; });
+      recomputeCounts(state);
+      return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ ok: true, action: 'cancel_queued', inbox_id: inboxId, document_id: target.document_id, tombstone: Boolean(body.tombstone), queued: true }) });
     }
     state.items = state.items.filter((it) => it.inbox_id !== inboxId);
     let qOrd = 1;
@@ -370,13 +385,18 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
   expect(headLayout.toggleRight).toBeLessThanOrEqual(headLayout.closeLeft);
   expect(headLayout.sameRow).toBe(true);
 
-  // Verify Option A tablist filtering, #1 queued ordinal pill, <progress> bar, and retry action.
-  const tabs = pop.locator('#queue-filter-bar [role="tablist"] [role="tab"]');
-  await expect(tabs).toHaveCount(4);
+  // Verify Option A 5-tab tablist filtering (all, active, staged, error, done), single-row fit, #1 queued ordinal pill, <progress> bar, and retry action.
+  const tablist = pop.locator('#queue-filter-bar [role="tablist"]');
+  const tabs = tablist.locator('[role="tab"]');
+  await expect(tabs).toHaveCount(5);
   await expect(tabs.nth(0)).toHaveText(/^(전체|All)/);
   await expect(tabs.nth(1)).toHaveText(/^(진행·대기|Active)/);
   await expect(tabs.nth(2)).toHaveText(/^(에이전트|Agent)/);
-  await expect(tabs.nth(3)).toHaveText(/^(완료·오류|History)/);
+  await expect(tabs.nth(3)).toHaveText(/^(오류|Errors)/);
+  await expect(tabs.nth(4)).toHaveText(/^(완료|Done)/);
+  await expect(tabs.nth(3).locator('.q-tab-cnt.is-error')).toHaveCount(1);
+  const tablistOverflow = await tablist.evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(tablistOverflow, 'Option A 5-tab bar horizontal overflow').toBeLessThanOrEqual(0);
 
   await expect(pop.locator('.qa-row.st-queued .qa-order-pill').first()).toHaveText('#1');
   const firstProgress = pop.locator('.qa-row.st-running progress.q-progress').first();
@@ -395,15 +415,21 @@ test('ingest queue panel supports Option A ledger, Option C compact persistence,
 
   await tabs.nth(3).click();
   await expect(pop.locator('.qa-row.st-error')).toHaveCount(1);
-  await expect(pop.locator('.qa-row.st-done')).toHaveCount(1);
+  await expect(pop.locator('.qa-row.st-done')).toHaveCount(0);
 
-  // Retry failed item inbox_501 and verify POST /api/me/ingest-queue/501/retry moves it to queued #3.
+  await tabs.nth(4).click();
+  await expect(pop.locator('.qa-row.st-done')).toHaveCount(1);
+  await expect(pop.locator('.qa-row.st-error')).toHaveCount(0);
+
+  // Retry failed item inbox_501 from the Errors tab and verify POST /api/me/ingest-queue/501/retry moves it to queued #3.
+  await tabs.nth(3).click();
   const retryBtn = pop.locator('.qa-row.st-error .q-btn-danger');
   await expect(retryBtn).toBeVisible();
   await retryBtn.click();
   await expect.poll(() => retryCalls.slice()).toEqual([501]);
   await tabs.nth(0).click();
   await expect(pop.locator('.qa-row.st-error')).toHaveCount(0);
+  await expect(tabs.nth(3).locator('.q-tab-cnt.is-error')).toHaveCount(0);
   await expect(pop.locator('.qa-row.st-queued')).toHaveCount(3);
   await expect(pop.locator('.qa-row.st-queued .qa-order-pill').nth(2)).toHaveText('#3');
 
@@ -506,6 +532,9 @@ test('ingest queue panel supports Stage 1 and Stage 2 cancel and purge flows in 
   stagedItem.claimed_active = true;
   stagedItem.claimed_by = 'antigravity-agent';
   stagedItem.lease_expires_at = Math.floor(Date.now() / 1000) + 300;
+  const errItem = state.items.find((it) => it.inbox_id === 501);
+  errItem.document_id = 'doc-err-partial';
+  errItem.willQueue = true;
 
   const impactMap = {
     500: {
@@ -605,11 +634,33 @@ test('ingest queue panel supports Stage 1 and Stage 2 cancel and purge flows in 
   await expect(firstRunningRow.locator('.q-chip.is-cancelling')).toContainText(/중단 예약됨|Cancel requested/);
   await expect(firstRunningRow.locator('[data-queue-action="cancel-running"]')).toHaveCount(0);
 
-  // 5. Switch to Option C: collapsed rows have zero action buttons and show cancelling badge; expanded rows expose actions inside .qc-detail-actions.
+  // 4b. Cancelling a document-backed error item while an active job runs shows #queue-cancel-info and returns 202 cancel_queued.
+  const optionATabs = pop.locator('#queue-filter-bar [role="tab"]');
+  await optionATabs.nth(3).click();
+  const errRow = pop.locator('.qa-row.st-error').first();
+  await errRow.locator('[data-queue-action="cancel-inbox"]').click();
+  await expect(modal).toBeVisible();
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 501 && c.body.dry_run === true)).toBe(true);
+  await expect(page.locator('#queue-cancel-info')).toBeVisible();
+  await expect(page.locator('#queue-cancel-info')).toContainText(/대기열에 등록|queue this cancellation/);
+  await expectNoRawKeys(page, '#modal-queue-cancel');
+  await confirmBtn.click();
+  await expect.poll(() => cancelCalls.some((c) => c.inboxId === 501 && c.body.dry_run === false)).toBe(true);
+  await expect(modal).toBeHidden();
+  await expect(pop).toBeVisible();
+  await optionATabs.nth(0).click();
+  await expect(pop.locator('.qa-row.st-queued .q-chip.is-cancelling').first()).toContainText(/취소 대기 중|Cancel queued/);
+  await expectNoRawKeys(page, '#pop-queue');
+  await expectZeroOverflow(page, pop, 'desktop light ledger cancel_queued');
+
+  // 5. Switch to Option C: collapsed rows have zero action buttons and show cancelling/cancel_queued badges; expanded rows expose actions inside .qc-detail-actions.
   await page.locator('#queue-view-toggle').click();
   await expect(pop).toHaveAttribute('data-queue-view', 'compact');
   await expect(pop.locator('.qc-row .qc-row-btn [data-queue-action]')).toHaveCount(0);
-  await expect(pop.locator('.qc-row .qc-title-row .q-chip.is-cancelling').first()).toContainText(/중단 예약됨|Cancel requested/);
+  await expect(pop.locator('.qc-row.st-running .qc-title-row .q-chip.is-cancelling').first()).toContainText(/중단 예약됨|Cancel requested/);
+  await expect(pop.locator('.qc-row.st-queued .qc-title-row .q-chip.is-cancelling').first()).toContainText(/취소 대기 중|Cancel queued/);
+  await expectNoRawKeys(page, '#pop-queue');
+  await expectZeroOverflow(page, pop, 'desktop light compact cancel_queued');
 
   const secondRunningBtn = pop.locator('.qc-row.st-running .qc-row-btn').nth(1);
   await secondRunningBtn.click();

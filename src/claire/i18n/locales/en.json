@@ -5017,6 +5017,8 @@
   "nav.queue.tab_active": "Active",
   "nav.queue.tab_staged": "Agent",
   "nav.queue.tab_history": "History",
+  "nav.queue.tab_error": "Errors",
+  "nav.queue.tab_done": "Done",
   "nav.queue.chip_running": "Running",
   "nav.queue.chip_queued": "Queued",
   "nav.queue.chip_staged": "Agent",
@@ -5026,6 +5028,8 @@
   "nav.queue.sec_queued": "Queued order",
   "nav.queue.sec_staged": "Waiting for agent client (source isolated)",
   "nav.queue.sec_history": "Recent completed & errors",
+  "nav.queue.sec_error": "Errors",
+  "nav.queue.sec_done": "Recent completed",
   "nav.queue.count_items": "{count}",
   "nav.queue.pill_running": "RUN",
   "nav.queue.pill_staged": "MCP",
@@ -5105,5 +5109,10 @@
   "nav.queue.err_cancel_failed": "Request failed ({error}).",
   "nav.queue.announced_cancelled": "Queue item cancelled.",
   "nav.queue.announced_purged": "Document purged permanently.",
-  "nav.queue.announced_cancel_requested": "Cancellation requested for running job."
+  "nav.queue.announced_cancel_requested": "Cancellation requested for running job.",
+  "nav.queue.cancel_queued_badge": "Cancel queued",
+  "nav.queue.status_cancel_queued": "Queued to cancel safely after active ingest finishes.",
+  "nav.queue.modal_will_queue_note": "An ingest job is currently running. Confirming will queue this cancellation to run safely after it finishes.",
+  "nav.queue.announced_cancel_queued": "Cancellation queued to run safely after active ingest finishes.",
+  "nav.queue.err_cancel_already_queued": "Cancellation is already queued for this item."
 }

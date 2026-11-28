@@ -3,7 +3,7 @@
 | Path | Method | Function |
 | :--- | :--- | :--- |
 | ``/api/me/ingest-queue`` | GET, HEAD | Return active slots, queued items, staged items, and recent error or done rows |
-| ``/api/me/ingest-queue/{inbox_id}/retry`` | POST | Put one failed inbox row back into the queue and start retry in the background |
+| ``/api/me/ingest-queue/{inbox_id}/retry`` | POST | Put one failed inbox row back into the queue and start retry through the queue coordinator |
 | ``/api/me/ingest-queue/{inbox_id}/cancel`` | POST | Cancel a queued/staged/error inbox item or purge a completed document (supports ``dry_run``) |
 | ``/api/me/ingest-queue/jobs/{job_id}/cancel`` | POST | Request cooperative cancellation (and compensating rollback) for an active running job |
 """
@@ -27,6 +27,7 @@ from starlette.routing import Route
 from ...core.secret_scrub import scrub_text
 from ...ingest import active as active_mod
 from ...ingest.active import _MAX_EXPENSIVE_JOBS, get_active_jobs, purge_active_matrix
+from ...ingest.queue_manager import get_queue_coordinator, unlink_unreferenced_raw_file
 from ...ingest.service import IngestService
 from ...store import db as dbm
 from ...store import kb_collab, permalinks
@@ -56,7 +57,6 @@ _STAGE_INDEX_MAP: dict[str, int] = {
     "summarize": 3,
     "done": 4,
 }
-_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
 _log = logging.getLogger(__name__)
 
 
@@ -167,20 +167,6 @@ def _safe_raw_file_path(data_dir: Path, file_ref: Any) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _unlink_unreferenced_raw_file(conn: sqlite3.Connection, data_dir: Path, file_ref: Any) -> int:
-    safe_path = _safe_raw_file_path(data_dir, file_ref)
-    if safe_path is None:
-        return 0
-    count_row = conn.execute("SELECT COUNT(*) FROM raw_inbox WHERE file_ref=?", (str(file_ref),)).fetchone()
-    if count_row and int(count_row[0]) > 0:
-        return 0
-    try:
-        safe_path.unlink(missing_ok=True)
-        return 1
-    except Exception:  # noqa: BLE001
-        return 0
-
-
 def _visible_kbs(conn: sqlite3.Connection | None, theme_mgr: Any, *, account_id: int, is_admin: bool) -> tuple[dict[int, KnowledgeBaseInfo], set[int]]:
     all_kbs = list(theme_mgr.list_kbs(include_private=True))
     if is_admin:
@@ -214,7 +200,7 @@ def _fetch_inbox_rows(conn: sqlite3.Connection, visible_ids: list[int], *, statu
     return conn.execute(sql, tuple(params)).fetchall()
 
 
-def _resolve_document_metadata(conn: sqlite3.Connection, doc_targets: dict[str, int], *, ensure_tokens: bool, now: float) -> tuple[dict[str, str], dict[str, str], dict[str, dict[str, Any]]]:
+def _resolve_document_metadata(conn: sqlite3.Connection, db_file: Path, doc_targets: dict[str, int], *, ensure_tokens: bool, now: float) -> tuple[dict[str, str], dict[str, str], dict[str, dict[str, Any]]]:
     if not doc_targets:
         return {}, {}, {}
     doc_ids = list(doc_targets.keys())
@@ -238,19 +224,30 @@ def _resolve_document_metadata(conn: sqlite3.Connection, doc_targets: dict[str, 
             }
     existing_doc_ids = list(existing_docs.keys())
     tokens = permalinks.tokens_of(conn, "document", existing_doc_ids) if existing_doc_ids else {}
+    missing_token_ids = [did for did in existing_doc_ids if tokens.get(did) is None and existing_docs.get(did) != "pending"]
+    if ensure_tokens and missing_token_ids and db_file.is_file():
+        def _ensure_missing_tokens() -> dict[str, str]:
+            rw_conn = dbm.connect_existing(db_file, readonly=False)
+            try:
+                created: dict[str, str] = {}
+                for did in missing_token_ids:
+                    created[did] = permalinks.ensure_document(rw_conn, did, doc_targets[did])
+                rw_conn.commit()
+                return created
+            finally:
+                rw_conn.close()
+
+        try:
+            tokens.update(dbm.run_with_busy_retry(_ensure_missing_tokens))
+        except sqlite3.OperationalError:
+            pass
     urls: dict[str, str] = {}
-    created_token = False
     for did in existing_doc_ids:
         token = tokens.get(did)
-        if token is None and ensure_tokens and existing_docs.get(did) != "pending":
-            token = permalinks.ensure_document(conn, did, doc_targets[did])
-            created_token = True
         if token:
             urls[did] = permalinks.permalink_path(token)
         elif existing_docs.get(did) != "pending":
             urls[did] = f"/?id={quote(did, safe='')}"
-    if created_token:
-        conn.commit()
     return titles, urls, claims
 
 
@@ -299,17 +296,20 @@ def _build_job_item(job: dict[str, Any], *, status: str, kb: KnowledgeBaseInfo |
         "can_cancel": can_cancel,
         "can_purge": can_purge,
         "cancel_requested": bool(job.get("cancel_requested")) if status == "running" else False,
+        "cancel_queued": False,
         "claimed_active": False,
         "claimed_by": None,
         "lease_expires_at": None,
     }
 
 
-def _build_inbox_item(row: sqlite3.Row, *, status: str, order: int | None, kb: KnowledgeBaseInfo | None, owned_kb_ids: set[int], doc_titles: dict[str, str], doc_urls: dict[str, str], doc_claims: dict[str, dict[str, Any]], purge_allowed_for_kb: bool) -> dict[str, Any]:
+def _build_inbox_item(row: sqlite3.Row, *, status: str, order: int | None, kb: KnowledgeBaseInfo | None, owned_kb_ids: set[int], doc_titles: dict[str, str], doc_urls: dict[str, str], doc_claims: dict[str, dict[str, Any]], purge_allowed_for_kb: bool, cancel_queued: bool = False) -> dict[str, Any]:
     inbox_id = int(row["id"])
     kb_id = int(row["kb_id"])
     doc_id = str(row["document_id"]) if row["document_id"] else None
-    if status == "done":
+    if cancel_queued:
+        stage, stage_idx = "cancelling", 0
+    elif status == "done":
         stage, stage_idx = "done", 4
     elif status == "staged":
         stage, stage_idx = "staged", 1
@@ -321,9 +321,9 @@ def _build_inbox_item(row: sqlite3.Row, *, status: str, order: int | None, kb: K
     mode = "client" if status == "staged" else _inbox_mode(row)
     raw_status = str(row["status"] or "")
     is_owner = kb_id in owned_kb_ids
-    can_retry = raw_status in ("error", "failed") and is_owner
-    can_cancel = status in ("queued", "staged", "error") and is_owner
-    can_purge = status == "done" and doc_id is not None and is_owner and purge_allowed_for_kb
+    can_retry = (not cancel_queued) and raw_status in ("error", "failed") and is_owner
+    can_cancel = (not cancel_queued) and status in ("queued", "staged", "error") and is_owner
+    can_purge = (not cancel_queued) and status == "done" and doc_id is not None and is_owner and purge_allowed_for_kb
     claim_info = doc_claims.get(doc_id, {}) if (status == "staged" and doc_id) else {}
     msg = scrub_text(str(row["error"] or "")) if status == "error" else ""
     created_at = _float_or_none(row["received_at"])
@@ -344,11 +344,12 @@ def _build_inbox_item(row: sqlite3.Row, *, status: str, order: int | None, kb: K
         "created_at": created_at,
         "updated_at": updated_at,
         "document_id": doc_id,
-        "doc_url": doc_urls.get(doc_id) if (doc_id and status != "staged") else None,
+        "doc_url": doc_urls.get(doc_id) if (doc_id and status != "staged" and not cancel_queued) else None,
         "can_retry": can_retry,
         "can_cancel": can_cancel,
         "can_purge": can_purge,
         "cancel_requested": False,
+        "cancel_queued": cancel_queued,
         "claimed_active": bool(claim_info.get("claimed_active", False)),
         "claimed_by": claim_info.get("claimed_by"),
         "lease_expires_at": claim_info.get("lease_expires_at"),
@@ -362,7 +363,8 @@ def _collect_queue_state(ctx: AccountsContext, principal: Principal) -> dict[str
     is_admin = _is_admin(principal)
     now = time.time()
     purge_allowed_global = bool(getattr(settings, "is_purge_allowed", False))
-    conn = open_db(ctx) if ctx.db_file.is_file() else None
+    coordinator = get_queue_coordinator(getattr(settings, "data_dir", None))
+    conn = open_db(ctx, readonly=True) if ctx.db_file.is_file() else None
     try:
         visible_kbs, owned_kb_ids = _visible_kbs(conn, theme_mgr, account_id=int(principal.account_id), is_admin=is_admin)
         visible_ids = sorted(visible_kbs.keys())
@@ -386,11 +388,13 @@ def _collect_queue_state(ctx: AccountsContext, principal: Principal) -> dict[str
             if doc_val:
                 running_doc_ids.setdefault(jid_kb, set()).add(str(doc_val))
 
+        cancelling_rows: list[sqlite3.Row] = []
         queued_rows: list[sqlite3.Row] = []
         staged_rows: list[sqlite3.Row] = []
         error_rows: list[sqlite3.Row] = []
         done_rows: list[sqlite3.Row] = []
         if conn is not None and visible_ids:
+            cancelling_rows = _fetch_inbox_rows(conn, visible_ids, statuses=("cancelling",), order_sql="received_at ASC, id ASC")
             raw_received = _fetch_inbox_rows(conn, visible_ids, statuses=("received",), order_sql="received_at ASC, id ASC")
             for row in raw_received:
                 rkb = int(row["kb_id"])
@@ -404,6 +408,7 @@ def _collect_queue_state(ctx: AccountsContext, principal: Principal) -> dict[str
             error_rows = _fetch_inbox_rows(conn, visible_ids, statuses=("error", "failed"), order_sql="COALESCE(last_attempt, received_at) DESC, id DESC", limit=_HISTORY_LIMIT)
             done_rows = _fetch_inbox_rows(conn, visible_ids, statuses=("done",), order_sql="COALESCE(last_attempt, received_at) DESC, id DESC", limit=_HISTORY_LIMIT)
 
+        has_pending_ops = bool(cancelling_rows or coordinator.list_pending_cancel_ops())
         history_rows = [*error_rows, *done_rows]
         history_doc_keys = {(int(r["kb_id"]), str(r["document_id"])) for r in history_rows if r["document_id"]}
         history_payloads: dict[int, set[str]] = {}
@@ -428,20 +433,26 @@ def _collect_queue_state(ctx: AccountsContext, principal: Principal) -> dict[str
             did = job.get("doc_id") or (job.get("result") or {}).get("document_id")
             if did:
                 doc_targets[str(did)] = int(job.get("kb_id") or 0)
-        for row in (*queued_rows, *staged_rows, *history_rows):
+        for row in (*cancelling_rows, *queued_rows, *staged_rows, *history_rows):
             if row["document_id"]:
                 doc_targets[str(row["document_id"])] = int(row["kb_id"])
 
-        doc_titles, doc_urls, doc_claims = _resolve_document_metadata(conn, doc_targets, ensure_tokens=True, now=now) if conn is not None else ({}, {}, {})
+        doc_titles, doc_urls, doc_claims = _resolve_document_metadata(conn, ctx.db_file, doc_targets, ensure_tokens=True, now=now) if conn is not None else ({}, {}, {})
 
         running_items = [
             _build_job_item(job, status="running", kb=visible_kbs.get(int(job.get("kb_id") or 0)), owned_kb_ids=owned_kb_ids, doc_titles=doc_titles, doc_urls=doc_urls, fallback_index=idx, purge_allowed_for_kb=purge_cache.get(int(job.get("kb_id") or 0), purge_allowed_global))
             for idx, job in enumerate(running_jobs)
         ]
-        queued_items = [
-            _build_inbox_item(row, status="queued", order=idx + 1, kb=visible_kbs.get(int(row["kb_id"])), owned_kb_ids=owned_kb_ids, doc_titles=doc_titles, doc_urls=doc_urls, doc_claims=doc_claims, purge_allowed_for_kb=purge_cache.get(int(row["kb_id"]), purge_allowed_global))
-            for idx, row in enumerate(queued_rows)
-        ]
+        queued_items: list[dict[str, Any]] = []
+        for idx, row in enumerate(cancelling_rows):
+            queued_items.append(
+                _build_inbox_item(row, status="queued", order=idx + 1, kb=visible_kbs.get(int(row["kb_id"])), owned_kb_ids=owned_kb_ids, doc_titles=doc_titles, doc_urls=doc_urls, doc_claims=doc_claims, purge_allowed_for_kb=purge_cache.get(int(row["kb_id"]), purge_allowed_global), cancel_queued=True)
+            )
+        offset = len(cancelling_rows)
+        for idx, row in enumerate(queued_rows):
+            queued_items.append(
+                _build_inbox_item(row, status="queued", order=offset + idx + 1, kb=visible_kbs.get(int(row["kb_id"])), owned_kb_ids=owned_kb_ids, doc_titles=doc_titles, doc_urls=doc_urls, doc_claims=doc_claims, purge_allowed_for_kb=purge_cache.get(int(row["kb_id"]), purge_allowed_global))
+            )
         staged_items = [
             _build_inbox_item(row, status="staged", order=None, kb=visible_kbs.get(int(row["kb_id"])), owned_kb_ids=owned_kb_ids, doc_titles=doc_titles, doc_urls=doc_urls, doc_claims=doc_claims, purge_allowed_for_kb=purge_cache.get(int(row["kb_id"]), purge_allowed_global))
             for row in staged_rows
@@ -461,72 +472,69 @@ def _collect_queue_state(ctx: AccountsContext, principal: Principal) -> dict[str
         error_count = sum(1 for item in history_items if item["status"] == "error")
         done_count = sum(1 for item in history_items if item["status"] == "done")
         items = [*running_items, *queued_items, *staged_items, *history_items]
-        return {
-            "max_slots": _MAX_EXPENSIVE_JOBS,
-            "busy_slots": len(running_items),
-            "purge_allowed": purge_allowed_global,
-            "counts": {
-                "running": len(running_items),
-                "queued": len(queued_items),
-                "staged": len(staged_items),
-                "error": error_count,
-                "done": done_count,
-            },
-            "items": items,
-            "server_time": now,
-        }
     finally:
         if conn is not None:
             conn.close()
 
+    if has_pending_ops:
+        coordinator.ensure_recovery(ctx.db_file, settings)
+
+    return {
+        "max_slots": _MAX_EXPENSIVE_JOBS,
+        "busy_slots": len(running_items),
+        "purge_allowed": purge_allowed_global,
+        "counts": {
+            "running": len(running_items),
+            "queued": len(queued_items),
+            "staged": len(staged_items),
+            "error": error_count,
+            "done": done_count,
+        },
+        "items": items,
+        "server_time": now,
+    }
+
 
 def _prepare_retry(ctx: AccountsContext, principal: Principal, inbox_id: int) -> tuple[str, Any, KnowledgeBaseInfo] | tuple[str, int, str | None]:
-    """Check ownership and status, then mark the inbox row as received before background execution."""
+    """Check ownership and status, then mark the inbox row as received before coordinator dispatch."""
     if not ctx.db_file.is_file():
         return ("not_found", 404, None)
     assert principal.account_id is not None
     settings = _settings(ctx)
     theme_mgr = get_kb_manager(settings)
     is_admin = _is_admin(principal)
-    conn = open_db(ctx)
-    try:
-        row = dbm.get_inbox(conn, inbox_id)
-        if row is None:
-            return ("not_found", 404, None)
-        kb_id = int(row["kb_id"])
+
+    def _update_row() -> tuple[str, Any, KnowledgeBaseInfo] | tuple[str, int, str | None]:
+        conn = open_db(ctx)
         try:
-            kb = theme_mgr.get_kb(kb_id)
-        except KnowledgeBaseNotFound:
-            return ("not_found", 404, None)
-        owns_kb = kb.account_id is not None and int(kb.account_id) == int(principal.account_id)
-        if not (is_admin or owns_kb):
-            return ("not_found", 404, None)
-        row_status = str(row["status"] or "")
-        if row_status not in ("error", "failed"):
-            return ("conflict", 409, row_status)
-        cur = conn.execute("UPDATE raw_inbox SET status='received', error=NULL, next_retry_at=NULL WHERE id=? AND status IN ('error', 'failed')", (inbox_id,))
-        conn.commit()
-        if cur.rowcount == 0:
-            return ("conflict", 409, row_status)
-        kb_settings = theme_mgr.get_settings_for_kb(kb.id, settings)
-        return ("ok", kb_settings, kb)
-    finally:
-        conn.close()
+            row = dbm.get_inbox(conn, inbox_id)
+            if row is None:
+                return ("not_found", 404, None)
+            kb_id = int(row["kb_id"])
+            try:
+                kb = theme_mgr.get_kb(kb_id)
+            except KnowledgeBaseNotFound:
+                return ("not_found", 404, None)
+            owns_kb = kb.account_id is not None and int(kb.account_id) == int(principal.account_id)
+            if not (is_admin or owns_kb):
+                return ("not_found", 404, None)
+            row_status = str(row["status"] or "")
+            if row_status not in ("error", "failed"):
+                return ("conflict", 409, row_status)
+            cur = conn.execute("UPDATE raw_inbox SET status='received', error=NULL, next_retry_at=NULL WHERE id=? AND status IN ('error', 'failed')", (inbox_id,))
+            conn.commit()
+            if cur.rowcount == 0:
+                return ("conflict", 409, row_status)
+            kb_settings = theme_mgr.get_settings_for_kb(kb.id, settings)
+            return ("ok", kb_settings, kb)
+        finally:
+            conn.close()
+
+    return dbm.run_with_busy_retry(_update_row)
 
 
 def _run_retry_inbox(kb_settings: Any, kb_id: int, inbox_id: int) -> None:
     IngestService(kb_settings, kb_id=kb_id).retry_inbox(inbox_id)
-
-
-def _mark_retry_error(db_file: Path, inbox_id: int, error_message: str) -> None:
-    if not db_file.is_file():
-        return
-    conn = dbm.connect_existing(db_file)
-    try:
-        conn.execute("UPDATE raw_inbox SET status='error', error=? WHERE id=?", (scrub_text(error_message), inbox_id))
-        conn.commit()
-    finally:
-        conn.close()
 
 
 def _matching_running_job_id(data_dir: Path, kb_id: int, inbox_id: int, row: sqlite3.Row, doc_id: str | None) -> str | None:
@@ -547,14 +555,15 @@ def _matching_running_job_id(data_dir: Path, kb_id: int, inbox_id: int, row: sql
     return None
 
 
-def _execute_inbox_cancel(ctx: AccountsContext, principal: Principal, inbox_id: int, *, dry_run: bool, tombstone: bool, force: bool) -> tuple[int, dict[str, Any] | None]:
+def _execute_inbox_cancel_dry_run(ctx: AccountsContext, principal: Principal, inbox_id: int, *, tombstone: bool) -> tuple[int, dict[str, Any] | None]:
     if not ctx.db_file.is_file():
         return 404, None
     assert principal.account_id is not None
     settings = _settings(ctx)
     theme_mgr = get_kb_manager(settings)
     is_admin = _is_admin(principal)
-    conn = open_db(ctx)
+    coordinator = get_queue_coordinator(getattr(settings, "data_dir", None))
+    conn = open_db(ctx, readonly=True)
     try:
         row = dbm.get_inbox(conn, inbox_id)
         if row is None:
@@ -571,51 +580,35 @@ def _execute_inbox_cancel(ctx: AccountsContext, principal: Principal, inbox_id: 
         data_dir = Path(getattr(kb_settings, "data_dir", settings.data_dir))
         purge_allowed = bool(getattr(kb_settings, "is_purge_allowed", getattr(settings, "is_purge_allowed", False)))
         row_status = str(row["status"] or "")
+        if row_status == "cancelling":
+            return 409, {"error": "cancel_already_queued"}
         doc_id = str(row["document_id"]) if row["document_id"] else None
         if (tombstone or doc_id is not None) and not purge_allowed:
             return 403, {"error": "purge_disabled_by_policy"}
 
         doc_row = conn.execute("SELECT id, claim_token, lease_expires_at, claimed_by_client_id FROM documents WHERE id=? AND kb_id=?", (doc_id, kb_id)).fetchone() if doc_id else None
+        will_queue = bool(coordinator.has_active_ingest_jobs(data_dir) or coordinator.list_pending_cancel_ops())
 
         if row_status in ("received", "error", "failed") and (doc_id is None or doc_row is None):
             matched_job_id = _matching_running_job_id(data_dir, kb_id, inbox_id, row, doc_id)
             if matched_job_id is not None:
                 return 409, {"error": "item_currently_running", "job_id": matched_job_id}
             safe_file = _safe_raw_file_path(data_dir, row["file_ref"])
-            if dry_run:
-                return 200, {
-                    "dry_run": True,
-                    "mode": "inbox_cancel",
-                    "inbox_id": inbox_id,
-                    "status": row_status,
-                    "purged_count": 0,
-                    "orphan_entities_count": 0,
-                    "shared_entities_count": 0,
-                    "orphan_relations_count": 0,
-                    "disk_files_count": 1 if safe_file is not None else 0,
-                    "federation_objects_count": 0,
-                    "claimed_active": False,
-                    "tombstone": tombstone,
-                }
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                cur = conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=? AND status IN ('received', 'error', 'failed')", (inbox_id, kb_id))
-                if cur.rowcount == 0:
-                    conn.rollback()
-                    return 409, {"error": "inbox_status_changed"}
-                if tombstone:
-                    t_url = _inbox_url_for_tombstone(row)
-                    conn.execute(
-                        "INSERT OR REPLACE INTO purged_tombstones (id, kb_id, url, canonical_url, content_hash, reason, purged_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (f"inbox:{inbox_id}", kb_id, t_url, t_url, None, "queue_inbox_cancel", time.time()),
-                    )
-                conn.commit()
-            except Exception:
-                if conn.in_transaction:
-                    conn.rollback()
-                raise
-            _unlink_unreferenced_raw_file(conn, data_dir, row["file_ref"])
-            return 200, {"ok": True, "action": "cancelled", "inbox_id": inbox_id, "tombstone": tombstone}
+            return 200, {
+                "dry_run": True,
+                "mode": "inbox_cancel",
+                "inbox_id": inbox_id,
+                "status": row_status,
+                "purged_count": 0,
+                "orphan_entities_count": 0,
+                "shared_entities_count": 0,
+                "orphan_relations_count": 0,
+                "disk_files_count": 1 if safe_file is not None else 0,
+                "federation_objects_count": 0,
+                "claimed_active": False,
+                "will_queue": False,
+                "tombstone": tombstone,
+            }
 
         if row_status == "staged" and doc_id is not None and doc_row is not None:
             now = time.time()
@@ -623,27 +616,19 @@ def _execute_inbox_cancel(ctx: AccountsContext, principal: Principal, inbox_id: 
             claimed_active = bool(doc_row["claim_token"] and lease_exp is not None and lease_exp > now)
             claimed_by = scrub_text(doc_row["claimed_by_client_id"]) if (claimed_active and doc_row["claimed_by_client_id"]) else None
             lease_out = lease_exp if claimed_active else None
-            if dry_run:
-                impact = dbm.estimate_document_purge_impact(conn, data_dir, [doc_id], kb_id=kb_id)
-                return 200, {
-                    "dry_run": True,
-                    "mode": "staged_cancel",
-                    "inbox_id": inbox_id,
-                    "document_id": doc_id,
-                    "claimed_active": claimed_active,
-                    "claimed_by": claimed_by,
-                    "lease_expires_at": lease_out,
-                    **impact,
-                    "tombstone": tombstone,
-                }
-            if claimed_active and not force:
-                return 409, {"error": "staged_claim_active", "claimed_by": claimed_by, "lease_expires_at": lease_out}
-            dbm.purge_document_cascade(conn, data_dir, [doc_id], reason="queue_staged_cancel", dry_run=False, tombstone=tombstone, kb_id=kb_id, heal=False, vacuum=False)
-            cur = conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
-            if cur.rowcount > 0:
-                conn.commit()
-            _unlink_unreferenced_raw_file(conn, data_dir, row["file_ref"])
-            return 200, {"ok": True, "action": "purged_staged", "inbox_id": inbox_id, "document_id": doc_id, "tombstone": tombstone}
+            impact = dbm.estimate_document_purge_impact(conn, data_dir, [doc_id], kb_id=kb_id)
+            return 200, {
+                "dry_run": True,
+                "mode": "staged_cancel",
+                "inbox_id": inbox_id,
+                "document_id": doc_id,
+                "claimed_active": claimed_active,
+                "claimed_by": claimed_by,
+                "lease_expires_at": lease_out,
+                **impact,
+                "will_queue": will_queue,
+                "tombstone": tombstone,
+            }
 
         if row_status == "done" or (row_status in ("error", "failed") and doc_id is not None and doc_row is not None):
             if row_status in ("error", "failed"):
@@ -651,61 +636,165 @@ def _execute_inbox_cancel(ctx: AccountsContext, principal: Principal, inbox_id: 
                 if matched_job_id is not None:
                     return 409, {"error": "item_currently_running", "job_id": matched_job_id}
             if doc_id is None or doc_row is None:
-                if dry_run:
-                    return 200, {
-                        "dry_run": True,
-                        "mode": "document_purge",
-                        "inbox_id": inbox_id,
-                        "document_id": doc_id,
-                        "claimed_active": False,
-                        "purged_count": 0,
-                        "target_documents": [],
-                        "orphan_entities_count": 0,
-                        "shared_entities_count": 0,
-                        "orphan_relations_count": 0,
-                        "disk_files_count": 0,
-                        "federation_objects_count": 0,
-                        "tombstone": tombstone,
-                    }
-                conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
-                conn.commit()
-                return 200, {"ok": True, "action": "purged_document", "inbox_id": inbox_id, "document_id": doc_id, "tombstone": tombstone, "stats": {"purged_count": 0, "rolled_back_merges": 0, "pruned_entities": 0, "pruned_relations": 0, "disk_files_unlinked": 0}}
-            if dry_run:
-                impact = dbm.estimate_document_purge_impact(conn, data_dir, [doc_id], kb_id=kb_id)
                 return 200, {
                     "dry_run": True,
                     "mode": "document_purge",
                     "inbox_id": inbox_id,
                     "document_id": doc_id,
                     "claimed_active": False,
-                    **impact,
+                    "purged_count": 0,
+                    "target_documents": [],
+                    "orphan_entities_count": 0,
+                    "shared_entities_count": 0,
+                    "orphan_relations_count": 0,
+                    "disk_files_count": 0,
+                    "federation_objects_count": 0,
+                    "will_queue": False,
                     "tombstone": tombstone,
                 }
-            report = dbm.purge_document_cascade(conn, data_dir, [doc_id], reason="queue_panel_purge", dry_run=False, tombstone=tombstone, kb_id=kb_id, heal=False, vacuum=False)
-            purge_active_matrix(data_dir, doc_id)
-            cur = conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
-            if cur.rowcount > 0:
-                conn.commit()
-            _unlink_unreferenced_raw_file(conn, data_dir, row["file_ref"])
-            rollback_stats = report.get("graph_rollback") or {}
+            impact = dbm.estimate_document_purge_impact(conn, data_dir, [doc_id], kb_id=kb_id)
             return 200, {
-                "ok": True,
-                "action": "purged_document",
+                "dry_run": True,
+                "mode": "document_purge",
                 "inbox_id": inbox_id,
                 "document_id": doc_id,
+                "claimed_active": False,
+                **impact,
+                "will_queue": will_queue,
                 "tombstone": tombstone,
-                "stats": {
-                    "purged_count": report.get("purged_count", 0),
-                    "rolled_back_merges": rollback_stats.get("rolled_back_merges", 0),
-                    "pruned_entities": rollback_stats.get("pruned_entities", 0),
-                    "pruned_relations": rollback_stats.get("pruned_relations", 0),
-                    "disk_files_unlinked": report.get("disk_files_unlinked", 0),
-                },
             }
 
         return 409, {"error": "inbox_not_cancellable", "status": row_status}
     finally:
         conn.close()
+
+
+def _execute_inbox_cancel(ctx: AccountsContext, principal: Principal, inbox_id: int, *, dry_run: bool, tombstone: bool, force: bool) -> tuple[int, dict[str, Any] | None]:
+    if dry_run:
+        return _execute_inbox_cancel_dry_run(ctx, principal, inbox_id, tombstone=tombstone)
+    if not ctx.db_file.is_file():
+        return 404, None
+    assert principal.account_id is not None
+    settings = _settings(ctx)
+    theme_mgr = get_kb_manager(settings)
+    is_admin = _is_admin(principal)
+    coordinator = get_queue_coordinator(getattr(settings, "data_dir", None))
+
+    def _write() -> tuple[int, dict[str, Any] | None]:
+        conn = open_db(ctx)
+        try:
+            row = dbm.get_inbox(conn, inbox_id)
+            if row is None:
+                return 404, None
+            kb_id = int(row["kb_id"])
+            try:
+                kb = theme_mgr.get_kb(kb_id)
+            except KnowledgeBaseNotFound:
+                return 404, None
+            owns_kb = kb.account_id is not None and int(kb.account_id) == int(principal.account_id)
+            if not (is_admin or owns_kb):
+                return 404, None
+            kb_settings = theme_mgr.get_settings_for_kb(kb.id, settings)
+            data_dir = Path(getattr(kb_settings, "data_dir", settings.data_dir))
+            purge_allowed = bool(getattr(kb_settings, "is_purge_allowed", getattr(settings, "is_purge_allowed", False)))
+            row_status = str(row["status"] or "")
+            if row_status == "cancelling":
+                return 409, {"error": "cancel_already_queued"}
+            doc_id = str(row["document_id"]) if row["document_id"] else None
+            if (tombstone or doc_id is not None) and not purge_allowed:
+                return 403, {"error": "purge_disabled_by_policy"}
+
+            doc_row = conn.execute("SELECT id, claim_token, lease_expires_at, claimed_by_client_id FROM documents WHERE id=? AND kb_id=?", (doc_id, kb_id)).fetchone() if doc_id else None
+
+            if row_status in ("received", "error", "failed") and (doc_id is None or doc_row is None):
+                matched_job_id = _matching_running_job_id(data_dir, kb_id, inbox_id, row, doc_id)
+                if matched_job_id is not None:
+                    return 409, {"error": "item_currently_running", "job_id": matched_job_id}
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    cur = conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=? AND status IN ('received', 'error', 'failed')", (inbox_id, kb_id))
+                    if cur.rowcount == 0:
+                        conn.rollback()
+                        return 409, {"error": "inbox_status_changed"}
+                    if tombstone:
+                        t_url = _inbox_url_for_tombstone(row)
+                        conn.execute(
+                            "INSERT OR REPLACE INTO purged_tombstones (id, kb_id, url, canonical_url, content_hash, reason, purged_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            (f"inbox:{inbox_id}", kb_id, t_url, t_url, None, "queue_inbox_cancel", time.time()),
+                        )
+                    conn.commit()
+                except Exception:
+                    if conn.in_transaction:
+                        conn.rollback()
+                    raise
+                unlink_unreferenced_raw_file(conn, data_dir, row["file_ref"])
+                return 200, {"ok": True, "action": "cancelled", "inbox_id": inbox_id, "tombstone": tombstone}
+
+            if row_status == "staged" and doc_id is not None and doc_row is not None:
+                now = time.time()
+                lease_exp = _float_or_none(doc_row["lease_expires_at"])
+                claimed_active = bool(doc_row["claim_token"] and lease_exp is not None and lease_exp > now)
+                claimed_by = scrub_text(doc_row["claimed_by_client_id"]) if (claimed_active and doc_row["claimed_by_client_id"]) else None
+                lease_out = lease_exp if claimed_active else None
+                if claimed_active and not force:
+                    return 409, {"error": "staged_claim_active", "claimed_by": claimed_by, "lease_expires_at": lease_out}
+                if coordinator.has_active_ingest_jobs(data_dir) or coordinator.list_pending_cancel_ops():
+                    cur = conn.execute("UPDATE raw_inbox SET status='cancelling' WHERE id=? AND kb_id=? AND status=?", (inbox_id, kb_id, row_status))
+                    conn.commit()
+                    if cur.rowcount == 0:
+                        return 409, {"error": "inbox_status_changed"}
+                    coordinator.enqueue_cancel_purge(db_file=ctx.db_file, inbox_id=inbox_id, kb_id=kb_id, document_id=doc_id, prev_status=row_status, tombstone=tombstone, force=force, reason="queue_staged_cancel", file_ref=(str(row["file_ref"]) if row["file_ref"] else None))
+                    return 202, {"ok": True, "action": "cancel_queued", "inbox_id": inbox_id, "document_id": doc_id, "tombstone": tombstone, "queued": True}
+                dbm.purge_document_cascade(conn, data_dir, [doc_id], reason="queue_staged_cancel", dry_run=False, tombstone=tombstone, kb_id=kb_id, heal=False, vacuum=False)
+                cur = conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
+                if cur.rowcount > 0:
+                    conn.commit()
+                unlink_unreferenced_raw_file(conn, data_dir, row["file_ref"])
+                return 200, {"ok": True, "action": "purged_staged", "inbox_id": inbox_id, "document_id": doc_id, "tombstone": tombstone}
+
+            if row_status == "done" or (row_status in ("error", "failed") and doc_id is not None and doc_row is not None):
+                if row_status in ("error", "failed"):
+                    matched_job_id = _matching_running_job_id(data_dir, kb_id, inbox_id, row, doc_id)
+                    if matched_job_id is not None:
+                        return 409, {"error": "item_currently_running", "job_id": matched_job_id}
+                if doc_id is None or doc_row is None:
+                    conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
+                    conn.commit()
+                    return 200, {"ok": True, "action": "purged_document", "inbox_id": inbox_id, "document_id": doc_id, "tombstone": tombstone, "stats": {"purged_count": 0, "rolled_back_merges": 0, "pruned_entities": 0, "pruned_relations": 0, "disk_files_unlinked": 0}}
+                if coordinator.has_active_ingest_jobs(data_dir) or coordinator.list_pending_cancel_ops():
+                    cur = conn.execute("UPDATE raw_inbox SET status='cancelling' WHERE id=? AND kb_id=? AND status=?", (inbox_id, kb_id, row_status))
+                    conn.commit()
+                    if cur.rowcount == 0:
+                        return 409, {"error": "inbox_status_changed"}
+                    coordinator.enqueue_cancel_purge(db_file=ctx.db_file, inbox_id=inbox_id, kb_id=kb_id, document_id=doc_id, prev_status=row_status, tombstone=tombstone, force=force, reason="queue_panel_purge", file_ref=(str(row["file_ref"]) if row["file_ref"] else None))
+                    return 202, {"ok": True, "action": "cancel_queued", "inbox_id": inbox_id, "document_id": doc_id, "tombstone": tombstone, "queued": True}
+                report = dbm.purge_document_cascade(conn, data_dir, [doc_id], reason="queue_panel_purge", dry_run=False, tombstone=tombstone, kb_id=kb_id, heal=False, vacuum=False)
+                purge_active_matrix(data_dir, doc_id)
+                cur = conn.execute("DELETE FROM raw_inbox WHERE id=? AND kb_id=?", (inbox_id, kb_id))
+                if cur.rowcount > 0:
+                    conn.commit()
+                unlink_unreferenced_raw_file(conn, data_dir, row["file_ref"])
+                rollback_stats = report.get("graph_rollback") or {}
+                return 200, {
+                    "ok": True,
+                    "action": "purged_document",
+                    "inbox_id": inbox_id,
+                    "document_id": doc_id,
+                    "tombstone": tombstone,
+                    "stats": {
+                        "purged_count": report.get("purged_count", 0),
+                        "rolled_back_merges": rollback_stats.get("rolled_back_merges", 0),
+                        "pruned_entities": rollback_stats.get("pruned_entities", 0),
+                        "pruned_relations": rollback_stats.get("pruned_relations", 0),
+                        "disk_files_unlinked": report.get("disk_files_unlinked", 0),
+                    },
+                }
+
+            return 409, {"error": "inbox_not_cancellable", "status": row_status}
+        finally:
+            conn.close()
+
+    return coordinator.run_serialized_write(_write)
 
 
 def _execute_job_cancel(ctx: AccountsContext, principal: Principal, job_id: str, *, tombstone: bool) -> tuple[int, dict[str, Any] | None]:
@@ -772,21 +861,9 @@ def routes(ctx: AccountsContext) -> list[Route]:
         if kind == "conflict":
             return JSONResponse({"error": "inbox_not_retryable", "status": outcome[2]}, status_code=409, headers=NO_STORE)
         _, kb_settings, kb = outcome
-
-        async def _background_retry() -> None:
-            try:
-                await asyncio.to_thread(_run_retry_inbox, kb_settings, kb.id, inbox_id)
-            except Exception as exc:  # noqa: BLE001
-                safe_msg = scrub_text(exc)
-                _log.error("Background retry failed for inbox#%s (kb=%s): %s", inbox_id, kb.id, safe_msg)
-                try:
-                    await asyncio.to_thread(_mark_retry_error, Path(kb_settings.db_file), inbox_id, safe_msg)
-                except Exception:  # noqa: BLE001
-                    _log.warning("Failed to record retry error for inbox#%s", inbox_id)
-
-        task = asyncio.create_task(_background_retry())
-        _BACKGROUND_TASKS.add(task)
-        task.add_done_callback(_BACKGROUND_TASKS.discard)
+        settings = _settings(ctx)
+        coordinator = get_queue_coordinator(getattr(settings, "data_dir", None))
+        coordinator.enqueue_retry(db_file=ctx.db_file, kb_settings=kb_settings, kb_id=kb.id, inbox_id=inbox_id, retry_fn=_run_retry_inbox)
         return JSONResponse({"ok": True, "inbox_id": inbox_id, "status": "queued"}, status_code=202, headers=NO_STORE)
 
     async def ingest_queue_cancel_post(request: Request) -> Response:

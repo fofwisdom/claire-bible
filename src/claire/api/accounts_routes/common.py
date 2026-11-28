@@ -144,17 +144,17 @@ def prepare_auth_db(data_dir: Path | str) -> int:
 # --- DB ----------------------------------------------------------------------
 
 
-def open_db(ctx: AccountsContext) -> sqlite3.Connection:
-    return dbm.connect_existing(ctx.db_file)
+def open_db(ctx: AccountsContext, *, readonly: bool = False) -> sqlite3.Connection:
+    return dbm.connect_existing(ctx.db_file, readonly=readonly)
 
 
 def open_auth_db(ctx: AccountsContext) -> sqlite3.Connection:
     """기동 때 준비한 auth.db를 연다. 없으면 만들지 않고 실패한다(C1: 기동 준비 누락은 결함이다)."""
     uri = ctx.auth_db_file.resolve().as_uri() + "?mode=rw"
-    conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+    conn = sqlite3.connect(uri, uri=True, timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON;")
-    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
 
